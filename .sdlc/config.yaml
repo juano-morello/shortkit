@@ -1,0 +1,79 @@
+project: shortkit
+
+# PLANNED, not detected. The repo was empty at init time; this records the
+# intended stack so Plan and Design have something to reason against. It is
+# not evidence that any of it is installed.
+stack: [typescript, nestjs, nextjs, postgres, drizzle, redis]
+
+gates:
+  mode: phase
+  require_approval: [refine, plan, design, test, implement, ship]
+
+rework:
+  max_rework_iterations: 5
+  reaudit: raised-only
+
+# models: omitted deliberately. Agent frontmatter defaults stand; see
+# references/config.md "Model precedence". Only add a role here when this
+# project wants something different from the agent's own default.
+
+auditors:
+  - sdlc-reviewer
+  - sdlc-security-auditor
+  - sdlc-product-auditor
+  - sdlc-design-auditor        # kept: there is a real dashboard UI
+
+# First match wins. Rule 0 in references/routing.md (design artifacts, test
+# files, approved artifacts) beats every glob here.
+ownership:
+  - { paths: ["apps/web/**"], slot: sdlc-implementer-frontend }
+  # packages/** is backend-owned: the API is the source of truth for
+  # packages/contracts, and the web app consumes generated types from it.
+  - { paths: ["apps/api/**", "packages/**"], slot: sdlc-implementer-backend }
+  - { paths: ["infra/**", ".github/**", "fly.toml", "docker-compose*.yml"], slot: sdlc-implementer-backend }
+  - { paths: ["README.md", "docs/**", "*.md"], slot: sdlc-implementer-backend }
+  - { paths: ["**"], slot: sdlc-implementer-backend }   # fallback: root manifests, tsconfig
+
+# All null: the repo was empty at init. Nothing here is a guess.
+# The first TASK scaffolds the monorepo; re-run `/juano-sdlc init` afterwards
+# to populate these before any further TASK dispatches. Implement has no
+# quality gates to run until then.
+testing:
+  command: null
+  unit: null
+  integration: null
+  coverage_gate: null
+  framework: null              # jest vs vitest is a Design decision
+
+quality:
+  lint: null
+  typecheck: null
+  build: null
+
+git:
+  branch_prefix: sdlc/
+  commit_convention: conventional   # feat(scope): subject [TASK-001]
+  ai_attribution: false             # HARD false. Juano is sole author.
+  worktree_isolation: auto
+
+observability:
+  required: true
+  notes: "structured logs via pino; no PII in log bodies; click events store ip_hash, never raw IP"
+
+docs:
+  required: [README]
+
+writing:
+  skill: stop-slop
+  enabled: true
+
+mirrors:
+  obsidian:
+    enabled: true
+    project: shortkit
+    include: [refinement, adrs, contracts, retro]
+    sync_on: [refine, design, retro]
+  linear:
+    enabled: false             # sdlc-tracker-sync is not implemented yet
+    team: null
+    sync_on: [plan, implement, ship]
