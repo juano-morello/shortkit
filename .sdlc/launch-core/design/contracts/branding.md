@@ -9,15 +9,33 @@
 ## HTTP contract
 
 ```ts
+/**
+ * Revised 2026-08-04 (F-006). `z.string().url()` accepts `javascript:` and `data:` and
+ * stores the ORIGINAL string, so a logoUrl carrying a quote and a script tag survived
+ * validation intact and executed for every anonymous visitor hitting an unknown slug.
+ * A `javascript:` fallbackUrl became the verbatim Location of a 302.
+ */
+const httpsUrl = (max: number) =>
+  z.string().max(max)
+    .transform((v, ctx) => {
+      let u: URL;
+      try { u = new URL(v); } catch { ctx.addIssue({ code: 'custom', message: 'Must be a URL.' }); return z.NEVER; }
+      if (u.protocol !== 'https:') { ctx.addIssue({ code: 'custom', message: 'Must be an https:// URL.' }); return z.NEVER; }
+      return u.href;                 // STORE THE PARSED href, never the raw input
+    });
+
 export const brandingContract = z.object({
-  logoUrl:    z.string().url().max(2048).nullable(),
-  brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
-  fallbackUrl: z.string().url().max(2048).nullable(),
+  logoUrl:     httpsUrl(2048).nullable(),
+  brandColor:  z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
+  fallbackUrl: httpsUrl(2048).nullable(),
 });
 export type Branding = z.infer<typeof brandingContract>;
 
 export const updateBrandingContract = brandingContract.partial();
 ```
+
+Both URLs are constrained to `https:` and **stored as the parsed `href`**, not as the
+submitted string. `brandColor` was already a closed regex.
 
 | Method | Path | Role | Response |
 |---|---|---|---|
@@ -95,6 +113,35 @@ branding changes.
 
 Status is 404 whenever a page renders. It never becomes 200 (GC-8).
 
+## Output encoding is normative, not advisory
+
+Added 2026-08-04 (F-006). `renderNotFound` builds an HTML string from tenant-controlled
+input, so the escaping rule is part of this contract rather than a rendering suggestion.
+
+1. **Every interpolated branding value is HTML-attribute-escaped** before it enters the
+   string: `&` `<` `>` `"` `'` are replaced with their entity forms. This applies to
+   `logoUrl` and `brandColor` without exception, including values that already passed
+   zod, because validation constrains the scheme and not the content.
+2. `brandColor` is interpolated only into a `style` attribute value, and only after the
+   `^#[0-9a-fA-F]{6}$` regex has been re-checked at render time. A value failing it
+   renders the default colour.
+3. `logoUrl` is interpolated only into an `<img src>` with explicit `width` and
+   `height`. Never into a `srcset`, a CSS `url()`, or an inline style.
+4. The 404 response carries the CSP in `redirect-resolution.md`'s header table, which
+   allows no script source at all. That is the second layer: an injected handler that
+   somehow survived escaping still does not execute.
+
+Three independent defences, because this page is served to anonymous visitors on a
+tenant's own hostname and the input comes from that tenant's operator.
+
+## Three layers, stated together
+
+| Layer | Stops |
+|---|---|
+| `https:`-only zod with a parsed `href` | `javascript:` and `data:` in the 302 `Location`, and scheme-based script execution |
+| HTML-attribute escaping in `renderNotFound` | attribute-breakout via `"` or `>` in a URL that is legitimately `https:` |
+| `Content-Security-Policy: default-src 'none'` on the 404 | execution of anything the first two missed |
+
 ## Invariants a caller may rely on
 
 1. `apps/api/src/redirect/**` contains no import specifier matching `../workspaces`,
@@ -113,8 +160,15 @@ Status is 404 whenever a page renders. It never becomes 200 (GC-8).
   delete leaves a stale logo for up to 300 seconds.
 - A test asserts `REDIRECT_BRANDING_PORT` is bound in the production module graph.
   `@Optional()` means a wiring mistake degrades silently otherwise.
-- `logoUrl` is rendered in an `<img>` with an explicit size and no script execution
-  path. It is attacker-controlled input from the tenant's own operator.
+- **A test submits `https://x/a"><script>alert(1)</script>` as `logoUrl`, requests an
+  unknown slug on that hostname, and asserts the rendered body contains no unescaped
+  `<script` and that the CSP header is present.** The same test submits
+  `javascript:alert(1)` as `fallbackUrl` and asserts a 400 with
+  `details.fieldErrors.fallbackUrl`.
+- Stored values are the parsed `href`. An implementer keeping the raw input reintroduces
+  the whole finding.
+- `<BrandPreview />` (TASK-047) renders the same escaped composition, so the preview
+  cannot show something the served page will not.
 
 ## Versioning
 

@@ -88,3 +88,38 @@ export function serverApiClient<TRes>(_req: ApiRequest<TRes>): Promise<TRes> {
 export function mapBetterAuthError(_status: number, _body: unknown): ApiError {
   throw new Error('not implemented');
 }
+
+/**
+ * ============================================================================
+ * BFF proxy upstream URL. F-008. Used by app/api/bff/[...path]/route.ts.
+ * ============================================================================
+ *
+ * NEVER `${API_BASE_URL}/api/${path}` and NEVER `new URL(path, API_BASE_URL)`.
+ *
+ * Next.js DECODES route params, so `%2e%2e%2f` arrives as `../` and escapes the /api
+ * prefix. And a path beginning `//evil.example/` resolves PROTOCOL-RELATIVE under
+ * new URL(), which would attach `Authorization: Bearer <sk_at>` — a live tenant
+ * credential — to an attacker-chosen origin, from a same-origin request the victim's
+ * browser makes.
+ *
+ *   1. reject any decoded segment that is '', '.', '..', or contains / \ :
+ *   2. encodeURIComponent each segment and join
+ *   3. assert upstream.origin === new URL(API_BASE_URL).origin   <- load-bearing
+ *   4. rebuild the query from parsed searchParams, never concatenate
+ *
+ * Returns null when the path is rejected; the route handler then answers 400.
+ */
+export function buildUpstreamUrl(
+  _segments: string[],
+  _searchParams: URLSearchParams,
+  _apiBaseUrl: string,
+): URL | null {
+  throw new Error('not implemented');
+}
+
+/** `redirect: 'manual'`. An upstream 3xx is returned to the caller, never followed. */
+export const UPSTREAM_FETCH_REDIRECT = 'manual' as const;
+
+/** Allowlists, not denylists. `cookie` upstream and `set-cookie` downstream are absent. */
+export const FORWARDED_REQUEST_HEADERS = ['content-type', 'accept', 'x-request-id'] as const;
+export const RETURNED_RESPONSE_HEADERS = ['content-type', 'retry-after', 'x-request-id'] as const;

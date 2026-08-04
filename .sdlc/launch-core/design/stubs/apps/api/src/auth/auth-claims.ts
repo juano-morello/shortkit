@@ -27,8 +27,9 @@ export interface ShortkitJwtClaims {
 export const JWT_LIFETIME_S = 300;
 export const JWKS_CACHE_TTL_S = 600;
 
-export function revocationKey(jti: string): string {
-  return `revoked:jti:${jti}`;
+/** F-015: every key carries an environment segment. See redirect-cache.md. */
+export function revocationKey(env: string, jti: string): string {
+  return `sk:${env}:revoked:jti:${jti}`;
 }
 
 /**
@@ -44,17 +45,29 @@ export function tenantIdForUser(_userId: string): Promise<string> {
 }
 
 /**
- * Ordered. Any failure short-circuits. NO DATABASE QUERY AT ANY STEP.
+ * Ordered and short-circuiting. NO DATABASE QUERY AT ANY STEP.
  *
+ * RENUMBERED 2026-08-04 (F-014). The @Public() check was step 6 while the text claimed
+ * public routes skip steps 1-5. An implementer copying the block literally would reject
+ * every anonymous request at step 1 — and the anonymous redirect GET /:slug is
+ * @Public(), so a visitor would get 401 instead of a 302 or the branded 404, breaking
+ * GC-8 and SC-7, and the invitation-accept route would be unreachable.
+ *
+ *   0. handler or controller marked @Public()  -> RETURN TRUE IMMEDIATELY.
+ *      No token read, no RequestContext, steps 1-7 do not run. FIRST thing the guard does.
+ *
+ *   For every other route:
  *   1. Authorization: Bearer present        else 401 unauthenticated
  *   2. signature valid against cached JWKS  else 401 unauthenticated
  *   3. exp in the future                    else 401 token_expired  <- BFF branches on this
  *   4. iss and aud match                    else 401 unauthenticated
  *   5. jti not revoked in Redis             else 401 unauthenticated
  *      (SKIPPED on any Redis error; increments auth_revocation_degraded_total)
- *   6. route not @Public()                  public routes skip 1..5 entirely
- *   7. ev === true                          else 403 email_not_verified
- *   8. populate RequestContext from claims
+ *   6. ev === true                          else 403 email_not_verified
+ *   7. populate RequestContext from claims
+ *
+ * A handler that FORGETS @Public() is treated as authenticated and returns 401, which
+ * is the safe direction.
  */
 export function verifyAccessToken(_token: string): Promise<ShortkitJwtClaims> {
   throw new Error('not implemented');

@@ -34,9 +34,15 @@ dependency.
 const app = await NestFactory.create(AppModule, { bodyParser: false });
 
 const server = app.getHttpAdapter().getInstance();
+
 // Must precede any body parser: Better Auth reads the raw request stream.
 // NestJS 11 ships Express 5, whose wildcard syntax is {*splat}, not *.
-server.all('/api/auth/{*splat}', toNodeHandler(auth));
+server.all(
+  '/api/auth/{*splat}',
+  authBodyCap({ maxBytes: 32 * 1024 }),   // 413 past the cap, without consuming the stream
+  authRateLimit(redisClient),             // IP-keyed, and email-keyed on sign-in/sign-up
+  toNodeHandler(auth),
+);
 
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
@@ -44,8 +50,37 @@ app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.setGlobalPrefix('api', { exclude: [{ path: 'health', method: RequestMethod.GET }] });
 ```
 
-Ordering is the whole trick, and it is three lines in one file rather than a module
+Ordering is the whole trick, and it is one registration in one file rather than a module
 whose middleware ordering has to be reasoned about.
+
+**The two middlewares are the fix for what mounting ahead of Nest costs.** Added
+2026-08-04 (F-004): the mount sits outside the Nest graph, so `RateLimitGuard` cannot
+see it (that guard keys on `tenantId` from `AuthGuard`, which has not run) and
+`express.json`'s limit does not apply. That left the unauthenticated credential surface
+with no throttle and no body cap: unlimited credential stuffing, unlimited sign-up, each
+one creating a tenant row and dispatching a verification email until Resend's 100-a-day
+free tier is exhausted and every legitimate signup silently fails, and a multi-gigabyte
+body read into memory on the single machine that must never return 5xx to a visitor.
+
+`authBodyCap` **does not parse**. `express.json({ limit })` would consume the stream
+Better Auth needs, which is the whole reason for `bodyParser: false`. It rejects on
+`Content-Length` above the cap and, for chunked requests, counts bytes as they pass and
+destroys the socket past it.
+
+`authRateLimit` reuses `redisClient` (GC-3, no second connection) and carries ADR-0012's
+degradation posture verbatim: on a Redis error it falls back to an in-process bucket
+rather than failing open or closed. Limits are tighter than the 120-per-60s tenant
+limit, because these are pre-auth:
+
+| Route | Key | Limit |
+|---|---|---|
+| `POST /api/auth/sign-in/email` | IP | 10 / 5 min |
+| `POST /api/auth/sign-in/email` | email | 5 / 15 min |
+| `POST /api/auth/sign-up/email` | IP | 3 / hour |
+| everything else under `/api/auth/*` | IP | 60 / min |
+
+Recorded in `rate-limit.md`'s Scope section, which previously read as though the surface
+simply had no limit.
 
 **Better Auth shares the application's Drizzle client** through
 `drizzleAdapter(db, { provider: 'pg' })`. Its tables are generated once with the Better
@@ -75,7 +110,7 @@ jwt({
 | Claim | Meaning | Read by |
 |---|---|---|
 | `sub` | user id | `RequestContext.userId` |
-| `tid` | tenant id | `RequestContext.tenantId`, then `SET LOCAL app.tenant_id` |
+| `tid` | tenant id | `RequestContext.tenantId`, then `set_config('app.tenant_id', ...)` |
 | `ev` | email verified | AC-17's 403 `email_not_verified` |
 | `jti`, `exp`, `iat`, `iss`, `aud` | standard | signature and revocation checks |
 
@@ -121,8 +156,21 @@ attaches tenant creation to, inside the same transaction as the user insert.
 ### Negative / accepted cost
 
 - Roughly 50 lines of mounting, JWKS caching and revocation are hand-written and owned
-  forever. A Better Auth release changing `toNodeHandler`'s signature or its plugin
-  config breaks the build, and no community package absorbs it.
+  forever, plus the body cap and the pre-auth limiter that the community package's
+  in-graph mount would have got from Nest for free. A Better Auth release changing
+  `toNodeHandler`'s signature or its plugin config breaks the build, and no community
+  package absorbs it. **`better-auth` is pinned to an exact version** rather than a
+  caret range for exactly this reason (F-016).
+- `authBodyCap` counts bytes on a stream it must not consume. That is fiddlier than a
+  parser limit and the failure mode of getting it wrong is a hung request rather than an
+  error.
+- The pre-auth limiter is a third rate-limiting implementation alongside the Redis
+  tenant limiter and its local fallback. All three share ADR-0012's posture and none of
+  them shares code.
+- Email-keyed sign-in limiting is itself an enumeration oracle: an attacker learns which
+  addresses have accounts by watching which ones start returning 429 sooner. The IP key
+  bounds the volume enough that this is worth accepting, and it is stated rather than
+  hidden.
 - `bodyParser: false` is a global setting made for one route. Any future middleware
   added before `app.use(express.json())` silently receives an unparsed body, and the
   symptom is `undefined` rather than an error.

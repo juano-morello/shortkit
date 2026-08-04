@@ -21,6 +21,11 @@ export function RequireWorkspaceRole(_min: WorkspaceRole): MethodDecorator {
   throw new Error('not implemented');
 }
 
+/**
+ * NEVER applied to the same handler as @RequireWorkspaceRole.
+ * Minimum is always 'admin' or 'owner'; tenant `member` (rank 0, Amendment A-8) passes
+ * none of them, which is what keeps an invitee from reaching tenant-level surfaces.
+ */
 export function RequireTenantRole(_min: TenantRole): MethodDecorator {
   throw new Error('not implemented');
 }
@@ -63,7 +68,36 @@ export declare class WorkspaceGuard {
 /**
  * AC-31. A SELECT ... FOR UPDATE count INSIDE the mutating transaction.
  * A read-then-write outside one races. Throws 409 last_owner_protected.
+ *
+ * Applies to BOTH routes that can remove the last owner:
+ *   PATCH  /api/tenant/members/:id/tenant-role   (demotion)
+ *   DELETE /api/tenant/members/:id               (removal from the tenant)
  */
 export function assertNotLastOwner(_tenantId: string, _userId: string): Promise<void> {
   throw new Error('not implemented');
+}
+
+/**
+ * ============================================================================
+ * F-011. Tenant-role mutation is a DISTINCT route with a DISTINCT guard.
+ * ============================================================================
+ *
+ * The contract's minimum-role table previously had no row for mutating a tenant role
+ * while AC-31 required the surface to exist, so the gate was the implementer's to pick
+ * and the adjacent row said workspace_admin. That let a member invited to one client
+ * workspace promote themselves to tenant owner and export or delete the whole agency.
+ *
+ *   PATCH  /api/tenant/members/:id/tenant-role   @RequireTenantRole('owner')
+ *   DELETE /api/tenant/members/:id               @RequireTenantRole('owner')
+ *   GET    /api/tenant/members                   @RequireTenantRole('owner')
+ *
+ * A tenant `admin` may NOT grant 'owner', may NOT revoke 'owner', may NOT grant 'admin'.
+ * Only an owner grants or revokes any tenant role.
+ *
+ * Request bodies name the enum: `tenantRole` here, `workspaceRole` on the workspace
+ * routes. NEVER a bare `role` — 'member' belongs to both enums and the compiler cannot
+ * tell them apart.
+ */
+export interface TenantRoleAuthorizer {
+  assertMayGrant(actor: TenantRole, target: TenantRole): void;
 }

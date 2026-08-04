@@ -8,17 +8,35 @@
 
 ## Keys
 
+**Every key begins `sk:{env}:`.** Added 2026-08-04 (F-015): GC-3 pushes toward one paid
+Upstash instance, and the moment staging or a CI integration run shared it, a staging
+`hst:v1:links.client.example` record carrying a staging `tenantId` and `domainId` would
+be read by production and serve real visitors a redirect resolved against the wrong
+tenant's data, or a MISS sentinel that 404s a live customer link for 300 seconds.
+`domain:work` was a single ZSET shared across environments.
+
 ```
-hst:v1:{hostname}          host record or MISS sentinel   TTL 300 s
-rdr:v1:{hostname}:{slug}   link record or MISS sentinel   TTL 3600 s (clamped, below)
-rl:v1:{tenantId}:{window}  rate limiter (rate-limit.md)
-revoked:jti:{jti}          JWT revocation (auth-tokens.md)
-domain:work                ZSET, provisioning queue (domain-provisioning.md)
+sk:{env}:hst:v1:{hostname}          host record or MISS sentinel   TTL 300 s
+sk:{env}:rdr:v1:{hostname}:{slug}   link record or MISS sentinel   TTL 3600 s (clamped, below)
+sk:{env}:rl:v1:{tenantId}:{window}  tenant write limiter (rate-limit.md)
+sk:{env}:arl:v1:...                 pre-auth limiter (rate-limit.md)
+sk:{env}:revoked:jti:{jti}          JWT revocation (auth-tokens.md)
+sk:{env}:domain:work                ZSET, provisioning queue (domain-provisioning.md)
 ```
 
-`{hostname}` is lowercased, IDNA-normalised, port-stripped. `{slug}` is verbatim and
-case-sensitive. The `v1` segment is the value-schema version: a shape change bumps it
-and old keys expire on their own.
+`{env}` comes from `REDIS_KEY_NAMESPACE`, which is **required**: the process refuses to
+boot when it is unset rather than defaulting to something that might collide. Values in
+use: `prod`, `staging`, `dev`, and `ci-{run_id}` so two concurrent CI jobs cannot
+collide with each other either.
+
+**CI and local development must not point at the production Upstash instance.** The
+namespace bounds the damage if someone does; it does not make it safe. CI uses a
+`redis:7-alpine` service container (ADR-0018) and local development uses Docker.
+
+`{hostname}` is lowercased, IDNA-normalised, port-stripped, and is already stored in
+that form (`domain-provisioning.md`), so the key and the row cannot disagree. `{slug}`
+is verbatim and case-sensitive. The `v1` segment is the value-schema version: a shape
+change bumps it and old keys expire on their own.
 
 ## Values
 

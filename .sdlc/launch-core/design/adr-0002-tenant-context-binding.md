@@ -14,6 +14,11 @@ issued `SET LOCAL app.tenant_id`, and no query path may bypass it. SC-1 rests on
 that holding across 57 TASKs written by subagents in 13 waves, none of which sees
 the others' code. Discipline will not hold it. The framework has to.
 
+GC-5's wording names the transaction-local setting, not a particular statement.
+`set_config('app.tenant_id', $1, true)` sets exactly that setting with exactly that
+scope, and it is the form used throughout this design because `SET LOCAL` takes no bind
+parameter. Nothing here weakens GC-5; see F-007 below.
+
 `SET LOCAL` is transaction-scoped, so the transaction and the tenant setting are the
 same unit. Something has to open that transaction before a handler runs and make the
 open transaction reachable from a repository three call frames down.
@@ -39,11 +44,17 @@ that. See ADR-0003 for the policy and role definitions.
 
 **Layer 2: `AsyncLocalStorage`.** `apps/api/src/tenancy/` owns a module-private
 `AsyncLocalStorage<TenantContext>`. `withTenantTransaction(tenantId, fn)` opens a
-`pg` transaction, issues `SET LOCAL app.tenant_id = $1`, and runs `fn` inside
-`als.run({ tenantId, tx }, ...)`. It commits when `fn` resolves and rolls back when
-it throws. `tenantDb()` reads the store and throws `TenantContextMissingError` when
-it is empty. The unwrapped Drizzle client is never exported from `apps/api/src/db`;
-`tenantDb()` is the only way a repository reaches a connection.
+`pg` transaction, issues `SELECT set_config('app.tenant_id', $1, true)`, and runs `fn`
+inside `als.run({ tenantId, tx }, ...)`. It commits when `fn` resolves and rolls back
+when it throws. `tenantDb()` reads the store and throws `TenantContextMissingError`
+when it is empty. The unwrapped Drizzle client is never exported from
+`apps/api/src/db`; `tenantDb()` is the only way a repository reaches a connection.
+
+Revised 2026-08-04 (F-007): this said `SET LOCAL app.tenant_id = $1`, which is a
+syntax error. `SET` takes no bind parameter. `set_config(name, value, true)` is the
+parameterised equivalent with identical transaction-local semantics, and the rule that
+follows from it is that **no context flag is ever set by string concatenation** and the
+tenant id is validated as a uuid before it reaches the statement.
 
 **Layer 3: the interceptor.** `TenantTransactionInterceptor` is registered as
 `APP_INTERCEPTOR` in `AppModule`. It reads `tenantId` from the `RequestContext` that
@@ -54,6 +65,14 @@ redirect module and the invitation-accept route stay outside.
 **`AuthGuard` never queries the database.** The JWT carries the tenant id in a `tid`
 claim (ADR-0013). The guard verifies the signature against cached JWKS and populates
 `RequestContext` from claims alone.
+
+**Anonymous routes get a tenant id from a capability token, not from an escape.** The
+`tid` claim covers authenticated requests only, and two invitation routes are
+deliberately public. ADR-0021 adds the two remaining sanctioned sources: an
+application-generated uuid for signup, and the routing prefix of a capability token
+whose digest must be verified as the first statement in the transaction. Both still run
+under `set_config('app.tenant_id', ...)`, so neither is a GC-5 escape and
+`ISOLATION_EXCLUSIONS` stays at two.
 
 **Driver.** `pg` (node-postgres) with `drizzle-orm/node-postgres`, against Neon's
 pooled endpoint. Not `@neondatabase/serverless`: its HTTP driver takes a transaction

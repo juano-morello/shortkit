@@ -43,16 +43,35 @@ CREATE TABLE tenant_memberships (
 
 The `UNIQUE (user_id)` is the decision. Everything else follows from it.
 
-`tenant_memberships` holds the `TenantRole` from Amendment A-1 (`owner`, `admin`).
-`memberships` (TASK-016) holds the `WorkspaceRole` per workspace. Two tables, two
-levels, matching A-1's two-level taxonomy.
+`tenant_memberships` holds the `TenantRole`; `memberships` (TASK-016) holds the
+`WorkspaceRole` per workspace. Two tables, two levels.
+
+**Amendment A-8 (2026-08-04) supersedes A-1's tenant enum: `TenantRole = owner | admin |
+member`,** with `member` at rank 0 granting nothing at tenant level. A-1's workspace
+enum is unchanged.
+
+The first version of this ADR attached every invitee to the inviting tenant as `admin`,
+whatever workspace roles the invitation actually granted. A freelancer invited as
+`viewer` on one client workspace ended up holding the tenant role that gates
+`POST /api/workspaces` and every future tenant-level surface, and no screen in
+`launch-core` reads or writes tenant roles, so the operator could neither see it nor
+revoke it. Juano ruled A-8 over the alternative of re-gating every tenant-`admin`
+surface to `owner`, on the grounds that the latter leaves `admin` granting nothing and
+the next tenant-level route added would be gated at `admin` by default, reintroducing
+the hole silently.
 
 **Signup creates a tenant. Invited signup does not.** `onUserCreated` receives the
 invitation token when one is present in the signup request. With a token it attaches
-the user to the inviting tenant as `admin` and creates the named workspace
-memberships. Without one it creates a new tenant and makes the user its `owner`.
-Either way exactly one `tenant_memberships` row exists when the transaction commits,
-inside the same transaction as the user insert.
+the user to the inviting tenant at tenant role **`member`** and creates the named
+workspace memberships. Without one it generates a tenant id with `crypto.randomUUID()`,
+opens `withTenantTransaction` on it (ADR-0021), inserts the `tenants` row under
+`tenants_self_insert`, and makes the user its `owner`. Either way exactly one
+`tenant_memberships` row exists when the transaction commits, inside the same
+transaction as the user insert.
+
+**Only a tenant `owner` grants or revokes a tenant role**, on a route distinct from the
+workspace-role route (`workspace-authorization.md`). Nothing a workspace role can do
+changes a tenant role.
 
 **An existing user accepting an invitation from a different tenant is rejected** with
 `409 invitation_tenant_conflict`. The message tells them to accept from a different
@@ -72,6 +91,7 @@ fails" true rather than aspirational.
 
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
+| Keep `TenantRole = owner \| admin` and re-gate every tenant-`admin` surface to `owner` | No refinement amendment; A-1's enum stands; invitees can keep `admin` because `admin` would grant nothing | It leaves a role in the enum that authorises nothing, so the next tenant-level route added is gated at `admin` by default and the escalation returns silently. It also makes `admin` a lie in the data | Juano's ruling, 2026-08-04. Rejected in favour of A-8 |
 | Many-to-many: a user joins any number of tenants, and picks one per request | Matches how consultants actually work; an agency contractor could serve three agencies from one login | `tid` can no longer be a token claim, so ADR-0002's guard needs a database read outside tenant context to validate the requested tenant, which is the exact hole GC-5 forbids. AC-91 also becomes false: deleting one tenant would have to leave the account alive, contradicting an approved AC | Breaks GC-5's enforcement mechanism and contradicts AC-91 |
 | Every user gets their own tenant; cross-tenant access is a separate grant table | Signup logic stays uniform | Produces empty tenants for every invitee, which then appear in exports, in deletion, and in any tenant count. It also does not remove the many-to-many problem, it hides it | Complexity of the many-to-many option with none of its benefit |
 | Put `tenant_id` directly on Better Auth's `user` table as an additional field | One fewer table; `tid` is a column read | Makes `user` a tenant-scoped table, so RLS applies to it, so Better Auth's login-by-email lookup runs outside tenant context and becomes a third GC-5 exclusion. SC-1's exclusion count is exactly two | Costs an exclusion, which is the initiative's headline claim |
@@ -89,6 +109,10 @@ fails" true rather than aspirational.
   lookup.
 - The unique constraint means the ambiguity can never be introduced by a later TASK
   without a migration that someone has to justify.
+- Under A-8 an invitee holds the least tenant privilege that lets them exist, so
+  accepting an invitation grants workspace access and nothing else. Adding a
+  tenant-level route later gates it at `admin` or `owner` and an invitee still passes
+  neither, which is the property the alternative ruling would not have preserved.
 
 ### Negative / accepted cost
 
@@ -103,6 +127,15 @@ fails" true rather than aspirational.
   acceptance criteria.
 - The signup path branches on whether an invitation token is present, so it has two
   code paths and two tests where TASK-013 assumed one.
+- **A-8 puts `member` in both role enums.** `'member'` is assignable to `TenantRole` and
+  to `WorkspaceRole`, so the compiler will not catch a tenant check written with a
+  workspace role in mind. Three mitigations are normative in
+  `workspace-authorization.md` and none of them is the type system. This is the price of
+  the ruling and it will eventually cost someone an afternoon.
+- Tenant roles now need their own routes, guards and last-owner checks, which is surface
+  TASK-018 did not scope. `viewer` and tenant `member` are both roles nothing in
+  `launch-core` grants through a UI, so two of the six roles exist only to be correct
+  later.
 
 ### Follow-ups this creates
 

@@ -41,27 +41,43 @@ native shape, not `ErrorEnvelope`.** TASK-008 maps them at the client boundary.
 
 ## Verification, performed by `AuthGuard`
 
-Ordered. Any failure short-circuits.
+Ordered and short-circuiting. Renumbered 2026-08-04 (F-014): the `@Public()` check was
+step 6 while the text claimed public routes skip steps 1 through 5, which an implementer
+copying this block literally would resolve by rejecting every anonymous request at step
+1. The anonymous redirect `GET /:slug` is `@Public()`, so a visitor would get 401
+instead of a 302 or the branded 404, breaking GC-8 and SC-7, and the invitation-accept
+route would be unreachable.
+
+**Step 0. Is the handler or its controller marked `@Public(justification)`?**
+If yes, `AuthGuard` returns true immediately. `RequestContext` is not populated, no
+token is read, and steps 1 through 7 do not run. This is the first thing the guard does.
+
+For every other route, in order, any failure short-circuiting:
 
 1. `Authorization: Bearer <jwt>` present, else 401 `unauthenticated`.
 2. Signature valid against JWKS cached in process for 600 s, else 401 `unauthenticated`.
 3. `exp` in the future, else 401 **`token_expired`** (distinct from `unauthenticated`;
    the BFF branches on it to refresh).
 4. `iss` and `aud` equal the configured API base URL, else 401 `unauthenticated`.
-5. Redis `EXISTS revoked:jti:<jti>` is 0, else 401 `unauthenticated`. **On any Redis
-   error this step is skipped** (ADR-0012 posture) and `auth_revocation_degraded_total`
-   increments.
-6. Handler or controller not marked `@Public(justification)`; public routes skip 1..5
-   entirely.
-7. `ev === true`, else 403 `email_not_verified` (AC-17).
-8. Populate `RequestContext` from `{ sub, tid, email, ev }`. **No database query at any
+5. Redis `EXISTS sk:{env}:revoked:jti:<jti>` is 0, else 401 `unauthenticated`. **On any
+   Redis error this step is skipped** (ADR-0012 posture) and
+   `auth_revocation_degraded_total` increments.
+6. `ev === true`, else 403 `email_not_verified` (AC-17).
+7. Populate `RequestContext` from `{ sub, tid, email, ev }`. **No database query at any
    step.**
 
-`TenantTransactionInterceptor` then opens `withTenantTransaction(ctx.tenantId, ...)`.
+`TenantTransactionInterceptor` then opens `withTenantTransaction(ctx.tenantId, ...)`,
+unless the route carries `@Public()` or `@NoTenantTransaction()` (`tenant-context.md`).
+
+A handler that forgets `@Public()` is treated as authenticated and returns 401, which is
+the safe direction. A `@Public()` route touching a tenant-scoped table must reach it
+through a capability-token entry point (ADR-0021); TASK-056 asserts that.
 
 ## Revocation
 
-`POST /api/auth/sign-out` sets `revoked:jti:<jti>` with `EX = max(1, exp - now)`.
+`POST /api/auth/sign-out` sets `sk:{env}:revoked:jti:<jti>` with
+`EX = max(1, exp - now)`. The environment segment is F-015's rule; see
+`redirect-cache.md`.
 
 ## Web cookies (Vercel origin, ADR-0014)
 
@@ -77,7 +93,7 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
 1. `RequestContext.tenantId` on an authenticated request equals the `tenant_id` of
    every row that request can read or write. There is no path to another tenant.
 2. `tid` never changes for a user (ADR-0015). A token's tenant is stable for its life.
-3. A route reaching a handler has passed steps 1 through 7, unless it is `@Public()`.
+3. A route reaching a handler has passed steps 1 through 6, unless step 0 exempted it.
 4. `token_expired` means the signature verified and the clock passed `exp`. Refreshing
    is the correct response. `unauthenticated` means it is not, and re-login is.
 5. Maximum token lifetime is 300 seconds, so the worst-case revocation gap with Redis

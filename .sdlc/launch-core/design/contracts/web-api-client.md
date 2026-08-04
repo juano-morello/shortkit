@@ -72,14 +72,46 @@ Ordered. Normative.
 
 | Behaviour | Rule |
 |---|---|
-| upstream URL | `${API_BASE_URL}/api/${path}` (server-only env var) |
+| upstream URL | see the normative construction below |
 | auth | `Authorization: Bearer <sk_at cookie>` |
 | cookies upstream | **never forwarded** |
 | request headers forwarded | `content-type`, `accept`, `x-request-id` only |
 | response headers returned | `content-type`, `retry-after`, `x-request-id` only |
 | CSRF | mutating methods require `Origin` to equal the deployment origin, else 403 |
+| redirects | `redirect: 'manual'` on the upstream fetch. A 3xx is returned to the caller, never followed |
 | refresh | on upstream 401 `token_expired`, mint from `sk_rt`, set `sk_at`, retry once |
 | concurrent refresh | collapsed by an in-flight map keyed on the session |
+
+### Upstream URL construction
+
+Normative. Revised 2026-08-04 (F-008): the rule was `${API_BASE_URL}/api/${path}` with
+`path` the decoded `[...path]` catch-all. Next.js decodes route params, so
+`%2e%2e%2f` yielded `../` and escaped the `/api` prefix; and an implementer reaching for
+`new URL(path, API_BASE_URL)` would let a path beginning `//evil.example/` resolve
+protocol-relative, sending `Authorization: Bearer` with a live tenant credential to an
+attacker-chosen origin, from a same-origin request the victim's browser makes.
+
+```ts
+const base = new URL(API_BASE_URL);                    // server-only env var
+
+// 1. Reject any unsafe segment AFTER Next.js has decoded it.
+for (const seg of segments) {
+  if (seg === '' || seg === '.' || seg === '..') return badRequest();
+  if (/[/\\:]/.test(seg)) return badRequest();
+}
+
+// 2. Re-encode and join. Never interpolate the raw catch-all.
+const upstream = new URL(`/api/${segments.map(encodeURIComponent).join('/')}`, base);
+
+// 3. Assert the origin. This is the load-bearing line.
+if (upstream.origin !== base.origin) return badRequest();
+
+// 4. Query string is rebuilt from the parsed searchParams, never concatenated.
+```
+
+Step 1 runs on the **decoded** segments, because that is the form traversal arrives in.
+Step 3 is not redundant with steps 1 and 2; it is the assertion that makes any future
+change to them safe.
 
 ## Cookies
 
@@ -110,11 +142,23 @@ token is ever exposed to the client**, in any form.
 4. Token refresh is invisible to the caller. A screen never sees `token_expired`.
 5. `serverApiClient` cannot set cookies during render, so on `token_expired` it throws a
    redirect to a refresh route handler that bounces back.
+6. **The proxy never sends `Authorization` to any origin other than `API_BASE_URL`'s.**
+   No path, query string, header or upstream redirect can cause it to. The origin
+   assertion runs on every request, and `redirect: 'manual'` stops an upstream 3xx from
+   carrying the header somewhere else.
+7. The proxy cannot reach any upstream path outside `/api/`. Traversal segments are
+   rejected before the URL is built.
 
 ## What the implementer must guarantee
 
 - The header allowlists are allowlists. Forwarding `cookie` upstream, or returning
   `set-cookie` from upstream, leaks the Fly origin's session into the Vercel origin.
+- **Tests for the URL construction, not just the happy path.** At minimum:
+  `/api/bff/x/%2e%2e%2f%2e%2e%2fhealth` returns 400; `/api/bff//evil.example/x` returns
+  400; and a stubbed upstream returning a 302 to another origin does not cause a second
+  request carrying `Authorization`.
+- Do not replace the construction with `new URL(path, base)`. It looks equivalent and
+  resolves protocol-relative paths off-origin.
 - Workspace scoping in the UI is display context, never a security control. The API is
   the enforcement point (TASK-015).
 - `NEXT_PUBLIC_API_BASE_URL` is not used for anything authenticated. Authenticated

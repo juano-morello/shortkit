@@ -8,13 +8,28 @@ import type Redis from 'ioredis';
 
 export const CACHE_VERSION = 'v1' as const;
 
-/** Bump this for ANY change to CachedHost or CachedLink. Old keys expire on their own. */
-export function hostKey(normalisedHostname: string): string {
-  return `hst:${CACHE_VERSION}:${normalisedHostname}`;
+/**
+ * F-015. EVERY key begins sk:{env}:.
+ *
+ * GC-3 pushes toward one paid Upstash instance. The moment staging or a CI integration
+ * run shared it, a staging host record carrying a staging tenantId would be read by
+ * production and serve real visitors a redirect resolved against the wrong tenant's
+ * data, or a MISS sentinel that 404s a live customer link for 300 seconds.
+ *
+ * REQUIRED. The process refuses to boot when REDIS_KEY_NAMESPACE is unset, rather than
+ * defaulting to something that might collide. Values: prod, staging, dev, ci-{run_id}.
+ */
+export function keyNamespace(): string {
+  throw new Error('not implemented');
 }
 
-export function linkKey(normalisedHostname: string, slug: string): string {
-  return `rdr:${CACHE_VERSION}:${normalisedHostname}:${slug}`;
+/** Bump CACHE_VERSION for ANY change to CachedHost or CachedLink. Old keys expire. */
+export function hostKey(env: string, normalisedHostname: string): string {
+  return `sk:${env}:hst:${CACHE_VERSION}:${normalisedHostname}`;
+}
+
+export function linkKey(env: string, normalisedHostname: string, slug: string): string {
+  return `sk:${env}:rdr:${CACHE_VERSION}:${normalisedHostname}:${slug}`;
 }
 
 export interface CachedHost {

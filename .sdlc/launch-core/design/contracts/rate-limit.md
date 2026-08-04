@@ -36,12 +36,44 @@ return n
 
 ## Scope
 
-Applies to `POST`, `PATCH`, `PUT` and `DELETE` on routes under the `/api` prefix.
+`RateLimitGuard` applies to `POST`, `PATCH`, `PUT` and `DELETE` on routes under the
+`/api` prefix, keyed by tenant.
 
-**Does not apply to:** `GET` and `HEAD`; `@Public()` routes; `GET /health`; and the
-redirect controller, which is registered outside the `/api` prefix and therefore
-outside `RateLimitGuard` entirely (AC-86). Redirect traffic is never limited at any
-rate.
+**`RateLimitGuard` does not apply to:** `GET` and `HEAD`; `@Public()` routes;
+`GET /health`; `/api/auth/*`; and the redirect controller, which is registered outside
+the `/api` prefix and therefore outside the guard entirely (AC-86). Redirect traffic is
+never limited at any rate.
+
+### `/api/auth/*` is covered by a separate limiter, not by this guard
+
+Added 2026-08-04 (F-004). Better Auth is mounted on the raw Express instance ahead of
+Nest (ADR-0013), so `RateLimitGuard` can neither see nor key a pre-auth request: it
+keys on `tenantId` from `AuthGuard`, which has not run. This section previously read as
+though the unauthenticated credential surface simply had no limit, which is what an
+implementer would have built.
+
+`authRateLimit` is Express middleware registered in front of `toNodeHandler`. It reuses
+`redisClient` (GC-3) and carries the same degradation posture as everything else here.
+
+| Route | Key | Limit | Key format |
+|---|---|---|---|
+| `POST /api/auth/sign-in/email` | client IP | 10 / 5 min | `sk:{env}:arl:v1:ip:{ip}:signin:{window}` |
+| `POST /api/auth/sign-in/email` | email | 5 / 15 min | `sk:{env}:arl:v1:em:{sha256(email)}:signin:{window}` |
+| `POST /api/auth/sign-up/email` | client IP | 3 / hour | `sk:{env}:arl:v1:ip:{ip}:signup:{window}` |
+| everything else under `/api/auth/*` | client IP | 60 / min | `sk:{env}:arl:v1:ip:{ip}:other:{window}` |
+
+The client IP is the platform-trusted value, `Fly-Client-IP`, never the leftmost
+`X-Forwarded-For` (the same rule as `click-events.md`, F-009). The email is hashed
+before it becomes a key so the keyspace holds no addresses.
+
+A body cap, `authBodyCap`, sits ahead of both at **32 KiB**, rejecting with 413. It does
+not parse: `express.json()` would consume the stream Better Auth needs.
+
+### Accepted cost, stated
+
+Email-keyed sign-in limiting is an account-enumeration oracle: an attacker learns which
+addresses exist by observing which start returning 429 sooner. The IP limit bounds the
+volume enough to accept this.
 
 ## Response on limit
 
@@ -86,6 +118,12 @@ the API does when Redis is gone.
 5. A Redis outage never produces a 5xx from the limiter and never lifts the limit
    entirely.
 6. The guard reuses `redisClient` from TASK-030. It opens no second connection (GC-3).
+7. **Every route on the API is covered by exactly one limiter**: `RateLimitGuard` for
+   authenticated writes, `authRateLimit` for `/api/auth/*`, and deliberately none for
+   the redirect path (AC-86) and for `GET /health`. There is no unthrottled
+   unauthenticated write surface.
+8. No request body larger than 32 KiB reaches Better Auth, and none larger than 100 KiB
+   reaches a Nest handler.
 
 ## Web handling (TASK-052)
 

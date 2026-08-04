@@ -78,40 +78,95 @@ not exist to export (GC-9).
 | `POST` | `/api/gdpr/delete` | tenant **`owner`** | body must carry `confirmation` equal to the tenant name, else 400 `confirmation_required` (AC-92) |
 
 ```ts
-export interface PrivilegedTenantEraser {
-  erase(tenantId: string): Promise<{ deletedUserIds: string[] }>;
+export interface TenantCensus {
+  readonly tenantId: string;
+  /** Row count per table, taken BEFORE erasure, in ordinary tenant context. */
+  readonly rowCounts: Readonly<Record<string, number>>;
+  /** Member user ids. Always >= 1: the owner making the request is a member. */
+  readonly userIds: readonly string[];
 }
-export declare function assertNoTenantResidue(tenantId: string, userIds: string[]): Promise<void>;
+
+export interface PrivilegedTenantEraser {
+  /** Takes the census as input. It does not, and cannot, collect it itself. */
+  erase(census: TenantCensus): Promise<{ deletedRowCounts: Record<string, number> }>;
+}
+
+export declare function collectTenantCensus(tenantId: string): Promise<TenantCensus>;
+export declare function assertNoTenantResidue(census: TenantCensus): Promise<void>;
 ```
 
 `privilegedTenantEraser` is **the single non-tenant-facing mutation surface on
 `click_events` and `audit_entries`** (Amendment A-2). It lives in
-`apps/api/src/gdpr/privileged-eraser.ts` and is reachable only from `POST /api/gdpr/delete`.
+`apps/api/src/gdpr/privileged-eraser.ts` and is reachable only from
+`POST /api/gdpr/delete`.
 
-Sequence, one transaction:
+### Three transactions, not one
+
+Revised 2026-08-04 (F-002). The previous single-transaction sequence **deleted nothing
+while reporting success**: it set only `app.privileged_erase`, so the opening
+`SELECT user_id FROM tenant_memberships` was denied by `tenant_isolation` (which tests
+the unset `app.tenant_id`) and not admitted by the erase policy (which is `FOR DELETE`).
+`userIds` came back empty, the account delete hit nobody, and the residue check asserted
+zero over an empty set and passed. `DELETE FROM tenants` was denied for the same reason.
+
+`POST /api/gdpr/delete` carries `@NoTenantTransaction` (`tenant-context.md`) so it can
+open all three itself.
+
+**Phase 1, census. Ordinary tenant context.**
 
 ```sql
 BEGIN;
-SET LOCAL app.privileged_erase = '<tenantId>';       -- policy scopes DELETE to this tenant
--- 1. collect user ids
-SELECT user_id FROM tenant_memberships WHERE tenant_id = '<tenantId>';
--- 2. cascade every tenant_id-bearing table
-DELETE FROM tenants WHERE id = '<tenantId>';
--- 3. remove the accounts, cascading Better Auth's session/account/verification
-DELETE FROM "user" WHERE id = ANY($userIds);
+SELECT set_config('app.tenant_id', $1, true);
+SELECT user_id FROM tenant_memberships;                 -- RLS scopes it
+SELECT count(*) FROM <each table in tenantScopedTables()>;
 COMMIT;
 ```
 
-Step 2 relies on `ON DELETE CASCADE` on every `tenant_id` foreign key. PostgreSQL runs
-referential actions with row security bypassed, so the cascade reaches rows the erase
-policy alone would not. **`assertNoTenantResidue` is what makes that assumption safe to
-make:** if the cascade misses a table, the check fails and names it, and the fallback is
-an explicit per-table `DELETE` in reverse dependency order driven by the same
-enumeration.
+Assertions, before anything is deleted:
 
-`assertNoTenantResidue` iterates `tenantScopedTables()` counting rows for the tenant,
-iterates `authOwnedUserTables()` for `userIds`, and asserts zero everywhere plus no
-orphan referencing a deleted parent (AC-90).
+- `census.userIds.length >= 1`, else throw. The owner issuing the request is a member of
+  their own tenant, so an empty list means RLS denied the read and the erase would be a
+  silent no-op.
+- `census.rowCounts['tenant_memberships'] >= 1`, same reason.
+
+**Phase 2, erase. Privileged context.**
+
+```sql
+BEGIN;
+SELECT set_config('app.privileged_erase', $1, true);
+DELETE FROM tenants WHERE id = $1;          -- cascades every tenant_id table
+DELETE FROM "user"  WHERE id = ANY($2);     -- cascades session/account/verification
+COMMIT;
+```
+
+Assertions:
+
+- `DELETE FROM tenants` reports **rowCount 1**, else throw and roll back.
+- `DELETE FROM "user"` reports **rowCount = census.userIds.length**, else throw and
+  roll back.
+
+`tenants_privileged_erase` (`rls-policy-template.md`) is the only `DELETE` policy on
+`tenants`, so this statement is the only way that row can be removed. `"user"` has no
+RLS, so it needs no policy.
+
+The cascade relies on `ON DELETE CASCADE` on every `tenant_id` foreign key. PostgreSQL
+runs referential actions with row security bypassed, so it reaches rows the erase policy
+alone would not.
+
+**Phase 3, verify. Ordinary tenant context again.**
+
+`assertNoTenantResidue(census)` re-opens `withTenantTransaction(tenantId)`, iterates
+`tenantScopedTables()` counting rows, iterates `authOwnedUserTables()` for
+`census.userIds`, and asserts zero everywhere plus no orphan referencing a deleted
+parent (AC-90). It reads under the ordinary `tenant_isolation` policy, which matches any
+surviving row, so a missed cascade is visible.
+
+**Why "zero before, zero after" can no longer pass:** phase 1 asserts the census is
+non-empty, and phase 2 asserts the deleted counts match it. Both must be non-zero before
+phase 3's zero means anything.
+
+If the cascade ever misses a table, phase 3 fails and names it, and the fallback is an
+explicit per-table `DELETE` in reverse dependency order driven by the same enumeration.
 
 ## Invariants a caller may rely on
 
@@ -124,6 +179,11 @@ orphan referencing a deleted parent (AC-90).
 5. No authenticated tenant-facing route invokes the eraser except `POST /api/gdpr/delete`
    (AC-106), asserted by TASK-056's route enumeration.
 6. Even the eraser cannot cross tenants: the policy compares `tenant_id` to the flag.
+7. **An erasure that deletes nothing fails loudly.** Phase 1 asserts a non-empty census
+   and phase 2 asserts deleted counts matching it, so a policy denial can no longer
+   present as a completed erasure.
+8. **No ordinary code path can delete a `tenants` row**, so the cascade is reachable
+   only from this eraser (`rls-policy-template.md`).
 
 ## What the implementer must guarantee
 
@@ -133,6 +193,13 @@ orphan referencing a deleted parent (AC-90).
   against Better Auth's generated schema file so an upgrade adding a table fails
   visibly.
 - The export streams NDJSON. It holds a connection for its duration.
+- **An integration test asserts non-zero deleted-row counts per table, not only zero
+  residue.** Seed a tenant with rows in every table from `tenantScopedTables()`, erase,
+  and assert each count went from `n > 0` to `0`. "Zero before, zero after" is the
+  failure mode this contract exists to prevent.
+- The three phases are three transactions. Do not collapse them: phase 2 needs a
+  different context flag from phases 1 and 3, and nesting them holds two pooled
+  connections.
 
 ## Versioning
 

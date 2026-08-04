@@ -16,6 +16,8 @@ export * from './pagination';
 export * from './roles';
 export * from './slug';
 
+export * from './domains/reserved-hostnames';
+
 // Feature contracts are added here by their producing TASK, one line each,
 // alphabetically. Keep this file re-exports only, so a wave conflict is one line.
 // export * from './audit';        // TASK-049

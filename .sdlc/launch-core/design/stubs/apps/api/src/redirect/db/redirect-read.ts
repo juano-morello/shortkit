@@ -37,13 +37,18 @@ export type RedirectReadDb = PgTransaction<any, typeof schema, any> & {
  * Issues:
  *   BEGIN;
  *   SET TRANSACTION READ ONLY;
- *   SET LOCAL app.redirect_context = 'on';
+ *   SELECT set_config('app.redirect_context', 'on', true);
  *   ... fn ...
  *   COMMIT;
  *
- * Exactly two query shapes are permitted inside:
- *   SELECT ... FROM domains WHERE hostname = $1
+ * Exactly two query shapes are permitted inside, verbatim:
+ *   SELECT ... FROM domains WHERE hostname = $1 AND state = 'active'
  *   SELECT ... FROM links   WHERE domain_id = $1 AND slug = $2
+ *
+ * `AND state = 'active'` is PART OF THE SHAPE, not an optional filter (F-003).
+ * Without it, any signed-up user could POST /api/domains for `<fly-app>.fly.dev`,
+ * land a row in pending_verification, and have every unmatched path on Shortkit's own
+ * host resolve against their domain row.
  */
 export async function withRedirectRead<T>(
   _fn: (db: RedirectReadDb) => Promise<T>,
@@ -52,6 +57,7 @@ export async function withRedirectRead<T>(
 }
 
 export interface RedirectReadRepository {
+  /** Resolves ONLY a domain in state 'active'. See the query shape above (F-003). */
   resolveHostByHostname(hostname: string): Promise<{
     domainId: string;
     tenantId: string;

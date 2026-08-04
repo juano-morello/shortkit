@@ -61,13 +61,52 @@ export declare function Public(justification: string): MethodDecorator & ClassDe
 
 ```sql
 BEGIN;
-SET LOCAL statement_timeout = <statementTimeoutMs>;
-SET LOCAL app.tenant_id = $1;
+SELECT set_config('statement_timeout', $1, true);
+SELECT set_config('app.tenant_id',     $2, true);
 -- fn runs here
 COMMIT;   -- or ROLLBACK if fn throws
 ```
 
-`SET LOCAL`, never `SET`. The setting dies with the transaction, which is AC-11.
+**`set_config(name, value, true)`, never `SET LOCAL`.** Revised 2026-08-04 (F-007):
+PostgreSQL's `SET`/`SET LOCAL` accept no bind parameters, so `SET LOCAL app.tenant_id =
+$1` raises a syntax error at `$1`, and the shortest repair is string interpolation at
+the one statement all of RLS depends on. `set_config` is parameterised with identical
+transaction-local semantics: the third argument `is_local = true` scopes it to the
+transaction, which is AC-11.
+
+**No context flag is ever set by string concatenation, in any file.** `tenantId` is
+validated as a uuid before it reaches `set_config`; for ADR-0021's capability-token
+routes it arrives from an unauthenticated URL segment.
+
+## The three sanctioned ways to obtain a tenant id
+
+Normative. A tenant id reaches `withTenantTransaction` by exactly one of these. Anything
+else is a defect.
+
+| # | Source | Used by | Guard against a forged id |
+|---|---|---|---|
+| 1 | The `tid` JWT claim | every authenticated route | signature verification (`auth-tokens.md`) |
+| 2 | `crypto.randomUUID()` in application code | `onUserCreated`, uninvited branch (ADR-0015) | the id is new, so it names no existing tenant; `tenants_self_insert` admits only that row |
+| 3 | The routing prefix of a capability token | the two `@Public()` invitation routes (ADR-0021) | the digest check, which **must be the first statement in the transaction** |
+
+**Pattern 3 is not a GC-5 escape.** Every statement still runs under
+`set_config('app.tenant_id', ...)` and the ordinary `tenant_isolation` policy, on tables
+that keep `FORCE ROW LEVEL SECURITY`. No new flag, no new policy,
+`ISOLATION_EXCLUSIONS` stays at two. See `invitation-tokens.md`.
+
+## Routes that open their own transaction
+
+`@NoTenantTransaction(justification)` keeps `AuthGuard` and skips only
+`TenantTransactionInterceptor`, so the handler opens its own transactions explicitly.
+It exists for one route in `launch-core`:
+
+| Route | Why |
+|---|---|
+| `POST /api/gdpr/delete` | It runs an ordinary tenant transaction for the census, then a separate privileged-erase transaction, then a third for the residue check. Nesting those inside an interceptor-opened transaction would hold two pooled connections and produce a foreign-key error rather than a clean erase. |
+
+This is **not** an escape either: every statement still runs inside
+`withTenantTransaction` or `privilegedTenantEraser`. TASK-056 enumerates these routes
+alongside `@Public()` and prints the justification.
 
 ## Invariants a caller may rely on
 
@@ -96,11 +135,13 @@ COMMIT;   -- or ROLLBACK if fn throws
   `afterCommit` or after the call returns. The transaction holds a pooled connection
   for its whole lifetime.
 - `TenantTransactionInterceptor` is registered as `APP_INTERCEPTOR`, runs after
-  `AuthGuard`, and skips handlers marked `@Public()`.
+  `AuthGuard`, and skips handlers marked `@Public()` or `@NoTenantTransaction()`.
 - `AuthGuard` issues no database query. `tenantId` comes from the JWT `tid` claim
   (`auth-tokens.md`).
 - Boot-time assertion: the connected role has `rolbypassrls = false` and
   `is_superuser = off`. The process exits non-zero otherwise.
+- **Validate the tenant id as a uuid before calling `withTenantTransaction`.** Use
+  `set_config`, never `SET LOCAL`, and never build a flag value by concatenation.
 
 ## Deliberate exclusions
 

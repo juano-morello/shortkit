@@ -68,23 +68,35 @@ uses, and TASK-053 exports member identity through `tenant_memberships` joined t
 `user`. Keeping them separate is what keeps `tenantScopedTables()` meaning exactly
 one thing.
 
-**Erasure uses the cascade, and verifies with the enumeration.**
-`privilegedTenantEraser.erase(tenantId)` runs in one transaction:
+**Erasure uses the cascade, and verifies with the enumeration.** Revised 2026-08-04
+(F-002). The original sequence ran in one transaction setting only
+`app.privileged_erase`, so its opening `SELECT` of `tenant_memberships` was denied by
+`tenant_isolation` (which tests the unset `app.tenant_id`) and not admitted by the erase
+policy (which is `FOR DELETE`). The user id list came back empty, no account was
+deleted, `DELETE FROM tenants` was denied for the same reason, and the residue check
+asserted zero over an empty set and passed. A completed GDPR erasure deleted nothing and
+reported success. Three transactions now, and the census is an input rather than
+something the eraser collects for itself.
 
-1. `SET LOCAL app.privileged_erase = <tenantId>` (ADR-0003).
-2. Collect `tenant_memberships.user_id` for the tenant.
-3. `DELETE FROM tenants WHERE id = $1`. Every `tenant_id` foreign key declares
-   `ON DELETE CASCADE`, so all tenant-scoped rows go with it. PostgreSQL runs
-   referential actions with row security bypassed, so cascade reaches rows the
-   erase policy alone would not.
-4. `DELETE FROM "user" WHERE id = ANY($2)`, cascading Better Auth's tables.
+1. **Census**, ordinary tenant context: member user ids and a row count per table.
+   Assert `userIds.length >= 1` and `rowCounts['tenant_memberships'] >= 1` before
+   anything is deleted. The owner issuing the request is a member of their own tenant,
+   so an empty census means RLS denied the read.
+2. **Erase**, under `set_config('app.privileged_erase', ...)`:
+   `DELETE FROM tenants WHERE id = $1` asserting rowCount 1, then
+   `DELETE FROM "user" WHERE id = ANY($2)` asserting rowCount equals the census.
+   `tenants_privileged_erase` is the only `DELETE` policy on `tenants` (ADR-0003), so
+   this is the only statement anywhere that can remove that row. Every `tenant_id`
+   foreign key declares `ON DELETE CASCADE`, and PostgreSQL runs referential actions
+   with row security bypassed, so the cascade reaches rows the erase policy alone would
+   not.
+3. **Verify**, ordinary tenant context: `assertNoTenantResidue(census)` iterates
+   `tenantScopedTables()` and `authOwnedUserTables()` and asserts zero everywhere.
 
-`assertNoTenantResidue(tenantId)` then iterates `tenantScopedTables()` counting rows,
-iterates `authOwnedUserTables()` for the collected user ids, and asserts zero
-everywhere. **If step 3's cascade does not reach a table under
-`FORCE ROW LEVEL SECURITY`, the residue check fails and names it**, and the fallback is
-an explicit per-table `DELETE` in reverse dependency order driven by the same
-enumeration. The check is what makes the cascade assumption safe to make.
+**"Zero rows before, zero rows after" can no longer pass**, because steps 1 and 2 assert
+non-zero first. If the cascade misses a table under `FORCE ROW LEVEL SECURITY`, step 3
+fails and names it, and the fallback is an explicit per-table `DELETE` in reverse
+dependency order driven by the same enumeration.
 
 **Export iterates the same list, in tenant context.** `POST /gdpr/export` runs inside
 `withTenantTransaction`, so RLS does the filtering and AC-89's "zero records belonging
@@ -111,6 +123,8 @@ counts, and the schema version.
   test that names it. Both directions of drift are caught.
 - Erasure is one `DELETE` whose completeness is asserted rather than assumed, and the
   ADR-0003 policy means even the eraser cannot cross tenants.
+- An erasure that deletes nothing fails loudly instead of reporting success. The census
+  assertions catch a policy denial before the destructive statement runs.
 - Export isolation is enforced by RLS, so AC-89 asserts an outcome rather than an
   intention.
 
@@ -125,6 +139,10 @@ counts, and the schema version.
   residue check in wave 11.
 - The cross-check runs only in the integration suite, so a developer adding a table and
   running `pnpm test` sees nothing.
+- Erasure is three transactions instead of one, so it is no longer atomic. A crash
+  between phase 2 and phase 3 leaves the data gone and unverified, and a crash inside
+  phase 2 after the `tenants` delete commits leaves orphaned `user` rows. Phase 3 is the
+  detection, and re-running the route is the repair.
 - `authOwnedUserTables()` is a second, separately maintained list covering the auth
   tables, and it is genuinely hand-maintained. Better Auth adding a table in an upgrade
   would escape erasure. A test asserting the set against Better Auth's generated schema

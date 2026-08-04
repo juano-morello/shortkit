@@ -12,10 +12,58 @@ export const RATE_LIMIT_MAX_WRITES = 120;
  * Keyed by TENANT, never a global bucket (AC-84).
  * Fixed window: up to 240 writes can land across a window boundary. Documented,
  * not fixed; a sliding window buys precision nobody measures.
+ *
+ * F-015: every key carries an environment segment. See redirect-cache.md.
  */
-export function rateLimitKey(tenantId: string, nowEpochS: number): string {
-  return `rl:v1:${tenantId}:${Math.floor(nowEpochS / RATE_LIMIT_WINDOW_S)}`;
+export function rateLimitKey(env: string, tenantId: string, nowEpochS: number): string {
+  return `sk:${env}:rl:v1:${tenantId}:${Math.floor(nowEpochS / RATE_LIMIT_WINDOW_S)}`;
 }
+
+/**
+ * ============================================================================
+ * F-004. /api/auth/* is NOT covered by RateLimitGuard.
+ * ============================================================================
+ *
+ * Better Auth is mounted on the raw Express instance ahead of Nest (ADR-0013), so
+ * RateLimitGuard can neither see nor key a pre-auth request: it keys on tenantId from
+ * AuthGuard, which has not run. Without this, the unauthenticated credential surface
+ * had no throttle at all — unlimited credential stuffing, and unlimited signup, each
+ * creating a tenant row and dispatching a verification email until Resend's 100/day
+ * free tier is exhausted and every legitimate signup silently fails.
+ *
+ * Express middleware, registered in front of toNodeHandler. Reuses redisClient (GC-3)
+ * and carries ADR-0012's degradation posture: local bucket on Redis error, never
+ * fail-open, never 5xx.
+ */
+export const AUTH_RATE_LIMITS = {
+  signInPerIp: { limit: 10, windowS: 300 },
+  signInPerEmail: { limit: 5, windowS: 900 },
+  signUpPerIp: { limit: 3, windowS: 3600 },
+  otherPerIp: { limit: 60, windowS: 60 },
+} as const;
+
+/**
+ * The client IP is the platform-trusted value (Fly-Client-IP), NEVER the leftmost
+ * X-Forwarded-For — same rule as click-events.md (F-009).
+ * The email is hashed before it becomes a key, so the keyspace holds no addresses.
+ */
+export function authRateLimitKey(
+  _env: string,
+  _bucket: keyof typeof AUTH_RATE_LIMITS,
+  _principal: string,
+  _nowEpochS: number,
+): string {
+  throw new Error('not implemented');
+}
+
+/**
+ * 32 KiB, rejecting with 413.
+ *
+ * DOES NOT PARSE. express.json({ limit }) would consume the stream Better Auth needs,
+ * which is the whole reason for bodyParser: false. Rejects on Content-Length above the
+ * cap and, for chunked requests, counts bytes as they pass and destroys the socket.
+ */
+export const AUTH_BODY_MAX_BYTES = 32 * 1024;
 
 export interface RateLimitDecision {
   readonly allowed: boolean;

@@ -31,6 +31,33 @@ export const ALLOWED_TRANSITIONS: Record<DomainState, readonly DomainState[]> = 
   active: [],
 };
 
+/**
+ * F-003. The ONLY state in which a domain serves traffic. resolveHost's query shape is
+ *   SELECT ... FROM domains WHERE hostname = $1 AND state = 'active'
+ * and the predicate is part of the shape, not an optional filter.
+ *
+ * Without it, a row in pending_verification for `<fly-app>.fly.dev` would make every
+ * unmatched path on Shortkit's own host resolve against an attacker's domain row.
+ * The seeded system default domain is created directly in 'active'.
+ */
+export const SERVING_STATES = ['active'] as const;
+
+/**
+ * F-010. Uniqueness attaches to VERIFICATION, not to creation:
+ *   CREATE UNIQUE INDEX domains_hostname_owned_unique ON domains (hostname)
+ *     WHERE state IN ('verified','provisioning','active');
+ *
+ * Unverified claims coexist, so an attacker cannot permanently squat hostnames they do
+ * not own. The conflict is raised at the transition into 'verified' — only the tenant
+ * who can place our TXT record in the zone gets there, and there is one zone.
+ * A losing transition catches 23505 and lands in verification_failed with
+ * last_error = 'hostname_claimed_elsewhere'.
+ */
+export const OWNED_STATES = ['verified', 'provisioning', 'active'] as const;
+
+/** Unverified claims are deleted by the reconciler after this long. */
+export const UNVERIFIED_CLAIM_TTL_DAYS = 7;
+
 export interface RequiredDnsRecord {
   readonly type: 'CNAME' | 'TXT';
   readonly name: string;

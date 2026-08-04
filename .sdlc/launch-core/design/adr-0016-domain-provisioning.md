@@ -94,6 +94,19 @@ without an operator doing anything but leaving the page open.
 
 **Multi-machine safety.** `ZREM` returning 1 is the claim. Only one machine gets it.
 
+**A domain serves traffic only in `active`, and Shortkit's own hostnames cannot be
+claimed.** Added 2026-08-04 (F-003). The redirect path filters on `state = 'active'`,
+and `POST /api/domains` rejects a reserved hostname, an IP literal, or anything failing
+RFC 1123. Two independent defences: without the state gate, a row in
+`pending_verification` for `<fly-app>.fly.dev` would have made every unmatched path on
+Shortkit's own host resolve against an attacker's domain row. The state gate also closes
+dangling-DNS takeover, because a re-claimed hostname has to re-verify before it serves.
+
+**Uniqueness attaches to verification, not to creation.** Added 2026-08-04 (F-010). A
+partial unique index over `verified`, `provisioning` and `active` lets unverified claims
+coexist and expire after 7 days, so an attacker cannot permanently squat hostnames they
+do not own. First to verify wins, which is what AC-68 actually says.
+
 **The documented provisioning window is 15 minutes,** measured from the `verified`
 transition. AC-70 asserts against that number. Exceeding it moves the domain to
 `certificate_failed` with the last Fly error verbatim in `last_error`.
@@ -149,6 +162,16 @@ the hostname stops resolving to a working redirect, which the row deletion achie
 - Fly certificate deletion failing leaves an orphan on the Fly account that only a log
   line records. Against Fly's unpublished quotas, orphans accumulate toward a limit
   nobody can see.
+- Unverified claims coexisting means two tenants can both see a pending claim on the
+  same hostname, and the loser learns of the conflict only when their verification
+  transition fails. The error names the state, not the winner, so a legitimate owner
+  racing a squatter gets a message that reads like their own DNS is wrong.
+- The 7-day unverified expiry deletes a claim from a customer who added a domain and
+  went on holiday before updating DNS. They re-add it and lose nothing but the row, and
+  nothing warns them first.
+- The reserved-hostname list is maintained by hand and includes the apex domain, which
+  is still unregistered. Whoever registers it has to add it here, and forgetting leaves
+  the platform's own hostname claimable until the state gate stops it serving.
 
 ### Follow-ups this creates
 

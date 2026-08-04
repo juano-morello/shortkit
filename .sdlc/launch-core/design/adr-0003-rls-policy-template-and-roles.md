@@ -38,7 +38,19 @@ integration test setup. A startup check asserts
 `current_setting('is_superuser') = 'off'` and that `rolbypassrls` is false for the
 connected role, and refuses to boot otherwise.
 
-**The policy template.** Every tenant-scoped table applies all four of these. TASK-005
+**Context flags are set with `set_config`, never with `SET LOCAL`.** PostgreSQL's
+`SET` and `SET LOCAL` take no bind parameters, so `SET LOCAL app.tenant_id = $1` is a
+syntax error and the shortest repair is string interpolation at the one statement all
+of RLS depends on. `set_config(name, value, true)` is the parameterised form with
+identical transaction-local semantics:
+
+```sql
+SELECT set_config('app.tenant_id', $1, true);
+```
+
+No context flag is ever set by concatenation, in any file. Revised 2026-08-04 (F-007).
+
+**The policy template.** Every tenant-scoped table applies all of these. TASK-005
 publishes it; every later schema TASK copies it verbatim with the table name
 substituted.
 
@@ -55,6 +67,30 @@ CREATE POLICY <t>_tenant_isolation ON <t>
 
 `current_setting(..., true)` returns NULL when unset, the comparison is NULL, and the
 policy denies. That is AC-10.
+
+**The cascade root is not the template.** `tenants` carries `id`, not `tenant_id`, so
+it needs its own set. Revised 2026-08-04 (F-005): the earlier `FOR ALL` policy on
+`tenants` included `DELETE`, which let any authenticated handler delete its own tenant
+row and cascade-destroy every `click_events` and `audit_entries` row without setting a
+context flag, without passing through the eraser, and without appearing in
+`ISOLATION_EXCLUSIONS`. Ordinary tenant code now has no path to `DELETE`.
+
+```sql
+CREATE POLICY tenants_self_select ON tenants
+  FOR SELECT USING (id = current_setting('app.tenant_id', true)::uuid);
+
+CREATE POLICY tenants_self_update ON tenants
+  FOR UPDATE USING      (id = current_setting('app.tenant_id', true)::uuid)
+             WITH CHECK (id = current_setting('app.tenant_id', true)::uuid);
+
+-- Signup creates exactly the tenant whose context it is already in (ADR-0021).
+CREATE POLICY tenants_self_insert ON tenants
+  FOR INSERT WITH CHECK (id = current_setting('app.tenant_id', true)::uuid);
+
+-- The only DELETE path on tenants, anywhere.
+CREATE POLICY tenants_privileged_erase ON tenants
+  FOR DELETE USING (id::text = current_setting('app.privileged_erase', true));
+```
 
 **Escape 1, redirect read.** Applied to `domains` and `links` only:
 
@@ -83,10 +119,34 @@ The flag names one tenant. Even the eraser cannot delete another tenant's rows. 
 only code that sets it is `privilegedTenantEraser` in
 `apps/api/src/gdpr/privileged-eraser.ts`.
 
-**Grep is the audit.** A test in the isolation suite asserts that the string
-`app.redirect_context` appears in exactly one non-test source file, that
-`app.privileged_erase` appears in exactly one, and that `app.tenant_id` appears in
-exactly one. A third escape cannot be added without that test failing.
+**The erase escape stays `FOR DELETE`. The eraser reads elsewhere.** Revised
+2026-08-04 (F-002): the eraser needs the tenant's member user ids before it deletes,
+and under `app.privileged_erase` alone that `SELECT` returned zero rows, so the whole
+erasure completed while deleting nothing. Widening the erase policy to `FOR ALL` would
+have fixed it by giving the eraser read and write reach over every tenant-scoped
+table. Instead the caller collects the ids in an ordinary
+`withTenantTransaction(tenantId, ...)` census before the eraser runs, and passes them
+in. The escape stays delete-only. `tenant-scoped-tables.md` holds the sequence.
+
+**Grep is the audit, and `pg_policies` is the rest of it.** Grep catches an escape
+that sets a new context flag. It does not catch a cascade and it does not catch a
+permissive policy added to an existing table, which is how F-005 survived the first
+round. Two assertions in the isolation suite, not one:
+
+1. `app.tenant_id`, `app.redirect_context` and `app.privileged_erase` each appear in
+   exactly one non-test source file.
+2. **Every policy on every tenant-scoped table matches an approved shape by name and
+   by `qual` text.** The approved shapes are the five above and nothing else. A
+   permissive policy, a widened `FOR` clause, or a policy on a table that should not
+   have one fails and names the policy.
+
+**Auth tables are not tenant-scoped.** Better Auth owns `user`, `session`, `account`
+and `verification`. None carries `tenant_id`, none has RLS, and none is enumerated by
+`tenantScopedTables()`. The tenant-to-user relation lives in `tenant_memberships`,
+which is tenant-scoped and RLS-protected. Tenant-facing code reads `user` only through
+`userDirectory.findByIds()`, which joins through `tenant_memberships`, so RLS on the
+joined table does the filtering. This is why looking up a user by email at login is
+not a GC-5 exception and does not become a third exclusion.
 
 **Auth tables are not tenant-scoped.** Better Auth owns `user`, `session`, `account`
 and `verification`. None carries `tenant_id`, none has RLS, and none is enumerated by
@@ -103,6 +163,7 @@ not a GC-5 exception and does not become a third exclusion.
 | One role that owns its tables, RLS enabled without `FORCE` | Simplest to set up; one connection string | The owner bypasses every policy, so the whole isolation claim is decorative. The isolation suite would pass while running as a role that ignores RLS | Silently defeats SC-1, which is the initiative's headline claim |
 | A dedicated `shortkit_redirect` role with `SELECT` on `domains` and `links` and no policies | The escape is a grant, visible in `\dp`, with no runtime flag to forget | A second connection pool on the hot path, doubling connection use against Neon for the highest-volume traffic; and the process would hold a credential that reads every tenant's links for the whole process lifetime rather than for one transaction | Broader blast radius over time, and it costs connections on the path GC-1 constrains |
 | Give the eraser `BYPASSRLS` for the duration | One line; no per-table delete policy | `BYPASSRLS` is not scoped to a tenant or to `DELETE`. TASK-005 forbids it outright, and it would let the eraser read and write anything | Explicitly forbidden, and unnecessary given the flag policy scopes to one tenant |
+| Widen `<t>_privileged_erase` to `FOR ALL` so the eraser can read its own work list (F-002) | One word; the eraser becomes self-sufficient | Turns a delete-only escape into read, write and delete reach over every tenant-scoped table, for a path that already sits outside the tenant-facing interface. It would double the blast radius of exclusion 2 to solve a sequencing problem | Rejected. The caller collects the ids in an ordinary tenant transaction instead, which costs one extra statement and widens nothing |
 | Enforce isolation only in the application `where` clause | No database configuration; easier local setup | AC-25 requires tenant filtering by RLS, not by an application clause. One missing `where` becomes a leak with no backstop | Contradicts AC-25 and the whole premise of SC-1 |
 
 ## Consequences
@@ -110,11 +171,20 @@ not a GC-5 exception and does not become a third exclusion.
 ### Positive
 
 - Reading `pg_policies` tells an auditor the complete set of ways data crosses a
-  tenant boundary. There are three shapes and two escapes, both narrowed by column,
-  by statement type, and by transaction mode.
+  tenant boundary, and a test now asserts that reading, so the claim is enforced
+  rather than stated. There are the template shape, the cascade root's four, and two
+  escapes, each narrowed by statement type and by table.
 - The redirect escape cannot write and cannot touch a table other than `domains` and
-  `links`. The erase escape cannot cross tenants.
-- The grep test makes a third escape a build failure rather than a review finding.
+  `links`. The erase escape cannot cross tenants and cannot read.
+- **Ordinary tenant code has no `DELETE` on `tenants`,** so the cascade that hard-deletes
+  `click_events` and `audit_entries` is reachable only from `privilegedTenantEraser`.
+  That cascade is a deliberate, policy-gated bypass of row security: PostgreSQL runs
+  referential actions with RLS off, so the `DELETE FROM tenants` behind
+  `tenants_privileged_erase` removes every child row regardless of the child's own
+  policies. It is intended, it is the mechanism AC-90 depends on, and it is now gated
+  by exactly one policy that only the eraser can satisfy.
+- The grep test plus the `pg_policies` shape assertion make a third escape a build
+  failure whether it arrives as a new flag, a new policy, or a widened `FOR` clause.
 
 ### Negative / accepted cost
 
@@ -122,9 +192,18 @@ not a GC-5 exception and does not become a third exclusion.
   Docker. Getting the grants wrong produces permission errors at runtime rather than
   at migration time, and the first symptom is usually a confusing `permission denied
   for table` in an unrelated feature.
-- Three policies per table instead of one. Every schema TASK copies more boilerplate,
-  and a TASK that copies only the isolation policy leaves erasure broken for its
-  table. AC-90's referential check is what catches it, one wave later.
+- Two policies per table instead of one, and four on `tenants`. Every schema TASK
+  copies more boilerplate, and a TASK that copies only the isolation policy leaves
+  erasure broken for its table. AC-90's referential check is what catches it, one wave
+  later.
+- **A tenant owner cannot delete their own tenant through any ordinary code path.**
+  Deletion works only through `POST /api/gdpr/delete`. That is the intent, and it means
+  any future self-service teardown has to go through the same route rather than
+  issuing a delete.
+- The `pg_policies` assertion matches on `qual` text, which PostgreSQL normalises and
+  reformats. The expected strings have to be captured from a live database rather than
+  written by hand, and a PostgreSQL upgrade that changes normalisation will fail the
+  test with a diff that looks alarming and means nothing.
 - `FORCE ROW LEVEL SECURITY` applies to the migrator too, so data-backfill migrations
   cannot use plain `UPDATE` across tenants. Any such migration has to set the context
   flag per tenant or run before the policy is created.
@@ -133,9 +212,12 @@ not a GC-5 exception and does not become a third exclusion.
 
 ### Follow-ups this creates
 
-- TASK-005 publishes the template, both roles, the boot-time privilege check, and
+- TASK-005 publishes the template, the four `tenants` policies, both roles, the
+  boot-time privilege check, `set_config` as the only way to set a flag, and
   `docs/architecture/rls.md`.
-- Every schema TASK (013, 016, 020, 023, 033, 038, 045, 048) applies all four
-  statements. See `design/contracts/rls-policy-template.md`.
-- TASK-029 owns `withRedirectRead`; TASK-054 owns `privilegedTenantEraser`.
-- TASK-056 owns the grep assertion and records the two exclusions.
+- Every schema TASK (013, 016, 020, 023, 033, 038, 045, 048) applies the template.
+  See `design/contracts/rls-policy-template.md`.
+- TASK-029 owns `withRedirectRead`; TASK-054 owns `privilegedTenantEraser` and the
+  census-before-erase sequence.
+- TASK-056 owns the grep assertion, the `pg_policies` shape assertion, and records the
+  two exclusions.

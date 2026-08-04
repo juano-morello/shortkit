@@ -46,3 +46,8 @@ log:
   - "2026-08-03 design: F-012 escalated to Juano (bounded by Amendment A-1's frozen tenant enum). RULED as Amendment A-8: TenantRole = owner|admin|member, member at rank 0 granting nothing; invitees receive member."
   - "2026-08-03 design: F-014 minor treated as blocking per routing.md severity policy — it sits in a frozen normative block copied verbatim by TASK-011."
   - "2026-08-03 design: rework round 1/5 dispatched — same architect resumed via SendMessage with all 17 findings bundled into one dispatch per routing.md."
+  - "2026-08-04 design: rework round 1/5 complete. Architect addressed all 17; none disputed as a finding, one prescribed MECHANISM corrected (F-004: express.json would consume the stream Better Auth needs; substituted a non-parsing byte cap). 5 ADRs changed decision, not just wording. Artifacts now 22 ADRs / 20 contracts / 27 stubs."
+  - "2026-08-04 design: scoped re-review r2 verdicted ALL 17 round-1 findings ADDRESSED at source, and withdrew its own prescribed express.json mechanism after checking the substitute against all four cases it filed."
+  - "2026-08-04 design: re-review found 4 NEW majors introduced by the fixes (F-018..F-021) plus 2 minors. Pattern in three of four: a fix created a surface and the artifact documenting it does not say who guards it. F-020 is the sharpest — the cheapest green fix would let any tenant member erase the whole tenant."
+  - "2026-08-04 design: Juano ruled on the A-8 role-enum collision — brand TenantRole and WorkspaceRole as nominal types. Supersedes F-023 in a stronger form. Cheap now (stubs and prose), expensive after Implement."
+  - "2026-08-04 design: rework round 2/5 dispatched with F-018..F-023 plus the branding ruling and 5 nits bundled for free."

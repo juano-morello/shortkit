@@ -62,6 +62,26 @@ weekly `schedule`.
 - Roughly 30,000 Upstash commands per run. Weekly plus occasional manual runs is a few
   cents a month.
 
+**Every CI job installs with a frozen lockfile, and `quality` audits.** Added
+2026-08-04 (F-016). Grepping the design, the plan, TASK-001 and TASK-002 for `audit`,
+`dependabot`, `cve`, `lockfile` or `frozen-lockfile` returned nothing, on a stack that
+puts a young auth library on the critical path.
+
+| Job | Added step |
+|---|---|
+| every job | `pnpm install --frozen-lockfile` |
+| `quality` | `pnpm audit --prod --audit-level high` |
+
+Without `--frozen-lockfile`, resolution can drift between the tested tree and the
+deployed one. The audit runs `--prod` so a dev-only advisory in Vitest or `unplugin-swc`
+does not block a merge, and at `--audit-level high` so it fails on something worth
+failing on.
+
+**`better-auth` is pinned to an exact version**, not a caret range. ADR-0013 accepts
+that a Better Auth release can break the hand-written mount, so floating it means a
+transitive bump can break authentication with no code change. Everything else keeps
+caret ranges; the lockfile is what makes them reproducible.
+
 **Layer 3: the artifact separates the numbers.** `infra/loadtest/baseline.json` carries
 both, and `docs/performance/redirect-baseline.md` says which is which in prose, so
 nobody reads the CI number as the latency commitment.
@@ -127,6 +147,12 @@ consistent with SC-2's wording, and it is an interpretation rather than a fact.
 - Two numbers in one artifact invites confusion. The document has to work hard to keep
   `ciP99BudgetMs` from being quoted as the latency commitment.
 - Roughly 2 minutes 20 seconds added to every pull request.
+- `pnpm audit` fails a merge on an advisory that may have no fix available and no
+  bearing on how the dependency is used. The escape hatch is an ignore list, which
+  becomes a place findings go to be forgotten. Nothing in `launch-core` reviews it.
+- Pinning `better-auth` exactly means security patches arrive only when someone bumps it
+  by hand. The audit step is what surfaces the need, so the two are load-bearing
+  together.
 
 ### Follow-ups this creates
 
@@ -137,5 +163,9 @@ consistent with SC-2's wording, and it is an interpretation rather than a fact.
   `ubuntu-latest`), and writes a document that keeps them apart.
 - TASK-037 owns both jobs, the median-of-three logic, and the documented on-demand
   invocation.
+- TASK-001 pins `better-auth` exactly in `apps/api/package.json` and commits
+  `pnpm-lock.yaml`.
+- TASK-002 adds `--frozen-lockfile` to every job and the `pnpm audit --prod
+  --audit-level high` step to `quality`.
 - **Gate item for Juano:** confirm the reading of SC-2 recorded above.
 - Contract: `design/contracts/loadtest-result.md`.

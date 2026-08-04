@@ -65,6 +65,14 @@ expect(uncovered).toEqual([]);   // names every uncovered surface
 `toEqual([])` on an array of ids is what makes AC-96's "names the uncovered route"
 literal. A count comparison would say "expected 41, got 40".
 
+**A second completeness assertion over `pg_policies`.** Added 2026-08-04. Grep catches an
+escape that sets a new context flag. It does not catch a cascade, and it does not catch a
+permissive policy added to an existing table, which is how F-005 survived the first
+round. The suite asserts that every policy on every tenant-scoped table matches an
+approved shape from `rls-policy-template.md` by name and by `qual` text, that every
+required shape is present, and that `FORCE ROW LEVEL SECURITY` is on. The coverage table
+in `isolation-coverage.md` lists which mechanism catches which arrival path.
+
 **Exclusions are data with justifications, and the count is asserted.**
 
 ```ts
@@ -135,6 +143,11 @@ routes with justifications, and the run's verdict. This is the artifact SC-1 poi
 - `DiscoveryService` and `MetadataScanner` are stable but internal-flavoured NestJS
   APIs. A major upgrade can change them and the suite breaks in a way that looks like a
   security failure.
+- The `pg_policies` assertion compares normalised `qual` text, so its expected values
+  have to be generated against a live database and committed. A PostgreSQL upgrade that
+  changes normalisation fails the test with a diff that looks alarming and means
+  nothing, and regenerating is the fix, which trains people to regenerate rather than to
+  read.
 
 ### Follow-ups this creates
 

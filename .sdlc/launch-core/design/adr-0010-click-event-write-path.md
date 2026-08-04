@@ -44,9 +44,21 @@ clause makes that retry idempotent, so a partial failure cannot double-write. Th
 what "no double-emission on retry" means concretely. UUID v7 also sorts by time, which
 gives AC-57's ordering an index that matches the query.
 
-**Capacity 10,000 events.** On overflow the oldest are dropped, a warning is logged
+**Capacity 10,000 events or 4 MiB, whichever comes first, and `user_agent` is truncated
+to 512 characters at enqueue.** On overflow the oldest are dropped, a warning is logged
 once per flush window, and `click_events_dropped_total` increments. Blocking the
 redirect to protect the buffer would trade a visitor's 302 for an analytics row.
+
+Added 2026-08-04 (F-013): a row count alone did not bound memory. A 16 KiB `User-Agent`
+at a few hundred RPS reached roughly 160 MiB of live heap on the single machine that
+also serves every redirect, and the redirect path is deliberately exempt from rate
+limiting (AC-86), so nothing else bounded it. The OOM kill drops the buffer and breaks
+GC-8 for every concurrent visitor, which turns an analytics detail into an availability
+failure on the path SC-7 exists to protect.
+
+**`ip_hash` is derived from `Fly-Client-IP`, never from the leftmost
+`X-Forwarded-For`,** and the HMAC message is salted with `tenant_id`. See
+`click-events.md`.
 
 **`SIGTERM` drains the buffer** with a 5-second bound before the process exits. Fly
 sends `SIGTERM` before stopping a machine, so a normal deploy loses nothing.

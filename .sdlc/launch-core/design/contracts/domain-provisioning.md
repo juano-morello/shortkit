@@ -35,10 +35,55 @@ Normative. Any transition not listed is rejected by `transitionState` and logged
 | `provisioning` | `active` | Fly reports the certificate issued |
 | `provisioning` | `certificate_failed` | 15 min elapsed, or a non-quota Fly error |
 | `certificate_failed` | `provisioning` | `POST /api/domains/:id/retry-certificate` |
+| `pending_verification`, `verification_failed` | (deleted) | reconciler, `created_at` older than 7 days (F-010, unverified claim expiry) |
 | any | (deleted) | `DELETE /api/domains/:id` |
+
+A transition into `verified` that violates `domains_hostname_owned_unique` moves the row
+to `verification_failed` with `last_error = 'hostname_claimed_elsewhere'` instead.
 
 `verification_failed` and `certificate_failed` are distinct so AC-66 and AC-72 are
 separately testable (TASK-038 requires this).
+
+## Hostname validation and reserved hostnames
+
+Added 2026-08-04 (F-003). `hostname` was a bare `z.string()`, so any account could claim
+Shortkit's own hostnames.
+
+```ts
+const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;   // RFC 1123
+
+export const hostnameContract = z.string()
+  .min(4).max(253)
+  .transform((h) => h.trim().toLowerCase())
+  .transform((h) => new URL(`https://${h}`).hostname)      // IDNA / punycode
+  .refine((h) => h.split('.').length >= 2)
+  .refine((h) => h.split('.').every((l) => LABEL.test(l)))
+  .refine((h) => !isIpLiteral(h))
+  .refine((h) => !isReservedHostname(h));
+```
+
+Normalisation happens **once, at validation**, and the stored value is the normalised
+one. The same normalised form is what `redirect-cache.md` keys on, so a unicode
+homograph cannot produce two rows or two cache keys for one hostname.
+
+**Reserved hostnames**, rejected at `POST /api/domains` with 400 `validation_failed`:
+
+| Pattern | Reason |
+|---|---|
+| the apex domain and its `www` | the marketing surface |
+| the API hostname | the API surface |
+| `*.fly.dev`, `*.vercel.app`, `*.upstash.io`, `*.neon.tech` | platform hostnames; claiming one serves attacker content from an origin the platform assigns us |
+| `localhost`, `*.localhost`, `*.local`, `*.internal` | resolve inside a network, not on the internet |
+| any IPv4 or IPv6 literal | not a hostname; cannot carry a certificate we provision |
+| the seeded system default domain | already `active` and owned by the platform |
+
+The list lives in `packages/contracts/src/domains/reserved-hostnames.ts`, beside the
+reserved slugs, and is imported rather than redeclared.
+
+**This is the second of two independent defences.** The first is that
+`resolveHost` serves only `state = 'active'` (`redirect-resolution.md`), so even a
+reserved hostname that slipped through would have to pass DNS verification on a zone the
+attacker does not control.
 
 ## Required DNS records
 
@@ -116,13 +161,40 @@ export const domainContract = z.object({
 
 | Condition | Status | Code |
 |---|---|---|
-| hostname claimed by any tenant | 409 | `hostname_already_claimed` |
+| hostname **verified** on any tenant | 409 | `hostname_already_claimed` |
 | domain of another tenant, by id | 404 | `not_found` (AC-69) |
-| malformed hostname | 400 | `validation_failed` |
+| malformed or reserved hostname | 400 | `validation_failed` |
 
 `hostname_already_claimed` **never discloses which tenant holds it** (AC-68). The
-message is fixed: `"That hostname is already in use."` Uniqueness is a database
-constraint (`UNIQUE (hostname)`), not a pre-check, so the race is closed.
+message is fixed: `"That hostname is already in use."`
+
+## Uniqueness: first to *verify* wins
+
+Revised 2026-08-04 (F-010). The contract previously enforced `UNIQUE (hostname)` at
+creation, before any proof of ownership, which is stricter than AC-68 and made
+hostname squatting trivial: an attacker rate-limited only at 120 writes a minute could
+claim roughly 172,000 hostnames a day, and every real owner would meet a permanent 409
+with no support path and no way to tell a squat from a genuine pending claim.
+
+```sql
+CREATE UNIQUE INDEX domains_hostname_owned_unique
+  ON domains (hostname)
+  WHERE state IN ('verified', 'provisioning', 'active');
+```
+
+- Unverified claims **coexist**. Any number of tenants may hold the same hostname in
+  `pending_verification` or `verification_failed`.
+- The conflict is raised at the **transition into `verified`**, not at creation. Only
+  the tenant who can place our TXT record in the zone can get there, and there is one
+  zone, so at most one wins. A losing transition catches `23505` and moves that row to
+  `verification_failed` with `last_error = 'hostname_claimed_elsewhere'`.
+- **Unverified claims expire after 7 days.** The reconciler deletes any domain still in
+  `pending_verification` or `verification_failed` whose `created_at` is older than
+  `UNVERIFIED_CLAIM_TTL_DAYS`, so an abandoned or malicious claim does not accumulate.
+- A hostname in `active` is genuinely exclusive, which is what AC-68 asserts.
+
+This composes with `redirect-resolution.md`'s `state = 'active'` predicate: a squatted
+row never serves traffic even while it exists.
 
 ## The work queue
 
@@ -156,10 +228,17 @@ a wrong DNS record is not.
    minutes, with no human action (SC-4, AC-70).
 2. A verification failure always names type, name, expected and observed for **every**
    required record, not only the failing one (AC-66).
-3. A hostname is globally unique across tenants (AC-68).
+3. A hostname is unique across tenants **once verified** (AC-68). Unverified claims may
+   coexist and expire after 7 days.
 4. `retry-certificate` is idempotent. Repeating it while `provisioning` is a no-op.
 5. Deleting a domain stops it serving redirects for that tenant (AC-73). Fly's
    certificate deletion failing does not block the row deletion; the orphan is logged.
+6. **A domain serves traffic only in `active`.** Creating a row grants nothing; the
+   redirect path filters on state (`redirect-resolution.md`).
+7. A reserved hostname, an IP literal, and a malformed hostname are all rejected at
+   creation with 400, so none reaches the redirect path in any state.
+8. The stored hostname is already normalised (lowercased, IDNA), so it matches the Redis
+   key form exactly.
 
 ## Accepted gap, stated
 

@@ -66,26 +66,62 @@ export function tenantScopedTableNamesFromDatabase(): Promise<string[]> {
  * THIS IS THE ONLY FILE THAT MAY CONTAIN THE STRING `app.privileged_erase`.
  * The flag names ONE tenant, so even the eraser cannot cross tenants.
  *
- * Sequence, one transaction:
- *   SET LOCAL app.privileged_erase = '<tenantId>'
- *   SELECT user_id FROM tenant_memberships WHERE tenant_id = ...
- *   DELETE FROM tenants WHERE id = ...        -- cascades every tenant_id table
- *   DELETE FROM "user" WHERE id = ANY(...)    -- cascades session/account/verification
+ * REVISED 2026-08-04 (F-002). The original single-transaction sequence DELETED NOTHING
+ * WHILE REPORTING SUCCESS: it set only app.privileged_erase, so the opening SELECT of
+ * tenant_memberships was denied by tenant_isolation (which tests the unset
+ * app.tenant_id) and not admitted by the erase policy (which is FOR DELETE). userIds
+ * came back empty, no account was deleted, DELETE FROM tenants was denied the same way,
+ * and the residue check asserted zero over an empty set and passed.
  *
- * Step 3 relies on ON DELETE CASCADE. PostgreSQL runs referential actions with row
- * security bypassed. assertNoTenantResidue is what makes that safe to assume: if the
- * cascade misses a table it fails and names it, and the fallback is explicit per-table
- * DELETEs in reverse dependency order driven by the same enumeration.
+ * THREE transactions now. POST /api/gdpr/delete carries @NoTenantTransaction so it can
+ * open all three itself.
+ *
+ *  Phase 1  collectTenantCensus   ordinary tenant context   assert census NON-EMPTY
+ *  Phase 2  erase                 privileged context        assert deleted counts MATCH
+ *  Phase 3  assertNoTenantResidue ordinary tenant context   assert zero everywhere
+ *
+ * "Zero rows before, zero rows after" can no longer pass.
  */
-export interface PrivilegedTenantEraser {
-  erase(tenantId: string): Promise<{ deletedUserIds: string[] }>;
+export interface TenantCensus {
+  readonly tenantId: string;
+  /** Row count per table, taken BEFORE erasure, under tenant_isolation. */
+  readonly rowCounts: Readonly<Record<string, number>>;
+  /** Member user ids. ALWAYS >= 1: the owner making the request is a member. */
+  readonly userIds: readonly string[];
 }
 
-/** AC-90. Zero rows for the tenant in every table, and zero orphans. */
-export function assertNoTenantResidue(
-  _tenantId: string,
-  _deletedUserIds: string[],
-): Promise<void> {
+/**
+ * Phase 1. Runs inside withTenantTransaction(tenantId).
+ * THROWS if userIds is empty or rowCounts['tenant_memberships'] is 0 — that means RLS
+ * denied the read and the erase would be a silent no-op.
+ */
+export function collectTenantCensus(_tenantId: string): Promise<TenantCensus> {
+  throw new Error('not implemented');
+}
+
+/**
+ * Phase 2. Takes the census as INPUT; it does not, and cannot, collect it itself.
+ *
+ *   SELECT set_config('app.privileged_erase', $1, true);
+ *   DELETE FROM tenants WHERE id = $1;        -- assert rowCount === 1
+ *   DELETE FROM "user"  WHERE id = ANY($2);   -- assert rowCount === census.userIds.length
+ *
+ * tenants_privileged_erase is the ONLY DELETE policy on tenants (ADR-0003), so the
+ * first statement is the only way that row can be removed anywhere in the system.
+ * The cascade relies on ON DELETE CASCADE; PostgreSQL runs referential actions with
+ * row security bypassed. "user" has no RLS so it needs no policy.
+ */
+export interface PrivilegedTenantEraser {
+  erase(census: TenantCensus): Promise<{ deletedRowCounts: Record<string, number> }>;
+}
+
+/**
+ * Phase 3. AC-90. Re-opens withTenantTransaction(tenantId) and reads under the ordinary
+ * tenant_isolation policy, which matches any surviving row, so a missed cascade shows.
+ * Zero rows for the tenant in every table, zero auth rows for census.userIds, zero
+ * orphans referencing a deleted parent.
+ */
+export function assertNoTenantResidue(_census: TenantCensus): Promise<void> {
   throw new Error('not implemented');
 }
 

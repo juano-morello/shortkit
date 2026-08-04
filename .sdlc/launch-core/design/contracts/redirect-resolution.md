@@ -42,7 +42,19 @@ export declare function isLinkActive(w: { expiresAt: Date | null; activatesAt: D
 Normative. Each step names the ACs it satisfies.
 
 1. Normalise `hostname`: lowercase, IDNA via `new URL()`, strip port.
-2. `resolveHost(hostname)`. Null yields the **default** 404 (no branding available).
+2. `resolveHost(hostname)`, **which resolves only a domain in state `active`**. Null
+   yields the **default** 404 (no branding available).
+
+   Revised 2026-08-04 (F-003). Without the state predicate, any signed-up user could
+   `POST /api/domains {hostname: "<fly-app>.fly.dev"}`, land a row in
+   `pending_verification`, and the redirect path would resolve every unmatched path on
+   Shortkit's own host against their domain row: attacker-controlled 302s and
+   attacker-supplied branding served from the platform origin. It also gave
+   dangling-DNS takeover, because a deleted domain whose CNAME still pointed at Fly
+   could be re-claimed by the next attacker and served immediately. `active` means DNS
+   ownership was proved and a certificate issued, which is the only state in which
+   serving someone's traffic is justified. The seeded system default domain
+   (`is_system_default`) is created directly in `active`.
 3. `resolveLink(hostname, slug)`. Null yields step 6 (AC-50, AC-53).
 4. `isLinkActive(link, now)` false yields step 6 (AC-44, AC-45, AC-46). ADR-0009: the
    validity window is evaluated on every read, cache hit included, and an inactive link
@@ -65,6 +77,13 @@ Normative. Each step names the ACs it satisfies.
 | `Cache-Control` | `private, no-store` | every response |
 | `Server-Timing` | `app;dur=<ms>` from `process.hrtime.bigint()` around the handler | every response |
 | `Referrer-Policy` | `unsafe-url` | 302 |
+| `Content-Security-Policy` | `default-src 'none'; img-src https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'` | **404 only** |
+| `X-Content-Type-Options` | `nosniff` | 404 |
+
+The CSP is the second layer under F-006's escaping requirement in `branding.md`. It
+allows no script from any source, so an injected `<script>` or event-handler attribute
+that survives escaping still does not execute. `img-src https:` permits the tenant's
+logo and nothing over plain HTTP.
 
 `Server-Timing` is the number TASK-035 aggregates and TASK-037 gates on (ADR-0018).
 
@@ -83,12 +102,16 @@ which issues:
 ```sql
 BEGIN;
 SET TRANSACTION READ ONLY;
-SET LOCAL app.redirect_context = 'on';
--- exactly two query shapes are permitted here:
---   SELECT ... FROM domains WHERE hostname = $1
+SELECT set_config('app.redirect_context', 'on', true);
+-- exactly two query shapes are permitted here, verbatim:
+--   SELECT ... FROM domains WHERE hostname = $1 AND state = 'active'
 --   SELECT ... FROM links   WHERE domain_id = $1 AND slug = $2
 COMMIT;
 ```
+
+`AND state = 'active'` is part of the permitted query shape, not an optional filter
+(F-003). `set_config` rather than `SET LOCAL` per F-007, though this flag takes a
+constant.
 
 **Justification, recorded for the security auditor.** Resolution runs before a tenant
 is known, because the visitor is anonymous and the only inputs are a hostname and a
@@ -122,6 +145,13 @@ outside the `/api` global prefix (ADR-0006).
 4. A slug existing on host H2 but not H1 returns 404 on H1 (AC-50). Uniqueness is
    `(domain_id, slug)`, never global (GC-6).
 5. `resolveLink` never returns a link whose `domain_id` does not belong to `hostname`.
+6. **A hostname resolves only while its domain is `active`.** A `pending_verification`,
+   `verification_failed`, `provisioning` or `certificate_failed` domain serves nothing,
+   and a deleted domain stops serving immediately (AC-73). A tenant cannot cause
+   Shortkit's own hostnames to resolve against their row, because those are rejected at
+   `POST /api/domains` (`domain-provisioning.md`) and would never reach `active`.
+7. The 404 page executes no script, on any input, because its CSP allows no script
+   source.
 
 ## What the implementer must guarantee
 

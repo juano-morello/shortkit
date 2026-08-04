@@ -42,6 +42,10 @@ export function normaliseHostname(_hostname: string): string {
   throw new Error('not implemented');
 }
 
+/**
+ * Resolves ONLY a domain in state 'active' (F-003). A host record is cached only for a
+ * domain in that state; anything else caches as a MISS sentinel.
+ */
 export function resolveHost(_hostname: string): Promise<ResolvedHost | null> {
   throw new Error('not implemented');
 }

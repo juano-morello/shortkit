@@ -16,6 +16,14 @@ export interface DiscoveredSurface {
   readonly authenticated: boolean;
   /** Present iff !authenticated. @Public() requires a non-empty justification. */
   readonly publicJustification?: string;
+  /** Present iff the route carries @NoTenantTransaction(). One route in launch-core. */
+  readonly noTenantTransactionJustification?: string;
+  /**
+   * True when a @Public() route reaches a tenant-scoped table through a
+   * capability-token entry point (ADR-0021). A @Public() route that touches one WITHOUT
+   * this fails the suite: it would need an escape, and there are exactly two.
+   */
+  readonly usesCapabilityToken?: boolean;
 }
 
 /** Boots the production AppModule and walks controllers via DiscoveryService + MetadataScanner. */
@@ -61,14 +69,49 @@ export const ISOLATION_EXCLUSIONS = [
 ] as const;
 
 /**
- * Each Postgres context flag must appear in exactly one non-test source file.
- * A fourth escape, or a second file setting an existing one, fails here.
+ * ASSERTION 1 of 2. Each Postgres context flag must appear in exactly one non-test
+ * source file. A fourth escape, or a second file setting an existing one, fails here.
  */
 export const CONTEXT_FLAG_OWNERS: ReadonlyArray<{ flag: string; file: string }> = [
   { flag: 'app.tenant_id', file: 'apps/api/src/tenancy/tenant-context.ts' },
   { flag: 'app.redirect_context', file: 'apps/api/src/redirect/db/redirect-read.ts' },
   { flag: 'app.privileged_erase', file: 'apps/api/src/gdpr/privileged-eraser.ts' },
 ];
+
+/**
+ * ============================================================================
+ * ASSERTION 2 of 2. pg_policies shape check. Added 2026-08-04.
+ * ============================================================================
+ *
+ * Grep catches an escape that SETS A NEW CONTEXT FLAG. It does not catch a cascade, and
+ * it does not catch a permissive policy added to an existing table.
+ *
+ * F-005 was exactly that: `tenants` carried a FOR ALL policy whose DELETE let any
+ * authenticated handler cascade-destroy the tenant's click stream and audit log while
+ * setting no flag and greping clean.
+ *
+ * Every policy on every tenant-scoped table must match an approved shape in
+ * rls-policy-template.md BY NAME AND BY qual TEXT. Three checks, all must hold:
+ *   1. every policy present matches an approved shape
+ *   2. every tenant-scoped table HAS the shapes it is required to have
+ *      (a table missing <t>_privileged_erase silently survives erasure)
+ *   3. relrowsecurity AND relforcerowsecurity are true on every tenant-scoped table
+ *      (without FORCE the owner bypasses every policy and the suite is theatre)
+ */
+export interface PolicyShape {
+  readonly namePattern: RegExp;
+  readonly command: 'ALL' | 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
+  /** Normalised. CAPTURED FROM A LIVE DATABASE, never hand-written: PostgreSQL
+   *  reformats policy expressions and a hand-written string will not match. */
+  readonly qual: string | null;
+  readonly withCheck: string | null;
+  readonly tables: 'all-tenant-scoped' | readonly string[];
+  readonly required: boolean;
+}
+
+export function assertOnlyApprovedPolicies(): Promise<void> {
+  throw new Error('not implemented');
+}
 
 export interface TenantFixture {
   readonly id: string;
