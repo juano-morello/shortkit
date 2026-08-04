@@ -13,12 +13,19 @@ As Juano, I need both deployables reachable on the internet and a CI pipeline th
 
 ## Acceptance criteria
 
-- [ ] AC-5: Given a pushed branch, when the CI workflow runs, then it executes lint, typecheck, test and build, and the workflow concludes `failure` if any one of them exits non-zero.
+- [ ] AC-5: Given a pushed branch, when the CI workflow runs, then it executes lint, typecheck, test and build in a job named `quality`, **and runs `pnpm test:integration` against a `postgres:17-alpine` service container in a job named `integration`**, and the workflow concludes `failure` if any one of them exits non-zero.
 - [ ] AC-6: Given the API deployed to Fly.io, when `GET /health` is requested over HTTPS, then it returns 200 with a JSON body containing a `status` field equal to `"ok"` and a `commit` field matching the deployed git SHA.
 - [ ] AC-7: Given the web app deployed to Vercel, when its root URL is requested, then it returns 200 and HTML.
 
 Each AC is objectively verifiable. `sdlc-test-architect` turns these into tests
 and `sdlc-product-auditor` verifies against them verbatim.
+
+**AC-5 amended 2026-08-04 (F-039, ruled by Juano).** The original text named only the
+four quality commands, so nothing in this STORY required the integration suite to run
+anywhere. ADR-0001 had assigned that job to TASK-002 in its follow-ups and the
+assignment never reached either artifact. The id is unchanged and the AC count for
+this STORY is still 3; only AC-5's text widened. `sdlc-product-auditor` must verify
+both jobs, not just `quality`.
 
 ## Definition of Ready
 

@@ -9,6 +9,13 @@ depends_on: []
 paths: ["package.json", "pnpm-workspace.yaml", "tsconfig*.json", ".editorconfig", "lint config", "apps/api/**", "apps/web/**", "packages/contracts/**", ".gitignore", "README.md"]
 contracts: []
 test_files: []
+test_exempt: true
+test_exempt_reason: >-
+  Produces the test runner itself. Under ADR-0001 this TASK writes the root and
+  per-workspace vitest configs and ships one passing DB-free test per workspace for
+  AC-3, so no failing test can precede it — the runner for that test is its own
+  deliverable. Ruled by Juano 2026-08-04 per phases/test.md step 4. The exemption
+  covers TASK-001 alone; every later TASK gets red tests first.
 acceptance: [AC-1, AC-2, AC-3, AC-4, AC-107]
 rework_count: 0
 ---

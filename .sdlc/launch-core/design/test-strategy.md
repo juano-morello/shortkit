@@ -93,8 +93,8 @@ None of these exist yet. The table names the TASK that produces each one.
 
 | Fixture | Produced by | Needed by |
 |---|---|---|
-| `docker-compose.test.yml` (Postgres 17) | **nobody — see F-038** | every integration test |
-| CI `integration` job + `postgres:17-alpine` service | **nobody — see F-039** | every integration test |
+| `docker-compose.test.yml` (Postgres 17) | TASK-005 (assigned by F-038) | every integration test, locally |
+| CI `integration` job + `postgres:17-alpine` service | TASK-002 (assigned by F-039) | every integration test, in CI |
 | Migration runner invoked before the suite | TASK-005 | every integration test |
 | Non-`BYPASSRLS` application role | TASK-005 | every RLS assertion |
 | `createTenantFixtures()` → two isolated tenants | TASK-006 | 003, 006, 007, 009, 012, 017, 019, 020 |
@@ -108,12 +108,16 @@ Eight stories depend on the two-tenant fixture, more than on anything else here,
 does not arrive until TASK-006 in wave 2. Tests for those eight cannot be verified red
 before wave 2 completes.
 
-Three rows have no producer. Two are defects in approved artifacts, filed as F-038 and
-F-039. The third is smaller: no ADR or TASK establishes how tests control time, and
-three areas need it — link expiry, rate-limit windows, token lifetimes. Left alone,
+One row still has no producer. No ADR or TASK establishes how tests control time, and
+three areas need it: link expiry, rate-limit windows, token lifetimes. Left alone,
 `sdlc-test-architect` will pick a different approach per story. Whoever writes the first
 such test should settle on one convention, either vitest's `vi.useFakeTimers()` or an
-injected clock port, and the rest follow it.
+injected clock port, and the rest follow it. Too small to file as a finding, big enough
+to go wrong three separate ways.
+
+The first two rows had no producer either when this document was drafted. Juano ruled
+on both on 2026-08-04, and the TASK files now carry the work. See *Defects found while
+writing this*.
 
 ## Deliberately not automated
 
@@ -133,36 +137,35 @@ Each of these carries a reason.
   Coverage comes from testing their data functions directly.
 - **Upstash in the PR gate.** ADR-0018 uses a local `redis:7-alpine` so the gated number
   measures application overhead rather than network variance.
+- **Browser-level checks.** ADR-0001 cites them for async React Server Component
+  coverage, but no ADR chose a tool, no TASK produces one, and no AC requires one. Ruled
+  manual by Juano on 2026-08-04: the unit and integration layers already cover all 107
+  ACs, so nothing in the plan depends on a browser runner. Revisit in a later initiative
+  rather than adding scope here.
 
 ## Defects found while writing this
 
 Resolving fixture ownership turned up two gaps between what the ADRs require and what
-the TASKs produce. Both are filed in `findings.yaml`, and both land on `tasks/**`, so
-routing rule 0 sends them to Juano rather than to an agent.
+the TASKs produce. Both were filed in `findings.yaml`, and both landed on `tasks/**`, so
+routing rule 0 sent them to Juano rather than to an agent. He ruled on both the same
+day; the TASK files now carry the work.
 
-- **F-038** — `docker-compose.test.yml` has no producer. ADR-0001 requires it, TASK-001
-  excludes "Database" by name, and TASK-005's paths do not reach it. Without the file,
-  `pnpm test:integration` cannot run locally at all.
-- **F-039** — the CI `integration` job has no producer. ADR-0001's follow-ups assign it
-  to TASK-002, but TASK-002's Produces block still lists only the `quality` job.
+- **F-038** — `docker-compose.test.yml` had no producer. ADR-0001 requires it, TASK-001
+  excludes "Database" by name, and TASK-005's paths did not reach it. Without the file,
+  `pnpm test:integration` cannot run locally at all. **Assigned to TASK-005**, which
+  already owns the migration runner and the non-`BYPASSRLS` role, neither of them
+  verifiable without a database to apply them to.
+- **F-039** — the CI `integration` job had no producer. ADR-0001's follow-ups assigned
+  it to TASK-002, but TASK-002's Produces block listed only the `quality` job.
   `pnpm test` is DB-free and would stay green, so CI passes while the whole RLS surface
-  goes unexercised and SC-1 reads as proven by a suite nothing invokes.
+  goes unexercised and SC-1 reads as proven by a suite nothing invokes. **Assigned to
+  TASK-002**, and AC-5 widened to require both jobs. The AC id is unchanged and
+  STORY-002 still holds 3 ACs, so nothing downstream renumbered.
 
 ADR-0001 and ADR-0018 both wrote their follow-ups as prose inside the ADR, and nobody
 propagated them into the TASK files. Design's `contracts:` injection pass did propagate,
 giving all 57 TASKs their contract bindings, but nobody treated "Follow-ups this
 creates" as a second propagation source.
-
-## Open question — no browser-level tooling exists
-
-ADR-0001 says coverage for async RSCs comes from "testing their data functions plus
-browser-level checks". No ADR chose a browser tool. No TASK produces one. No AC
-requires one.
-
-The unit and integration layers cover all 107 ACs without one, so this does not block
-the phase. But "browser-level checks" currently names a manual activity. If that is the
-intent, the line belongs under *Deliberately not automated* above. If you want a tool,
-it needs an ADR and a TASK, and neither exists. **Flagged for the gate.**
 
 ## Sequencing constraint
 
@@ -180,9 +183,14 @@ for that test is its own deliverable.
 
 `plan.md`'s wave table already encodes most of the answer: wave 0 is TASK-001 alone,
 followed by a hard gate re-running `/juano-sdlc init` to populate `testing:` and
-`quality:` in `config.yaml`, with no dispatch permitted past that line. The table leaves
-one thing unsettled, which is whether wave 0 runs before or after the Test gate. It has
-to run before, or the Test gate has nothing to verify against.
+`quality:` in `config.yaml`, with no dispatch permitted past that line. The table left
+one thing unsettled, which is whether wave 0 runs before or after the Test gate.
+
+**Ruled by Juano, 2026-08-04.** Wave 0 runs first. TASK-001 is marked
+`test_exempt: true` with its reason in front-matter, the exemption covers that one TASK,
+and every later TASK still gets red tests before an implementer sees it. The order is
+therefore: TASK-001 → re-run `/juano-sdlc init` → the Test phase proper for TASK-002
+through TASK-058 against a working vitest → the Test gate.
 
 One workflow defect has now surfaced three times: the phases assume a repository that
 already builds. Design hit it with stubs and wrote them as inert sources under

@@ -667,10 +667,17 @@
   failure_scenario: A developer clones the repo and runs `pnpm test:integration`. There is no compose file, so no Postgres, so the command fails at connection. Eight of twenty-one stories are integration-only (003, 006, 007, 009, 012, 017, 019, 020) and none of them can be verified red locally. The gap surfaces the first time anyone runs the integration suite, which under the current wave order is wave 2 — after TASK-005 and TASK-006 have already been implemented against a suite nobody could run.
   required_change: Assign docker-compose.test.yml to a TASK. TASK-005 is the natural home (it already owns the migration runner and the non-BYPASSRLS role, and both are useless without a database to apply them to), which means widening its paths to include docker-compose*.yml and amending its Out-of-scope block. TASK-001 is the alternative but contradicts its own scope line.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
-  resolved_by: null
-  resolved_round: null
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    RULED by Juano 2026-08-04. docker-compose.test.yml is assigned to TASK-005. Its paths
+    gained docker-compose.test.yml and its Out-of-scope block was amended by the
+    orchestrator (same mechanical class as the F-026 amendment). Rationale: TASK-005
+    already owns the migration runner and the non-BYPASSRLS role, and neither is
+    verifiable without a database to apply them to. TASK-001 was rejected as the home
+    because it excludes "Database" by name.
 
 - id: F-039
   phase: test
@@ -684,7 +691,14 @@
   failure_scenario: TASK-002's implementer reads the TASK, produces the `quality` job, and stops — correctly, per its own Produces block. Every integration test then exists in the repo and never runs in CI. Because `pnpm test` is deliberately DB-free and passes, CI stays green while the entire RLS and tenant-isolation surface goes unexercised. SC-1's "proven by an automated suite" would be satisfied on paper by a suite that no pipeline invokes.
   required_change: Amend TASK-002's Produces to include the `integration` job running `pnpm test:integration` against a postgres:17-alpine service container, and add AC coverage for it. ADR-0001's Follow-ups section already states this is TASK-002's job; only the TASK file is out of date. Note that AC-5 covers the four quality commands and does not mention integration, so the AC may need amending too, which reopens STORY-002.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
-  resolved_by: null
-  resolved_round: null
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    RULED by Juano 2026-08-04. TASK-002 Produces gained the integration job (pnpm
+    test:integration against a postgres:17-alpine service, migrations first per ADR-0001,
+    frozen lockfile per ADR-0018) and its Out-of-scope block now states the job is in
+    scope. AC-5 was widened in STORY-002 to require both jobs; the id is unchanged and
+    the STORY still has 3 ACs, so no id was minted and no gate reopened beyond that
+    sentence. sdlc-product-auditor must verify both jobs.
