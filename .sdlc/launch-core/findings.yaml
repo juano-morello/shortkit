@@ -377,3 +377,70 @@
   status: fixed
   resolved_by: sdlc-architect
   resolved_round: 2
+
+# --- Round 3. All of F-018..F-023 verdicted ADDRESSED. These are new, and all four
+# --- cluster on F-019's replacement: the email bucket is specified but unowned.
+
+- id: F-024
+  phase: design
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: design
+  file: design/adr-0013-better-auth-in-nestjs.md
+  line: 92
+  summary: The email bucket is specified in TASK-051's contract but must be written in TASK-009's file, and no artifact names an owner or an ordering.
+  failure_scenario: The hook lives inside the betterAuth() config in apps/api/src/auth/** — TASK-009's paths. TASK-051 is named as producer but cannot touch that file, does not list rate-limit.md among its contracts, and TASK-009 runs long before TASK-030 produces the redisClient the bucket needs. ADR-0013's Follow-ups still omits the hook. Predictable result is the bucket is never built, landing on F-019's original failure — 10,000 guesses per 5 minutes against one account with every IP bucket satisfied.
+  required_change: Name the owning TASK and file for all three auth-surface pieces (authBodyCap, authRateLimit, the hooks.before bucket) and state the injection order letting a TASK-009-era mount consume a TASK-030-era redisClient. The owning TASK needs apps/api/src/auth/** in paths and rate-limit.md in contracts.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-025
+  phase: design
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: design
+  file: design/contracts/rate-limit.md
+  line: 106
+  summary: The email bucket's key is unnormalised and nothing tests that the bucket ever fires, so both plausible failure modes are silent.
+  failure_scenario: (a) The key is sha256(ctx.body.email) with no normalisation stated. If Better Auth normalises the credential lookup, case-varying the local part mints a fresh allowance per casing and the bucket stops binding a distributed attack. (b) The trigger predicate depends on ctx.path being base-path-relative; if it is not, the hook returns on every request and the bucket silently does not exist. No AC covers pre-auth limiting and no test is required — a fail-open, unlike the adjacent failure modes which are loud.
+  required_change: State that the key is computed over the same normalised form the credential lookup uses, and what that normalisation is. Require an integration test that six sign-in attempts for one address from six different client IPs yield a 429 on the sixth — pinning key, predicate and 429 together and converting an unverified framework assumption into a checked one.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-026
+  phase: design
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: scope
+  file: tasks/TASK-051.md
+  line: 0
+  summary: TASK-051's approved Approach says "applies to write endpoints only"; F-018's fix requires IP-limiting @Public() GETs. Touches an approved artifact.
+  failure_scenario: An implementer working from the TASK file — the artifact implementers read first — builds write-only limiting and reopens F-018 on the GET half, since GET /api/invitations/:token opens a tenant transaction.
+  required_change: Amend TASK-051's Approach to cover @Public() GETs, and correct rate-limit.md's Boundary line which still reads "every authenticated write route".
+  owner_slot: ESCALATE
+  status: fixed
+  resolved_by: juano
+  resolved_round: 3
+  note: >-
+    Rule 0 — a finding against an approved artifact is never routed to an agent.
+    RULED 2026-08-04: amendment applied. TASK-051's Approach now states that
+    RateLimitGuard covers every route under /api — tenant-keyed when
+    authenticated, IP-keyed on all methods including GET when @Public(). The
+    rate-limit.md Boundary-line half routes to sdlc-architect in round 3.
+
+- id: F-027
+  phase: design
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: design
+  file: design/contracts/rate-limit.md
+  line: 162
+  summary: A 429 raised from inside Better Auth will not carry the envelope invariant 3 promises.
+  failure_scenario: Invariant 3 is unqualified and TASK-052 renders 429s centrally from retryAfterSeconds. The email bucket throws Better Auth's APIError, producing its own body and no Retry-After, so the login screen's 429 handling falls through to a generic error on the one 429 a user is most likely to see.
+  required_change: State what the hook's APIError carries — 429, Retry-After in delta-seconds, code rate_limited — or scope invariant 3 to the surfaces that can honour it and say what the auth surface returns instead.
+  owner_slot: sdlc-architect
+  status: routed
