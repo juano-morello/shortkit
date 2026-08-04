@@ -103,6 +103,30 @@ moves to `accepted`, and `memberships` rows are created for **exactly** the name
 workspaces. An invited signup additionally creates the `tenant_memberships` row at
 tenant role `member` (Amendment A-8, ADR-0015).
 
+## The invited-signup branch uses the same entry point
+
+Added 2026-08-04 (F-021). `onUserCreated`'s invited branch runs inside Better Auth's
+handler, which is mounted outside the Nest module graph, so **TASK-056's route
+enumeration cannot see it**. It is the single anonymous path that writes
+`tenant_memberships`.
+
+```
+1. invitation = await invitationRepository.findByCapabilityToken(body.invitationToken)
+2. null                          -> REJECT THE SIGNUP. No user, no tenant, no membership.
+3. expired / revoked / accepted   -> reject with that state's code, above
+4. tenantId := invitation.tenantId          <- FROM THE VERIFIED ROW, not from the token
+5. create user + tenant_memberships(member) + the named workspace memberships,
+   in one transaction with token consumption
+```
+
+**Parsing the token for a tenant id anywhere outside `findByCapabilityToken` is a
+defect.** Owned by TASK-013.
+
+Required test, because enumeration cannot substitute for it: sign up with a
+syntactically valid token whose tenant half names another tenant and whose secret half
+is random, and assert no user, no `tenant_memberships` row and no `memberships` row is
+created in that tenant.
+
 ## Invariants a caller may rely on
 
 1. Every statement runs under `set_config('app.tenant_id', ...)` and the ordinary

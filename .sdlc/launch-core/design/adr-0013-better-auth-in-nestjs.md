@@ -39,8 +39,8 @@ const server = app.getHttpAdapter().getInstance();
 // NestJS 11 ships Express 5, whose wildcard syntax is {*splat}, not *.
 server.all(
   '/api/auth/{*splat}',
-  authBodyCap({ maxBytes: 32 * 1024 }),   // 413 past the cap, without consuming the stream
-  authRateLimit(redisClient),             // IP-keyed, and email-keyed on sign-in/sign-up
+  authBodyCap({ maxBytes: 32 * 1024 }),   // bounds the body without consuming the stream
+  authRateLimit(redisClient),             // IP-keyed only: headers, never the body
   toNodeHandler(auth),
 );
 
@@ -63,21 +63,47 @@ free tier is exhausted and every legitimate signup silently fails, and a multi-g
 body read into memory on the single machine that must never return 5xx to a visitor.
 
 `authBodyCap` **does not parse**. `express.json({ limit })` would consume the stream
-Better Auth needs, which is the whole reason for `bodyParser: false`. It rejects on
-`Content-Length` above the cap and, for chunked requests, counts bytes as they pass and
-destroys the socket past it.
+Better Auth needs, which is the whole reason for `bodyParser: false`. It rejects with
+413 when `Content-Length` exceeds the cap, and for a chunked request with no or an
+understated `Content-Length` it counts bytes as they pass and destroys the socket once
+the cap is crossed, without a response body.
 
 `authRateLimit` reuses `redisClient` (GC-3, no second connection) and carries ADR-0012's
 degradation posture verbatim: on a Redis error it falls back to an in-process bucket
 rather than failing open or closed. Limits are tighter than the 120-per-60s tenant
 limit, because these are pre-auth:
 
-| Route | Key | Limit |
-|---|---|---|
-| `POST /api/auth/sign-in/email` | IP | 10 / 5 min |
-| `POST /api/auth/sign-in/email` | email | 5 / 15 min |
-| `POST /api/auth/sign-up/email` | IP | 3 / hour |
-| everything else under `/api/auth/*` | IP | 60 / min |
+| Route | Key | Limit | Enforced by |
+|---|---|---|---|
+| `POST /api/auth/sign-in/email` | IP | 10 / 5 min | Express middleware |
+| `POST /api/auth/sign-in/email` | email | 5 / 15 min | **Better Auth `hooks.before`** |
+| `POST /api/auth/sign-up/email` | IP | 3 / hour | Express middleware |
+| everything else under `/api/auth/*` | IP | 60 / min | Express middleware |
+
+**The email bucket runs inside Better Auth, not in Express.** Revised 2026-08-04
+(F-019): the email lives in the JSON body, and reading it from Express middleware
+consumes the stream Better Auth needs, which is the same rule that stops `authBodyCap`
+parsing. The two constraints contradicted each other, and the cheap resolution is to
+drop the email bucket, leaving an attacker across 1,000 IPs 10,000 password guesses per
+5 minutes against one named account.
+
+The IP buckets need only headers, so they stay in Express. The email bucket becomes a
+`hooks.before` middleware inside Better Auth, where the framework that owns the body has
+already parsed it:
+
+```ts
+betterAuth({
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== '/sign-in/email') return;
+      await emailRateLimit.check(sha256(ctx.body.email));   // throws APIError 429
+    }),
+  },
+})
+```
+
+Same Redis client, same key format, same degradation posture, and nothing buffers or
+re-emits a request stream.
 
 Recorded in `rate-limit.md`'s Scope section, which previously read as though the surface
 simply had no limit.
@@ -163,10 +189,18 @@ attaches tenant creation to, inside the same transaction as the user insert.
   caret range for exactly this reason (F-016).
 - `authBodyCap` counts bytes on a stream it must not consume. That is fiddlier than a
   parser limit and the failure mode of getting it wrong is a hung request rather than an
-  error.
+  error. Its chunked path destroys the socket with no response, so a legitimate oversized
+  upload sees a connection reset rather than a 413.
+- Rate limiting for the auth surface now lives in **two** places, Express for the IP
+  buckets and a Better Auth hook for the email bucket, which is one more place to look
+  when a 429 is unexpected. Splitting it is what avoids buffering and re-emitting a
+  request stream, and the split follows the body: whoever has parsed it does the check.
 - The pre-auth limiter is a third rate-limiting implementation alongside the Redis
-  tenant limiter and its local fallback. All three share ADR-0012's posture and none of
-  them shares code.
+  tenant limiter and its local fallback. All four buckets share ADR-0012's posture and
+  none of them shares code.
+- The email bucket depends on Better Auth's `hooks.before` API and on `ctx.body.email`
+  keeping its shape. That is a second place a Better Auth upgrade can break
+  authentication, alongside the mount itself.
 - Email-keyed sign-in limiting is itself an enumeration oracle: an attacker learns which
   addresses have accounts by watching which ones start returning 429 sooner. The IP key
   bounds the volume enough that this is worth accepting, and it is stated rather than

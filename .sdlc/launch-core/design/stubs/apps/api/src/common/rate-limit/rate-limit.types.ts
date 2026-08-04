@@ -37,10 +37,65 @@ export function rateLimitKey(env: string, tenantId: string, nowEpochS: number): 
  */
 export const AUTH_RATE_LIMITS = {
   signInPerIp: { limit: 10, windowS: 300 },
+  /** F-019: enforced INSIDE Better Auth, not in Express. See below. */
   signInPerEmail: { limit: 5, windowS: 900 },
   signUpPerIp: { limit: 3, windowS: 3600 },
   otherPerIp: { limit: 60, windowS: 60 },
 } as const;
+
+/**
+ * ============================================================================
+ * F-018. @Public() routes under /api are IP-keyed, on ALL METHODS.
+ * ============================================================================
+ *
+ * RateLimitGuard previously skipped @Public() routes and authRateLimit is mounted only
+ * on /api/auth/*, so the two capability-token invitation routes were covered by
+ * NOTHING. An attacker looping POST /api/invitations/<uuid>.<garbage>/accept opened a
+ * Postgres transaction per request, on the pooled connection set shared with the
+ * redirect hot path that GC-1 constrains and GC-8 forbids 5xx on.
+ *
+ * GET is included: GET /api/invitations/:token opens a tenant transaction exactly as
+ * the accept route does. Authenticated GETs remain unlimited, unchanged.
+ *
+ * Checked BEFORE the handler parses the capability token, so a malformed-token flood
+ * costs one Redis INCR and no transaction.
+ */
+export const PUBLIC_ROUTE_RATE_LIMIT = { limit: 30, windowS: 60 } as const;
+
+export function publicRouteRateLimitKey(
+  _env: string,
+  _clientIp: string,
+  _nowEpochS: number,
+): string {
+  throw new Error('not implemented');
+}
+
+/**
+ * ============================================================================
+ * F-019. The email bucket runs INSIDE Better Auth, not in Express.
+ * ============================================================================
+ *
+ * The email lives in the JSON body. authRateLimit is Express middleware registered
+ * ahead of toNodeHandler, and reading the body there CONSUMES THE STREAM Better Auth
+ * needs — the stated reason authBodyCap must not parse. The two rules contradicted each
+ * other, and dropping the email bucket would leave only the IP bucket: an attacker
+ * across 1,000 IPs then gets 10,000 password guesses per 5 minutes against one account.
+ *
+ * IP buckets stay in Express (headers only). The email bucket becomes a Better Auth
+ * hooks.before middleware, where ctx.body.email is already parsed by the framework that
+ * owns the body:
+ *
+ *   betterAuth({ hooks: { before: createAuthMiddleware(async (ctx) => {
+ *     if (ctx.path !== '/sign-in/email') return;
+ *     await emailRateLimit.check(sha256(ctx.body.email));   // throws APIError 429
+ *   }) } })
+ *
+ * Same Redis client, same key format, same degradation posture. NOTHING BUFFERS OR
+ * RE-EMITS A REQUEST STREAM.
+ */
+export interface EmailRateLimiter {
+  check(emailDigest: string): Promise<RateLimitDecision>;
+}
 
 /**
  * The client IP is the platform-trusted value (Fly-Client-IP), NEVER the leftmost
@@ -101,14 +156,22 @@ return n
 `;
 
 /**
- * Applies to POST, PATCH, PUT, DELETE under the /api prefix.
+ * Applies to EVERY route under the /api prefix (F-018):
+ *   authenticated  -> keyed by tenantId, POST/PATCH/PUT/DELETE only, 120/60s
+ *   @Public()      -> keyed by client IP, ALL METHODS including GET, 30/60s
  *
- * NOT applied to: GET and HEAD; @Public() routes; GET /health; and the redirect
- * controller, which is registered OUTSIDE the /api prefix and therefore outside this
- * guard entirely (AC-86). Redirect traffic is never limited at any rate.
+ * NOT applied to: GET /health; and the redirect controller, which is registered
+ * OUTSIDE the /api prefix and therefore outside this guard entirely (AC-86).
+ * Redirect traffic is never limited at any rate. Neither exception opens a tenant
+ * transaction.
  *
  * Ordering: after AuthGuard (needs tenantId), before TenantTransactionInterceptor
- * (a rejected request must not open a transaction).
+ * (a rejected request must not open a transaction). On a @Public() route AuthGuard
+ * returns at step 0 without populating RequestContext, so the guard falls back to the
+ * IP key rather than reading a tenant that is not there.
+ *
+ * The client IP is the platform-trusted Fly-Client-IP, never the leftmost
+ * X-Forwarded-For (same rule as click-events.md, F-009).
  */
 export declare class RateLimitGuard {
   canActivate(context: unknown): Promise<boolean>;

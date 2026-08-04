@@ -141,6 +141,23 @@ export const PUBLIC_ROUTE_METADATA = Symbol('PUBLIC_ROUTE_METADATA');
  *
  * NOT an escape: every statement still runs inside withTenantTransaction or
  * privilegedTenantEraser. TASK-056 enumerates these alongside @Public().
+ *
+ * ============================================================================
+ * F-020. THERE IS NO AMBIENT TENANT CONTEXT WHEN GUARDS RUN ON THIS ROUTE.
+ * ============================================================================
+ *
+ * WorkspaceGuard's membership lookup needs one. DO NOT make WorkspaceGuard tolerate a
+ * missing context to get this route green: that removes the owner check from the only
+ * irreversible-destruction route in the system and lets any tenant `member` erase the
+ * whole tenant.
+ *
+ *   1. A @NoTenantTransaction route MAY NOT carry @RequireTenantRole or
+ *      @RequireWorkspaceRole. TASK-056 asserts the combination never exists.
+ *   2. Authorization and the AC-92 confirmation run INSIDE the handler's first
+ *      withTenantTransaction, before any other statement, via the same
+ *      WorkspaceAuthorizer with the same error codes.
+ *      See workspace-authorization.md "Form C".
+ *   3. WorkspaceGuard FAILS CLOSED: no context -> throws -> 500. Never returns true.
  */
 export function NoTenantTransaction(
   _justification: string,

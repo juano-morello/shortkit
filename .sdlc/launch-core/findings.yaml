@@ -293,7 +293,9 @@
   failure_scenario: RateLimitGuard does not apply to @Public() routes and authRateLimit is mounted only on /api/auth/*. An attacker loops POST /api/invitations/<uuid>.<garbage>/accept; each request opens a Postgres transaction on the pooled connection set shared with the redirect hot path that GC-1 constrains and GC-8 forbids 5xx on. rate-limit.md invariant 7 ("no unthrottled unauthenticated write surface") is false as written.
   required_change: Give the capability-token routes an IP-keyed limit and add the Scope row, or state which limiter covers @Public() routes under /api. Correct invariant 7 or make it true, and correct ADR-0021's Negative section.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
 
 - id: F-019
   phase: design
@@ -307,7 +309,9 @@
   failure_scenario: The sign-in bucket keys on sha256(email), which lives in the JSON body, but authRateLimit is registered ahead of toNodeHandler and reading that body consumes the stream Better Auth needs — the stated reason authBodyCap must not parse. TASK-051's implementer meets a contradiction; dropping the email bucket leaves only the IP bucket, so an attacker across 1,000 IPs gets 10,000 password guesses per 5 minutes against one named account.
   required_change: State the mechanism normatively — buffer up to AUTH_BODY_MAX_BYTES, key on the parsed email, re-emit the buffered bytes downstream — or explicitly drop the email bucket and record what is lost.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
 
 - id: F-020
   phase: design
@@ -321,7 +325,9 @@
   failure_scenario: workspace-authorization.md is normative that WorkspaceGuard runs inside the tenant transaction so its membership lookup is under RLS. POST /api/gdpr/delete requires tenant owner and now carries @NoTenantTransaction. With no ambient context the guard throws or reads zero rows; the cheapest green fix is to make WorkspaceGuard tolerate a missing context, which removes the owner check from the only irreversible-destruction route and lets any tenant member erase the whole tenant.
   required_change: State normatively where authorization for a @NoTenantTransaction route happens — the owner check and the AC-92 confirmation run inside phase 1's withTenantTransaction, before the census — and that WorkspaceGuard is never reached without an active context. Add an integration test asserting member and admin both get 403.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
 
 - id: F-021
   phase: design
@@ -335,7 +341,9 @@
   failure_scenario: ADR-0021 pins only the uninvited branch; ADR-0015 — the artifact TASK-013 reads — describes attaching the user to the inviting tenant with no mention of digest verification. The one enforcement mechanism enumerates Nest routes via DiscoveryService, and the /api/auth/* mount sits outside the Nest graph, so the single anonymous path that writes tenant_memberships is the one path the audit structurally cannot cover. An attacker signs up with invitationToken "<victim-tenant-uuid>.<random>" and, against an implementer who opens the transaction before verifying, gains a membership row in the victim tenant.
   required_change: Pin the invited-signup sequence in ADR-0021's Decision and in ADR-0015 with the same words used for the public routes — tenant id obtained only from findByCapabilityToken, which verifies the digest as its first statement; invalid or expired rejects the signup. Name the owning TASK. Add an integration test, since route enumeration cannot reach it.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
 
 - id: F-022
   phase: design
@@ -349,7 +357,9 @@
   failure_scenario: This is the block TASK-056 reads to build the pg_policies shape assertion. A stale count in a normative audit rule produces an assertion that rejects two legitimate shapes or is written to the wrong number.
   required_change: Correct the count to seven and reconcile with rls-policy-template.md's 7-row table.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
   note: Minor treated as blocking per routing.md — it sits in a frozen normative block that TASK-056 copies.
 
 - id: F-023
@@ -364,4 +374,6 @@
   failure_scenario: A resource handler meaning assert(resource.workspaceId, 'member') that writes assertTenant('member') gets a check passing for every user in the tenant, letting a tenant member with access to W1 write in W2. The compiler cannot catch the bare literal.
   required_change: Superseded by Juano's ruling of 2026-08-04 — brand TenantRole and WorkspaceRole as nominal types so no literal is assignable to both. That closes this and the wider class.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2

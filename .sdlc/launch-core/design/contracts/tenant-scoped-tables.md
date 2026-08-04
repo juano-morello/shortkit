@@ -86,9 +86,19 @@ export interface TenantCensus {
   readonly userIds: readonly string[];
 }
 
+export interface EraseResult {
+  /**
+   * PostgreSQL reports rows affected by the issued statement only, never by a cascade,
+   * so there is no per-table count to return here. Per-table completeness is asserted
+   * by comparing the phase 1 census against the phase 3 residue check.
+   */
+  readonly tenantsDeleted: number;   // must be 1
+  readonly usersDeleted: number;     // must equal census.userIds.length
+}
+
 export interface PrivilegedTenantEraser {
   /** Takes the census as input. It does not, and cannot, collect it itself. */
-  erase(census: TenantCensus): Promise<{ deletedRowCounts: Record<string, number> }>;
+  erase(census: TenantCensus): Promise<EraseResult>;
 }
 
 export declare function collectTenantCensus(tenantId: string): Promise<TenantCensus>;

@@ -61,13 +61,38 @@ the next tenant-level route added would be gated at `admin` by default, reintrod
 the hole silently.
 
 **Signup creates a tenant. Invited signup does not.** `onUserCreated` receives the
-invitation token when one is present in the signup request. With a token it attaches
-the user to the inviting tenant at tenant role **`member`** and creates the named
-workspace memberships. Without one it generates a tenant id with `crypto.randomUUID()`,
-opens `withTenantTransaction` on it (ADR-0021), inserts the `tenants` row under
-`tenants_self_insert`, and makes the user its `owner`. Either way exactly one
+invitation token when one is present in the signup request. Either way exactly one
 `tenant_memberships` row exists when the transaction commits, inside the same
 transaction as the user insert.
+
+**Uninvited branch.** Generate a tenant id with `crypto.randomUUID()`, open
+`withTenantTransaction` on it (ADR-0021), insert the `tenants` row under
+`tenants_self_insert`, and make the user its `owner`.
+
+**Invited branch. The tenant id comes from the verified invitation row, never from the
+token the caller supplied.** Added 2026-08-04 (F-021): this section previously said
+only "attaches the user to the inviting tenant", with no mention of digest
+verification, and it is the artifact TASK-013 reads. That branch is the single anonymous
+path that writes `tenant_memberships`, and because the Better Auth mount sits outside
+the Nest graph it is also the one path TASK-056's route enumeration structurally cannot
+see. An implementer who opens the transaction before verifying gives an attacker who
+signs up with `invitationToken = "<victim-tenant-uuid>.<random>"` a membership row in
+the victim's tenant.
+
+```
+1. invitation = await invitationRepository.findByCapabilityToken(body.invitationToken)
+     -> parses, opens withTenantTransaction, verifies the digest as its FIRST statement
+2. invitation === null  -> REJECT THE SIGNUP. No user, no tenant, no membership.
+3. expired / revoked / accepted -> reject with that state's code (invitation-tokens.md)
+4. tenantId := invitation.tenantId          <- FROM THE VERIFIED ROW
+5. create the user, tenant_memberships at TENANT_ROLE.member, and the named workspace
+   memberships, in one transaction with token consumption
+```
+
+Parsing the token for a tenant id anywhere outside `findByCapabilityToken` is a defect.
+Route enumeration cannot reach this path, so **an integration test is its only
+coverage**: sign up with a token whose tenant half names another tenant and whose secret
+half is random, and assert no user and no membership row is created in that tenant.
 
 **Only a tenant `owner` grants or revokes a tenant role**, on a route distinct from the
 workspace-role route (`workspace-authorization.md`). Nothing a workspace role can do
@@ -140,7 +165,9 @@ fails" true rather than aspirational.
 ### Follow-ups this creates
 
 - TASK-013 creates `tenant_memberships` with its unique constraint and the RLS policy
-  set, and branches `onUserCreated` on the invitation token. This is more than its
+  set, and branches `onUserCreated` on the invitation token, taking the tenant id from
+  `findByCapabilityToken`'s verified row on the invited branch. It also owns the
+  integration test that route enumeration cannot replace. This is more than its
   `Produces` block enumerates; see the TASK constraints in the design return.
 - TASK-016 keeps `memberships` workspace-scoped and reads `TenantRole` from
   `tenant_memberships`.

@@ -84,6 +84,38 @@ application-generated uuid.
 current context, so a signup can create its own tenant and nothing else. Stated here so
 TASK-013 does not invent a different mechanism.
 
+**Signup's invited branch obtains its tenant id the same way the public routes do, and
+no other way.** Added 2026-08-04 (F-021). The first version of this ADR pinned only the
+uninvited branch, and ADR-0015 (the artifact TASK-013 actually reads) described
+attaching the user to the inviting tenant with no mention of digest verification. That
+branch is the single anonymous path that writes `tenant_memberships`, and because the
+Better Auth mount sits outside the Nest graph it is also the one path TASK-056's route
+enumeration structurally cannot see. An implementer who opens the transaction before
+verifying gives an attacker who signs up with
+`invitationToken = "<victim-tenant-uuid>.<random>"` a membership row in the victim's
+tenant.
+
+Normative sequence for `onUserCreated`, invited branch, owned by **TASK-013**:
+
+```
+1. invitation = await invitationRepository.findByCapabilityToken(signupBody.invitationToken)
+     -> parses, opens withTenantTransaction, verifies the digest as its FIRST statement
+2. invitation === null  -> REJECT THE SIGNUP. No user, no tenant, no membership.
+3. expired / revoked / accepted -> reject with that state's code (invitation-tokens.md)
+4. tenantId := invitation.tenantId          <- FROM THE VERIFIED ROW, never from the token
+5. create the user, tenant_memberships at TENANT_ROLE.member, and the named workspace
+   memberships, in one transaction with token consumption
+```
+
+**Step 4 is the rule.** The tenant id used for the write comes from the row the digest
+proved, not from the string the caller supplied. Parsing the token for a tenant id
+outside `findByCapabilityToken` is a defect.
+
+Because route enumeration cannot reach this path, **an integration test is the only
+coverage**: sign up with a syntactically valid token whose tenant half names another
+tenant and whose secret half is random, and assert no user, no `tenant_memberships` row,
+and no `memberships` row is created in that tenant.
+
 **Email verification is out of scope for this pattern, deliberately.** Better Auth owns
 `user`, `session`, `account` and `verification`, none of which carries `tenant_id` or
 RLS (ADR-0003). Verifying an email updates `user.emailVerified` and touches no
@@ -124,13 +156,21 @@ distinct error code, which is what AC-34, AC-35 and AC-36 test separately.
   history, in the email, and in any referrer from the accept page. Correlating two
   invitations to the same agency becomes trivial for anyone holding both links.
 - An anonymous caller can cause a tenant transaction to open for any tenant id they can
-  guess, at the cost of one indexed lookup that then fails. That is a cheap denial-of-
-  service amplifier against the connection pool, and the only thing bounding it is the
-  IP limiter from ADR-0013's revision.
+  guess, at the cost of one indexed lookup that then fails. That is a cheap
+  denial-of-service amplifier against the connection pool the redirect hot path shares.
+  It is bounded by `RateLimitGuard`'s IP bucket on `@Public()` routes under `/api`, at
+  30 requests per minute per IP, checked before the token is parsed
+  (`rate-limit.md`, F-018). ADR-0013's limiter covers `/api/auth/*` only and does not
+  reach these routes; an earlier version of this section said it did, and was wrong.
 - The rule "no statement acts on the tenant before the digest verifies" is stated and
   shape-enforced for the invitation repository. A future public route that opens tenant
   context some other way would not inherit the protection, and nothing detects that.
-- Tokens are 79 characters, so the invite URL is long and wraps in most mail clients.
+- **The invited-signup branch runs inside Better Auth's handler, outside the Nest module
+  graph, so TASK-056's route enumeration cannot see it.** Its coverage is one
+  integration test rather than the structural completeness check every other
+  tenant-writing surface gets. That is a real gap in SC-1's enumeration claim, and it is
+  recorded in `isolation-coverage.md` rather than left implicit.
+- Tokens are 80 characters, so the invite URL is long and wraps in most mail clients.
 
 ### Follow-ups this creates
 
@@ -139,8 +179,11 @@ distinct error code, which is what AC-34, AC-35 and AC-36 test separately.
   digest-skipping alternative.
 - TASK-021 implements both public routes against that single entry point, and threads
   the token into signup for the invited branch.
-- TASK-013 uses `crypto.randomUUID()` plus `withTenantTransaction` for the uninvited
-  branch, relying on `tenants_self_insert`.
+- **TASK-013 owns both `onUserCreated` branches**: `crypto.randomUUID()` plus
+  `withTenantTransaction` for the uninvited branch relying on `tenants_self_insert`, and
+  `findByCapabilityToken` for the invited branch taking the tenant id from the verified
+  row. It also owns the integration test that route enumeration cannot replace.
 - TASK-056 asserts that every `@Public()` route reaching a tenant-scoped table does so
-  through a capability-token entry point, and records the justification.
+  through a capability-token entry point, records the justification, and records the
+  Better Auth mount as a surface its enumeration cannot reach.
 - Contract: `design/contracts/invitation-tokens.md`.

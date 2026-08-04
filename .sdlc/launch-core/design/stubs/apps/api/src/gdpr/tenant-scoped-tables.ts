@@ -111,8 +111,18 @@ export function collectTenantCensus(_tenantId: string): Promise<TenantCensus> {
  * The cascade relies on ON DELETE CASCADE; PostgreSQL runs referential actions with
  * row security bypassed. "user" has no RLS so it needs no policy.
  */
+export interface EraseResult {
+  /**
+   * PostgreSQL reports rows affected by the ISSUED STATEMENT only, never by a cascade,
+   * so there is no per-table count to return here. Per-table completeness is asserted
+   * by comparing the phase 1 census against the phase 3 residue check.
+   */
+  readonly tenantsDeleted: number; // must be 1
+  readonly usersDeleted: number; // must equal census.userIds.length
+}
+
 export interface PrivilegedTenantEraser {
-  erase(census: TenantCensus): Promise<{ deletedRowCounts: Record<string, number> }>;
+  erase(census: TenantCensus): Promise<EraseResult>;
 }
 
 /**

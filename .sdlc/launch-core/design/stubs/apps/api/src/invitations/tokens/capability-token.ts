@@ -70,3 +70,29 @@ export function digestSecret(_secret: string): Buffer {
 export interface InvitationCapabilityReader {
   findByCapabilityToken(rawToken: string): Promise<unknown | null>;
 }
+
+/**
+ * ============================================================================
+ * F-021. The invited-signup branch uses THIS entry point, and no other.
+ * ============================================================================
+ *
+ * onUserCreated's invited branch runs inside Better Auth's handler, mounted OUTSIDE the
+ * Nest module graph, so TASK-056's route enumeration CANNOT SEE IT. It is the single
+ * anonymous path that writes tenant_memberships.
+ *
+ *   1. invitation = await findByCapabilityToken(body.invitationToken)
+ *   2. null                        -> REJECT THE SIGNUP. No user, no tenant, no row.
+ *   3. expired/revoked/accepted    -> reject with that state's code
+ *   4. tenantId := invitation.tenantId   <- FROM THE VERIFIED ROW, NOT FROM THE TOKEN
+ *   5. create user + tenant_memberships(TENANT_ROLE.member) + named workspace
+ *      memberships, in one transaction with token consumption
+ *
+ * PARSING THE TOKEN FOR A TENANT ID ANYWHERE OUTSIDE findByCapabilityToken IS A DEFECT.
+ * An implementer who opens the transaction before verifying gives an attacker signing
+ * up with "<victim-tenant-uuid>.<random>" a membership row in the victim's tenant.
+ *
+ * Owned by TASK-013. Required test, since enumeration cannot substitute: sign up with a
+ * token whose tenant half names another tenant and whose secret half is random, and
+ * assert no user and no membership row is created in that tenant.
+ */
+

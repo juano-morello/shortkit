@@ -104,9 +104,34 @@ It exists for one route in `launch-core`:
 |---|---|
 | `POST /api/gdpr/delete` | It runs an ordinary tenant transaction for the census, then a separate privileged-erase transaction, then a third for the residue check. Nesting those inside an interceptor-opened transaction would hold two pooled connections and produce a foreign-key error rather than a clean erase. |
 
-This is **not** an escape either: every statement still runs inside
-`withTenantTransaction` or `privilegedTenantEraser`. TASK-056 enumerates these routes
-alongside `@Public()` and prints the justification.
+This is **not** an escape: every statement still runs inside `withTenantTransaction` or
+`privilegedTenantEraser`. TASK-056 enumerates these routes alongside `@Public()` and
+prints the justification.
+
+### Authorization moves into the handler, and does not disappear
+
+Added 2026-08-04 (F-020). Skipping the interceptor means **there is no ambient tenant
+context when guards run**, and `WorkspaceGuard`'s membership lookup needs one. Left
+unstated, an implementer meets a guard that throws on the only irreversible route in the
+system, and the cheapest green fix is to make `WorkspaceGuard` tolerate a missing
+context. That removes the owner check from tenant erasure and lets any tenant `member`
+destroy the whole tenant.
+
+Three rules, all normative:
+
+1. **A `@NoTenantTransaction` route may not carry `@RequireTenantRole` or
+   `@RequireWorkspaceRole`.** TASK-056 asserts that combination never exists.
+2. **Authorization and the AC-92 confirmation check run inside the handler's first
+   `withTenantTransaction`, before any other statement**, through the same
+   `WorkspaceAuthorizer` with the same error codes. See `workspace-authorization.md`
+   Form C for the ordered sequence.
+3. **`WorkspaceGuard` fails closed.** With no active tenant context it throws
+   `TenantContextMissingError`, producing a 500. It never returns true and never
+   degrades to an unchecked pass. A 500 on a misconfigured route is correct; a silent
+   pass on the erasure route is not.
+
+Route enumeration cannot see an in-handler check, so an integration test asserting 403
+for a tenant `member` and a tenant `admin` is the only coverage of AC-105 on this route.
 
 ## Invariants a caller may rely on
 

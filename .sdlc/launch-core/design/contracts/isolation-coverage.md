@@ -176,6 +176,34 @@ one fails as uncovered**; it is never skipped.
 **AC-95's post-run check** runs once: a single query asserts no row's `tenant_id`
 differs from a snapshot taken before the run.
 
+## What enumeration cannot reach
+
+Added 2026-08-04 (F-021). `DiscoveryService` walks the Nest module graph. Better Auth is
+mounted on the raw Express instance ahead of Nest (ADR-0013), so **nothing under
+`/api/auth/*` appears in `discoverRoutes()`**, including `onUserCreated`, which is the
+single anonymous path that writes `tenant_memberships`.
+
+This is a real gap in SC-1's completeness claim, recorded rather than left implicit.
+
+| Surface | Why enumeration misses it | Coverage instead |
+|---|---|---|
+| `onUserCreated`, invited branch | inside Better Auth's handler, outside the Nest graph | TASK-013 integration test: a token whose tenant half names another tenant creates no user and no membership there |
+| `onUserCreated`, uninvited branch | same | TASK-013 integration test: the created tenant is the generated uuid and nothing else |
+| in-handler authorization on `@NoTenantTransaction` routes | the check is a call, not a decorator | TASK-054 integration test: tenant `member` and `admin` both get 403 on `POST /api/gdpr/delete` (F-020) |
+
+`isolationReport()` carries these as `unenumerable`, each with the test that covers it,
+so a reader of the report sees the boundary of what the suite proves.
+
+```ts
+export const UNENUMERABLE_SURFACES = [
+  { id: 'hook:onUserCreated', reason: 'Better Auth handler is mounted outside the Nest module graph (ADR-0013).', coveredBy: 'apps/api/test/auth/signup-invited.int-spec.ts' },
+  { id: 'handler:POST /api/gdpr/delete authorization', reason: '@NoTenantTransaction moves the owner check into the handler (F-020).', coveredBy: 'apps/api/test/gdpr/delete-authorization.int-spec.ts' },
+] as const;
+```
+
+Adding an entry here is not a substitute for an exclusion and does not change the
+exclusion count: these surfaces are covered, just not by enumeration.
+
 ## Report
 
 `apps/api/test/isolation/report.json`, uploaded as a CI artifact.
@@ -188,6 +216,9 @@ export interface IsolationReport {
   uncovered: SurfaceId[];
   excluded: ReadonlyArray<{ id: SurfaceId; justification: string }>;
   publicRoutes: ReadonlyArray<{ id: SurfaceId; justification: string }>;
+  noTenantTransactionRoutes: ReadonlyArray<{ id: SurfaceId; justification: string }>;
+  /** Covered by named integration tests rather than by enumeration. See above. */
+  unenumerable: ReadonlyArray<{ id: string; reason: string; coveredBy: string }>;
   verdict: 'pass' | 'fail';
 }
 ```
@@ -215,6 +246,13 @@ This is the artifact SC-1 points at.
 
 - TASK-011 makes `@Public()` and `@NoTenantTransaction()` require a non-empty
   justification string. Both are enumerated and printed.
+- **A `@NoTenantTransaction` route may not also carry `@RequireTenantRole` or
+  `@RequireWorkspaceRole`.** The suite asserts that combination never exists (F-020):
+  the guards need an ambient tenant context the route does not have, and the cheapest
+  repair is to make `WorkspaceGuard` tolerate its absence, which removes the owner check
+  from tenant erasure.
+- **`as TenantRole` and `as WorkspaceRole` appear only inside `asTenantRole` and
+  `asWorkspaceRole`.** The suite greps for a third cast site and fails on it (ADR-0023).
 - Every repository-producing TASK applies `@TenantScopedRepository()`.
 - The suite runs in CI's `integration` job (ADR-0001).
 - A surface that is hard to fixture gets a fixture builder, not an exclusion.

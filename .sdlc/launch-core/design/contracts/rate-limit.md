@@ -36,13 +36,32 @@ return n
 
 ## Scope
 
-`RateLimitGuard` applies to `POST`, `PATCH`, `PUT` and `DELETE` on routes under the
-`/api` prefix, keyed by tenant.
+Revised 2026-08-04 (F-018). `RateLimitGuard` previously skipped `@Public()` routes
+entirely, and `authRateLimit` is mounted only on `/api/auth/*`. That left the two
+capability-token invitation routes covered by nothing: an attacker looping
+`POST /api/invitations/<uuid>.<garbage>/accept` opened a Postgres transaction per
+request, on the pooled connection set shared with the redirect hot path that GC-1
+constrains and GC-8 forbids 5xx on. Invariant 7 was false as written.
 
-**`RateLimitGuard` does not apply to:** `GET` and `HEAD`; `@Public()` routes;
-`GET /health`; `/api/auth/*`; and the redirect controller, which is registered outside
-the `/api` prefix and therefore outside the guard entirely (AC-86). Redirect traffic is
-never limited at any rate.
+`RateLimitGuard` now applies to **every route under `/api`**, with the key and the
+method set depending on whether the caller is authenticated.
+
+| Surface | Key | Methods | Limit |
+|---|---|---|---|
+| authenticated routes under `/api` | `tenantId` | `POST`, `PATCH`, `PUT`, `DELETE` | 120 / 60 s |
+| **`@Public()` routes under `/api`** | **client IP** | **all methods, including `GET`** | **30 / 60 s** |
+| `/api/auth/*` | client IP, and email inside Better Auth | all | see below |
+
+`@Public()` routes are limited on `GET` too, because
+`GET /api/invitations/:token` opens a tenant transaction exactly as the accept route
+does. Authenticated `GET`s remain unlimited; that is unchanged and deliberate.
+
+**Not limited, deliberately:** `GET /health` (platform probe), and the redirect
+controller, which is registered outside the `/api` prefix and therefore outside the
+guard entirely (AC-86). Redirect traffic is never limited at any rate.
+
+The client IP is the platform-trusted value, `Fly-Client-IP`, never the leftmost
+`X-Forwarded-For` (same rule as `click-events.md`, F-009).
 
 ### `/api/auth/*` is covered by a separate limiter, not by this guard
 
@@ -55,19 +74,48 @@ implementer would have built.
 `authRateLimit` is Express middleware registered in front of `toNodeHandler`. It reuses
 `redisClient` (GC-3) and carries the same degradation posture as everything else here.
 
-| Route | Key | Limit | Key format |
-|---|---|---|---|
-| `POST /api/auth/sign-in/email` | client IP | 10 / 5 min | `sk:{env}:arl:v1:ip:{ip}:signin:{window}` |
-| `POST /api/auth/sign-in/email` | email | 5 / 15 min | `sk:{env}:arl:v1:em:{sha256(email)}:signin:{window}` |
-| `POST /api/auth/sign-up/email` | client IP | 3 / hour | `sk:{env}:arl:v1:ip:{ip}:signup:{window}` |
-| everything else under `/api/auth/*` | client IP | 60 / min | `sk:{env}:arl:v1:ip:{ip}:other:{window}` |
+| Route | Key | Limit | Enforced by | Key format |
+|---|---|---|---|---|
+| `POST /api/auth/sign-in/email` | client IP | 10 / 5 min | Express middleware | `sk:{env}:arl:v1:ip:{ip}:signin:{window}` |
+| `POST /api/auth/sign-in/email` | email | 5 / 15 min | **Better Auth `hooks.before`** | `sk:{env}:arl:v1:em:{sha256(email)}:signin:{window}` |
+| `POST /api/auth/sign-up/email` | client IP | 3 / hour | Express middleware | `sk:{env}:arl:v1:ip:{ip}:signup:{window}` |
+| everything else under `/api/auth/*` | client IP | 60 / min | Express middleware | `sk:{env}:arl:v1:ip:{ip}:other:{window}` |
 
 The client IP is the platform-trusted value, `Fly-Client-IP`, never the leftmost
 `X-Forwarded-For` (the same rule as `click-events.md`, F-009). The email is hashed
 before it becomes a key so the keyspace holds no addresses.
 
-A body cap, `authBodyCap`, sits ahead of both at **32 KiB**, rejecting with 413. It does
-not parse: `express.json()` would consume the stream Better Auth needs.
+### The email bucket runs inside Better Auth, not in Express
+
+Revised 2026-08-04 (F-019). The email lives in the JSON body, and `authRateLimit` is
+Express middleware registered ahead of `toNodeHandler`. Reading the body there consumes
+the stream Better Auth needs, which is the stated reason `authBodyCap` must not parse.
+The two rules contradicted each other, and an implementer meeting that would have
+dropped the email bucket, leaving only the IP bucket: an attacker spread across 1,000
+IPs then gets 10,000 password guesses per 5 minutes against one named account.
+
+The IP-keyed buckets stay in Express, where only headers are needed. **The email-keyed
+bucket moves inside Better Auth as a `hooks.before` middleware**, where `ctx.body.email`
+is already parsed by the framework that owns the body:
+
+```ts
+betterAuth({
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== '/sign-in/email') return;
+      await emailRateLimit.check(sha256(ctx.body.email));   // throws APIError 429
+    }),
+  },
+})
+```
+
+Same Redis client, same key format, same degradation posture. Nothing buffers or
+re-emits a request stream.
+
+A body cap, `authBodyCap`, sits ahead of the Express limiter at **32 KiB**. It does not
+parse: it rejects with 413 when `Content-Length` exceeds the cap, and for a chunked
+request with no or an understated `Content-Length` it counts bytes as they pass and
+destroys the socket once the cap is crossed, without a response body.
 
 ### Accepted cost, stated
 
@@ -118,12 +166,16 @@ the API does when Redis is gone.
 5. A Redis outage never produces a 5xx from the limiter and never lifts the limit
    entirely.
 6. The guard reuses `redisClient` from TASK-030. It opens no second connection (GC-3).
-7. **Every route on the API is covered by exactly one limiter**: `RateLimitGuard` for
-   authenticated writes, `authRateLimit` for `/api/auth/*`, and deliberately none for
-   the redirect path (AC-86) and for `GET /health`. There is no unthrottled
-   unauthenticated write surface.
+7. **Every route under `/api` is covered by a limiter.** `RateLimitGuard` keyed by
+   tenant for authenticated writes and **by IP for `@Public()` routes on all methods**;
+   `authRateLimit` plus the Better Auth hook for `/api/auth/*`. The only unlimited
+   surfaces are `GET /health` and the redirect path (AC-86), both deliberate and neither
+   opening a tenant transaction. **There is no unthrottled surface that can open a
+   Postgres transaction.**
 8. No request body larger than 32 KiB reaches Better Auth, and none larger than 100 KiB
    reaches a Nest handler.
+9. A `@Public()` route cannot be used to exhaust the connection pool the redirect path
+   shares (GC-1, GC-8).
 
 ## Web handling (TASK-052)
 
@@ -138,7 +190,11 @@ Handled in `apiClient`, centrally, so no screen reimplements it.
 ## What the implementer must guarantee
 
 - The guard runs **after** `AuthGuard` (it needs `tenantId`) and **before**
-  `TenantTransactionInterceptor` (a rejected request must not open a transaction).
+  `TenantTransactionInterceptor` (a rejected request must not open a transaction). On a
+  `@Public()` route `AuthGuard` returns at step 0 without populating `RequestContext`,
+  so the guard falls back to the IP key rather than reading a tenant that is not there.
+- The `@Public()` IP bucket is checked **before** the handler parses the capability
+  token, so a malformed-token flood costs one Redis `INCR` and no transaction.
 - `docs/architecture/rate-limits.md` records the limit, the window, the fixed-window
   boundary caveat, and the degraded multiplier.
 - `RateLimitGuard` appears in TASK-056's route enumeration like any other guard, and

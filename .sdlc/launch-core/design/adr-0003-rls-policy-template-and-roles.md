@@ -136,17 +136,12 @@ round. Two assertions in the isolation suite, not one:
 1. `app.tenant_id`, `app.redirect_context` and `app.privileged_erase` each appear in
    exactly one non-test source file.
 2. **Every policy on every tenant-scoped table matches an approved shape by name and
-   by `qual` text.** The approved shapes are the five above and nothing else. A
-   permissive policy, a widened `FOR` clause, or a policy on a table that should not
-   have one fails and names the policy.
-
-**Auth tables are not tenant-scoped.** Better Auth owns `user`, `session`, `account`
-and `verification`. None carries `tenant_id`, none has RLS, and none is enumerated by
-`tenantScopedTables()`. The tenant-to-user relation lives in `tenant_memberships`,
-which is tenant-scoped and RLS-protected. Tenant-facing code reads `user` only through
-`userDirectory.findByIds()`, which joins through `tenant_memberships`, so RLS on the
-joined table does the filtering. This is why looking up a user by email at login is
-not a GC-5 exception and does not become a third exclusion.
+   by `qual` text.** The approved set is the **seven** shapes above and nothing else:
+   `<t>_tenant_isolation`, `<t>_privileged_erase`, `<t>_redirect_read`,
+   `tenants_self_select`, `tenants_self_update`, `tenants_self_insert`,
+   `tenants_privileged_erase`. The same seven are tabulated in
+   `rls-policy-template.md`. A permissive policy, a widened `FOR` clause, or a policy on
+   a table that should not have one fails and names the policy.
 
 **Auth tables are not tenant-scoped.** Better Auth owns `user`, `session`, `account`
 and `verification`. None carries `tenant_id`, none has RLS, and none is enumerated by

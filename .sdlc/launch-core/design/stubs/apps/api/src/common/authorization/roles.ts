@@ -7,7 +7,11 @@
  * The role values and ranks live in @shortkit/contracts (apps/web renders role names).
  * This file holds enforcement only.
  */
-import type { TenantRole, WorkspaceRole } from '@shortkit/contracts';
+import type {
+  AuthorisingTenantRole,
+  TenantRole,
+  WorkspaceRole,
+} from '@shortkit/contracts';
 
 export const REQUIRE_WORKSPACE_ROLE = Symbol('REQUIRE_WORKSPACE_ROLE');
 export const REQUIRE_TENANT_ROLE = Symbol('REQUIRE_TENANT_ROLE');
@@ -22,11 +26,14 @@ export function RequireWorkspaceRole(_min: WorkspaceRole): MethodDecorator {
 }
 
 /**
- * NEVER applied to the same handler as @RequireWorkspaceRole.
- * Minimum is always 'admin' or 'owner'; tenant `member` (rank 0, Amendment A-8) passes
- * none of them, which is what keeps an invitee from reaching tenant-level surfaces.
+ * NEVER applied to the same handler as @RequireWorkspaceRole, and NEVER to a route
+ * carrying @NoTenantTransaction (F-020).
+ *
+ * Takes AuthorisingTenantRole, so the minimum is always 'admin' or 'owner' BY TYPE.
+ * Tenant `member` (rank 0, Amendment A-8) cannot be passed and passes none of them,
+ * which is what keeps an invitee from reaching tenant-level surfaces.
  */
-export function RequireTenantRole(_min: TenantRole): MethodDecorator {
+export function RequireTenantRole(_min: AuthorisingTenantRole): MethodDecorator {
   throw new Error('not implemented');
 }
 
@@ -44,9 +51,31 @@ export function RequireTenantRole(_min: TenantRole): MethodDecorator {
 export interface WorkspaceAuthorizer {
   /** Throws 403 insufficient_workspace_role. */
   assert(workspaceId: string, min: WorkspaceRole): Promise<void>;
-  /** Throws 403 insufficient_tenant_role. */
-  assertTenant(min: TenantRole): Promise<void>;
+  /**
+   * Throws 403 insufficient_tenant_role.
+   * Takes AuthorisingTenantRole, NOT TenantRole: TENANT_ROLE.member is rank 0 and
+   * would authorise every user in the tenant, so it is excluded by type (ADR-0023).
+   */
+  assertTenant(min: AuthorisingTenantRole): Promise<void>;
 }
+
+/**
+ * FORM C. Routes carrying @NoTenantTransaction (F-020).
+ *
+ * POST /api/gdpr/delete skips TenantTransactionInterceptor, so THERE IS NO AMBIENT
+ * CONTEXT WHEN GUARDS RUN. Authorization moves into the handler; it does not disappear.
+ *
+ *   1. AuthGuard                            -> 401 / 403 email_not_verified
+ *   2. RateLimitGuard                       -> 429
+ *   3. handler opens withTenantTransaction(ctx.tenantId)
+ *   4.   assertTenant(TENANT_ROLE.owner)    -> 403 insufficient_tenant_role   AC-105
+ *   5.   assert body.confirmation           -> 400 confirmation_required      AC-92
+ *   6.   collectTenantCensus()
+ *   7. commit, then phase 2 and phase 3
+ *
+ * A @NoTenantTransaction route MAY NOT carry @RequireTenantRole or
+ * @RequireWorkspaceRole. TASK-056 asserts the combination never exists.
+ */
 
 /**
  * 404 BEFORE 403. Existence is never disclosed to a non-member.
@@ -60,6 +89,11 @@ export interface WorkspaceAuthorizer {
  *
  * Runs AFTER AuthGuard and INSIDE the tenant transaction, so its membership lookup is
  * itself under RLS.
+ *
+ * FAILS CLOSED (F-020): with no active tenant context it THROWS
+ * TenantContextMissingError, producing a 500. It NEVER returns true and NEVER degrades
+ * to an unchecked pass. A 500 on a misconfigured route is correct; a silent pass on
+ * POST /api/gdpr/delete is not.
  */
 export declare class WorkspaceGuard {
   canActivate(context: unknown): Promise<boolean>;
@@ -87,9 +121,9 @@ export function assertNotLastOwner(_tenantId: string, _userId: string): Promise<
  * and the adjacent row said workspace_admin. That let a member invited to one client
  * workspace promote themselves to tenant owner and export or delete the whole agency.
  *
- *   PATCH  /api/tenant/members/:id/tenant-role   @RequireTenantRole('owner')
- *   DELETE /api/tenant/members/:id               @RequireTenantRole('owner')
- *   GET    /api/tenant/members                   @RequireTenantRole('owner')
+ *   PATCH  /api/tenant/members/:id/tenant-role   @RequireTenantRole(TENANT_ROLE.owner)
+ *   DELETE /api/tenant/members/:id               @RequireTenantRole(TENANT_ROLE.owner)
+ *   GET    /api/tenant/members                   @RequireTenantRole(TENANT_ROLE.owner)
  *
  * A tenant `admin` may NOT grant 'owner', may NOT revoke 'owner', may NOT grant 'admin'.
  * Only an owner grants or revokes any tenant role.

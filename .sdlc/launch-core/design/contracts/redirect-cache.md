@@ -51,6 +51,8 @@ export interface CachedHost {
   w:  string;   // workspaceId
   b:  { lg: string | null; bc: string | null; fb: string | null } | null; // branding
 }
+// A positive CachedHost is written ONLY for a domain in state 'active'.
+// Any other state caches as MISS. See below.
 
 export interface CachedLink {
   v: 1;
@@ -121,9 +123,28 @@ Normative. Missing a row here produces stale redirects.
 | link deleted | `rdr:v1:{host}:{slug}` | TASK-031 |
 | branding changed | `hst:v1:{h}` for **every** hostname on the workspace | TASK-045 |
 | domain deleted | `hst:v1:{hostname}` | TASK-040 |
+| **domain leaves `active`** (state change, certificate revoked, hostname reassigned) | `hst:v1:{hostname}` | TASK-042 |
 
 Invalidation runs from the `onLinkMutated` subscriber (`link-mutation-events.md`), in
 `afterCommit`, never inside the mutation transaction.
+
+## Only an `active` domain is cached
+
+Moved here 2026-08-04. This rule was stated only in the `resolveHost` stub, and it
+belongs in the contract.
+
+**A positive `hst:` record is written only for a domain in state `active`
+(`redirect-resolution.md`, F-003). Any other state caches as `MISS`.** Caching a
+`pending_verification` domain would reopen F-003 through the cache: the `AND state =
+'active'` predicate in the Postgres query would hold while the cache served an
+unverified claim for up to 300 seconds.
+
+The rule is enforceable in one place because **`resolveHost` is the only writer of
+positive `hst:` records.** Nothing else may write one.
+
+The state-change row above is the write-side half: a domain leaving `active` must drop
+its host key rather than waiting out the 300-second TTL, or it keeps serving for up to
+five minutes after its certificate is revoked or its hostname is reassigned.
 
 **On failure:** retry at 200 ms and 1000 ms. Still failing, log
 `cache_invalidation_failed` at error with `{ key, linkId, attempts }` and increment
@@ -140,6 +161,8 @@ log line is the only signal. Recorded as an accepted gap in ADR-0008.
    branding, and the tenant id needed for click emission.
 5. Negative entries at `rdr:` live 60 s, so a scan of unknown slugs holds at most
    `missRate * 60` keys.
+6. **A cached host record always names a domain that was `active` when it was written**,
+   and a domain leaving `active` drops its key rather than waiting out the TTL.
 
 ## What the implementer must guarantee
 
