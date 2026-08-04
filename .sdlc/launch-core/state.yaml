@@ -14,7 +14,9 @@ gates:
   ship:      { status: pending, approved_at: null }
 
 tasks: {}
-escalations: []
+escalations:
+  - { phase: test, findings: [F-038, F-039], reason: "findings against approved TASK artifacts; routing rule 0 forbids routing them to an agent" }
+  - { phase: test, findings: [], reason: "Test phase step 3 (verify red) is unexecutable — no test runner exists until TASK-001. Bootstrap-wave ruling required before any sdlc-test-architect dispatch." }
 
 log:
   - "2026-08-03 refine: initiative opened"
@@ -86,3 +88,12 @@ log:
   - "2026-08-04 design: the round-4 ladder deviation was WRONG and is recorded as such. I argued the trigger is failure-to-fix and nothing had failed; the incumbent had in fact twice reported work it had only partly propagated (round 2's over-claimed AC-84 sentence, round 4's unpropagated BFF fix). The escalation to a fresh architect resolved in one round what four resumes had not."
   - "2026-08-04 design: GATE APPROVED by Juano. 23 ADRs, 20 contracts, 28 stubs, 37 findings (35 fixed, 2 parked). Phase advanced to test."
   - "2026-08-04 NOTE: all work so far is on main. git.branch_prefix is sdlc/ and commits must carry TASK ids from Implement onward — the initiative branch is created when the first TASK dispatches, not before."
+  - "2026-08-04 test: phase entered. sdlc-scout skipped a THIRD time — repo still holds 3 files outside .sdlc/ (2 agent defs + .gitignore). Documented in design/test-strategy.md, not silent."
+  - "2026-08-04 test: design/test-strategy.md written. 107 ACs allocated across 3 layers (unit / integration / k6 performance) per ADR-0001 and ADR-0018. 3 stories (003, 019, 020) are integration-only — RLS cannot be proven against a mock."
+  - "2026-08-04 test: BLOCKED before any sdlc-test-architect dispatch. Step 3 (verify red for the right reason) is unexecutable — there is no vitest, no package.json, no node_modules, so every test written today fails on import, which the phase explicitly rejects as proving nothing AND which is unfalsifiable. TASK-001 is the runner's producer and cannot itself be preceded by a failing test."
+  - "2026-08-04 test: plan.md's wave table already has wave 0 = TASK-001 alone + a hard ⛔ GATE re-running /juano-sdlc init. What it does not settle is whether wave 0 runs before or after the Test gate. It has to run before. Escalated to Juano — needs a bootstrap ruling plus test_exempt say-so, which phases/test.md step 4 requires explicitly."
+  - "2026-08-04 test: F-038 filed — docker-compose.test.yml has NO producer. ADR-0001 requires it; TASK-001 excludes 'Database' by name; TASK-005's paths do not reach it. Without it pnpm test:integration cannot run locally and 8 of 21 stories are integration-only."
+  - "2026-08-04 test: F-039 filed — the CI `integration` job has NO producer. ADR-0001's follow-ups assign it to TASK-002 but TASK-002's Produces block still lists only the `quality` job. Worst-case shape: pnpm test is DB-free and stays green, so CI passes while the entire RLS surface goes unexercised and SC-1 reads as proven by a suite nothing invokes."
+  - "2026-08-04 test: root cause shared by F-038/F-039 — ADR 'Follow-ups this creates' sections were never propagated into TASK files. Design's contracts: injection pass DID propagate to all 57 TASKs; nobody treated follow-ups as a second propagation source. Retro item."
+  - "2026-08-04 test: OPEN QUESTION for the gate — ADR-0001 cites 'browser-level checks' for async RSC coverage, but no ADR chose a browser tool, no TASK produces one, no AC requires one. Does not block: unit+integration cover all 107 ACs. Either it is manual (belongs in 'Deliberately not automated') or it needs an ADR + TASK."
+  - "2026-08-04 test: DEFECT IN OUR OWN LEDGER — findings.yaml has never parsed as YAML. Four unquoted scalars contain ': ' (F-009's 'javascript: and data:' and 'https:', F-023's 'assertTenant(min: TenantRole)', F-030's 'code rate_limited'), which YAML reads as mapping keys. Plan logged config.yaml as machine-validated; findings.yaml never was. Converted the 4 to >- block scalars and verified all four round-trip byte-identical. File now parses: 39 findings, F-001..F-039, 35 fixed / 2 parked / 2 escalated. Retro item: validate every .sdlc/ YAML on write, not just config.yaml."

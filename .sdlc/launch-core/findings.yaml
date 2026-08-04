@@ -92,8 +92,10 @@
   file: design/contracts/branding.md
   line: 12
   summary: Branding values are stored raw and interpolated into a server-rendered 404 with no output encoding and no URL scheme allowlist — stored XSS on the redirect surface.
-  failure_scenario: z.string().url() stores the original string, so a logoUrl carrying a script payload executes for every anonymous visitor hitting an unknown slug on that hostname. javascript: and data: also pass for fallbackUrl, which becomes a verbatim 302 Location.
-  required_change: Make HTML-attribute escaping normative in renderNotFound; constrain both URLs to https: and store the parsed href; add a Content-Security-Policy to the 404 response-header table.
+  failure_scenario: >-
+    z.string().url() stores the original string, so a logoUrl carrying a script payload executes for every anonymous visitor hitting an unknown slug on that hostname. javascript: and data: also pass for fallbackUrl, which becomes a verbatim 302 Location.
+  required_change: >-
+    Make HTML-attribute escaping normative in renderNotFound; constrain both URLs to https: and store the parsed href; add a Content-Security-Policy to the 404 response-header table.
   owner_slot: sdlc-architect
   status: fixed
   resolved_by: sdlc-architect
@@ -370,7 +372,8 @@
   kind: design
   file: design/contracts/workspace-authorization.md
   line: 80
-  summary: assertTenant(min: TenantRole) accepts 'member', a minimum that authorises every authenticated user in the tenant.
+  summary: >-
+    assertTenant(min: TenantRole) accepts 'member', a minimum that authorises every authenticated user in the tenant.
   failure_scenario: A resource handler meaning assert(resource.workspaceId, 'member') that writes assertTenant('member') gets a check passing for every user in the tenant, letting a tenant member with access to W1 write in W2. The compiler cannot catch the bare literal.
   required_change: Superseded by Juano's ruling of 2026-08-04 — brand TenantRole and WorkspaceRole as nominal types so no literal is assignable to both. That closes this and the wider class.
   owner_slot: sdlc-architect
@@ -499,7 +502,8 @@
   file: design/contracts/rate-limit.md
   line: 308
   summary: Invariant 3 enumerates three 429 sources; Better Auth ships a fourth that is on by default in production and matches none of the shapes.
-  failure_scenario: Better Auth's built-in limiter is disabled in development and enabled in production by default. No artifact disables, configures or accounts for it. If it fires, its body carries no code rate_limited, so web-api-client rule 5 maps it to internal_error and the login screen shows the generic error — exactly what F-027 was filed to prevent. Invisible where it would be caught: off in dev, off in the test environment the three required integration tests run in, on only in production.
+  failure_scenario: >-
+    Better Auth's built-in limiter is disabled in development and enabled in production by default. No artifact disables, configures or accounts for it. If it fires, its body carries no code rate_limited, so web-api-client rule 5 maps it to internal_error and the login screen shows the generic error — exactly what F-027 was filed to prevent. Invisible where it would be caught: off in dev, off in the test environment the three required integration tests run in, on only in production.
   required_change: Decide explicitly in ADR-0013 whether Better Auth's built-in limiter is disabled (ours is the limiter of record, and two limiters on one surface is a debugging trap) or kept and configured; if kept, add its response shape to the table and to invariant 3.
   owner_slot: sdlc-architect
   status: fixed
@@ -645,3 +649,42 @@
     it out of load-bearing. Six further rows of the same table carry the same stale
     attribution and predate this diff; recorded as a Retro item about ownership tables
     written before a TASK split.
+
+# Test phase, step 1 (test strategy). Raised by the orchestrator while resolving
+# fixture ownership for design/test-strategy.md. Both are findings against APPROVED
+# artifacts (tasks/**), so routing.md rule 0 applies: owner_slot is nobody and they
+# escalate to Juano. Neither is routed to an agent.
+
+- id: F-038
+  phase: test
+  source: orchestrator
+  round: 0
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-001.md
+  line: 24
+  summary: ADR-0001 requires docker-compose.test.yml to supply Postgres for the local integration run, but no TASK produces it. TASK-001's Out-of-scope block explicitly excludes "Database", and TASK-005's paths are limited to apps/api/src/db/** and apps/api/drizzle/**.
+  failure_scenario: A developer clones the repo and runs `pnpm test:integration`. There is no compose file, so no Postgres, so the command fails at connection. Eight of twenty-one stories are integration-only (003, 006, 007, 009, 012, 017, 019, 020) and none of them can be verified red locally. The gap surfaces the first time anyone runs the integration suite, which under the current wave order is wave 2 — after TASK-005 and TASK-006 have already been implemented against a suite nobody could run.
+  required_change: Assign docker-compose.test.yml to a TASK. TASK-005 is the natural home (it already owns the migration runner and the non-BYPASSRLS role, and both are useless without a database to apply them to), which means widening its paths to include docker-compose*.yml and amending its Out-of-scope block. TASK-001 is the alternative but contradicts its own scope line.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+  resolved_by: null
+  resolved_round: null
+
+- id: F-039
+  phase: test
+  source: orchestrator
+  round: 0
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-002.md
+  line: 33
+  summary: ADR-0001 and ADR-0018 both assign the CI `integration` job with a postgres:17-alpine service to TASK-002, but TASK-002 was never amended to say so. Its Produces block still names only "Workflow `ci` with a job named `quality`", and its Out-of-scope block lists the performance gate without mentioning the integration job.
+  failure_scenario: TASK-002's implementer reads the TASK, produces the `quality` job, and stops — correctly, per its own Produces block. Every integration test then exists in the repo and never runs in CI. Because `pnpm test` is deliberately DB-free and passes, CI stays green while the entire RLS and tenant-isolation surface goes unexercised. SC-1's "proven by an automated suite" would be satisfied on paper by a suite that no pipeline invokes.
+  required_change: Amend TASK-002's Produces to include the `integration` job running `pnpm test:integration` against a postgres:17-alpine service container, and add AC coverage for it. ADR-0001's Follow-ups section already states this is TASK-002's job; only the TASK file is out of date. Note that AC-5 covers the four quality commands and does not mention integration, so the AC may need amending too, which reopens STORY-002.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+  resolved_by: null
+  resolved_round: null
