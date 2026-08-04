@@ -1,14 +1,14 @@
 slug: launch-core
 title: Launchable core — tenancy, links, redirect, custom domains
 type: feature
-phase: design
+phase: test
 created: 2026-08-03
 updated: 2026-08-03
 
 gates:
   refine:    { status: approved, approved_at: 2026-08-03 }
   plan:      { status: approved, approved_at: 2026-08-03 }
-  design:    { status: pending, approved_at: null }
+  design:    { status: approved, approved_at: 2026-08-04 }
   test:      { status: pending, approved_at: null }
   implement: { status: pending, approved_at: null }
   ship:      { status: pending, approved_at: null }
@@ -81,3 +81,8 @@ log:
   - "2026-08-04 design: fix is X-Shortkit-Client-IP + X-Shortkit-Proxy-Auth with a constant-time secret match, falling back to Fly-Client-IP. This contradicts F-009 (never trust a client-supplied IP header) and the architect flagged it for the re-review to check specifically. Claims click events are untouched because custom domains CNAME to Fly directly and never traverse the BFF."
   - "2026-08-04 design: scoped re-review round 5 dispatched. THIS IS THE LADDER CAP. If changes-requested, stop dispatching and adjudicate every survivor with a written ruling; load-bearing survivors go BLOCKED and escalate to Juano. Auditor asked to classify each finding as load-bearing / real-but-self-contained / contestable."
   - "2026-08-04 design: NEW ITEM FOR JUANO — BFF_PROXY_SECRET is a shared secret across two deployables and a mismatch degrades SILENTLY into one shared bucket rather than failing loudly. Architect said it disliked this most and could not remove it without risking a boot failure on a misconfigured deploy."
+  - "2026-08-04 design: rework round 5/5 by a FRESH architect on a stronger model, per the ladder. All 5 findings addressed. It also ran tsc --noEmit --strict on the touched stubs — four prior rounds had called compilation impossible. Orchestrator reproduced the check independently on the resolver stub: exit 0. First compile-verified artifact in the phase."
+  - "2026-08-04 design: LADDER CAP REACHED after 5 fix rounds. Final re-review returned changes-requested with 2 new majors, BOTH classified (b) real-but-self-contained by the auditor. Neither load-bearing, so neither BLOCKED. Adjudicated per superpowers-map.md: F-036 and F-037 PARKED with written rulings, and the warnings carried into TASK-009 and TASK-058 so an implementer meets them where they will do the work."
+  - "2026-08-04 design: the round-4 ladder deviation was WRONG and is recorded as such. I argued the trigger is failure-to-fix and nothing had failed; the incumbent had in fact twice reported work it had only partly propagated (round 2's over-claimed AC-84 sentence, round 4's unpropagated BFF fix). The escalation to a fresh architect resolved in one round what four resumes had not."
+  - "2026-08-04 design: GATE APPROVED by Juano. 23 ADRs, 20 contracts, 28 stubs, 37 findings (35 fixed, 2 parked). Phase advanced to test."
+  - "2026-08-04 NOTE: all work so far is on main. git.branch_prefix is sdlc/ and commits must carry TASK ids from Implement onward — the initiative branch is created when the first TASK dispatches, not before."
