@@ -32,7 +32,8 @@ pino({
   redact: {
     paths: [
       'req.headers.authorization', 'req.headers.cookie', 'req.headers["fly-client-ip"]',
-      'req.headers["x-forwarded-for"]', 'res.headers["set-cookie"]',
+      'req.headers["x-forwarded-for"]', 'req.headers["x-shortkit-client-ip"]',
+      'req.headers["x-shortkit-proxy-auth"]', 'res.headers["set-cookie"]',
       '*.password', '*.token', '*.secret', '*.rawToken', '*.tokenDigest',
       '*.verificationToken', '*.ip', '*.ipHash',
       'req.body.password', 'req.body.confirmation',
@@ -47,6 +48,13 @@ pino({
 `ip_hash` and never a raw IP, and a log line carrying the raw IP defeats that. `ipHash`
 is redacted too: it is pseudonymous per tenant (ADR-0010, F-009) and a log aggregator is
 a weaker boundary than the database.
+
+The two `x-shortkit-*` entries were added 2026-08-04 (F-032). `x-shortkit-client-ip` is
+a raw client IP on every browser-originated request, and `x-shortkit-proxy-auth`
+carries `BFF_PROXY_SECRET` verbatim; the `'*.secret'` wildcard matches a property one
+level deep and does not reach a header key. TASK-003 ships both entries in wave 1,
+before TASK-009 and TASK-012 introduce the headers, because a later append would have
+no owner.
 
 **Every log line carries `request_id`, and nothing carries a body by default.** The
 request logger emits method, path, status and duration. Logging a request or response

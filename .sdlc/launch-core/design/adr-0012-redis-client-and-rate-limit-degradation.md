@@ -53,9 +53,19 @@ what lets AC-52 and AC-53 return a correct answer from Postgres rather than hang
 atomically. `Retry-After` is the seconds remaining in the window.
 
 **On Redis failure the limiter falls back to an in-process token bucket with the same
-limit and window,** keyed by tenant in an LRU capped at 10,000 entries. It does not
-fail open and it does not fail closed. The limit still applies; it applies per machine
-instead of per fleet.
+limits and windows.** It does not fail open and it does not fail closed. The limit
+still applies; it applies per machine instead of per fleet.
+
+**The fallback holds two maps, one per key space** (revised 2026-08-04, F-034; the
+stub's `LocalRateLimiter` is the normative shape). Tenant principals — produced only
+by authenticated callers — live in a plain LRU capped at
+`LOCAL_LIMITER_MAX_TENANTS = 10_000`. `@Public()` IP principals — chosen by anonymous
+callers — live in a **separate** map capped at `LOCAL_LIMITER_MAX_PUBLIC_IPS =
+10_000`, carrying the same three rules F-028 set for `LocalAuthRateLimiter`: lazy
+expiry plus a periodic sweep, and eviction that skips entries at or over their limit,
+with forced eviction counted and logged. Separating the key spaces is what stops an
+anonymous attacker churning addresses from evicting a tenant's write bucket during an
+outage.
 
 A fallback decision increments `rate_limit_degraded_total` and logs once per minute at
 warn level. It never returns 5xx.
@@ -105,21 +115,23 @@ one per feature.
   hiccup and fall through to Postgres. On the redirect path that is a slow request; on
   the limiter it is a degraded decision. Both are logged, so the logs will contain
   noise that looks like an outage and is not.
-- The LRU cap means a burst spanning more than 10,000 distinct tenants evicts buckets
-  and effectively resets their limits. Not reachable at this scale.
-- **With Redis down, the guard's local limiter holds `@Public()` IP keys alongside
-  tenant keys**, so an attacker churning addresses can evict tenant buckets and reset a
-  tenant's window. The eviction rule in `rate-limit.md` skips entries at or over their
-  limit, which blunts it, and the churn has to pass the IP buckets first. It remains a
-  real cross-talk between two key spaces that share one map during degradation, and it
-  disappears the moment Redis returns.
+- The tenant map's LRU cap means a burst spanning more than 10,000 distinct tenants
+  evicts buckets and effectively resets their limits. Not reachable at this scale.
+- **The fallback is now two maps rather than one** (F-034), so the earlier cross-talk
+  — anonymous IP churn evicting tenant buckets during an outage — is gone by
+  construction, at the cost of a second cap, a sweep, and roughly double the worst-case
+  fallback memory (still ~3 MB per map bound). The public-IP map's forced-eviction
+  path shares `local_rate_limit_forced_eviction_total`, so pressure on either local
+  auth or public-IP maps surfaces on one counter.
 
 ### Follow-ups this creates
 
 - TASK-030 owns the client, its options, and a `cacheAvailable` health signal.
 - TASK-032 uses `enableOfflineQueue: false` and the 50 ms timeout for the bounded
   cache access, and owns `simulateRedisUnavailable()`.
-- TASK-051 owns the Lua script, the local bucket, `rate_limit_degraded_total`, and
+- TASK-051 owns the Lua script, **both local fallback maps** (tenant-keyed and
+  public-IP-keyed, F-034), `rate_limit_degraded_total`, and
   `docs/architecture/rate-limits.md` recording 120 writes per 60 seconds and the
-  boundary-burst caveat.
+  boundary-burst caveat. The public-IP map's principal comes from
+  `resolveRateLimitPrincipal` (TASK-009, `rate-limit.md`).
 - Revisit the degraded multiplier before enabling more than one Fly machine.

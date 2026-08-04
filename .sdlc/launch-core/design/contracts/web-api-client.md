@@ -79,8 +79,8 @@ Ordered. Normative.
 | upstream URL | see the normative construction below |
 | auth | `Authorization: Bearer <sk_at cookie>` |
 | cookies upstream | **never forwarded** |
-| request headers forwarded | `content-type`, `accept`, `x-request-id` only |
-| headers the proxy **adds** | `x-shortkit-client-ip` (the browser's address, from Vercel's own headers) and `x-shortkit-proxy-auth` (`BFF_PROXY_SECRET`) |
+| request headers forwarded | `content-type`, `accept`, `x-request-id` only. **Inbound `x-shortkit-*` headers are never forwarded**; the proxy sets both of its own afresh on every request |
+| headers the proxy **adds** | `x-shortkit-client-ip` (the browser's address — see the rule below) and `x-shortkit-proxy-auth` (`BFF_PROXY_SECRET`) |
 | response headers returned | `content-type`, `retry-after`, `x-request-id` only |
 | CSRF | mutating methods require `Origin` to equal the deployment origin, else 403 |
 | redirects | `redirect: 'manual'` on the upstream fetch. A 3xx is returned to the caller, never followed |
@@ -118,6 +118,32 @@ Step 1 runs on the **decoded** segments, because that is the form traversal arri
 Step 3 is not redundant with steps 1 and 2; it is the assertion that makes any future
 change to them safe.
 
+### The browser address the proxy forwards
+
+Added 2026-08-04 (F-035). The source of `x-shortkit-client-ip` is normative:
+**`x-vercel-forwarded-for`**, read whole. It is set by Vercel to the connecting
+client's public address, a client cannot spoof it because Vercel overwrites inbound
+forwarding headers on non-Enterprise plans, and unlike `x-forwarded-for` it is not
+rewritten by a proxy stacked on top of Vercel.
+
+- **Never** `x-forwarded-for` split on commas, and **never the leftmost entry of any
+  multi-valued list** — that is the construct F-009 exists to forbid, moved one hop
+  upstream.
+- When the header is absent (local `next dev`), the proxy **omits**
+  `x-shortkit-client-ip` entirely; the API then falls back to `Fly-Client-IP`
+  (`rate-limit.md`). It never substitutes another header.
+- **This assumption holds only while requests reach Vercel directly.** Putting any
+  proxy in front of Vercel (Cloudflare, a corporate gateway, a Vercel Enterprise
+  trusted-proxy configuration) changes who controls the client address and invalidates
+  it; that change requires revisiting this section, not just DNS.
+
+`BFF_PROXY_SECRET` is a **required, server-only** environment variable on Vercel,
+registered by TASK-004 alongside `API_BASE_URL` (never `NEXT_PUBLIC_*`). Its value is
+**never logged on the Vercel side** — not in route-handler logs, not in error paths
+that serialise headers — mirroring the API-side redaction (`logging-and-headers.md`,
+F-032). On the Fly side the variable is required at boot in production
+(`rate-limit.md`, F-033).
+
 ## Cookies
 
 Set by the proxy on the Vercel origin. Both `HttpOnly; Secure; SameSite=Lax; Path=/`.
@@ -154,10 +180,12 @@ token is ever exposed to the client**, in any form.
 7. The proxy cannot reach any upstream path outside `/api/`. Traversal segments are
    rejected before the URL is built.
 8. **The API sees the browser's address, not Vercel's.** The proxy adds
-   `x-shortkit-client-ip` and authenticates it with `x-shortkit-proxy-auth`. Without
-   this every IP-keyed rate limit would collapse into one bucket shared by every user
-   (`rate-limit.md`). A client-supplied `x-shortkit-client-ip` arriving without a valid
-   secret is ignored, so this does not reintroduce F-009's trust problem.
+   `x-shortkit-client-ip` — sourced from `x-vercel-forwarded-for` only, never a
+   leftmost list entry (F-035) — and authenticates it with `x-shortkit-proxy-auth`.
+   Without this every IP-keyed rate limit would collapse into one bucket shared by
+   every user (`rate-limit.md`). A client-supplied `x-shortkit-client-ip` arriving
+   without a valid secret is ignored, so this does not reintroduce F-009's trust
+   problem, and inbound `x-shortkit-*` headers are never forwarded upstream.
 
 ## What the implementer must guarantee
 

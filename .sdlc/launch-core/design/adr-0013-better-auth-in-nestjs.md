@@ -40,7 +40,10 @@ const server = app.getHttpAdapter().getInstance();
 server.all(
   '/api/auth/{*splat}',
   authBodyCap({ maxBytes: 32 * 1024 }),   // bounds the body without consuming the stream
-  authRateLimit(redisClient),             // IP-keyed only: headers, never the body
+  authRateLimit(authRateLimitPort),       // IP-keyed only: headers, never the body.
+                                          // Through AUTH_RATE_LIMIT_PORT (F-024), never
+                                          // redisClient directly; principal from
+                                          // resolveRateLimitPrincipal (F-031).
   toNodeHandler(auth),
 );
 
@@ -315,4 +318,11 @@ a wave-6 dependency.
   absent** (F-027).
 - Contracts: `design/contracts/auth-tokens.md`, `design/contracts/rate-limit.md`.
 - **TASK-013 appends to `beforeHooks`; it does not replace the array.**
-- TASK-009 sets `rateLimit: { enabled: false }` and owns the comment saying why.
+- TASK-009 sets `rateLimit: { enabled: false }`, owns the comment saying why, **and
+  owns a unit test asserting the composed `betterAuth` config carries
+  `rateLimit.enabled === false`**. Of the four verified Better Auth facts this design
+  leans on, this is the only one that degrades silently and only in production — the
+  hook signature and `ctx.body.email` fail loudly, and the `ctx.path` predicate is
+  pinned by the three integration tests — so it gets its own pin. The obligation to
+  re-verify all four facts against the pinned version travels with TASK-001's pinning
+  step (ADR-0018).

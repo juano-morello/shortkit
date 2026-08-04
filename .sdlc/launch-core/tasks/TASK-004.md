@@ -34,3 +34,5 @@ Apex-domain binding — blocked on the unresolved apex-domain question, so this 
 **Produces**
 
 Deployed web base URL; root layout at `apps/web/app/layout.tsx`; environment variable `NEXT_PUBLIC_API_BASE_URL`.
+
+**Amended 2026-08-04 (Design round 5).** ADR-0014's backend-for-frontend topology adds two **server-only** variables this TASK must also register: `API_BASE_URL` (the Fly origin the proxy calls, never exposed to the browser) and `BFF_PROXY_SECRET` (shared with the Fly side; the API honours a forwarded client address only on a constant-time match). **Neither may carry the `NEXT_PUBLIC_` prefix** — that prefix inlines a value into the client bundle, which would publish the secret. `BFF_PROXY_SECRET` is never logged on the Vercel side.

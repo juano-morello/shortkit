@@ -78,10 +78,17 @@ deployment's own origin. `SameSite=Lax` already blocks cross-site form posts; th
 **The proxy forwards the browser's address, authenticated by a shared secret.** Added
 2026-08-04, found while verifying F-030. Because the browser never talks to Fly, the API
 sees Vercel's egress address for every user, so anything keyed on the client IP collapses
-into one bucket for the whole product. The proxy adds `X-Shortkit-Client-IP` and
-`X-Shortkit-Proxy-Auth: <BFF_PROXY_SECRET>`, and the API honours the first only when the
-second matches. Details and the reason this does not weaken F-009 are in
-`rate-limit.md`.
+into one bucket for the whole product. The proxy adds `X-Shortkit-Client-IP` — sourced
+from `x-vercel-forwarded-for` only, never a leftmost list entry (F-035,
+`web-api-client.md`) — and `X-Shortkit-Proxy-Auth: <BFF_PROXY_SECRET>`. The API honours
+the first only through `resolveRateLimitPrincipal` (F-031, the single trusted-proxy
+decision site, normative in `rate-limit.md`): constant-time secret match, forwarded
+value must parse as an IP, unset secret or absent header disables the branch outright
+(F-033). A mismatch falls back to `Fly-Client-IP` **with signal**:
+`bff_proxy_auth_mismatch_total` plus a once-per-minute warn. In production the API
+asserts at boot that `BFF_PROXY_SECRET` is set — "set" is locally checkable, "matches"
+is not, and failing boot on a mismatch would take down the redirect surface (GC-8).
+Details and the reason this does not weaken F-009 are in `rate-limit.md`.
 
 ## Alternatives considered
 
@@ -126,9 +133,11 @@ second matches. Details and the reason this does not weaken F-009 are in
   credential. `httpOnly` and `Secure` are the whole defence.
 - **The BFF hides every user behind one address**, so anything the API wants to key on
   the client has to be forwarded and authenticated explicitly. Rate limiting is the case
-  this design found; any future per-client control inherits the same problem, and a
-  `BFF_PROXY_SECRET` mismatch degrades silently into one shared bucket rather than
-  failing loudly.
+  this design found; any future per-client control inherits the same problem. A
+  `BFF_PROXY_SECRET` mismatch still degrades into one shared bucket rather than failing
+  the deploy, but no longer silently: it shows on `bff_proxy_auth_mismatch_total` and a
+  once-per-minute warn (F-033), and an unset variable on the Fly side fails boot in
+  production.
 
 ### Follow-ups this creates
 
@@ -138,7 +147,9 @@ second matches. Details and the reason this does not weaken F-009 are in
 - TASK-012 owns the proxy route handler, both cookies, the refresh path, `useSession()`,
   and `requireAuth()`.
 - TASK-004 keeps `NEXT_PUBLIC_API_BASE_URL` for anything genuinely public and adds
-  server-only `API_BASE_URL`. Nothing authenticated uses the public one.
+  server-only `API_BASE_URL` **and server-only `BFF_PROXY_SECRET`** (required
+  configuration on both deployables; never `NEXT_PUBLIC_*`, never logged). Nothing
+  authenticated uses the public one.
 - TASK-052's 429 handling lives in `apiClient`, which sees the proxied response
   unchanged including `Retry-After`.
 - Contract: `design/contracts/web-api-client.md`.

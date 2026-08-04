@@ -1,7 +1,7 @@
 # Contract: rate limiting
 
 - **Boundary:** every route under `/api`, including `@Public()` routes and the pre-auth `/api/auth/*` surface; and the web client that renders a 429.
-- **Normative form:** `apps/api/src/common/rate-limit/rate-limit.types.ts` and `apps/api/src/auth/ports/auth-rate-limit.port.ts` (stubs under `design/stubs/`).
+- **Normative form:** `apps/api/src/common/rate-limit/rate-limit.types.ts`, `apps/api/src/auth/ports/auth-rate-limit.port.ts`, and `apps/api/src/auth/resolve-rate-limit-principal.ts` (stubs under `design/stubs/`).
 - **Produced by:** TASK-009 (auth surface: body cap, IP buckets, email hook, the port) and TASK-051 (`RateLimitGuard`, the Redis implementations). See the ownership table below.
 - **Consumed by:** TASK-052 (web handling), TASK-056 (enumeration).
 - **ADRs:** ADR-0012, ADR-0006, ADR-0013.
@@ -86,28 +86,63 @@ limiter, and it would have appeared only once the BFF and the limiter were deplo
 together.
 
 ```
-BFF sets   X-Shortkit-Client-IP: <browser address, from Vercel's own headers>
+BFF sets   X-Shortkit-Client-IP: <browser address, from x-vercel-forwarded-for>
            X-Shortkit-Proxy-Auth: <shared secret, BFF_PROXY_SECRET>
 ```
 
-The API resolves the rate-limit principal as:
+**The resolution rule is normative in
+`apps/api/src/auth/resolve-rate-limit-principal.ts`** (F-031), which exports the header
+constants (`BFF_CLIENT_IP_HEADER`, `BFF_PROXY_AUTH_HEADER`, `FLY_CLIENT_IP_HEADER`) and
+`resolveRateLimitPrincipal(headers)` — **the only site that makes the trusted-proxy
+decision**. Every IP-keyed bucket, in the Express auth middleware (TASK-009) and in
+`RateLimitGuard` (TASK-051), obtains its principal from that function. Nothing else
+reads these headers.
 
-1. `X-Shortkit-Client-IP`, **only when `X-Shortkit-Proxy-Auth` matches
-   `BFF_PROXY_SECRET`** in constant time. This is the BFF acting as a configured trusted
-   proxy.
-2. Otherwise `Fly-Client-IP`, for anything reaching Fly directly.
+`resolveRateLimitPrincipal` returns `X-Shortkit-Client-IP` **only when all four hold**
+(F-033):
+
+1. `BFF_PROXY_SECRET` is set and non-empty on the API side. Unset or empty **disables
+   the trusted-proxy branch unconditionally** — the comparison in rule 3 is never
+   *reached*, not merely never equal.
+2. `X-Shortkit-Proxy-Auth` is present and non-empty. An absent or empty header never
+   matches — again the comparison is never reached. Rules 1 and 2 close the naive
+   implementation's bypass: `header === process.env.BFF_PROXY_SECRET` is
+   `undefined === undefined` for a direct anonymous request with the variable unset.
+3. A constant-time comparison of the header against `BFF_PROXY_SECRET` matches. This is
+   the BFF acting as a configured trusted proxy.
+4. `X-Shortkit-Client-IP` parses as an IPv4 or IPv6 address (`net.isIP`). This bounds
+   the value before it becomes a Redis key segment or a local map key; Node accepts
+   16 KiB headers, and an unparsed value would void the local limiter's memory budget.
+
+Otherwise it returns `Fly-Client-IP`, for anything reaching Fly directly. The leftmost
+`X-Forwarded-For` entry is never used, for any purpose.
+
+**Fail-open-with-signal, not fail-to-boot, not silent** (F-033). A present
+`X-Shortkit-Proxy-Auth` that fails rule 1, 2 or 3 — and a valid secret whose forwarded
+value fails rule 4 — increments **`bff_proxy_auth_mismatch_total`** and logs at warn
+once per minute, so a secret mismatch shows up as a counter rather than as users
+reporting that signup is broken. The request itself proceeds under the `Fly-Client-IP`
+fallback; an unauthenticated forwarded header is ignored, never rejected, so probing
+reveals nothing. Failing boot on a mismatch would be wrong: the same Fly process serves the
+redirect path (GC-8, AC-86), and "matches" cannot be verified locally. What *is*
+locally checkable is asserted: **`assertBffProxySecretConfigured()` fails boot in
+production when `BFF_PROXY_SECRET` is unset or empty** — TASK-009 calls it in `main.ts`
+beside the auth mount. `BFF_PROXY_SECRET` is required configuration on both
+deployables: Fly (this assertion) and Vercel (TASK-004, `web-api-client.md`).
 
 **This does not weaken F-009.** That rule forbids trusting a *client-supplied* address,
-and an anonymous attacker cannot produce the shared secret. A request presenting
-`X-Shortkit-Client-IP` without a valid `X-Shortkit-Proxy-Auth` has the header ignored
-entirely rather than rejected, so probing for it reveals nothing.
+and an anonymous attacker cannot produce the shared secret.
 
-**Click events are unaffected and keep `Fly-Client-IP` verbatim.** The redirect path is
-served by Fly directly, because custom domains CNAME to `fly.dev` and never traverse the
-BFF. `click-events.md` needs no change.
+**Click events are unaffected and keep `trustedClientIp()` verbatim** — a **separate
+function that must not be merged with `resolveRateLimitPrincipal`**. The redirect path
+is served by Fly directly, because custom domains CNAME to `fly.dev` and never traverse
+the BFF, so it must never honour a forwarded address; a shared resolver would put an
+attacker-settable value into `ip_hash` and reopen F-009 on the append-only store.
+`click-events.md` needs no change.
 
 The secret is rotated by setting both sides and redeploying; a mismatch degrades to
-rule 2, which is safe and shows up as every user sharing a bucket.
+the `Fly-Client-IP` fallback, which is safe, and is visible on
+`bff_proxy_auth_mismatch_total`.
 
 ### `/api/auth/*` is covered by a separate limiter, not by this guard
 
@@ -127,9 +162,18 @@ implementer would have built.
 | `POST /api/auth/sign-up/email` | client IP | 3 / hour | Express middleware | `sk:{env}:arl:v1:ip:{ip}:signup:{window}` |
 | everything else under `/api/auth/*` | client IP | 60 / min | Express middleware | `sk:{env}:arl:v1:ip:{ip}:other:{window}` |
 
-The client IP is the platform-trusted value, `Fly-Client-IP`, never the leftmost
-`X-Forwarded-For` (the same rule as `click-events.md`, F-009). The email is hashed
-before it becomes a key so the keyspace holds no addresses.
+The client IP is the value returned by `resolveRateLimitPrincipal(headers)` — see
+"Which address the client IP means" above (F-031). Behind the BFF, `Fly-Client-IP`
+read directly is Vercel's egress address for every user, which is exactly the
+collapsed-bucket outage that section exists to prevent; and the leftmost
+`X-Forwarded-For` is never used (F-009). The email is hashed before it becomes a key
+so the keyspace holds no addresses.
+
+**Better Auth's own limiter is disabled on this surface** — TASK-009 sets
+`rateLimit: { enabled: false }` (ADR-0013, F-030) and owns a unit test asserting the
+composed `betterAuth` config carries it. The table above is the complete set of
+limiters on `/api/auth/*`, and invariant 3's enumeration of 429 sources depends on that
+disable, which otherwise degrades silently and only in production.
 
 ### Ownership and injection order
 
@@ -144,6 +188,7 @@ outcome was that it never got built.
 |---|---|---|
 | `authBodyCap` | `apps/api/src/auth/middleware/auth-body-cap.ts` | **TASK-009** |
 | `authRateLimit` (IP buckets) | `apps/api/src/auth/middleware/auth-rate-limit.ts` | **TASK-009** |
+| `resolveRateLimitPrincipal`, header constants, `assertBffProxySecretConfigured` | `apps/api/src/auth/resolve-rate-limit-principal.ts` | **TASK-009** (wave 2; TASK-051's guard imports it) |
 | email bucket, `hooks.before` | `apps/api/src/auth/auth.config.ts` | **TASK-009** |
 | `AuthRateLimitPort` and its token | `apps/api/src/auth/ports/auth-rate-limit.port.ts` | **TASK-009** |
 | `LocalAuthRateLimiter` (in-process) | `apps/api/src/auth/ports/local-auth-rate-limiter.ts` | **TASK-009** |
@@ -358,10 +403,27 @@ Neither fail-open nor fail-closed. **The limit still applies, locally.**
 
 ```ts
 export interface LocalRateLimiter {
-  /** In-process token bucket, same limit and window, LRU-capped at 10,000 tenants. */
-  check(tenantId: string): { allowed: boolean; retryAfterSeconds: number };
+  /** Authenticated writes. Tenant-keyed map, LRU-capped at LOCAL_LIMITER_MAX_TENANTS. */
+  checkTenant(tenantId: string): RateLimitDecision;
+  /** @Public() routes. SEPARATE IP-keyed map (F-034), capped at LOCAL_LIMITER_MAX_PUBLIC_IPS. */
+  checkPublicIp(clientIp: string): RateLimitDecision;
 }
 ```
+
+**Two maps, two key spaces** (F-034, and ADR-0012 revised to match). Tenant ids are
+produced only by authenticated callers; `@Public()` IPs are chosen by anonymous ones.
+In a shared map an attacker churning ~10,000 addresses across `@Public()` routes during
+a Redis outage would evict a tenant's write bucket and reset its 120/60s window at will
+— during exactly the window when the redirect path is already on its Postgres fallback
+(GC-1, GC-8). So:
+
+- `checkTenant` keeps its plain LRU at `LOCAL_LIMITER_MAX_TENANTS = 10_000`; its keys
+  require authentication, so F-028's extra rules are unnecessary there.
+- `checkPublicIp` gets its own map at `LOCAL_LIMITER_MAX_PUBLIC_IPS = 10_000` with
+  **all three F-028 rules**: lazy expiry plus a sweep every
+  `LOCAL_AUTH_LIMITER_SWEEP_MS`, and eviction that skips entries at or over their
+  limit, with forced eviction counted on `local_rate_limit_forced_eviction_total` and
+  logged at warn.
 
 On a Redis error or a 50 ms timeout the guard consults `LocalRateLimiter`, increments
 `rate_limit_degraded_total`, and logs at warn once per minute. It never returns 5xx.
@@ -382,7 +444,10 @@ the API does when Redis is gone.
    (AC-83). From `/api/auth/*` the retry value is also in the body as
    `retryAfterSeconds`, because that surface is mounted outside Nest and its header
    control is not guaranteed. `apiClient` normalises both into
-   `ApiError.retryAfterSeconds`, so no screen sees the difference (F-027).
+   `ApiError.retryAfterSeconds`, so no screen sees the difference (F-027). This
+   enumeration is complete **only because Better Auth's built-in limiter — a fourth
+   429 source, on by default in production — is disabled**: `rateLimit: { enabled:
+   false }`, set and unit-tested by TASK-009 (ADR-0013, F-030).
 4. The redirect path returns 302 at any rate (AC-86).
 5. A Redis outage never produces a 5xx from the limiter and never lifts the limit
    entirely.
@@ -416,6 +481,9 @@ Handled in `apiClient`, centrally, so no screen reimplements it.
   so the guard falls back to the IP key rather than reading a tenant that is not there.
 - The `@Public()` IP bucket is checked **before** the handler parses the capability
   token, so a malformed-token flood costs one Redis `INCR` and no transaction.
+- **Every IP-keyed decision obtains its principal from `resolveRateLimitPrincipal`**
+  (F-031). No second resolver, no inlined header reads, and the redirect path's
+  `trustedClientIp()` is never called for rate limiting nor merged with it.
 - `docs/architecture/rate-limits.md` records the limit, the window, the fixed-window
   boundary caveat, and the degraded multiplier.
 - `RateLimitGuard` appears in TASK-056's route enumeration like any other guard, and

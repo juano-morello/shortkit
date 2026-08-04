@@ -506,3 +506,142 @@
   resolved_by: sdlc-architect
   resolved_round: 4
   note: The auditor asserts this framework default from knowledge, not from a check in this environment. Confirm against the docs for the pinned better-auth version.
+
+# --- Round 5, the last fix round the ladder allows. F-028/029/030 verdicted ADDRESSED.
+# --- All five below trace to ONE cause: round 4's BFF client-IP fix was made in prose
+# --- and ADRs and never propagated into the normative stubs and contracts that
+# --- implementers build from. The auditor confirmed the round-4 diagnosis and
+# --- mechanism are sound; what failed is propagation.
+
+- id: F-031
+  phase: design
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: design
+  file: design/stubs/apps/api/src/common/rate-limit/rate-limit.types.ts
+  line: 113
+  summary: The BFF client-IP fix exists only in prose. Both normative stub blocks and rate-limit.md's /api/auth/* section still state Fly-Client-IP unconditionally, so the collapsed-bucket outage is still what gets built.
+  failure_scenario: rate-limit.md names the stub as the normative form, and the stub says "the client IP is the platform-trusted value (Fly-Client-IP), NEVER the leftmost X-Forwarded-For" directly above both authRateLimitKey (TASK-009) and RateLimitGuard (TASK-051). Neither stub nor the /api/auth/* section mentions X-Shortkit-Client-IP, X-Shortkit-Proxy-Auth or BFF_PROXY_SECRET. TASK-009 implements from the stub in wave 2 and the entire product shares 10 sign-ins per 5 minutes. Mirror risk - an implementer building a shared resolveClientIp() helper from the prose lets the redirect path pick it up, putting an attacker-settable value into ip_hash and reopening F-009 on the append-only store.
+  required_change: Put the resolution rule in the normative artifact the way F-028's constants were. Replace both stub comment blocks, export named header constants, specify a single resolveRateLimitPrincipal(headers) as the only site making the trusted-proxy decision, and state that click-events.md's trustedClientIp is separate and must not be merged with it.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: sdlc-architect-fresh
+  resolved_round: 5
+  category: load-bearing
+
+- id: F-032
+  phase: design
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: design
+  file: design/contracts/logging-and-headers.md
+  line: 14
+  summary: The two new headers carry a raw client IP and a shared secret, and neither is in the redact list the same contract declares append-only with a same-commit rule.
+  failure_scenario: REDACT_PATHS enumerates fly-client-ip and x-forwarded-for precisely because GC-9 forbids a raw IP in any field from any header. x-shortkit-client-ip is a raw IP on every browser-originated API request; x-shortkit-proxy-auth carries BFF_PROXY_SECRET verbatim. The '*.secret' wildcard matches a property one level deep and does not reach a header key. TASK-003 writes logger.ts in wave 1, before TASK-009 introduces the headers, so nobody holds the pen. A leaked log export then lets anyone forge X-Shortkit-Client-IP against Fly directly and defeat every IP-keyed auth bucket.
+  required_change: Add both header paths to REDACT_PATHS in the contract, ADR-0022's Decision block and the logger stub, in this diff, and name the owning TASK. State in web-api-client.md that BFF_PROXY_SECRET is never logged on the Vercel side either.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: sdlc-architect-fresh
+  resolved_round: 5
+  category: load-bearing
+
+- id: F-033
+  phase: design
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: design
+  file: design/contracts/rate-limit.md
+  line: 95
+  summary: An unset BFF_PROXY_SECRET is an unspecified state a naive constant-time comparison resolves as a match, with no failure signal and no validation of the forwarded value.
+  failure_scenario: Three gaps. (1) The design chose not to fail at boot, so unset-on-Fly is reachable; the obvious implementation compares the header against process.env.BFF_PROXY_SECRET, and for a direct request that is undefined vs undefined - a match. An anonymous attacker sends X-Shortkit-Client-IP with no secret and has it trusted, minting a fresh bucket per request and voiding every IP-keyed auth limit. (2) No signal, while every other degradation in the design increments a counter. (3) The forwarded value is never validated as an IP, so it flows unbounded into a Redis key and a map key; Node accepts 16 KiB headers, making the 6 MB memory estimate wrong by a factor of a hundred.
+  required_change: State that unset or empty BFF_PROXY_SECRET disables the trusted-proxy branch unconditionally and that an absent or empty header never matches - the comparison is never reached, not merely never equal. Require the forwarded value to parse as an IP. Add bff_proxy_auth_mismatch_total plus a once-per-minute warn.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: sdlc-architect-fresh
+  resolved_round: 5
+  category: load-bearing
+
+- id: F-034
+  phase: design
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: design
+  file: design/adr-0012-redis-client-and-rate-limit-degradation.md
+  line: 110
+  summary: ADR-0012 says the guard's local limiter now holds IP keys alongside tenant keys, contradicting the stub's check(tenantId) signature and LOCAL_LIMITER_MAX_TENANTS, and that map got none of the three rules F-028 added to its sibling.
+  failure_scenario: TASK-051 is handed two incompatible specs for one object. Taking ADR-0012 as true, the map has no rule-3 skip and no sweep, so during a Redis outage an attacker churns 10,000 IPs across @Public() routes for ~10,000 requests, evicts their own tenant's write bucket and resets the 120-writes/60s window at will - during exactly the window when the redirect path is already on its Postgres fallback under GC-1 and GC-8.
+  required_change: Pick one. Separate the key spaces with two capped maps and update the stub signature and constant name, or apply the same three rules to the shared map and say so in the stub. The stub and ADR-0012 must stop describing different objects.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: sdlc-architect-fresh
+  resolved_round: 5
+  category: load-bearing
+
+- id: F-035
+  phase: design
+  source: sdlc-security-auditor
+  round: 5
+  severity: minor
+  kind: design
+  file: design/contracts/web-api-client.md
+  line: 83
+  summary: The Vercel-side source of the browser address is "Vercel's own headers" without naming one, moving F-009's trust decision one hop upstream unspecified.
+  failure_scenario: Vercel overwrites inbound x-forwarded-for on non-Enterprise plans so the default is safe, but the naive reading is the exact construct F-009 forbids. If the deployment ever moves behind Cloudflare or another proxy, the leftmost entry becomes attacker-chosen, the BFF signs it with the shared secret, and the API trusts it.
+  required_change: Name the header the BFF reads, state that only the platform-set value is used and never a leftmost entry from a multi-valued list, and note that any additional proxy in front of Vercel invalidates the assumption.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: sdlc-architect-fresh
+  resolved_round: 5
+  category: self-contained
+
+# --- LADDER CAP REACHED. Five fix rounds used. Per superpowers-map.md, the orchestrator
+# --- stops dispatching and adjudicates every survivor with a written ruling. Both
+# --- survivors were classified (b) real-but-self-contained BY THE AUDITOR, not by me.
+# --- Neither is load-bearing, so neither is BLOCKED.
+
+- id: F-036
+  phase: design
+  source: sdlc-security-auditor
+  round: 6
+  severity: major
+  kind: design
+  file: design/stubs/apps/api/src/auth/ports/auth-rate-limit.port.ts
+  line: 47
+  summary: The auth rate-limit port — named on rate-limit.md's own "Normative form" line — still documents its principal parameter as "the platform-trusted client IP", the pre-F-031 wording.
+  failure_scenario: Two of three normative stubs were rewritten in round 5; this one was not. "Platform-trusted" is the design's own vocabulary for Fly-Client-IP. An implementer following it behind the BFF passes Vercel's egress for every user — 3 signups per hour and 10 sign-ins per 5 minutes product-wide. Availability failure, not a privilege bypass.
+  required_change: Replace with the resolver rule — principal is resolveRateLimitPrincipal(headers) for the IP buckets, never Fly-Client-IP read directly. Clarify the trailing "Never a raw address", which now reads as contradicting the IP buckets.
+  owner_slot: sdlc-architect
+  status: parked
+  category: self-contained
+  ruling: >-
+    PARKED at the ladder cap, with a warning carried into the owning TASK. The auditor
+    classified this (b) itself and stated the reason: one sentence in one file, while the
+    correct rule is stated in three other artifacts the same implementer must read —
+    including rate-limit.types.ts, which this file imports from. Parking it costs a warning;
+    a sixth round costs a full dispatch to change a doc comment.
+
+- id: F-037
+  phase: design
+  source: sdlc-security-auditor
+  round: 6
+  severity: major
+  kind: scope
+  file: design/contracts/rate-limit.md
+  line: 191
+  summary: The ownership row assigns resolveRateLimitPrincipal and assertBffProxySecretConfigured to TASK-009, whose own file moved auth-surface rate limiting out to TASK-058; the boot assertion lands in main.ts, which TASK-058's paths exclude.
+  failure_scenario: TASK-009's implementer reads its Out-of-scope block and skips rate-limit machinery. TASK-058 never mentions the resolver, the secret, or the boot assertion, and its paths cover neither the resolver file nor main.ts. The resolver still gets built (TASK-058 needs a principal and has rate-limit.md in contracts); assertBffProxySecretConfigured has no owner in practice. Without it production can run with BFF_PROXY_SECRET unset and every IP-keyed bucket collapses — but the collapse is SIGNALLED, since the BFF still sends the auth header and bff_proxy_auth_mismatch_total fires.
+  required_change: State in the ownership table that TASK-009 retains only assertBffProxySecretConfigured and its main.ts call. The TASK-side half escalates to Juano.
+  owner_slot: sdlc-architect
+  status: parked
+  category: self-contained
+  ruling: >-
+    PARKED with the TASK-side half applied by the orchestrator. A routing defect, not a
+    decision defect — every mechanism is correctly specified and only the "who writes it"
+    line is wrong. The failure it guards is signalled rather than silent, which is what keeps
+    it out of load-bearing. Six further rows of the same table carry the same stale
+    attribution and predate this diff; recorded as a Retro item about ownership tables
+    written before a TASK split.

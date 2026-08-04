@@ -16,6 +16,8 @@ export const REDACT_PATHS = [
   'req.headers.cookie',
   'req.headers["fly-client-ip"]',
   'req.headers["x-forwarded-for"]',
+  'req.headers["x-shortkit-client-ip"]',
+  'req.headers["x-shortkit-proxy-auth"]',
   'res.headers["set-cookie"]',
   '*.password',
   '*.token',
@@ -67,6 +69,18 @@ Normative. GC-9.
 The redact list is the mechanism. **It is an allowlist of paths and it does not reach
 arbitrary nesting**: `*.token` matches one level, so `payload.data.credentials.token` is
 not covered. A TASK introducing a nested secret adds a path in the same commit.
+
+**The two `x-shortkit-*` entries are in the list now, ahead of the headers existing**
+(F-032). `x-shortkit-client-ip` carries a raw client IP on every browser-originated API
+request (GC-9 forbids a raw IP in any field from any header), and
+`x-shortkit-proxy-auth` carries `BFF_PROXY_SECRET` verbatim — a leaked log line would
+let anyone forge `X-Shortkit-Client-IP` against Fly directly and defeat every IP-keyed
+auth bucket. The `'*.secret'` wildcard matches a property one level deep and **does not
+reach a header key**. **TASK-003 owns these entries** and ships them in wave 1 with the
+rest of the list, eight waves before TASK-009 introduces the headers; redacting a
+not-yet-sent header is free, and appending later would have no owner. The
+`BFF_PROXY_SECRET` value is never logged on the Vercel side either
+(`web-api-client.md`).
 
 ## CORS
 

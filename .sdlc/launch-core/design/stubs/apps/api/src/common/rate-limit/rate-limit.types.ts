@@ -34,6 +34,13 @@ export function rateLimitKey(env: string, tenantId: string, nowEpochS: number): 
  * Express middleware, registered in front of toNodeHandler. Reuses redisClient (GC-3)
  * and carries ADR-0012's degradation posture: local bucket on Redis error, never
  * fail-open, never 5xx.
+ *
+ * F-030: these buckets are the ONLY limiter on this surface. Better Auth's built-in
+ * limiter (enabled in production by default) is DISABLED — TASK-009 sets
+ * `rateLimit: { enabled: false }` in the betterAuth() config (ADR-0013) and owns a
+ * unit test asserting the COMPOSED config carries it, because that default degrades
+ * silently and only in production. Invariant 3's enumeration of every 429 source
+ * depends on this disable.
  */
 export const AUTH_RATE_LIMITS = {
   signInPerIp: { limit: 10, windowS: 300 },
@@ -110,8 +117,21 @@ export function publicRouteRateLimitKey(
  */
 
 /**
- * The client IP is the platform-trusted value (Fly-Client-IP), NEVER the leftmost
- * X-Forwarded-For — same rule as click-events.md (F-009).
+ * F-031. The client IP for EVERY IP-keyed bucket comes from
+ * resolveRateLimitPrincipal(headers) in apps/api/src/auth/resolve-rate-limit-principal.ts
+ * — THE ONLY SITE that decides whether to trust the BFF's forwarded address.
+ *
+ * Under ADR-0014's BFF topology, Fly-Client-IP is Vercel's egress address for every
+ * browser-originated request, so keying on it directly collapses all four buckets into
+ * one shared bucket for the whole product. The resolver returns
+ * X-Shortkit-Client-IP only on a constant-time match of X-Shortkit-Proxy-Auth against
+ * BFF_PROXY_SECRET AND when the value parses as an IP; otherwise Fly-Client-IP.
+ * Full rule, including the F-033 never-reached clauses, in that file and in
+ * rate-limit.md. The leftmost X-Forwarded-For is never used, for any purpose.
+ *
+ * DO NOT reuse click-events.md's trustedClientIp() here, and DO NOT let the redirect
+ * path call the resolver: the redirect path never traverses the BFF and must never
+ * honour a forwarded address, or F-009 reopens on the append-only click store.
  *
  * The email is NORMALISED then hashed before it becomes a key (F-025):
  * sha256(email.trim().toLowerCase()), matching the form Better Auth uses for the
@@ -167,24 +187,55 @@ export interface RateLimitDecision {
   readonly degraded: boolean;
 }
 
+/**
+ * Redis-backed TENANT bucket (rateLimitKey + RATE_LIMIT_LUA). The @Public() IP bucket
+ * on the Redis path uses publicRouteRateLimitKey + RATE_LIMIT_LUA with a principal
+ * from resolveRateLimitPrincipal (F-031); it does not go through this interface, and
+ * needs no F-028-style bound because Redis keys expire on their own.
+ */
 export interface RateLimiter {
   check(tenantId: string): Promise<RateLimitDecision>;
 }
 
 /**
- * In-process token bucket. Same limit, same window. LRU-capped at 10,000 tenants.
+ * In-process fallback for RateLimitGuard. Same limits, same windows.
  *
  * NEITHER fail-open NOR fail-closed: on a Redis error or a 50 ms timeout, the limit
  * STILL APPLIES, per machine instead of per fleet.
  *
- * ACCEPTED GAP: with N machines the degraded limit is N * RATE_LIMIT_MAX_WRITES.
+ * ============================================================================
+ * F-034. TWO MAPS, TWO KEY SPACES. Matches ADR-0012 (revised 2026-08-04).
+ * ============================================================================
+ *
+ * The guard covers tenant-keyed authenticated writes AND IP-keyed @Public() routes,
+ * and its principals must not share one map: tenant ids are produced only by
+ * AUTHENTICATED callers, while @Public() IPs are chosen by ANONYMOUS ones. In a
+ * shared map, an attacker churning ~10,000 addresses across @Public() routes during
+ * a Redis outage evicts a tenant's write bucket and resets its 120/60s window at
+ * will — during exactly the window when the redirect path is already on its
+ * Postgres fallback (GC-1, GC-8).
+ *
+ *   - checkTenant: its own map, plain LRU capped at LOCAL_LIMITER_MAX_TENANTS.
+ *     Keys are authenticated tenant ids, so F-028's extra rules are not needed;
+ *     the cap is unreachable at this scale (ADR-0012).
+ *   - checkPublicIp: its own map, capped at LOCAL_LIMITER_MAX_PUBLIC_IPS, with
+ *     ALL THREE F-028 rules — lazy expiry PLUS a sweep every
+ *     LOCAL_AUTH_LIMITER_SWEEP_MS, and EVICTION SKIPS ENTRIES AT OR OVER THEIR
+ *     LIMIT (forced eviction increments local_rate_limit_forced_eviction_total
+ *     and warns, as in LocalAuthRateLimiter).
+ *
+ * ACCEPTED GAP: with N machines the degraded limit is N * the configured limit.
  * Fly runs one machine at launch. Revisit before enabling more.
  */
 export interface LocalRateLimiter {
-  check(tenantId: string): RateLimitDecision;
+  /** Authenticated writes. Tenant-keyed map. */
+  checkTenant(tenantId: string): RateLimitDecision;
+  /** @Public() routes. SEPARATE IP-keyed map (F-034); principal from resolveRateLimitPrincipal. */
+  checkPublicIp(clientIp: string): RateLimitDecision;
 }
 
 export const LOCAL_LIMITER_MAX_TENANTS = 10_000;
+export const LOCAL_LIMITER_MAX_PUBLIC_IPS = 10_000;
 
 /**
  * ============================================================================
@@ -240,8 +291,10 @@ return n
  * returns at step 0 without populating RequestContext, so the guard falls back to the
  * IP key rather than reading a tenant that is not there.
  *
- * The client IP is the platform-trusted Fly-Client-IP, never the leftmost
- * X-Forwarded-For (same rule as click-events.md, F-009).
+ * F-031: the IP key comes from resolveRateLimitPrincipal(headers)
+ * (apps/api/src/auth/resolve-rate-limit-principal.ts) — never from Fly-Client-IP
+ * read directly (behind the BFF that is Vercel's egress for every user), and never
+ * from the leftmost X-Forwarded-For. See the block above authRateLimitKey.
  */
 export declare class RateLimitGuard {
   canActivate(context: unknown): Promise<boolean>;

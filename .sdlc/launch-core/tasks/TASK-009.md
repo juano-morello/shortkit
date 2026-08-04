@@ -42,3 +42,23 @@ Email verification and email sending (TASK-010), the request guard and tenant bi
 **Produces**
 
 Auth routes for signup, login, logout, and current-session; `AuthUser` — `{ id, email, emailVerified: boolean }`; JWT issuance with claims including the user id; `signupContract`, `loginContract`, `sessionContract` in `packages/contracts/src/auth`; `onUserCreated` hook point that TASK-013 attaches tenant creation to.
+
+
+## ⚠ Parked design finding you must read (F-037)
+
+`rate-limit.md`'s ownership table assigns `resolveRateLimitPrincipal` **and**
+`assertBffProxySecretConfigured` to this TASK. That table was written before Juano split
+this TASK, and its attribution is stale.
+
+**What you keep:** `assertBffProxySecretConfigured()` and its call in
+`apps/api/src/main.ts`. `main.ts` is in your `paths` and in nobody else's — TASK-058
+cannot write it. This is the one auth-surface piece that stays yours.
+
+It matters: without that assertion, production can boot with `BFF_PROXY_SECRET` unset, the
+trusted-proxy branch disables itself, and every IP-keyed bucket collapses onto Vercel's
+egress address. The collapse is signalled — `bff_proxy_auth_mismatch_total` fires, because
+the BFF still sends the auth header — but the assertion is what catches it at boot instead
+of in production traffic.
+
+**What is not yours:** the resolver, the body cap, the IP buckets, the email hook, the
+port and the local limiter all moved to **TASK-058**.

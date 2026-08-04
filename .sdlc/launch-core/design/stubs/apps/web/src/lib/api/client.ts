@@ -125,6 +125,40 @@ export function buildUpstreamUrl(
 /** `redirect: 'manual'`. An upstream 3xx is returned to the caller, never followed. */
 export const UPSTREAM_FETCH_REDIRECT = 'manual' as const;
 
-/** Allowlists, not denylists. `cookie` upstream and `set-cookie` downstream are absent. */
+/**
+ * Allowlists, not denylists. `cookie` upstream and `set-cookie` downstream are absent.
+ * Inbound `x-shortkit-*` headers are NEVER forwarded: the proxy sets both of its own
+ * afresh on every request (below).
+ */
 export const FORWARDED_REQUEST_HEADERS = ['content-type', 'accept', 'x-request-id'] as const;
 export const RETURNED_RESPONSE_HEADERS = ['content-type', 'retry-after', 'x-request-id'] as const;
+
+/**
+ * ============================================================================
+ * F-035. The client address the proxy forwards, and where it comes from.
+ * ============================================================================
+ *
+ * The proxy adds, on every upstream request:
+ *   BFF_CLIENT_IP_HEADER:  the browser's address, read from VERCEL_CLIENT_IP_HEADER
+ *   BFF_PROXY_AUTH_HEADER: process.env.BFF_PROXY_SECRET (server-only, REQUIRED,
+ *                          registered by TASK-004; NEVER logged — see
+ *                          logging-and-headers.md F-032 for the API-side mirror)
+ *
+ * VERCEL_CLIENT_IP_HEADER is read WHOLE. Vercel sets it to the connecting client's
+ * public address and overwrites inbound forwarding headers (non-Enterprise), so a
+ * client cannot spoof it, and unlike x-forwarded-for it is not rewritten by a proxy
+ * stacked on top of Vercel.
+ *
+ * NEVER x-forwarded-for.split(',')[0] — the leftmost entry of a multi-valued list is
+ * the construct F-009 forbids, moved one hop upstream. If the header is absent (local
+ * next dev), OMIT BFF_CLIENT_IP_HEADER entirely; the API falls back to Fly-Client-IP.
+ *
+ * ANY proxy placed in front of Vercel (Cloudflare, a corporate gateway, an Enterprise
+ * trusted-proxy config) invalidates this assumption and requires revisiting
+ * web-api-client.md, not just DNS.
+ *
+ * API-side resolution: apps/api/src/auth/resolve-rate-limit-principal.ts (F-031).
+ */
+export const VERCEL_CLIENT_IP_HEADER = 'x-vercel-forwarded-for';
+export const BFF_CLIENT_IP_HEADER = 'x-shortkit-client-ip';
+export const BFF_PROXY_AUTH_HEADER = 'x-shortkit-proxy-auth';

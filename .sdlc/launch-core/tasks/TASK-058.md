@@ -84,3 +84,27 @@ bucket; `AUTH_RATE_LIMIT_PORT` and its interface; `LocalAuthRateLimiter`. The
 429 carries `retryAfterSeconds` **in the body**, because header control from
 inside a Better Auth hook is not guaranteed — `apiClient` prefers the header and
 falls back to the body field, so TASK-052's central rendering works unchanged.
+
+
+## ⚠ Parked design findings you must read (F-036, F-037)
+
+Two findings were **parked at the Design ladder cap** rather than fixed, because the
+security auditor classified both as self-contained. They are real. Read them before
+you write the rate-limit code.
+
+**F-036 — a stale doc comment will mislead you.**
+`design/stubs/apps/api/src/auth/ports/auth-rate-limit.port.ts` still documents its
+`principal` parameter as "the platform-trusted client IP". **That wording is obsolete.**
+"Platform-trusted" is this design's vocabulary for `Fly-Client-IP`, and following it
+behind the backend-for-frontend passes Vercel's egress address for every user — the whole
+product then shares 3 signups per hour and 10 sign-ins per 5 minutes.
+
+The correct rule, stated in `rate-limit.md`, `rate-limit.types.ts` and
+`stubs/apps/api/src/auth/resolve-rate-limit-principal.ts`: the principal for the IP
+buckets is **`resolveRateLimitPrincipal(headers)`**, never `Fly-Client-IP` read directly.
+Fix the comment as you go.
+
+**F-037 — the ownership table's TASK attribution is stale.**
+`rate-limit.md`'s ownership table was written before TASK-009 was split, so it assigns
+auth-surface pieces to TASK-009 that now belong here. The split is authoritative; the
+table is not.

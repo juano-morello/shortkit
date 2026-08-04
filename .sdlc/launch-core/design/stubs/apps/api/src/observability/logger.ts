@@ -25,6 +25,14 @@ export const REDACT_PATHS = [
   'req.headers.cookie',
   'req.headers["fly-client-ip"]',
   'req.headers["x-forwarded-for"]',
+  /**
+   * F-032. Set by the BFF from wave 9 (TASK-012); in the list from wave 1 (TASK-003).
+   * The first is a raw client IP (GC-9); the second is BFF_PROXY_SECRET VERBATIM —
+   * a leaked log line lets anyone forge X-Shortkit-Client-IP against Fly and defeat
+   * every IP-keyed auth bucket. '*.secret' matches a property, NOT a header key.
+   */
+  'req.headers["x-shortkit-client-ip"]',
+  'req.headers["x-shortkit-proxy-auth"]',
   'res.headers["set-cookie"]',
   '*.password',
   '*.token',

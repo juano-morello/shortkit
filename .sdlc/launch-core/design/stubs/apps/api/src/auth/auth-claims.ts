@@ -70,7 +70,7 @@ export class NoTenantMembershipError extends Error {
  * GC-8 and SC-7, and the invitation-accept route would be unreachable.
  *
  *   0. handler or controller marked @Public()  -> RETURN TRUE IMMEDIATELY.
- *      No token read, no RequestContext, steps 1-7 do not run. FIRST thing the guard does.
+ *      No token read, no RequestContext, steps 1-8 do not run. FIRST thing the guard does.
  *
  *   For every other route:
  *   1. Authorization: Bearer present        else 401 unauthenticated

@@ -50,7 +50,7 @@ route would be unreachable.
 
 **Step 0. Is the handler or its controller marked `@Public(justification)`?**
 If yes, `AuthGuard` returns true immediately. `RequestContext` is not populated, no
-token is read, and steps 1 through 7 do not run. This is the first thing the guard does.
+token is read, and steps 1 through 8 do not run. This is the first thing the guard does.
 
 For every other route, in order, any failure short-circuiting:
 
@@ -98,7 +98,8 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
 1. `RequestContext.tenantId` on an authenticated request equals the `tenant_id` of
    every row that request can read or write. There is no path to another tenant.
 2. `tid` never changes for a user (ADR-0015). A token's tenant is stable for its life.
-3. A route reaching a handler has passed steps 1 through 7, unless step 0 exempted it.
+3. A route reaching a handler has passed checks 1 through 7 and step 8 has populated
+   `RequestContext`, unless step 0 exempted it.
    In particular `RequestContext.tenantId` is always present and uuid-shaped, so
    `withTenantTransaction` never receives a malformed tenant id from the guard path.
 4. `token_expired` means the signature verified and the clock passed `exp`. Refreshing
