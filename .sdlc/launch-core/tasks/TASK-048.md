@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-025, TASK-011]
 paths: ["apps/api/src/db/schema/**", "apps/api/drizzle/**", "apps/api/src/audit/**"]
-contracts: []
+contracts: [design/contracts/link-mutation-events.md, design/contracts/rls-policy-template.md, design/contracts/tenant-context.md]
 test_files: []
 acceptance: [AC-79, AC-80, AC-82]
 rework_count: 0

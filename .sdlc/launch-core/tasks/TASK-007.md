@@ -6,8 +6,8 @@ title: Shared contracts package foundation and error envelope
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: ["packages/contracts/**"]
-contracts: []
+paths: ["packages/contracts/**", "apps/api/src/common/errors/**"]
+contracts: [design/contracts/error-envelope.md, design/contracts/slug.md]
 test_files: []
 acceptance: [AC-13, AC-14]
 rework_count: 0

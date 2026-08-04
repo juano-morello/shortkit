@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-030, TASK-011, TASK-007]
 paths: ["apps/api/src/common/rate-limit/**", "apps/api/src/app.module.ts"]
-contracts: []
+contracts: [design/contracts/auth-tokens.md, design/contracts/error-envelope.md, design/contracts/rate-limit.md, design/contracts/redirect-cache.md, design/contracts/tenant-context.md]
 test_files: []
 acceptance: [AC-83, AC-84, AC-85, AC-86]
 rework_count: 0

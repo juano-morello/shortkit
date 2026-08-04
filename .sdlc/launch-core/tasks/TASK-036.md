@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-035, TASK-032, TASK-034]
 paths: ["docs/performance/**", "infra/loadtest/baseline.json"]
-contracts: []
+contracts: [design/contracts/loadtest-result.md]
 test_files: []
 acceptance: [AC-62]
 rework_count: 0

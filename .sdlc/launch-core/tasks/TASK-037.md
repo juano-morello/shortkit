@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-036, TASK-002]
 paths: [".github/workflows/**", "infra/loadtest/**"]
-contracts: []
+contracts: [design/contracts/loadtest-result.md]
 test_files: []
 acceptance: [AC-63, AC-64]
 rework_count: 0

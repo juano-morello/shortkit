@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-029, TASK-045]
 paths: ["apps/api/src/redirect/**"]
-contracts: []
+contracts: [design/contracts/branding.md, design/contracts/redirect-cache.md, design/contracts/redirect-resolution.md]
 test_files: []
 acceptance: [AC-75, AC-76, AC-77]
 rework_count: 0

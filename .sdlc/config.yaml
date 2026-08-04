@@ -28,7 +28,8 @@ auditors:
 ownership:
   - { paths: ["apps/web/**"], slot: sdlc-implementer-frontend }
   # packages/** is backend-owned: the API is the source of truth for
-  # packages/contracts, and the web app consumes generated types from it.
+  # packages/contracts. Per ADR-0005 the web app imports those zod schemas
+  # directly as source — there is no generated client and no OpenAPI document.
   - { paths: ["apps/api/**", "packages/**"], slot: sdlc-implementer-backend }
   - { paths: ["infra/**", ".github/**", "fly.toml", "docker-compose*.yml"], slot: sdlc-implementer-backend }
   - { paths: ["README.md", "docs/**", "*.md"], slot: sdlc-implementer-backend }

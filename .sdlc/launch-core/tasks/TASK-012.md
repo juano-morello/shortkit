@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-frontend
 depends_on: [TASK-008, TASK-009, TASK-010]
 paths: ["apps/web/app/(auth)/**", "apps/web/src/lib/session/**"]
-contracts: []
+contracts: [design/contracts/auth-tokens.md, design/contracts/error-envelope.md, design/contracts/web-api-client.md]
 test_files: []
 acceptance: [AC-16, AC-18, AC-19, AC-20, AC-21]
 rework_count: 0

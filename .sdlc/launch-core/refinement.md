@@ -249,6 +249,54 @@ surface, not a writing one.
 fallback. Resolved as an optional per-workspace fallback URL: an unknown slug
 302s there when set, and renders the branded 404 when unset.
 
+---
+
+The Design phase raised three more. Juano ruled on all three on 2026-08-03.
+
+**A-5 — SC-2's reading is fixed.** SC-2 supported two defensible readings: that
+the CI test itself must run at 500 RPS, or that 500 RPS is the *measurement*
+rate and CI gates against the recorded target at whatever rate is non-flaky.
+**The second reading governs.** The target is measured and recorded at 500 RPS
+against real infrastructure; the PR gate runs 100 RPS median-of-three against
+local containers; the full 500 RPS run happens weekly and on demand (ADR-0018).
+
+The cost is stated rather than hidden: **a regression that only appears at 500
+RPS is caught weekly, not per pull request.** Any post citing SC-2 must say which
+rate the gate runs at.
+
+**A-6 — A user belongs to exactly one tenant.** AC-22 (signup creates a tenant)
+and AC-33 (an invitee gains membership in someone else's workspaces) contradicted
+each other, and both were approved. Resolved by ADR-0015: `UNIQUE (user_id)` on
+`tenant_memberships`; signup creates a tenant, invited signup attaches to the
+inviter's instead of creating one.
+
+**The accepted cost is a product limitation, not just a technical one:** a
+freelancer working for two agencies cannot use one email address for both.
+Reversing this later is a real migration. It also introduces the error code
+`invitation_tenant_conflict`, which TASK-021 and TASK-022 did not anticipate.
+
+**A-8 — A third tenant role, `member`, amends A-1.** The design-mode security
+pass found that ADR-0015 attaches every invitee to the inviting tenant as
+`admin`, regardless of the workspace roles the invitation actually granted. A
+freelancer invited as `viewer` on one client workspace would hold a tenant role
+gating `POST /workspaces`, and no surface in `launch-core` can see or revoke it.
+A-1 froze the tenant enum at `owner | admin`, so neither existing value works.
+
+Resolved: **`TenantRole` = `owner | admin | member`**, with `member` at rank 0
+granting nothing at tenant level. Invitees receive `member`; their real access
+comes entirely from workspace roles. This supersedes A-1's tenant enum; A-1's
+workspace enum (`workspace_admin | member | viewer`) is unchanged.
+
+Chosen over re-gating every tenant-`admin` surface to `owner` because that would
+leave `admin` as a role granting nothing, and the next tenant-level route added
+would be gated at `admin` by default — reintroducing the same hole silently.
+
+**A-7 — Click events may be lost on an ungraceful shutdown.** ADR-0010 buffers
+in memory and flushes at 100 events or 1000 ms, so a hard crash loses up to one
+second or 100 events. Accepted: buffering is what keeps click emission off
+GC-1's 25 ms budget, nobody is billed on this data, and SC-6 requires that
+events accumulate rather than that none is ever lost.
+
 ## Existing-system notes
 
 Greenfield. The repository contained no source at the time of this refinement.

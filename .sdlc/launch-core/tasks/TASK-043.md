@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-042, TASK-029, TASK-003]
 paths: ["infra/**", "fly.toml", "apps/api/src/redirect/**"]
-contracts: []
+contracts: [design/contracts/domain-provisioning.md, design/contracts/redirect-resolution.md]
 test_files: []
 acceptance: [AC-71, AC-73]
 rework_count: 0

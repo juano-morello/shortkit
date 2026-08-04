@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-017, TASK-014]
 paths: ["apps/api/src/members/**", "packages/contracts/src/members/**", "apps/api/src/app.module.ts"]
-contracts: []
+contracts: [design/contracts/auth-tokens.md, design/contracts/error-envelope.md, design/contracts/workspace-authorization.md]
 test_files: []
 acceptance: [AC-29, AC-30, AC-31, AC-105]
 rework_count: 0

@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-039, TASK-040]
 paths: ["apps/api/src/domains/certificates/**"]
-contracts: []
+contracts: [design/contracts/domain-provisioning.md]
 test_files: []
 acceptance: [AC-70, AC-72, AC-73]
 rework_count: 0

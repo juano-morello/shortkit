@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-006, TASK-018, TASK-021, TASK-025, TASK-040, TASK-045, TASK-049, TASK-051, TASK-053, TASK-054]
 paths: ["apps/api/test/isolation/**"]
-contracts: []
+contracts: [design/contracts/click-events.md, design/contracts/isolation-coverage.md, design/contracts/rate-limit.md, design/contracts/redirect-resolution.md, design/contracts/tenant-context.md, design/contracts/tenant-scoped-tables.md, design/contracts/workspace-authorization.md]
 test_files: []
 acceptance: [AC-93, AC-94, AC-95, AC-96]
 rework_count: 0

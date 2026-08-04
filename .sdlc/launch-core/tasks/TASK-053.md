@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-016, TASK-020, TASK-023, TASK-033, TASK-038, TASK-045, TASK-048]
 paths: ["apps/api/src/gdpr/**", "packages/contracts/src/gdpr/**", "apps/api/src/app.module.ts"]
-contracts: []
+contracts: [design/contracts/auth-tokens.md, design/contracts/click-events.md, design/contracts/error-envelope.md, design/contracts/tenant-context.md, design/contracts/tenant-scoped-tables.md, design/contracts/workspace-authorization.md]
 test_files: []
 acceptance: [AC-88, AC-89]
 rework_count: 0

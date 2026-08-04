@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-053]
 paths: ["apps/api/src/gdpr/**", "apps/api/src/db/schema/**", "apps/api/drizzle/**"]
-contracts: []
+contracts: [design/contracts/auth-tokens.md, design/contracts/click-events.md, design/contracts/error-envelope.md, design/contracts/rls-policy-template.md, design/contracts/tenant-context.md, design/contracts/tenant-scoped-tables.md, design/contracts/workspace-authorization.md]
 test_files: []
 acceptance: [AC-90, AC-91, AC-92, AC-106]
 rework_count: 0

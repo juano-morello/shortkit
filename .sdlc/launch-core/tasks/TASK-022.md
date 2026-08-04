@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-frontend
 depends_on: [TASK-019, TASK-021]
 paths: ["apps/web/app/(app)/members/invite/**", "apps/web/app/(auth)/invite/**"]
-contracts: []
+contracts: [design/contracts/web-api-client.md]
 test_files: []
 acceptance: [AC-32, AC-33, AC-34, AC-35, AC-36]
 rework_count: 0

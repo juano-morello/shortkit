@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-005, TASK-009]
 paths: ["apps/api/src/db/schema/**", "apps/api/drizzle/**", "apps/api/src/auth/**"]
-contracts: []
+contracts: [design/contracts/auth-tokens.md, design/contracts/rls-policy-template.md, design/contracts/tenant-context.md]
 test_files: []
 acceptance: [AC-22]
 rework_count: 0
@@ -33,4 +33,4 @@ Workspace endpoints (TASK-014), membership and roles (TASK-016), branding fields
 
 **Produces**
 
-`workspaces` table — `id`, `tenant_id`, `name`, `created_at`, RLS enabled; `tenantRepository` and `workspaceRepository` with tenant-scoped read/write methods; signup creates exactly one tenant with the signing-up user as owner.
+`workspaces` table — `id`, `tenant_id`, `name`, `created_at`, RLS enabled; **`tenant_memberships` table with `UNIQUE (user_id)`** (required by ADR-0015 / Amendment A-6 — it stores the owner record this TASK already promises, and the unique constraint is what makes one-tenant-per-user structural); `tenantRepository` and `workspaceRepository` with tenant-scoped read/write methods; signup creates exactly one tenant with the signing-up user as owner.

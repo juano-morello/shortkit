@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-frontend
 depends_on: [TASK-004, TASK-008]
 paths: ["apps/web/app/(marketing)/**", "apps/web/src/components/marketing/**"]
-contracts: []
+contracts: [design/contracts/web-api-client.md]
 test_files: []
 acceptance: [AC-97, AC-98, AC-99]
 rework_count: 0

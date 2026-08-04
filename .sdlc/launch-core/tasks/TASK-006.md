@@ -7,7 +7,7 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-005]
 paths: ["apps/api/test/isolation/**"]
-contracts: []
+contracts: [design/contracts/isolation-coverage.md, design/contracts/tenant-context.md]
 test_files: []
 acceptance: [AC-12]
 rework_count: 0

@@ -1,0 +1,245 @@
+# Append-only. Schema: references/routing.md.
+# Round 1 of the Design rework ladder. Owner resolution: routing.md rule 0 —
+# findings on design/** paths resolve to sdlc-architect, never to an implementer.
+# Full audit: audits/design-sdlc-security-auditor-r1.md
+
+- id: F-001
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: blocker
+  kind: design
+  file: design/contracts/auth-tokens.md
+  line: 87
+  summary: Public invitation routes must read and write tenant-scoped RLS tables with no tenant context, and no sanctioned mechanism exists.
+  failure_scenario: Every valid invitation token returns null; the implementer's cheapest exit is a permissive policy letting any unauthenticated caller enumerate every tenant's pending invitations and role grants.
+  required_change: Pin a tenant-id-bearing capability token in contract; public handler parses tenant id, opens withTenantTransaction, and verifies the digest before any statement acts on the tenant. Add as the third sanctioned pattern in tenant-context.md — not a GC-5 escape, since it still runs under SET LOCAL.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-002
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: blocker
+  kind: design
+  file: design/contracts/tenant-scoped-tables.md
+  line: 93
+  summary: The GDPR erasure sequence is denied by its own policy set — it deletes nothing while reporting success.
+  failure_scenario: Step 1 reads tenant_memberships under a policy testing an unset flag, returns zero rows, so the user-account delete hits nobody and assertNoTenantResidue passes over an empty set. Every member's email, credentials and sessions survive a completed erasure request.
+  required_change: Define tenants_privileged_erase explicitly; extend or pair the per-table erase policy so the user-id collection can read; make assertNoTenantResidue re-derive ids from the database; assert non-zero deleted-row counts, not only zero residue.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-003
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: blocker
+  kind: design
+  file: design/contracts/redirect-resolution.md
+  line: 40
+  summary: Redirect host resolution has no domain-state gate and there is no reserved-hostname list.
+  failure_scenario: Any signed-up user POSTs Shortkit's own hostname; the row is created in pending_verification and the redirect path resolves by hostname alone, serving attacker-controlled redirects and branding from the platform origin. Also gives dangling-DNS takeover after a domain is deleted.
+  required_change: Add a state predicate to the normative domains query and to resolveHost; add a reserved-hostname list and an RFC 1123 format constraint replacing the bare z.string().
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-004
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/adr-0013-better-auth-in-nestjs.md
+  line: 39
+  summary: Mounting Better Auth ahead of Nest leaves the unauthenticated credential surface with no rate limit and no body size cap.
+  failure_scenario: Unlimited credential stuffing and signup; Resend's 100/day cap exhausted in seconds so every legitimate signup and invitation silently fails; a multi-gigabyte body read into memory on the machine that must never return 5xx.
+  required_change: Add an Express-level IP-keyed limiter and a scoped body cap in front of toNodeHandler, reusing redisClient with ADR-0012's degradation posture. Record the coverage in rate-limit.md's Scope section.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-005
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/adr-0003-rls-policy-template-and-roles.md
+  line: 112
+  summary: A third RLS-bypassing delete path exists and is unenumerated — DELETE FROM tenants under ordinary tenant context cascades with row security bypassed.
+  failure_scenario: Any authenticated handler can destroy the tenant's append-only click stream and audit log without setting app.privileged_erase, without passing through privilegedTenantEraser, and without appearing in ISOLATION_EXCLUSIONS. Falsifies SC-1's "exactly two exclusions" and the pg_policies completeness claim.
+  required_change: Narrow the tenants policy to SELECT and UPDATE; put DELETE exclusively behind tenants_privileged_erase; record the cascade as a deliberate policy-gated bypass in Consequences.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-006
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/contracts/branding.md
+  line: 12
+  summary: Branding values are stored raw and interpolated into a server-rendered 404 with no output encoding and no URL scheme allowlist — stored XSS on the redirect surface.
+  failure_scenario: z.string().url() stores the original string, so a logoUrl carrying a script payload executes for every anonymous visitor hitting an unknown slug on that hostname. javascript: and data: also pass for fallbackUrl, which becomes a verbatim 302 Location.
+  required_change: Make HTML-attribute escaping normative in renderNotFound; constrain both URLs to https: and store the parsed href; add a Content-Security-Policy to the 404 response-header table.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-007
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/contracts/tenant-context.md
+  line: 65
+  summary: The frozen normative SQL at the tenancy boundary, SET LOCAL app.tenant_id = $1, is not executable in PostgreSQL.
+  failure_scenario: SET does not accept bind parameters. TASK-005's implementer hits a syntax error and the shortest green fix is string interpolation, at the one statement all of RLS depends on, fed by a JWT claim never validated as a uuid.
+  required_change: Replace with SELECT set_config('app.tenant_id', $1, true) in tenant-context.md, ADR-0002, redirect-read.ts and the eraser sequence. Require uuid validation before withTenantTransaction and forbid setting any context flag by concatenation.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-008
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/contracts/web-api-client.md
+  line: 75
+  summary: The BFF proxy interpolates an unvalidated catch-all path into the upstream URL and never asserts the resolved origin.
+  failure_scenario: A path beginning // resolves protocol-relative to an attacker host and the proxy attaches Authorization Bearer to it — a live tenant credential delivered to an attacker-chosen origin by a same-origin request the victim's browser makes. Traversal also escapes the /api prefix.
+  required_change: Make URL construction normative and safe — reject empty, dot, dot-dot and separator-bearing segments after decoding; assert resolved.origin equals API_BASE_URL's origin; pass redirect manual; add an invariant that Authorization never leaves that origin.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-009
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/contracts/click-events.md
+  line: 41
+  summary: ip_hash is derived from the leftmost X-Forwarded-For entry, which is fully attacker-controlled.
+  failure_scenario: Any visitor chooses their own ip_hash on a path deliberately exempt from rate limiting, writing unlimited rows attributing clicks to arbitrary visitors. The store is append-only, so the corruption is permanent and is exported to the tenant under GDPR.
+  required_change: Use the platform-trusted client IP and state that the leftmost entry is never used. Pin the HMAC key rotation posture, or salt the message with tenant_id to remove cross-tenant correlation.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-010
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/contracts/domain-provisioning.md
+  line: 119
+  summary: Global hostname uniqueness is enforced on unverified claims, so any account can permanently squat hostnames it does not own. The contract is stricter than AC-68.
+  failure_scenario: An attacker POSTs every agency hostname they can think of at 120 writes/minute. Every legitimate tenant later gets a permanent 409 with no support path and no way to distinguish a squat from a pending claim.
+  required_change: Make uniqueness conditional on proof of ownership — a partial unique index over verified/provisioning/active, with pending claims allowed to coexist and expiring after a stated TTL via the existing reconciler. First to verify wins, which is what AC-68 says.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-011
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/contracts/workspace-authorization.md
+  line: 88
+  summary: The normative minimum-role table has no row for mutating a tenant role, yet AC-31 requires that surface to exist.
+  failure_scenario: The implementer copies the adjacent row and gates tenant-role mutation at workspace_admin. A member invited to one client workspace promotes themselves to tenant owner and exports or deletes the entire agency.
+  required_change: Add the rows now — tenant-role read, mutation and member removal all require tenant owner; admin may not grant or revoke owner. State that workspace-role and tenant-role mutation are distinct routes with distinct guards.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-012
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/adr-0015-user-tenant-cardinality.md
+  line: 52
+  summary: Every invitee is attached to the inviting tenant as tenant admin regardless of the workspace roles the invitation granted.
+  failure_scenario: A freelancer invited as viewer on one client workspace holds a tenant role gating POST /workspaces, with no surface in launch-core able to see or revoke it.
+  required_change: Amendment A-8 rules a third tenant role. TenantRole = owner | admin | member, member at rank 0 granting nothing. Invitees receive member.
+  owner_slot: sdlc-architect
+  status: routed
+  note: Escalated to Juano because Amendment A-1 froze the tenant enum. Ruled 2026-08-03 as Amendment A-8.
+
+- id: F-013
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: design/contracts/click-events.md
+  line: 19
+  summary: user_agent is stored and buffered unbounded on the one request path deliberately never rate-limited.
+  failure_scenario: 16 KB User-Agent headers at a few hundred RPS reach ~160 MB of live heap on the single machine that also serves every redirect. OOM kill drops the buffer and breaks GC-8 for every concurrent visitor.
+  required_change: Truncate user_agent to 512 characters at enqueue, declare varchar(512), and add a byte budget to the buffer alongside the event count.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-014
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: design/contracts/auth-tokens.md
+  line: 42
+  summary: The AuthGuard verification list is ordered and short-circuiting but places the Public check at step 6 while claiming public routes skip steps 1-5.
+  failure_scenario: An implementer copying the frozen block literally rejects every anonymous request at step 1, so the redirect path returns 401 instead of a 302 — GC-8 and SC-7 broken.
+  required_change: Renumber the Public check as step 0.
+  owner_slot: sdlc-architect
+  status: routed
+  note: Minor treated as blocking because it sits in a frozen normative block copied verbatim by TASK-011 and read by TASK-056 (routing.md severity policy).
+
+- id: F-015
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: design/contracts/redirect-cache.md
+  line: 9
+  summary: The Redis keyspace carries no environment namespace on a single cost-constrained instance.
+  failure_scenario: A staging host record read by production serves real visitors a redirect resolved against the wrong tenant's data, or a MISS sentinel that 404s a live customer link for 300 seconds.
+  required_change: Prefix every key with an environment segment and state that CI and local development must not point at the production instance.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-016
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: design/adr-0018-ci-performance-gate.md
+  line: 1
+  summary: No dependency-audit step, no lockfile policy and no version pinning anywhere in the design.
+  failure_scenario: A transitive advisory in Better Auth or the Nest/Next trees lands with no signal, and CI installs without a frozen lockfile so resolution drifts between the tested and deployed trees.
+  required_change: Add frozen-lockfile installs to every CI job and a production audit step to the quality job. Pin better-auth to an exact version given ADR-0013 accepts that its releases break the hand-written mount.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-017
+  phase: design
+  source: sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: design
+  file: plan.md
+  line: 32
+  summary: GC-9's "no PII in log bodies" has no enforcing artifact, and no ADR or contract covers the logger, CORS or security headers.
+  failure_scenario: The first implementer to log a request object logs the Authorization header and Cookie, and nothing in the frozen artifacts contradicts them. The first cross-origin error gets "fixed" with permissive CORS.
+  required_change: One short contract or ADR addendum pinning pino redact paths, CORS staying disabled on the API with the reason, and helmet defaults plus HSTS.
+  owner_slot: sdlc-architect
+  status: routed
+  note: Filed against plan.md but the fix is a new design artifact, so it routes to the architect rather than escalating as a plan amendment.
