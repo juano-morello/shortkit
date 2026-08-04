@@ -1,0 +1,24 @@
+slug: launch-core
+title: Launchable core — tenancy, links, redirect, custom domains
+type: feature
+phase: plan
+created: 2026-08-03
+updated: 2026-08-03
+
+gates:
+  refine:    { status: approved, approved_at: 2026-08-03 }
+  plan:      { status: pending, approved_at: null }
+  design:    { status: pending, approved_at: null }
+  test:      { status: pending, approved_at: null }
+  implement: { status: pending, approved_at: null }
+  ship:      { status: pending, approved_at: null }
+
+tasks: {}
+escalations: []
+
+log:
+  - "2026-08-03 refine: initiative opened"
+  - "2026-08-03 refine: sdlc-scout dispatch skipped — repo contains only the scaffold commit (git ls-files: 5 files, all written this session). No prior art, conventions, or ADRs exist to ground against."
+  - "2026-08-03 refine: refinement.md drafted; 8 success criteria, 6 additions accepted into scope, 2 deferred (password-protected links, bulk CSV import)"
+  - "2026-08-03 refine: stop-slop pass applied to Problem, Outcome, Scope, Constraints, Risks"
+  - "2026-08-03 refine: GATE APPROVED by Juano. Phase advanced to plan."
