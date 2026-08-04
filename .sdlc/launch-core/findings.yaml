@@ -450,3 +450,53 @@
   status: fixed
   resolved_by: sdlc-architect
   resolved_round: 3
+
+# --- Round 4. F-024/F-025/F-027 verdicted ADDRESSED. One gate-blocker, two minors.
+# --- LADDER DEVIATION: the ladder sends rounds 4-5 to a fresh architect on a stronger
+# --- model. Juano ruled to resume the incumbent. Reasoning: the ladder's trigger is
+# --- failure-to-fix, and 27/27 findings have been addressed and independently
+# --- confirmed. New findings each round are new surfaces created by the previous fix,
+# --- not recurrences. Recorded as a retro question about the trigger's wording.
+
+- id: F-028
+  phase: design
+  source: sdlc-security-auditor
+  round: 4
+  severity: major
+  kind: design
+  file: design/contracts/rate-limit.md
+  line: 127
+  summary: LocalAuthRateLimiter is keyed on attacker-controlled principals with no stated memory bound, unlike every other local bucket in the design.
+  failure_scenario: The sibling LocalRateLimiter is explicitly LRU-capped at 10,000 tenants with a named constant. LocalAuthRateLimiter is specified only as "same algorithm, same limits" with no cap, eviction or sweep, keyed on client IP and sha256(email) — both unbounded and attacker-chosen. An IPv6 /64 is free, so one live map entry per request with nothing to reap it. Live for the entire wave-2..wave-10 interval when it is the only auth limiter, and during any Redis outage when ADR-0012 routes every auth decision to it — converting that outage into an API OOM-restart loop while the redirect path is already degraded onto its Postgres fallback.
+  required_change: State the bound the way it is stated for LocalRateLimiter — a per-bucket entry cap with LRU eviction and expiry of entries whose window has passed. Put the constant in the stub next to LOCAL_LIMITER_MAX_TENANTS so it is copied rather than remembered.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-029
+  phase: design
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: design
+  file: design/adr-0015-user-tenant-cardinality.md
+  line: 65
+  summary: The revision's residue paragraph contradicts the atomicity claim two paragraphs above it, and no artifact says what tenantIdForUser does when no membership exists.
+  failure_scenario: An implementer working from the Decision block builds for atomicity, discovers it is not implementable — the same discovery this round already made — and improvises. Separately, AuthGuard never checks that tid is present or uuid-shaped, so a tid-less token passes the guard and is stopped only by withTenantTransaction's uuid validation one layer down, surfacing as a 500 rather than a 401. The design's safety here is real but accidental.
+  required_change: Delete or correct the two stale atomicity sentences in ADR-0015 and ADR-0013. State that tenantIdForUser throws when no membership row exists, making the "cannot obtain a tid claim" argument a specified behaviour rather than an inference.
+  owner_slot: sdlc-architect
+  status: routed
+
+- id: F-030
+  phase: design
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: design
+  file: design/contracts/rate-limit.md
+  line: 308
+  summary: Invariant 3 enumerates three 429 sources; Better Auth ships a fourth that is on by default in production and matches none of the shapes.
+  failure_scenario: Better Auth's built-in limiter is disabled in development and enabled in production by default. No artifact disables, configures or accounts for it. If it fires, its body carries no code rate_limited, so web-api-client rule 5 maps it to internal_error and the login screen shows the generic error — exactly what F-027 was filed to prevent. Invisible where it would be caught: off in dev, off in the test environment the three required integration tests run in, on only in production.
+  required_change: Decide explicitly in ADR-0013 whether Better Auth's built-in limiter is disabled (ours is the limiter of record, and two limiters on one surface is a debugging trap) or kept and configured; if kept, add its response shape to the table and to invariant 3.
+  owner_slot: sdlc-architect
+  status: routed
+  note: The auditor asserts this framework default from knowledge, not from a check in this environment. Confirm against the docs for the pinned better-auth version.

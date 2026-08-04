@@ -19,7 +19,7 @@ Make the agency-and-workspaces shape real in the database and created automatica
 
 ## Approach
 
-**GC-5** — `workspaces` carries `tenant_id` and applies the RLS policy template from TASK-005; the tenant and its owner record are created **in the same transaction as the user**, so no account can exist without a tenant.
+**GC-5** — `workspaces` carries `tenant_id` and applies the RLS policy template from TASK-005; the tenant and its owner record are created immediately after the user, in the `after` hook. **Corrected 2026-08-04 (Design round 4, deferred item 5):** this previously read "in the same transaction as the user, so no account can exist without a tenant". That is not implementable — `databaseHooks.user.after` cannot join the transaction that inserted the user, which is the same discovery that moved invitation validation to a `before` hook. An orphaned `user` row is possible and is handled below; it is not prevented.
 
 ## Out of scope for this TASK
 
