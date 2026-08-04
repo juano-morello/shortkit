@@ -62,8 +62,14 @@ the hole silently.
 
 **Signup creates a tenant. Invited signup does not.** `onUserCreated` receives the
 invitation token when one is present in the signup request. Either way exactly one
-`tenant_memberships` row exists when the transaction commits, inside the same
-transaction as the user insert.
+`tenant_memberships` row exists once signup completes.
+
+Corrected 2026-08-04 (F-029): this said the row is created "inside the same transaction
+as the user insert", which the `before`-hook revision below made false two paragraphs
+later. `databaseHooks.user.after` runs after the user row commits, so the membership is
+a **separate** transaction and signup is not atomic across the two. The residue
+paragraph below is what makes that safe, and `tenantIdForUser` throwing is what makes it
+a specified behaviour rather than an inference.
 
 **Uninvited branch.** Generate a tenant id with `crypto.randomUUID()`, open
 `withTenantTransaction` on it (ADR-0021), insert the `tenants` row under
@@ -103,6 +109,19 @@ Parsing the token for a tenant id anywhere outside `findByCapabilityToken` is a 
 authenticate to any tenant-scoped route, and it holds no membership in the inviting
 tenant. An orphaned unusable account is the acceptable failure; a membership row in a
 tenant nobody proved access to is not. **Do not relax step 5 to avoid the orphan.**
+
+**"Cannot obtain a `tid` claim" is a specified behaviour, not an inference.** Added
+2026-08-04 (F-029): the safety was real but accidental. `AuthGuard`'s steps never
+checked that `tid` was present or uuid-shaped, so a tid-less token passed the guard and
+was stopped one layer down by `withTenantTransaction`'s uuid validation, surfacing as a
+500 rather than a 401. Two changes make it deliberate:
+
+- **`tenantIdForUser(userId)` throws `NoTenantMembershipError` when no
+  `tenant_memberships` row exists.** Token minting fails, so an orphaned account never
+  receives a JWT at all. That is the primary stop.
+- **`AuthGuard` gains a claim-shape check** (`auth-tokens.md` step 6): `tid` present and
+  uuid-shaped, else 401 `unauthenticated`. That is the backstop, and it makes the
+  failure a 401 rather than a 500.
 Route enumeration cannot reach this path, so **an integration test is its only
 coverage**: sign up with a token whose tenant half names another tenant and whose secret
 half is random, and assert no user and no membership row is created in that tenant.

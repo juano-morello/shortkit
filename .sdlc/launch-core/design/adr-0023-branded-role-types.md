@@ -149,6 +149,22 @@ implementation touches every guard, every repository, every contract and every t
 
 - TASK-016 defines the branded types, the constants, both cast functions, and the rank
   tables keyed by the value types.
+- **TASK-007 ships a type-level test pinning the brand**, since nothing else proves the
+  mechanism still works after a TypeScript upgrade or a refactor of `Branded`:
+
+  ```ts
+  // @ts-expect-error a bare literal is not assignable to a branded role
+  const a: TenantRole = 'member';
+  // @ts-expect-error the cast functions reject already-branded input
+  asWorkspaceRole(TENANT_ROLE.member);
+  // @ts-expect-error `member` cannot be a tenant minimum
+  authorizer.assertTenant(TENANT_ROLE.member);
+  ```
+
+  A `@ts-expect-error` that stops erroring is itself a compile error, so this test fails
+  loudly the day the brand stops binding. That is the whole point: every other guarantee
+  in this ADR is a compile-time claim with nothing checking that the compiler still
+  agrees.
 - TASK-017 types `assertTenant` and `@RequireTenantRole` with `AuthorisingTenantRole`.
 - Every TASK consuming a role imports the constants rather than writing a literal.
 - TASK-056 greps for `as TenantRole` and `as WorkspaceRole` outside the two sanctioned

@@ -107,6 +107,12 @@ one per feature.
   noise that looks like an outage and is not.
 - The LRU cap means a burst spanning more than 10,000 distinct tenants evicts buckets
   and effectively resets their limits. Not reachable at this scale.
+- **With Redis down, the guard's local limiter holds `@Public()` IP keys alongside
+  tenant keys**, so an attacker churning addresses can evict tenant buckets and reset a
+  tenant's window. The eviction rule in `rate-limit.md` skips entries at or over their
+  limit, which blunts it, and the churn has to pass the IP buckets first. It remains a
+  real cross-talk between two key spaces that share one map during degradation, and it
+  disappears the moment Redis returns.
 
 ### Follow-ups this creates
 

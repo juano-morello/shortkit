@@ -75,6 +75,14 @@ who is signed in.
 deployment's own origin. `SameSite=Lax` already blocks cross-site form posts; the
 `Origin` check covers the rest.
 
+**The proxy forwards the browser's address, authenticated by a shared secret.** Added
+2026-08-04, found while verifying F-030. Because the browser never talks to Fly, the API
+sees Vercel's egress address for every user, so anything keyed on the client IP collapses
+into one bucket for the whole product. The proxy adds `X-Shortkit-Client-IP` and
+`X-Shortkit-Proxy-Auth: <BFF_PROXY_SECRET>`, and the API honours the first only when the
+second matches. Details and the reason this does not weaken F-009 are in
+`rate-limit.md`.
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not |
@@ -116,6 +124,11 @@ deployment's own origin. `SameSite=Lax` already blocks cross-site form posts; th
   devtools when debugging a login problem.
 - `sk_rt` holds the Better Auth session token, so anyone who obtains it has a 30-day
   credential. `httpOnly` and `Secure` are the whole defence.
+- **The BFF hides every user behind one address**, so anything the API wants to key on
+  the client has to be forwarded and authenticated explicitly. Rate limiting is the case
+  this design found; any future per-client control inherits the same problem, and a
+  `BFF_PROXY_SECRET` mismatch degrades silently into one shared bucket rather than
+  failing loudly.
 
 ### Follow-ups this creates
 

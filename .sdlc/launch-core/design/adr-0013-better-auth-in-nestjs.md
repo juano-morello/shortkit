@@ -129,6 +129,39 @@ drizzle-kit. One migration system, which ADR-0004 and ADR-0019 both depend on.
 **Auth tables carry no `tenant_id` and no RLS.** ADR-0003 explains why this is not a
 GC-5 exception and ADR-0015 explains where the tenant relation lives instead.
 
+**Better Auth's own rate limiter is disabled. We are the limiter of record.**
+
+```ts
+betterAuth({ rateLimit: { enabled: false }, /* ... */ })
+```
+
+Added 2026-08-04 (F-030). **Verified against the Better Auth documentation rather than
+assumed**: the built-in limiter is disabled in development and **enabled in production
+by default**, at 60 seconds and 100 requests, backed by an in-memory store, and it
+returns `X-Retry-After` on a 429. Nothing in this design had disabled, configured or
+accounted for it.
+
+Four reasons, and the last two are worse than the debugging-trap argument:
+
+1. Two limiters on one surface is a debugging trap. A 429 with no obvious cause costs
+   an afternoon.
+2. It is invisible everywhere it would be caught: off in development, off in the test
+   environment the three `rate-limit.md` integration tests run in, on only in production.
+3. **Its header is `X-Retry-After`, not `Retry-After`.** `apiClient` reads `Retry-After`
+   and falls back to a `retryAfterSeconds` body field (F-027), and its body carries no
+   `code: "rate_limited"`. So a 429 from it maps to `internal_error` and the login
+   screen shows the generic error, which is exactly the outcome F-027 was filed to
+   prevent.
+4. **It is IP-keyed and its store is in-memory and unbounded**, which is F-028's defect
+   inside a dependency where we cannot add the cap. Under the BFF topology its key would
+   also be Vercel's egress address rather than the visitor's (see below), so it would
+   limit the entire product to 100 requests per 60 seconds collectively.
+
+Disabling a framework's security default deserves the explicit note: we are not removing
+a protection, we are removing a **second** one that is weaker, mis-keyed, and shaped
+wrong for our client. Our buckets are tighter (10 per 5 minutes on sign-in against its
+100 per 60 seconds across everything) and correctly keyed.
+
 **Plugins: `jwt` and `bearer`.** Claim set, fixed here because ADR-0002's `AuthGuard`
 reads it without a database query:
 
@@ -168,7 +201,33 @@ most its remaining 5 minutes. Bounded, stated, and the reason the lifetime is 5 
 rather than the library default of 15.
 
 **`onUserCreated` is a Better Auth `databaseHooks.user.after` hook,** which TASK-013
-attaches tenant creation to, inside the same transaction as the user insert.
+attaches tenant creation to. It runs **after** the user row commits, so the membership is
+a separate transaction and signup is not atomic across the two. Corrected 2026-08-04
+(F-029); ADR-0015 holds the residue argument and the two mechanisms that make it safe.
+
+**`hooks.before` has two owners and one slot, so it is a registry.** Better Auth takes a
+single `before` function. TASK-009 puts the email rate limiter there and TASK-013 puts
+invitation validation there, in the same `auth.config.ts`, eight waves apart. If the
+second author replaces rather than extends, the email bucket silently vanishes and F-019
+returns.
+
+```ts
+// apps/api/src/auth/auth.config.ts — TASK-009 creates this shape.
+const beforeHooks: AuthBeforeHook[] = [
+  emailRateLimitHook,        // TASK-009
+  invitationValidationHook,  // TASK-013 APPENDS. It does not replace.
+];
+
+hooks: { before: createAuthMiddleware(async (ctx) => {
+  for (const hook of beforeHooks) await hook(ctx);   // ordered, short-circuit on throw
+}) }
+```
+
+Rate limiting runs first, so an attacker cannot use invitation-token probing to bypass
+it. A hook that does not apply to `ctx.path` returns immediately.
+
+TASK-009's three integration tests fail loudly if a later author replaces the array, which
+is why this is a stated rule rather than a mechanism.
 
 ## Alternatives considered
 
@@ -255,6 +314,5 @@ a wave-6 dependency.
   boundary, **including reading `retryAfterSeconds` from a 429 body when the header is
   absent** (F-027).
 - Contracts: `design/contracts/auth-tokens.md`, `design/contracts/rate-limit.md`.
-- **TASK amendments this implies** are recorded in the design return for Juano's ruling,
-  not applied here: TASK-009 needs `apps/api/src/main.ts` in `paths` and `rate-limit.md`
-  in `contracts`.
+- **TASK-013 appends to `beforeHooks`; it does not replace the array.**
+- TASK-009 sets `rateLimit: { enabled: false }` and owns the comment saying why.

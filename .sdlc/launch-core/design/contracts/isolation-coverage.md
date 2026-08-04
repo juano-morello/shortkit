@@ -280,6 +280,11 @@ This is the artifact SC-1 points at.
   from tenant erasure.
 - **`as TenantRole` and `as WorkspaceRole` appear only inside `asTenantRole` and
   `asWorkspaceRole`.** The suite greps for a third cast site and fails on it (ADR-0023).
+- **Separately, the suite enumerates `asTenantRole(` and `asWorkspaceRole(` call sites
+  and asserts the count** against a recorded number. The string-cast grep above and this
+  one catch different things: the first catches someone bypassing the functions, the
+  second catches someone adding a boundary where a role enters the system. A new call
+  site is legitimate and needs the recorded count bumped in the same diff.
 - Every repository-producing TASK applies `@TenantScopedRepository()`.
 - The suite runs in CI's `integration` job (ADR-0001).
 - A surface that is hard to fixture gets a fixture builder, not an exclusion.

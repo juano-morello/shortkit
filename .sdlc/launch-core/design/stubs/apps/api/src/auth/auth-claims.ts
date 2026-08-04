@@ -40,8 +40,24 @@ export function revocationKey(env: string, jti: string): string {
  * Called once at token mint time, never per request. Single-row lookup on
  * tenant_memberships' UNIQUE (user_id) index.
  */
+/**
+ * THROWS NoTenantMembershipError when no tenant_memberships row exists (F-029).
+ *
+ * That is the primary stop for ADR-0015's orphan residue: signup is not atomic across
+ * the user insert and the membership insert, so a failure between them leaves a user
+ * with no membership. Throwing here means token minting fails and the orphaned account
+ * NEVER RECEIVES A JWT AT ALL. Returning a null or empty tid instead would push the
+ * failure into withTenantTransaction's uuid validation and surface as a 500.
+ */
 export function tenantIdForUser(_userId: string): Promise<string> {
   throw new Error('not implemented');
+}
+
+export class NoTenantMembershipError extends Error {
+  constructor(userId: string) {
+    super(`User ${userId} has no tenant membership; no token can be minted.`);
+    this.name = 'NoTenantMembershipError';
+  }
 }
 
 /**
@@ -63,8 +79,12 @@ export function tenantIdForUser(_userId: string): Promise<string> {
  *   4. iss and aud match                    else 401 unauthenticated
  *   5. jti not revoked in Redis             else 401 unauthenticated
  *      (SKIPPED on any Redis error; increments auth_revocation_degraded_total)
- *   6. ev === true                          else 403 email_not_verified
- *   7. populate RequestContext from claims
+ *   6. CLAIM SHAPE: sub non-empty, tid present and uuid-shaped
+ *                                           else 401 unauthenticated       <- F-029
+ *      Without it a tid-less token passed the guard and was stopped one layer down by
+ *      withTenantTransaction's uuid validation, surfacing as a 500 rather than a 401.
+ *   7. ev === true                          else 403 email_not_verified
+ *   8. populate RequestContext from claims
  *
  * A handler that FORGETS @Public() is treated as authenticated and returns 401, which
  * is the safe direction.

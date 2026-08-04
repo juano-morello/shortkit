@@ -62,8 +62,13 @@ For every other route, in order, any failure short-circuiting:
 5. Redis `EXISTS sk:{env}:revoked:jti:<jti>` is 0, else 401 `unauthenticated`. **On any
    Redis error this step is skipped** (ADR-0012 posture) and
    `auth_revocation_degraded_total` increments.
-6. `ev === true`, else 403 `email_not_verified` (AC-17).
-7. Populate `RequestContext` from `{ sub, tid, email, ev }`. **No database query at any
+6. **Claim shape: `sub` is a non-empty string and `tid` is present and uuid-shaped,
+   else 401 `unauthenticated`.** Added 2026-08-04 (F-029). Without it a tid-less or
+   malformed-tid token passed the guard and was stopped one layer down by
+   `withTenantTransaction`'s uuid validation, surfacing as a **500 rather than a 401**.
+   The safety was real but accidental; this makes it deliberate and correctly shaped.
+7. `ev === true`, else 403 `email_not_verified` (AC-17).
+8. Populate `RequestContext` from `{ sub, tid, email, ev }`. **No database query at any
    step.**
 
 `TenantTransactionInterceptor` then opens `withTenantTransaction(ctx.tenantId, ...)`,
@@ -93,7 +98,9 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
 1. `RequestContext.tenantId` on an authenticated request equals the `tenant_id` of
    every row that request can read or write. There is no path to another tenant.
 2. `tid` never changes for a user (ADR-0015). A token's tenant is stable for its life.
-3. A route reaching a handler has passed steps 1 through 6, unless step 0 exempted it.
+3. A route reaching a handler has passed steps 1 through 7, unless step 0 exempted it.
+   In particular `RequestContext.tenantId` is always present and uuid-shaped, so
+   `withTenantTransaction` never receives a malformed tenant id from the guard path.
 4. `token_expired` means the signature verified and the clock passed `exp`. Refreshing
    is the correct response. `unauthenticated` means it is not, and re-login is.
 5. Maximum token lifetime is 300 seconds, so the worst-case revocation gap with Redis

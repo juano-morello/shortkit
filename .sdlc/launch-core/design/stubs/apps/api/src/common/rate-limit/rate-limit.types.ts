@@ -186,6 +186,38 @@ export interface LocalRateLimiter {
 
 export const LOCAL_LIMITER_MAX_TENANTS = 10_000;
 
+/**
+ * ============================================================================
+ * F-028. LocalAuthRateLimiter's bound. PER BUCKET, not total.
+ * ============================================================================
+ *
+ * The sibling above is keyed on tenant ids, which only an AUTHENTICATED caller
+ * produces. This one is keyed on client IP and sha256(email), both chosen by an
+ * UNAUTHENTICATED caller. An IPv6 /64 is free, so without a cap there is one live map
+ * entry per request and nothing to reap it.
+ *
+ * Live during the whole wave-2..wave-10 interval when the local limiter is the only
+ * auth limiter, and during any Redis outage when ADR-0012 routes every auth decision
+ * here — converting that outage into an API OOM-restart loop WHILE the redirect path is
+ * already degraded onto its Postgres fallback (GC-1, GC-8).
+ *
+ * Rules, all three load-bearing:
+ *   1. one map per bucket, each capped at LOCAL_AUTH_LIMITER_MAX_PRINCIPALS
+ *   2. entries whose window has elapsed are dropped lazily on access AND by a sweep
+ *      every LOCAL_AUTH_LIMITER_SWEEP_MS — the sweep is what bounds signUpPerIp, whose
+ *      one-hour window would otherwise hold an hour of distinct IPs
+ *   3. EVICTION SKIPS ENTRIES AT OR OVER THEIR LIMIT. LRU otherwise.
+ *      Without rule 3 the cap is itself a bypass: an attacker who has exhausted an
+ *      account's 5 attempts churns 10,000 principals to evict that entry and reset it.
+ *
+ * If every entry is over its limit and the cap is reached: evict the oldest anyway,
+ * increment local_rate_limit_forced_eviction_total, log at warn. Memory is bounded
+ * absolutely. Failing closed for new principals would let an attacker lock out every
+ * new user.
+ */
+export const LOCAL_AUTH_LIMITER_MAX_PRINCIPALS = 10_000;
+export const LOCAL_AUTH_LIMITER_SWEEP_MS = 60_000;
+
 /** INCR then EXPIRE, atomically. */
 export const RATE_LIMIT_LUA = `
 local n = redis.call('INCR', KEYS[1])

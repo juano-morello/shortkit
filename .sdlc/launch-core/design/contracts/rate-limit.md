@@ -72,8 +72,42 @@ does. Authenticated `GET`s remain unlimited; that is unchanged and deliberate.
 controller, which is registered outside the `/api` prefix and therefore outside the
 guard entirely (AC-86). Redirect traffic is never limited at any rate.
 
-The client IP is the platform-trusted value, `Fly-Client-IP`, never the leftmost
-`X-Forwarded-For` (same rule as `click-events.md`, F-009).
+### Which address "the client IP" means, under the BFF
+
+**Found during round 4 while verifying F-030, and not previously filed.** Every IP-keyed
+bucket in this contract was specified as keying on `Fly-Client-IP`. Under ADR-0014's BFF
+topology the browser never talks to Fly: `/api/auth/*` and every `@Public()` route arrive
+from the Next.js proxy, so `Fly-Client-IP` is **Vercel's egress address for every user**.
+
+Left as it was, all four IP buckets would have collapsed into one shared bucket:
+3 signups per hour and 10 sign-ins per 5 minutes **across the entire product**, and 30
+requests a minute total on the invitation routes. That is a product outage, not a
+limiter, and it would have appeared only once the BFF and the limiter were deployed
+together.
+
+```
+BFF sets   X-Shortkit-Client-IP: <browser address, from Vercel's own headers>
+           X-Shortkit-Proxy-Auth: <shared secret, BFF_PROXY_SECRET>
+```
+
+The API resolves the rate-limit principal as:
+
+1. `X-Shortkit-Client-IP`, **only when `X-Shortkit-Proxy-Auth` matches
+   `BFF_PROXY_SECRET`** in constant time. This is the BFF acting as a configured trusted
+   proxy.
+2. Otherwise `Fly-Client-IP`, for anything reaching Fly directly.
+
+**This does not weaken F-009.** That rule forbids trusting a *client-supplied* address,
+and an anonymous attacker cannot produce the shared secret. A request presenting
+`X-Shortkit-Client-IP` without a valid `X-Shortkit-Proxy-Auth` has the header ignored
+entirely rather than rejected, so probing for it reveals nothing.
+
+**Click events are unaffected and keep `Fly-Client-IP` verbatim.** The redirect path is
+served by Fly directly, because custom domains CNAME to `fly.dev` and never traverse the
+BFF. `click-events.md` needs no change.
+
+The secret is rotated by setting both sides and redeploying; a mismatch degrades to
+rule 2, which is safe and shows up as every user sharing a bucket.
 
 ### `/api/auth/*` is covered by a separate limiter, not by this guard
 
@@ -136,6 +170,44 @@ requires for Redis-unavailable degradation. TASK-051 upgrades it from per-machin
 per-fleet; it does not introduce it. Fly runs one machine, so the wave-2 protection is
 equivalent in practice, and the accepted N-times-limit cost is the one already recorded
 in ADR-0012.
+
+### `LocalAuthRateLimiter` is bounded, per bucket
+
+Added 2026-08-04 (F-028). This was specified only as "same algorithm, same limits" while
+its sibling `LocalRateLimiter` states an explicit `LOCAL_LIMITER_MAX_TENANTS = 10_000`
+cap. The omission mattered more here, not less: the sibling's principals are tenant ids,
+which only an authenticated caller produces, whereas these are client IPs and
+`sha256(email)`, both chosen by an **unauthenticated** caller. An IPv6 /64 is free, so
+one live map entry per request with nothing to reap it.
+
+Two live windows: the whole wave-2-to-wave-10 interval when this is the only auth
+limiter, and any Redis outage in production, when ADR-0012 routes every auth decision
+here. In the second, an attacker converts a Redis outage into an API OOM-restart loop
+**while the redirect path is already degraded onto its Postgres fallback**, which GC-1
+constrains and GC-8 forbids 5xx on.
+
+```ts
+export const LOCAL_AUTH_LIMITER_MAX_PRINCIPALS = 10_000;   // per bucket, not total
+export const LOCAL_AUTH_LIMITER_SWEEP_MS = 60_000;
+```
+
+- **One map per bucket**, each capped at `LOCAL_AUTH_LIMITER_MAX_PRINCIPALS`. Four
+  buckets, so roughly 6 MB at worst against a click buffer already budgeted at 4 MiB.
+- **Entries whose window has elapsed are dead.** Dropped lazily on access and by a
+  sweep every `LOCAL_AUTH_LIMITER_SWEEP_MS`. The sweep is what bounds `signUpPerIp`,
+  whose one-hour window would otherwise hold an hour of distinct IPs.
+- **Eviction skips entries at or over their limit.** LRU otherwise. This closes the
+  bypass the cap would otherwise open: an attacker who has exhausted an account's five
+  attempts could churn 10,000 distinct principals to evict that entry and reset the
+  count. Evicting only under-limit entries makes the attack require 10,000
+  *simultaneously limited* principals, which itself has to pass the IP buckets first.
+- **If every entry is over its limit and the cap is reached**, evict the oldest anyway,
+  increment `local_rate_limit_forced_eviction_total`, and log at warn. Memory is bounded
+  absolutely; the counter is the signal that the limiter is under pressure. Failing
+  closed for new principals instead would let an attacker lock out every new user.
+
+The Redis implementation has none of these properties to reason about: keys expire on
+their own and Upstash's eviction is not our problem.
 
 `AUTH_RATE_LIMIT_PORT` is bound with `@Optional()` nowhere. It is a **required**
 provider: an unbound token fails at boot, unlike ADR-0011's branding port, because an

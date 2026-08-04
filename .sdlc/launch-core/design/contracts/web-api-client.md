@@ -80,6 +80,7 @@ Ordered. Normative.
 | auth | `Authorization: Bearer <sk_at cookie>` |
 | cookies upstream | **never forwarded** |
 | request headers forwarded | `content-type`, `accept`, `x-request-id` only |
+| headers the proxy **adds** | `x-shortkit-client-ip` (the browser's address, from Vercel's own headers) and `x-shortkit-proxy-auth` (`BFF_PROXY_SECRET`) |
 | response headers returned | `content-type`, `retry-after`, `x-request-id` only |
 | CSRF | mutating methods require `Origin` to equal the deployment origin, else 403 |
 | redirects | `redirect: 'manual'` on the upstream fetch. A 3xx is returned to the caller, never followed |
@@ -152,6 +153,11 @@ token is ever exposed to the client**, in any form.
    carrying the header somewhere else.
 7. The proxy cannot reach any upstream path outside `/api/`. Traversal segments are
    rejected before the URL is built.
+8. **The API sees the browser's address, not Vercel's.** The proxy adds
+   `x-shortkit-client-ip` and authenticates it with `x-shortkit-proxy-auth`. Without
+   this every IP-keyed rate limit would collapse into one bucket shared by every user
+   (`rate-limit.md`). A client-supplied `x-shortkit-client-ip` arriving without a valid
+   secret is ignored, so this does not reintroduce F-009's trust problem.
 
 ## What the implementer must guarantee
 
