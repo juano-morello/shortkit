@@ -702,3 +702,70 @@
     scope. AC-5 was widened in STORY-002 to require both jobs; the id is unchanged and
     the STORY still has 3 ACs, so no id was minted and no gate reopened beyond that
     sentence. sdlc-product-auditor must verify both jobs.
+
+# Raised during the TASK-001 bootstrap dispatch. F-040 by the implementer (declined
+# work it could not do correctly); F-041 by the implementer, verified by the
+# orchestrator. Both land on approved artifacts -> routing.md rule 0 -> Juano.
+
+- id: F-040
+  phase: test
+  source: sdlc-implementer-backend
+  round: 0
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-001.md
+  line: 24
+  summary: >-
+    ADR-0018 and ADR-0013 both assign the exact better-auth version pin, plus the
+    obligation to re-verify four Better Auth facts against the pinned release, to
+    "TASK-001's pinning step". TASK-001's Out-of-scope block excludes auth by name and
+    no such step exists in the TASK.
+  failure_scenario: >-
+    TASK-001 completes without pinning better-auth, which is correct per its own file,
+    so the requirement has no producer. TASK-009 mounts Better Auth later against a
+    caret range or an unverified pin. The four facts the design leans on are (1) rateLimit
+    defaulting to enabled-in-production, (2) the hooks.before / createAuthMiddleware
+    signature, (3) ctx.body.email shape, (4) ctx.path being base-path-relative. ADR-0018
+    states that if (2) or (3) has changed, F-019's and F-021's mechanisms need revisiting
+    before the pin lands. Nobody revisits them, and a transitive bump can break
+    authentication with no code change - the exact failure the pin exists to prevent.
+  required_change: >-
+    Move the pin and the four-fact re-verification to TASK-009, which already owns
+    rateLimit {enabled false} and its unit test per ADR-0013, and amend both ADRs'
+    references from TASK-001 to TASK-009. Alternatively add an explicit pinning step to
+    TASK-001 and widen its Out-of-scope block, but its implementer has no
+    documentation-fetch tool, so the re-verification half would still have no owner.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+  resolved_by: null
+  resolved_round: null
+
+- id: F-041
+  phase: test
+  source: sdlc-implementer-backend
+  round: 0
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/stories/STORY-001.md
+  line: 16
+  summary: >-
+    AC-2 requires `pnpm -r list --depth -1` to list "exactly the workspaces apps/web,
+    apps/api, and packages/contracts". The command prints a fourth line, shortkit@0.0.0,
+    for the workspace root.
+  failure_scenario: >-
+    sdlc-product-auditor verifies AC-2 verbatim, counts four lines against a stated
+    three, and files a blocker against a correct monorepo. The root package is not
+    matched by the packages globs in pnpm-workspace.yaml and is not a workspace; it
+    exists only to hold the root lint/typecheck/test/build scripts that AC-1 requires.
+    Orchestrator verified that --no-include-workspace-root does not suppress the line,
+    so no flag makes the literal reading pass while AC-1 still holds.
+  required_change: >-
+    Amend AC-2 to name the three workspace packages and state that the workspace-root
+    entry is expected, or to assert on the three @shortkit/* package names rather than
+    on the full output. No code change either way.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+  resolved_by: null
+  resolved_round: null

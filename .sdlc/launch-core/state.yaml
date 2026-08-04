@@ -13,10 +13,10 @@ gates:
   implement: { status: pending, approved_at: null }
   ship:      { status: pending, approved_at: null }
 
-tasks: {}
+tasks:
+  TASK-001: { status: tests-green, test_exempt: true, commits: "f58f340", audited: false }
 escalations:
-  - { phase: test, findings: [F-038, F-039], reason: "findings against approved TASK artifacts; routing rule 0 forbids routing them to an agent" }
-  - { phase: test, findings: [], reason: "Test phase step 3 (verify red) is unexecutable — no test runner exists until TASK-001. Bootstrap-wave ruling required before any sdlc-test-architect dispatch." }
+  - { phase: test, findings: [F-040, F-041], reason: "raised during the TASK-001 bootstrap; both land on approved artifacts, routing rule 0 forbids routing them to an agent" }
 
 log:
   - "2026-08-03 refine: initiative opened"
@@ -102,3 +102,13 @@ log:
   - "2026-08-04 test: (3) F-039 RULED — integration job assigned to TASK-002. Produces gained the job (pnpm test:integration, postgres:17-alpine service, migrations first, frozen lockfile); Out-of-scope now states it is in scope. AC-5 WIDENED in STORY-002 to require both jobs — id unchanged, STORY-002 still has 3 ACs, nothing renumbered. sdlc-product-auditor must verify both jobs."
   - "2026-08-04 test: (4) browser-level checks RULED manual. Moved into test-strategy.md 'Deliberately not automated'. No ADR, no TASK, no new scope. unit+integration already cover all 107 ACs."
   - "2026-08-04 test: all 4 amendments applied by the orchestrator and committed. findings.yaml now 37 fixed / 2 parked, 0 escalated."
+  - "2026-08-04 test: branch sdlc/launch-core created off main at cee06e4. First TASK dispatch, so first branch, per git.branch_prefix."
+  - "2026-08-04 test: TASK-001 dispatched to sdlc-implementer-backend (opus). sdlc-scout skipped a FOURTH time — nothing to scout, the TASK creates the workspace. Dispatch carried two explicit overrides: (a) the agent's standing 'never touch apps/web/**' rule, waived by TASK-001's own ⚠ Ownership exception; (b) it writes PASSING tests not red ones, per the test_exempt ruling."
+  - "2026-08-04 test: TASK-001 returned DONE_WITH_CONCERNS. Commit f58f340, 37 files, 5150 insertions. Stack pinned: pnpm 11.20.0, node >=22.12.0, vitest 3.2.7, typescript 5.9.3, eslint 9.39.5, NestJS 11.1.28, Next 16.3.0."
+  - "2026-08-04 test: ORCHESTRATOR VERIFIED GREEN INDEPENDENTLY, not on the implementer's claim. Deleted all node_modules/.next/dist first, then pnpm install --frozen-lockfile + lint + typecheck + test + build, all exit 0 from that clean state. AC-1 holds. 15 tests / 4 files across all three workspaces, so AC-3 holds (api 2 specs, web 1, contracts 1)."
+  - "2026-08-04 test: AC-4 verified in BOTH directions by the orchestrator, not taken on report. Renamed not_found -> resource_not_found in packages/contracts/src/errors.ts: typecheck exited 2 with two TS2339 in apps/web. Reverted; typecheck back to 0; working tree clean. The cross-workspace type edge is real."
+  - "2026-08-04 test: GC-4 checked on the commit — zero matches for co-authored-by / generated with / claude / robot emoji."
+  - "2026-08-04 test: F-040 filed (implementer-raised, MAJOR). ADR-0018 and ADR-0013 both assign the exact better-auth pin AND the obligation to re-verify 4 Better Auth facts to 'TASK-001's pinning step'. TASK-001 excludes auth by name and has no such step. The implementer declined rather than pin blind — it has no doc-fetch tool, and ADR-0018 says a change in fact (2) or (3) means F-019's and F-021's mechanisms need revisiting BEFORE the pin lands. Third instance of the ADR-follow-up propagation defect after F-038/F-039."
+  - "2026-08-04 test: F-041 filed (minor). AC-2 says `pnpm -r list --depth -1` lists 'exactly' three workspaces; it prints a fourth line for the workspace root. Orchestrator VERIFIED --no-include-workspace-root does not suppress it, so no flag satisfies the literal reading while AC-1 still needs root scripts. Needs an AC amendment, not a code change."
+  - "2026-08-04 test: implementer's concern about config.yaml's ADR-0005 'generated types' comment CHECKED and found stale — the comment was already corrected on 2026-08-03 and reads 'no generated client and no OpenAPI document'. No action."
+  - "2026-08-04 test: TASK-001 left at status tests-green, NOT done. Its four-auditor panel has not run. The state machine allows this (tests-green -> in-audit -> done); the audit belongs to Implement unless Juano wants it pulled forward."
