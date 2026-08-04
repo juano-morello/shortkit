@@ -79,17 +79,30 @@ see. An implementer who opens the transaction before verifying gives an attacker
 signs up with `invitationToken = "<victim-tenant-uuid>.<random>"` a membership row in
 the victim's tenant.
 
+Validation runs in a **`before` hook**, because `databaseHooks.user.after` cannot roll
+back the insert that triggered it and rejecting there would leave a user row behind.
+
 ```
-1. invitation = await invitationRepository.findByCapabilityToken(body.invitationToken)
-     -> parses, opens withTenantTransaction, verifies the digest as its FIRST statement
-2. invitation === null  -> REJECT THE SIGNUP. No user, no tenant, no membership.
-3. expired / revoked / accepted -> reject with that state's code (invitation-tokens.md)
-4. tenantId := invitation.tenantId          <- FROM THE VERIFIED ROW
-5. create the user, tenant_memberships at TENANT_ROLE.member, and the named workspace
-   memberships, in one transaction with token consumption
+hooks.before, on /sign-up/email, when body.invitationToken is present:
+  1. invitation = await invitationRepository.findByCapabilityToken(body.invitationToken)
+       -> parses, opens withTenantTransaction, verifies the digest as its FIRST statement
+  2. null                        -> throw APIError(404). NO USER IS CREATED.
+  3. expired / revoked / accepted -> throw with that state's code
+
+databaseHooks.user.after (onUserCreated), invited branch:
+  4. invitation = findByCapabilityToken(body.invitationToken)   -- same verified read
+  5. tenantId := invitation.tenantId          <- FROM THE VERIFIED ROW
+  6. create tenant_memberships at TENANT_ROLE.member and the named workspace
+     memberships, in one transaction with token consumption
 ```
 
 Parsing the token for a tenant id anywhere outside `findByCapabilityToken` is a defect.
+
+**Residue if step 6 fails after the user commits:** a `user` row with no
+`tenant_memberships` row. That account cannot obtain a `tid` claim and so cannot
+authenticate to any tenant-scoped route, and it holds no membership in the inviting
+tenant. An orphaned unusable account is the acceptable failure; a membership row in a
+tenant nobody proved access to is not. **Do not relax step 5 to avoid the orphan.**
 Route enumeration cannot reach this path, so **an integration test is its only
 coverage**: sign up with a token whose tenant half names another tenant and whose secret
 half is random, and assert no user and no membership row is created in that tenant.

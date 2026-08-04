@@ -3,7 +3,7 @@ id: STORY-005
 epic: EPIC-002
 title: Signup, login, and email verification
 status: todo
-tasks: [TASK-009, TASK-010, TASK-011, TASK-012]
+tasks: [TASK-009, TASK-010, TASK-011, TASK-012, TASK-058]
 depends_on: [STORY-003, STORY-004]
 ---
 
@@ -19,6 +19,16 @@ As an agency operator, I sign up with my work email, verify it, and log in, so t
 - [ ] AC-19: Given a verification token that has already been consumed or has expired, when the verification link is opened, then verification fails with a distinct error and the account's verified state is unchanged.
 - [ ] AC-20: Given correct credentials for a verified account, when login is submitted, then a session/JWT is issued; given incorrect credentials, then the response is 401 and no session is issued.
 - [ ] AC-21: Given an authenticated session, when logout is invoked, then a subsequent request using the prior credential is rejected with 401.
+
+- [ ] AC-108 **(added 2026-08-04, Design F-025)**: Given six sign-in attempts for one email address arriving from six different client IPs, when the sixth is submitted, then it is rejected with 429 carrying `retryAfterSeconds`.
+- [ ] AC-109 **(added 2026-08-04, Design F-025)**: Given those same six attempts with the address case-varied and whitespace-padded, when the sixth is submitted, then it is still rejected with 429 — the key normalises case and whitespace and nothing else.
+- [ ] AC-110 **(added 2026-08-04, Design F-025)**: Given a different email address submitted from those same six IPs, when it is submitted, then it succeeds — the bucket is keyed on the address, not on the set of IPs.
+- [ ] AC-111 **(added 2026-08-04, Design F-024)**: Given a request to `/api/auth/*` whose body exceeds the configured cap, when it is submitted, then it is rejected without the body having been parsed.
+
+AC-108 exists to convert an unverified framework assumption into a checked one:
+if Better Auth's `ctx.path` is not base-path-relative, the hook's predicate never
+matches and the email bucket silently does not exist. That is a fail-open, and no
+other AC would notice.
 
 Each AC is objectively verifiable. `sdlc-test-architect` turns these into tests
 and `sdlc-product-auditor` verifies against them verbatim.

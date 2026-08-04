@@ -176,6 +176,33 @@ one fails as uncovered**; it is never skipped.
 **AC-95's post-run check** runs once: a single query asserts no row's `tenant_id`
 differs from a snapshot taken before the run.
 
+## Enforcing "exactly one of Form A, B or C"
+
+`workspace-authorization.md` invariant 8 says every authenticated route is authorised by
+exactly one form. Form A is a decorator and `DiscoveryService` sees it. **Forms B and C
+are method calls**, so they need a source-level check.
+
+```ts
+export type AuthorizationForm = 'A-decorator' | 'B-in-handler' | 'C-in-transaction' | 'unverified';
+export declare function authorizationFormOf(surface: DiscoveredSurface): AuthorizationForm;
+```
+
+The scan resolves each authenticated route's handler and looks for a call to
+`authorizer.assert`, `authorizer.assertTenant`, or `assertNotLastOwner`. It follows **one
+level of delegation**: a handler whose body is a single call into a service method also
+has that method's body scanned.
+
+**A route the scan cannot resolve is reported as `unverified`, not as passing.**
+`unverified` is a suite failure with the route named, exactly like `uncovered`. That is
+what stops the check degrading into a rubber stamp when a handler delegates two levels
+deep: the fix is to move the call up or to add the route to the scan's resolution hints,
+both of which are visible in a diff.
+
+Known limit, stated: the scan proves an authorization call exists on the path, not that
+its arguments are right. A handler calling `assert(someOtherWorkspaceId, ...)` passes.
+Form B's correctness still rests on the cross-tenant attempts above, which is why both
+mechanisms exist.
+
 ## What enumeration cannot reach
 
 Added 2026-08-04 (F-021). `DiscoveryService` walks the Nest module graph. Better Auth is

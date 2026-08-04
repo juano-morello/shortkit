@@ -95,21 +95,43 @@ verifying gives an attacker who signs up with
 `invitationToken = "<victim-tenant-uuid>.<random>"` a membership row in the victim's
 tenant.
 
-Normative sequence for `onUserCreated`, invited branch, owned by **TASK-013**:
+**The token is validated in a `before` hook, so an invalid one never creates a user.**
+`databaseHooks.user.after` cannot roll back the insert that triggered it, so rejecting
+there would leave a user row behind. Validation therefore runs in the same
+`hooks.before` seam the email rate limiter uses, where a throw prevents the handler from
+running at all.
+
+Normative sequence, owned by **TASK-013**:
 
 ```
-1. invitation = await invitationRepository.findByCapabilityToken(signupBody.invitationToken)
-     -> parses, opens withTenantTransaction, verifies the digest as its FIRST statement
-2. invitation === null  -> REJECT THE SIGNUP. No user, no tenant, no membership.
-3. expired / revoked / accepted -> reject with that state's code (invitation-tokens.md)
-4. tenantId := invitation.tenantId          <- FROM THE VERIFIED ROW, never from the token
-5. create the user, tenant_memberships at TENANT_ROLE.member, and the named workspace
-   memberships, in one transaction with token consumption
+hooks.before, on /sign-up/email, when body.invitationToken is present:
+  1. invitation = await invitationRepository.findByCapabilityToken(body.invitationToken)
+       -> parses, opens withTenantTransaction, verifies the digest as its FIRST statement
+  2. null                        -> throw APIError(404). NO USER IS CREATED.
+  3. expired / revoked / accepted -> throw with that state's code (invitation-tokens.md)
+
+databaseHooks.user.after (onUserCreated), invited branch:
+  4. invitation = await invitationRepository.findByCapabilityToken(body.invitationToken)
+       -> the same verified read, repeated; it is idempotent and indexed
+  5. tenantId := invitation.tenantId       <- FROM THE VERIFIED ROW, never from the token
+  6. create tenant_memberships at TENANT_ROLE.member and the named workspace
+     memberships, in one transaction with token consumption
 ```
 
-**Step 4 is the rule.** The tenant id used for the write comes from the row the digest
+**Step 5 is the rule.** The tenant id used for the write comes from the row the digest
 proved, not from the string the caller supplied. Parsing the token for a tenant id
 outside `findByCapabilityToken` is a defect.
+
+Step 4 repeats step 1's read rather than passing state between hooks. Two indexed
+lookups on a path that runs once per account is the cheaper trade against smuggling
+verified state through hook context.
+
+**The residue if step 6 fails after the user commits** is a `user` row with no
+`tenant_memberships` row. That account cannot obtain a `tid` claim, so it cannot
+authenticate to any tenant-scoped route, and it holds no membership in the inviting
+tenant. An orphaned unusable account is the acceptable failure here; a membership row in
+a tenant the caller never proved access to is not. **Do not relax step 5 to avoid the
+orphan.**
 
 Because route enumeration cannot reach this path, **an integration test is the only
 coverage**: sign up with a syntactically valid token whose tenant half names another

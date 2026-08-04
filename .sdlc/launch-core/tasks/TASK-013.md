@@ -29,7 +29,23 @@ Workspace endpoints (TASK-014), membership and roles (TASK-016), branding fields
 
 **Consumes**
 
-`withTenantTransaction`, `db`, `tenants`, RLS policy template (TASK-005); `onUserCreated` (TASK-009).
+`withTenantTransaction`, `db`, `tenants`, RLS policy template (TASK-005); `onUserCreated` **and the Better Auth `before` hook seam** (TASK-009).
+
+**Amended 2026-08-04 (Design round 3).** This TASK owns a `before` hook as well
+as `onUserCreated`, which the Produces block below did not anticipate.
+
+`databaseHooks.user.after` cannot roll back the insert that triggered it, so
+ADR-0021's "reject the signup — no user, no tenant, no membership" was not
+implementable as written. Invitation validation moved to a **`before` hook**,
+the same seam the email rate-limit bucket uses, where a throw prevents user
+creation entirely. The `after` hook then repeats the verified read to obtain the
+tenant id.
+
+**Load-bearing half, do not relax:** the tenant id comes from
+`invitation.tenantId` on the verified row, never from the token string. If the
+membership write fails the residue is an orphaned `user` row with no
+`tenant_memberships` — which cannot obtain a `tid` claim and so cannot
+authenticate anywhere. **Do not relax step 5 to avoid the orphan.**
 
 **Produces**
 

@@ -27,9 +27,17 @@
  * the pre-branded constants below, so the ergonomic cost is one property access.
  */
 
-declare const roleBrand: unique symbol;
+/**
+ * EXPORTED, and `declare` so it emits no runtime value.
+ *
+ * A module-local `declare const roleBrand` referenced by an exported type alias is a
+ * TS4023 declaration-emit failure ("cannot be named"). ADR-0005 has apps/web import
+ * this package as source under `composite: true`, which implies `declaration: true`,
+ * so the non-exported form would have failed the first `pnpm typecheck` in TASK-001.
+ */
+export declare const roleBrand: unique symbol;
 
-type Branded<TValue extends string, TBrand extends string> = TValue & {
+export type Branded<TValue extends string, TBrand extends string> = TValue & {
   readonly [roleBrand]: TBrand;
 };
 
@@ -68,13 +76,22 @@ export const WORKSPACE_ROLE = {
  * THE ONLY SANCTIONED CASTS. Used at the two boundaries where a role arrives as a plain
  * string: a Drizzle row and a zod parse. Both validate membership before branding.
  * Nothing else in the codebase casts to a role type; an `as TenantRole` anywhere else
- * is a defect.
+ * is a defect, and TASK-056 greps for one.
+ *
+ * The parameter type REJECTS ALREADY-BRANDED INPUT, so these cannot be used to launder
+ * one role type into the other: `assert(wsId, asWorkspaceRole(ctx.tenantRole))` is a
+ * compile error rather than a re-brand. It could not reproduce the Form B escalation
+ * ADR-0023 closed, but leaving the path open would have been the obvious way to
+ * "fix" a brand mismatch under time pressure.
  */
-export function asTenantRole(_value: string): TenantRole {
+/** Exported for the same TS4023 reason as `roleBrand`: it appears in exported signatures. */
+export type Unbranded<T> = T extends { readonly [roleBrand]: unknown } ? never : T;
+
+export function asTenantRole<T extends string>(_value: Unbranded<T>): TenantRole {
   throw new Error('not implemented');
 }
 
-export function asWorkspaceRole(_value: string): WorkspaceRole {
+export function asWorkspaceRole<T extends string>(_value: Unbranded<T>): WorkspaceRole {
   throw new Error('not implemented');
 }
 
@@ -130,8 +147,20 @@ export const TENANT_ROLE_GRANT_MINIMUM: AuthorisingTenantRole = TENANT_ROLE.owne
  * Roles TASK-022's picker offers. `viewer` is deliberately absent: nothing in
  * launch-core grants it outside test fixtures (TASK-016, TASK-019, TASK-021).
  * The API accepts `viewer`; the UI does not offer it.
+ *
+ * UNBRANDED, deliberately. This feeds z.enum() in the invitation contract, and a
+ * branded member type would carry the brand into the inferred contract type — a brand
+ * at a JSON boundary, which ADR-0023 forbids. A brand is a compile-time claim about
+ * where a value has been validated; a value arriving in a request body has been
+ * nowhere.
+ *
+ * RULE: every zod enum sources from an unbranded array — TENANT_ROLES, WORKSPACE_ROLES,
+ * or this one. Branding happens after parsing, via asTenantRole / asWorkspaceRole.
+ *
+ * `as const satisfies`, not a `readonly WorkspaceRoleValue[]` annotation: z.enum needs
+ * the literal tuple type, and the annotation would widen it to string[] and break it.
  */
 export const INVITABLE_WORKSPACE_ROLES = [
-  WORKSPACE_ROLE.workspace_admin,
-  WORKSPACE_ROLE.member,
-] as const;
+  'workspace_admin',
+  'member',
+] as const satisfies readonly WorkspaceRoleValue[];

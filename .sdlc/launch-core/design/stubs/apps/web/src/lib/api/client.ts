@@ -24,7 +24,12 @@ export class ApiError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
   readonly details?: unknown;
-  /** Present when code === 'rate_limited'. From the Retry-After header. */
+  /**
+   * Present when code === 'rate_limited'. From the Retry-After header, falling back to
+   * a `retryAfterSeconds` field in the body (F-027): /api/auth/* is mounted outside
+   * Nest, so the email rate limiter's 429 carries the value in the body. Normalising
+   * both here is what lets TASK-052's central rendering work on the login screen.
+   */
   readonly retryAfterSeconds?: number;
 
   constructor(_init: {

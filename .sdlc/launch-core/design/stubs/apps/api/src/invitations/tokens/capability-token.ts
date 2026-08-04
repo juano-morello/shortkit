@@ -80,16 +80,28 @@ export interface InvitationCapabilityReader {
  * Nest module graph, so TASK-056's route enumeration CANNOT SEE IT. It is the single
  * anonymous path that writes tenant_memberships.
  *
- *   1. invitation = await findByCapabilityToken(body.invitationToken)
- *   2. null                        -> REJECT THE SIGNUP. No user, no tenant, no row.
- *   3. expired/revoked/accepted    -> reject with that state's code
- *   4. tenantId := invitation.tenantId   <- FROM THE VERIFIED ROW, NOT FROM THE TOKEN
- *   5. create user + tenant_memberships(TENANT_ROLE.member) + named workspace
- *      memberships, in one transaction with token consumption
+ * VALIDATION RUNS IN A `before` HOOK. databaseHooks.user.after cannot roll back the
+ * insert that triggered it, so rejecting there would leave a user row behind.
+ *
+ *   hooks.before, /sign-up/email, when body.invitationToken is present:
+ *     1. invitation = await findByCapabilityToken(body.invitationToken)
+ *     2. null                        -> throw APIError(404). NO USER IS CREATED.
+ *     3. expired/revoked/accepted    -> throw with that state's code
+ *
+ *   databaseHooks.user.after (onUserCreated), invited branch:
+ *     4. invitation = findByCapabilityToken(body.invitationToken)  -- same read again
+ *     5. tenantId := invitation.tenantId  <- FROM THE VERIFIED ROW, NOT FROM THE TOKEN
+ *     6. tenant_memberships(TENANT_ROLE.member) + named workspace memberships,
+ *        in one transaction with token consumption
  *
  * PARSING THE TOKEN FOR A TENANT ID ANYWHERE OUTSIDE findByCapabilityToken IS A DEFECT.
  * An implementer who opens the transaction before verifying gives an attacker signing
  * up with "<victim-tenant-uuid>.<random>" a membership row in the victim's tenant.
+ *
+ * RESIDUE if step 6 fails after the user commits: a user row with no tenant_memberships
+ * row. It cannot obtain a `tid` claim, so it cannot authenticate to any tenant-scoped
+ * route. An orphaned unusable account is the ACCEPTABLE failure here.
+ * DO NOT RELAX STEP 5 TO AVOID THE ORPHAN.
  *
  * Owned by TASK-013. Required test, since enumeration cannot substitute: sign up with a
  * token whose tenant half names another tenant and whose secret half is random, and

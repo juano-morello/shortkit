@@ -4,13 +4,13 @@ status: approved
 approved_at: 2026-08-03
 epics: 6
 stories: 21
-tasks: 57
+tasks: 58
 waves: 13
 ---
 
 # Plan — launch-core
 
-6 EPICs · 21 STORIEs · 57 TASKs · 13 waves. Ids are **frozen**. Later scope
+6 EPICs · 21 STORIEs · 58 TASKs · 13 waves. Ids are **frozen**. Later scope
 changes append new ids; nothing is renumbered.
 
 ## Global Constraints
@@ -43,6 +43,7 @@ during Implement. Values are copied verbatim from `refinement.md` and
 graph TD
   T001-->T002; T001-->T003; T001-->T004; T001-->T005; T001-->T007
   T005-->T006; T007-->T008; T004-->T008
+  T009-->T058
   T005-->T009; T007-->T009
   T009-->T010; T009-->T011; T005-->T011
   T008-->T012; T009-->T012; T010-->T012
@@ -103,7 +104,7 @@ registration is slow.
 | **⛔ GATE** | — | — | **Re-run `/juano-sdlc init`** to populate `testing:` and `quality:` in `config.yaml`. **No dispatch past this line until done.** |
 | **1** | 002, 004, 005, 007 | **parallel-safe** | `.github/**`, `apps/web/**`, `apps/api/src/db/**`, `packages/contracts/**` — four disjoint globs, two owner slots, zero overlap. |
 | **2** | 003, 006, 008, 009 | **worktree** | 003 and 009 both write the composition root. 006 is confined to `apps/api/test/**`; 008 is frontend. Conflict is one file — merge it, do not split the wave. |
-| **3** | 010, 011, 012, 013 | **worktree** | 010 and 013 both write `apps/api/src/auth/**`; 010 and 011 both touch the composition root. 012 is frontend and disjoint. |
+| **3** | 010, 011, 012, 013, **058** | **worktree** | 010, 013 and 058 all write under `apps/api/src/auth/**`; 010 and 011 both touch the composition root. 012 is frontend and disjoint. 058 is confined to `middleware/`, `ports/` and `auth.config.ts`. |
 | **4** | 014, 016, 023 | **worktree** | 016 and 023 both write `apps/api/src/db/schema/**` and `apps/api/drizzle/**`. Distinct files, but **migration ordering must be merged deliberately — a rebase, not an auto-merge.** |
 | **5** | 015, 017, 020, 024, 029 | **parallel-safe** | 020 is the only schema writer; 029 the only composition-root writer. |
 | **6** | 018, 021, 025, 030, 033 | **worktree** | 018, 021, 025 and 030 all touch the composition root. 033 is the only schema writer. |
@@ -112,7 +113,7 @@ registration is slow.
 | **9** | 028, 034, 040, 046, 049 | **worktree** | 034 and 046 both write `apps/api/src/redirect/**` — click emission vs branded-404 rendering. **Split into 9a (034) and 9b (046) if the merge proves noisy; do not retry a second time.** |
 | **10′** | 035 → 036, 041, 047, 050, 051, 053 | **worktree, internally ordered** | **036 must run after 035 completes** — this wave is not fully parallel. 053 reads across many modules but writes only `apps/api/src/gdpr/**`. Frontend 041, 047, 050 are three concurrent `apps/web/**` writers in disjoint subtrees. |
 | **11′** | 037, 052, 054, 057 | **worktree** | 037 writes `.github/workflows/**`; 054 writes `apps/api/src/gdpr/**` + schema. Frontend 052 and 057 disjoint. |
-| **12′** | 055, 056 | **parallel-safe** | 055 is `apps/web/app/(app)/settings/account/**`; 056 is `apps/api/test/isolation/**`. **The initiative completes here at 54 of 57 TASKs.** |
+| **12′** | 055, 056 | **parallel-safe** | 055 is `apps/web/app/(app)/settings/account/**`; 056 is `apps/api/test/isolation/**`. **The initiative completes here at 55 of 58 TASKs.** |
 | **D** | 042 → 043 → 044 | **serial, on domain registration** | The only hard-blocked TASKs. Delivers AC-70, AC-71, AC-72, AC-73 and AC-67's live form. |
 
 ## SC → AC coverage
@@ -159,6 +160,21 @@ No STORY fails. Two are BLOCKED-on-dispatch, one is CONDITIONAL.
 | PASS with a design dependency | 005 (email provider), 018 (limiter under Redis loss) |
 | CONDITIONAL | 013 — the CI gate rate |
 | BLOCKED on dispatch | 014 (live validation only), 015 (in full) |
+
+### Amendment 2026-08-04 — TASK-009 split
+
+Design roughly doubled TASK-009's scope: it acquired the body cap, both IP
+rate-limit buckets, the `hooks.before` email bucket, the rate-limit port, a local
+limiter, and three integration tests, on top of the Better Auth mount and JWT
+issuance. Against GC-14's one-focused-sitting sizing that was the TASK most
+likely to overflow, and it sits in wave 2 with most of the initiative behind it.
+
+**TASK-058** now takes the protection surface and depends on TASK-009. Ids
+append and nothing is renumbered — 058..061 were dropped before the Plan gate and
+never entered an approved artifact or a commit subject, so 058 was free.
+
+Four ACs were added to STORY-005 (AC-108..AC-111) because no existing AC covered
+pre-auth limiting: TASK-051's acceptance is AC-83..AC-86, all tenant-keyed.
 
 ## Partial-ship cut lines
 

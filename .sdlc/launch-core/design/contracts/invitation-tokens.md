@@ -110,17 +110,29 @@ handler, which is mounted outside the Nest module graph, so **TASK-056's route
 enumeration cannot see it**. It is the single anonymous path that writes
 `tenant_memberships`.
 
+Validation runs in a **`before` hook**: `databaseHooks.user.after` cannot roll back the
+insert that triggered it, so rejecting there would leave a user row behind.
+
 ```
-1. invitation = await invitationRepository.findByCapabilityToken(body.invitationToken)
-2. null                          -> REJECT THE SIGNUP. No user, no tenant, no membership.
-3. expired / revoked / accepted   -> reject with that state's code, above
-4. tenantId := invitation.tenantId          <- FROM THE VERIFIED ROW, not from the token
-5. create user + tenant_memberships(member) + the named workspace memberships,
-   in one transaction with token consumption
+hooks.before, /sign-up/email, when body.invitationToken is present:
+  1. invitation = await invitationRepository.findByCapabilityToken(body.invitationToken)
+  2. null                        -> throw APIError(404). NO USER IS CREATED.
+  3. expired / revoked / accepted -> throw with that state's code, above
+
+databaseHooks.user.after (onUserCreated), invited branch:
+  4. invitation = findByCapabilityToken(body.invitationToken)   -- same verified read
+  5. tenantId := invitation.tenantId       <- FROM THE VERIFIED ROW, not from the token
+  6. tenant_memberships(TENANT_ROLE.member) + the named workspace memberships,
+     in one transaction with token consumption
 ```
 
 **Parsing the token for a tenant id anywhere outside `findByCapabilityToken` is a
 defect.** Owned by TASK-013.
+
+**Residue if step 6 fails after the user commits:** a `user` row with no
+`tenant_memberships` row, which cannot obtain a `tid` claim and therefore cannot
+authenticate to any tenant-scoped route. That is the acceptable failure. A membership row
+in an unproven tenant is not. Do not relax step 5 to avoid the orphan.
 
 Required test, because enumeration cannot substitute for it: sign up with a
 syntactically valid token whose tenant half names another tenant and whose secret half

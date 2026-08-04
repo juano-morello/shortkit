@@ -76,10 +76,28 @@ minimum below `admin`; this makes passing `TENANT_ROLE.member` as a minimum a co
 error rather than a rule someone has to remember. It is an addition to the ruling, not
 a substitute for it: on its own it would leave every other bare-literal confusion open.
 
-**Storage and wire formats are unbranded.** Drizzle columns are `TenantRoleValue` and
-`WorkspaceRoleValue`; zod contracts are `z.enum(TENANT_ROLES)`. Branding happens on the
-way in, at the repository and at the parse. Nothing about the database or the JSON
-changes.
+**Storage and wire formats are unbranded, without exception.** Drizzle columns are
+`TenantRoleValue` and `WorkspaceRoleValue`; **every zod enum sources from an unbranded
+array** (`TENANT_ROLES`, `WORKSPACE_ROLES`, `INVITABLE_WORKSPACE_ROLES`). Branding
+happens on the way in, at the repository and after the parse. Nothing about the database
+or the JSON changes.
+
+A brand is a compile-time claim that a value has been validated. A value arriving in a
+request body has been nowhere, so a branded type at a JSON boundary is a lie the
+compiler then trusts. `INVITABLE_WORKSPACE_ROLES` is the concrete case: it feeds
+`z.enum()` in the invitation contract, so it holds plain strings.
+
+**The brand symbol is exported.** `export declare const roleBrand: unique symbol`, not
+a module-local `declare const`. An exported type alias referencing a non-exported symbol
+is a TS4023 declaration-emit failure, and ADR-0005 has `apps/web` import this package as
+source under `composite: true`, which implies `declaration: true`. The module-local form
+would have failed the first `pnpm typecheck` in TASK-001.
+
+**The cast functions reject already-branded input.** `asTenantRole` and
+`asWorkspaceRole` take `Unbranded<T>`, so `asWorkspaceRole(ctx.tenantRole)` is a compile
+error rather than a re-brand. That path cannot reproduce the Form B escalation this ADR
+closes, but leaving it open would have been the obvious way to silence a brand mismatch
+under time pressure.
 
 **Now, not after Implement.** These are stubs and prose today. The same change after
 implementation touches every guard, every repository, every contract and every test.
@@ -117,8 +135,13 @@ implementation touches every guard, every repository, every contract and every t
   `Branded<"owner" | "admin", "tenant">` rather than something a person wants to read,
   and the first developer to meet it will lose time.
 - `asTenantRole` and `asWorkspaceRole` are unchecked casts internally. They are only as
-  good as their validation, and nothing outside code review stops someone adding a third
-  cast site.
+  good as their validation, and only the TASK-056 grep stops someone adding a third cast
+  site.
+- The unbranded and branded names now both exist for every role concept, and the rule
+  for which to use depends on whether the value has crossed a boundary. A repository
+  author has to know that a Drizzle column is `TenantRoleValue` while the object it
+  returns carries `TenantRole`. Getting it wrong is a compile error, so the cost is
+  confusion rather than a defect.
 - This is type-level only. It does nothing at a JSON boundary, so a role arriving in a
   request body is still just a string until it is parsed.
 

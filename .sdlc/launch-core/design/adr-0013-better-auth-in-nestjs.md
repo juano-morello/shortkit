@@ -96,7 +96,8 @@ betterAuth({
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== '/sign-in/email') return;
-      await emailRateLimit.check(sha256(ctx.body.email));   // throws APIError 429
+      const principal = sha256(normaliseEmailForKey(ctx.body.email));
+      await authRateLimit.check('signInPerEmail', principal);  // throws APIError 429
     }),
   },
 })
@@ -104,6 +105,18 @@ betterAuth({
 
 Same Redis client, same key format, same degradation posture, and nothing buffers or
 re-emits a request stream.
+
+Two details this bucket lives or dies on, both silent when wrong (F-025). The key is
+hashed over `email.trim().toLowerCase()`, matching the form Better Auth uses for its
+account lookup, so a case-varied address cannot mint a fresh allowance. And the
+`ctx.path` predicate assumes a base-path-relative value; if that is wrong the hook
+returns on every request and the bucket does not exist. Three integration tests in
+`rate-limit.md` pin the key, the predicate and the 429 together, because no AC covers
+pre-auth limiting and nothing else would notice.
+
+Both the Express middlewares and the hook reach Redis through `AUTH_RATE_LIMIT_PORT`
+rather than through `redisClient` directly, which is what lets TASK-009 build them in
+wave 2 against a dependency TASK-030 does not produce until wave 6 (F-024).
 
 Recorded in `rate-limit.md`'s Scope section, which previously read as though the surface
 simply had no limit.
@@ -220,10 +233,28 @@ attaches tenant creation to, inside the same transaction as the user insert.
 
 ### Follow-ups this creates
 
+**TASK-009 owns the entire auth surface, including its rate limiting.** Added
+2026-08-04 (F-024): the previous list omitted the limiter and the body cap entirely,
+while `rate-limit.md` named TASK-051 as their producer. TASK-051 cannot write
+`apps/api/src/auth/**`, and TASK-009 runs in wave 2 while `redisClient` arrives with
+TASK-030 in wave 6. Nobody owned the bucket and nothing said how a wave-2 mount reaches
+a wave-6 dependency.
+
 - TASK-009 owns the mount, the plugin configuration, `tenantIdForUser`, JWKS caching,
   and an e2e test asserting `POST /api/auth/sign-up/email` receives a parsed body.
+- TASK-009 also owns `authBodyCap`, `authRateLimit`, the `hooks.before` email bucket,
+  the `AUTH_RATE_LIMIT_PORT` declaration, and `LocalAuthRateLimiter`, plus the three
+  integration tests in `rate-limit.md` that pin the email bucket's key, predicate and
+  429 together.
+- **TASK-051 binds `RedisAuthRateLimiter` to that token** and owns nothing inside
+  `apps/api/src/auth/**`. The local limiter stays bound as ADR-0012's degraded fallback.
+  The upgrade is per-machine to per-fleet; TASK-051 does not introduce the bucket.
 - TASK-011 owns `AuthGuard`, the revocation check, and the mapping from claims to
   `RequestContext`.
 - TASK-008 maps Better Auth's native error bodies onto `ErrorEnvelope` at the client
-  boundary.
-- Contract: `design/contracts/auth-tokens.md`.
+  boundary, **including reading `retryAfterSeconds` from a 429 body when the header is
+  absent** (F-027).
+- Contracts: `design/contracts/auth-tokens.md`, `design/contracts/rate-limit.md`.
+- **TASK amendments this implies** are recorded in the design return for Juano's ruling,
+  not applied here: TASK-009 needs `apps/api/src/main.ts` in `paths` and `rate-limit.md`
+  in `contracts`.

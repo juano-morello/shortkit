@@ -1,10 +1,14 @@
-# Contract: per-tenant write rate limiting
+# Contract: rate limiting
 
-- **Boundary:** every authenticated write route; and the web client that renders a 429.
-- **Normative form:** `apps/api/src/common/rate-limit/rate-limit.types.ts` (stub: `design/stubs/apps/api/src/common/rate-limit/rate-limit.types.ts`).
-- **Produced by:** TASK-051.
+- **Boundary:** every route under `/api`, including `@Public()` routes and the pre-auth `/api/auth/*` surface; and the web client that renders a 429.
+- **Normative form:** `apps/api/src/common/rate-limit/rate-limit.types.ts` and `apps/api/src/auth/ports/auth-rate-limit.port.ts` (stubs under `design/stubs/`).
+- **Produced by:** TASK-009 (auth surface: body cap, IP buckets, email hook, the port) and TASK-051 (`RateLimitGuard`, the Redis implementations). See the ownership table below.
 - **Consumed by:** TASK-052 (web handling), TASK-056 (enumeration).
-- **ADRs:** ADR-0012, ADR-0006.
+- **ADRs:** ADR-0012, ADR-0006, ADR-0013.
+
+Retitled 2026-08-04: this was "per-tenant write rate limiting" and its Boundary line read
+"every authenticated write route", which F-018's fix made false and F-026 caught. The
+tenant-keyed write limiter is now one of four buckets.
 
 ## Limits
 
@@ -25,6 +29,14 @@ rl:v1:{tenantId}:{floor(nowEpochS / 60)}
 
 **Keyed by tenant, never a global bucket** (AC-84). One tenant hitting the limit has no
 effect on another.
+
+**AC-84 is unchanged and unweakened by the IP-keyed buckets.** AC-84 constrains the
+limiter that applies to a tenant's writes: it must be per tenant rather than global, so
+tenant A's traffic cannot exhaust tenant B's allowance. The IP-keyed buckets apply to
+`@Public()` and pre-auth routes, where **there is no tenant to key on** because the
+caller has not authenticated. They are a disjoint surface, not a coarser key for the
+same one. No authenticated write is ever decided by an IP bucket, and no anonymous
+request consumes a tenant's allowance.
 
 Atomic via one Lua script:
 
@@ -85,6 +97,50 @@ The client IP is the platform-trusted value, `Fly-Client-IP`, never the leftmost
 `X-Forwarded-For` (the same rule as `click-events.md`, F-009). The email is hashed
 before it becomes a key so the keyspace holds no addresses.
 
+### Ownership and injection order
+
+Added 2026-08-04 (F-024). The email hook lives inside the `betterAuth()` config in
+`apps/api/src/auth/**`, which is TASK-009's territory, while this contract named
+TASK-051 as producer. TASK-051 cannot write that file, and TASK-009 runs in wave 2
+while `redisClient` does not exist until TASK-030 in wave 6. Nobody owned the bucket
+and nothing said how a wave-2 mount reaches a wave-6 dependency, so the predictable
+outcome was that it never got built.
+
+| Piece | File | Owning TASK |
+|---|---|---|
+| `authBodyCap` | `apps/api/src/auth/middleware/auth-body-cap.ts` | **TASK-009** |
+| `authRateLimit` (IP buckets) | `apps/api/src/auth/middleware/auth-rate-limit.ts` | **TASK-009** |
+| email bucket, `hooks.before` | `apps/api/src/auth/auth.config.ts` | **TASK-009** |
+| `AuthRateLimitPort` and its token | `apps/api/src/auth/ports/auth-rate-limit.port.ts` | **TASK-009** |
+| `LocalAuthRateLimiter` (in-process) | `apps/api/src/auth/ports/local-auth-rate-limiter.ts` | **TASK-009** |
+| `RedisAuthRateLimiter` | `apps/api/src/common/rate-limit/redis-auth-rate-limiter.ts` | **TASK-051** |
+| `RateLimitGuard` and the tenant bucket | `apps/api/src/common/rate-limit/**` | **TASK-051** |
+| binding the Redis implementation to the token | `apps/api/src/app.module.ts` | **TASK-051** |
+
+**The injection order.** The auth module **declares the port**, exactly as the redirect
+module declares its branding port (ADR-0011). The mount and the hook call through the
+token and never touch `redisClient` directly.
+
+```
+wave 2  TASK-009  declares AUTH_RATE_LIMIT_PORT, wires all three call sites to it,
+                  and binds LocalAuthRateLimiter — a real in-process token bucket,
+                  same algorithm and same limits, per machine rather than per fleet.
+wave 6  TASK-030  produces redisClient.
+wave 10 TASK-051  binds RedisAuthRateLimiter to the same token. The local limiter
+                  stays bound as the degraded fallback ADR-0012 already specifies.
+```
+
+**There is no unprotected window and no no-op default.** From wave 2 the auth surface is
+limited by the in-process bucket, which is the same implementation ADR-0012 already
+requires for Redis-unavailable degradation. TASK-051 upgrades it from per-machine to
+per-fleet; it does not introduce it. Fly runs one machine, so the wave-2 protection is
+equivalent in practice, and the accepted N-times-limit cost is the one already recorded
+in ADR-0012.
+
+`AUTH_RATE_LIMIT_PORT` is bound with `@Optional()` nowhere. It is a **required**
+provider: an unbound token fails at boot, unlike ADR-0011's branding port, because an
+absent limiter is a security failure rather than a cosmetic one.
+
 ### The email bucket runs inside Better Auth, not in Express
 
 Revised 2026-08-04 (F-019). The email lives in the JSON body, and `authRateLimit` is
@@ -112,18 +168,75 @@ betterAuth({
 Same Redis client, same key format, same degradation posture. Nothing buffers or
 re-emits a request stream.
 
+### The email key is normalised, and both failure modes are tested
+
+Added 2026-08-04 (F-025). Both plausible ways this bucket fails are silent, unlike the
+adjacent ones: `ctx.body` being undefined gives a 500 on every sign-in, which nobody
+misses. These two give a limiter that quietly does not exist.
+
+**(a) Normalisation.** The key is computed over the **same normalised form Better Auth
+uses for the credential lookup**, not over the raw submitted string:
+
+```ts
+const normalisedEmail = ctx.body.email.trim().toLowerCase();
+const key = authRateLimitKey(env, 'signInPerEmail', sha256(normalisedEmail), now);
+```
+
+Better Auth lowercases the address for its account lookup, so `Foo@x.com` and
+`foo@x.com` are one account. Hashing the raw string would mint a fresh allowance per
+casing, and an attacker varying the case of the local part would never bind. Only case
+folding and surrounding whitespace are normalised. **Nothing else is stripped** — no
+dot-removal, no `+tag` removal — because two addresses differing that way may be two
+real accounts at some providers, and collapsing them would let one user's failures lock
+out another's.
+
+**(b) The trigger predicate.** The hook fires on `ctx.path === '/sign-in/email'`, which
+is base-path-relative inside Better Auth. If that assumption is wrong the hook returns on
+every request and the bucket silently does not exist.
+
+**Required integration test**, which pins the key, the predicate and the 429 together
+and turns an unverified framework assumption into a checked one:
+
+> Six sign-in attempts for one address from **six different client IPs**, so no IP bucket
+> can fire. The sixth returns 429 with `code: "rate_limited"`.
+
+Two more, cheap and covering the rest:
+
+> The same six attempts with the address case-varied on each attempt still 429 on the
+> sixth.
+>
+> A sign-in for a **different** address from the same six IPs succeeds, so the bucket is
+> keyed on the address rather than firing globally.
+
+No AC covers pre-auth limiting, so these tests are the only thing standing between this
+design and F-019's original failure. TASK-009 owns them.
+
 A body cap, `authBodyCap`, sits ahead of the Express limiter at **32 KiB**. It does not
 parse: it rejects with 413 when `Content-Length` exceeds the cap, and for a chunked
 request with no or an understated `Content-Length` it counts bytes as they pass and
 destroys the socket once the cap is crossed, without a response body.
 
-### Accepted cost, stated
+### Accepted costs, stated
 
-Email-keyed sign-in limiting is an account-enumeration oracle: an attacker learns which
-addresses exist by observing which start returning 429 sooner. The IP limit bounds the
-volume enough to accept this.
+- Email-keyed sign-in limiting is an account-enumeration oracle: an attacker learns which
+  addresses exist by observing which start returning 429 sooner. The IP limit bounds the
+  volume enough to accept this.
+- **The `@Public()` IP bucket is shared by everyone behind one NAT.** Thirty requests a
+  minute is generous for a person opening an invitation link and tight for an agency
+  whose whole office egresses from one address: several invitees accepting at once can
+  429 each other on the accept route. The copy for that 429 says to retry shortly rather
+  than implying the link is broken (TASK-022). Raising the limit weakens the
+  connection-pool protection F-018 exists to provide, so the limit stays and the cost is
+  recorded.
+- An email-keyed lockout is a denial-of-service against a known account: an attacker who
+  knows an address can keep it at five failed attempts per fifteen minutes. The window is
+  short and the account stays reachable between windows. Accepting this is the standard
+  trade for binding distributed credential stuffing, and it is why the window is fifteen
+  minutes rather than a day.
 
 ## Response on limit
+
+**From a Nest route** (`RateLimitGuard`, tenant-keyed and public IP-keyed):
 
 ```
 HTTP/1.1 429 Too Many Requests
@@ -135,6 +248,37 @@ Content-Type: application/json
 
 `Retry-After` is delta-seconds, at least 1. **The write does not occur** (AC-83): the
 guard runs before the handler and before the tenant transaction opens.
+
+**From the auth surface.** Added 2026-08-04 (F-027). `/api/auth/*` is mounted outside
+Nest (ADR-0013), so its 429s do not pass the exception filter and the previous
+unqualified invariant was false for the one 429 a user is most likely to see: a
+rate-limited login.
+
+The Express IP buckets run before `toNodeHandler` and **do** set the header, so they
+match the shape above apart from the body, which they emit themselves.
+
+The email bucket throws Better Auth's `APIError`, whose body we control and whose header
+control is not guaranteed by the framework. It therefore carries the retry value **in
+the body as well**:
+
+```ts
+throw new APIError(429, {
+  code: 'rate_limited',
+  message: 'Too many sign-in attempts for this account. Try again shortly.',
+  retryAfterSeconds: decision.retryAfterSeconds,
+});
+```
+
+| Surface | `Retry-After` header | Body |
+|---|---|---|
+| Nest routes | yes | `ErrorEnvelope` |
+| `/api/auth/*` IP buckets | yes | `{ code: 'rate_limited', message, retryAfterSeconds }` |
+| `/api/auth/*` email bucket | best effort | `{ code: 'rate_limited', message, retryAfterSeconds }` |
+
+**`apiClient` normalises all three** into `ApiError.retryAfterSeconds`, preferring the
+header and falling back to the body field (`web-api-client.md`). TASK-052's central 429
+rendering therefore works on the login screen without a special case, which is the point
+of stating this rather than leaving the fallthrough to a generic error.
 
 ## Behaviour when Redis is unavailable
 
@@ -161,7 +305,12 @@ the API does when Redis is gone.
 
 1. Tenant A being limited never affects tenant B (AC-84).
 2. After the window elapses, A's next write succeeds (AC-85).
-3. A 429 always carries `Retry-After` and `code: "rate_limited"` (AC-83).
+3. A 429 always carries `code: "rate_limited"` and a retry value the client can read.
+   From a Nest route that is the `Retry-After` header and an `ErrorEnvelope` body
+   (AC-83). From `/api/auth/*` the retry value is also in the body as
+   `retryAfterSeconds`, because that surface is mounted outside Nest and its header
+   control is not guaranteed. `apiClient` normalises both into
+   `ApiError.retryAfterSeconds`, so no screen sees the difference (F-027).
 4. The redirect path returns 302 at any rate (AC-86).
 5. A Redis outage never produces a 5xx from the limiter and never lifts the limit
    entirely.

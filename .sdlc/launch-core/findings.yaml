@@ -393,7 +393,9 @@
   failure_scenario: The hook lives inside the betterAuth() config in apps/api/src/auth/** — TASK-009's paths. TASK-051 is named as producer but cannot touch that file, does not list rate-limit.md among its contracts, and TASK-009 runs long before TASK-030 produces the redisClient the bucket needs. ADR-0013's Follow-ups still omits the hook. Predictable result is the bucket is never built, landing on F-019's original failure — 10,000 guesses per 5 minutes against one account with every IP bucket satisfied.
   required_change: Name the owning TASK and file for all three auth-surface pieces (authBodyCap, authRateLimit, the hooks.before bucket) and state the injection order letting a TASK-009-era mount consume a TASK-030-era redisClient. The owning TASK needs apps/api/src/auth/** in paths and rate-limit.md in contracts.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 3
 
 - id: F-025
   phase: design
@@ -407,7 +409,9 @@
   failure_scenario: (a) The key is sha256(ctx.body.email) with no normalisation stated. If Better Auth normalises the credential lookup, case-varying the local part mints a fresh allowance per casing and the bucket stops binding a distributed attack. (b) The trigger predicate depends on ctx.path being base-path-relative; if it is not, the hook returns on every request and the bucket silently does not exist. No AC covers pre-auth limiting and no test is required — a fail-open, unlike the adjacent failure modes which are loud.
   required_change: State that the key is computed over the same normalised form the credential lookup uses, and what that normalisation is. Require an integration test that six sign-in attempts for one address from six different client IPs yield a 429 on the sixth — pinning key, predicate and 429 together and converting an unverified framework assumption into a checked one.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 3
 
 - id: F-026
   phase: design
@@ -443,4 +447,6 @@
   failure_scenario: Invariant 3 is unqualified and TASK-052 renders 429s centrally from retryAfterSeconds. The email bucket throws Better Auth's APIError, producing its own body and no Retry-After, so the login screen's 429 handling falls through to a generic error on the one 429 a user is most likely to see.
   required_change: State what the hook's APIError carries — 429, Retry-After in delta-seconds, code rate_limited — or scope invariant 3 to the surfaces that can honour it and say what the auth surface returns instead.
   owner_slot: sdlc-architect
-  status: routed
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 3

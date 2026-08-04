@@ -86,21 +86,38 @@ export function publicRouteRateLimitKey(
  * owns the body:
  *
  *   betterAuth({ hooks: { before: createAuthMiddleware(async (ctx) => {
- *     if (ctx.path !== '/sign-in/email') return;
- *     await emailRateLimit.check(sha256(ctx.body.email));   // throws APIError 429
+ *     if (ctx.path !== '/sign-in/email') return;              // F-025(b): TESTED
+ *     const principal = sha256(normaliseEmailForKey(ctx.body.email));  // F-025(a)
+ *     await authRateLimit.check('signInPerEmail', principal); // throws APIError 429
  *   }) } })
  *
  * Same Redis client, same key format, same degradation posture. NOTHING BUFFERS OR
  * RE-EMITS A REQUEST STREAM.
+ *
+ * F-025: BOTH failure modes here are SILENT, unlike the adjacent ones (an undefined
+ * ctx.body gives a 500 on every sign-in, which nobody misses).
+ *   (a) an unnormalised key: a case-varied address mints a fresh allowance
+ *   (b) a wrong ctx.path predicate: the hook returns on every request and the bucket
+ *       silently does not exist
+ * REQUIRED integration test, owned by TASK-009, pinning key + predicate + 429 together:
+ *   six sign-in attempts for one address from SIX DIFFERENT client IPs (so no IP bucket
+ *   can fire) -> the sixth returns 429 with code 'rate_limited'.
+ * Plus: the same six with the address case-varied still 429 on the sixth; and a
+ * DIFFERENT address from the same six IPs succeeds.
+ *
+ * Reached through AUTH_RATE_LIMIT_PORT, not through redisClient directly — see
+ * apps/api/src/auth/ports/auth-rate-limit.port.ts for the wave-ordering reason (F-024).
  */
-export interface EmailRateLimiter {
-  check(emailDigest: string): Promise<RateLimitDecision>;
-}
 
 /**
  * The client IP is the platform-trusted value (Fly-Client-IP), NEVER the leftmost
  * X-Forwarded-For — same rule as click-events.md (F-009).
- * The email is hashed before it becomes a key, so the keyspace holds no addresses.
+ *
+ * The email is NORMALISED then hashed before it becomes a key (F-025):
+ * sha256(email.trim().toLowerCase()), matching the form Better Auth uses for the
+ * credential lookup. Hashing the raw string would mint a fresh allowance per casing.
+ * See normaliseEmailForKey in apps/api/src/auth/ports/auth-rate-limit.port.ts.
+ * The keyspace holds no addresses.
  */
 export function authRateLimitKey(
   _env: string,
@@ -109,6 +126,27 @@ export function authRateLimitKey(
   _nowEpochS: number,
 ): string {
   throw new Error('not implemented');
+}
+
+/**
+ * F-027. A 429 from /api/auth/* does NOT pass the Nest exception filter, so it does not
+ * get an ErrorEnvelope, and header control from inside a Better Auth hook is not
+ * guaranteed by the framework. The retry value therefore travels IN THE BODY too.
+ *
+ *   throw new APIError(429, {
+ *     code: 'rate_limited',
+ *     message: 'Too many sign-in attempts for this account. Try again shortly.',
+ *     retryAfterSeconds: decision.retryAfterSeconds,
+ *   });
+ *
+ * apiClient prefers the Retry-After header and falls back to this field, so TASK-052's
+ * central 429 rendering works on the login screen — the one 429 a user is most likely
+ * to see — without a special case.
+ */
+export interface AuthRateLimitErrorBody {
+  code: 'rate_limited';
+  message: string;
+  retryAfterSeconds: number;
 }
 
 /**

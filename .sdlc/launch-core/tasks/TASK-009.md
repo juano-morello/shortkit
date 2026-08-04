@@ -6,8 +6,8 @@ title: Better Auth mounted in NestJS: signup, login, logout, session
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-005, TASK-007]
-paths: ["apps/api/src/auth/**", "packages/contracts/src/auth/**", "apps/api/src/app.module.ts"]
-contracts: [design/contracts/auth-tokens.md, design/contracts/tenant-context.md]
+paths: ["apps/api/src/auth/**", "apps/api/src/main.ts", "packages/contracts/src/auth/**", "apps/api/src/app.module.ts"]
+contracts: [design/contracts/auth-tokens.md, design/contracts/rate-limit.md, design/contracts/tenant-context.md]
 test_files: []
 acceptance: [AC-16, AC-20, AC-21]
 rework_count: 0
@@ -24,6 +24,12 @@ Better Auth mounted in NestJS (already decided); JWT for the web app; API keys a
 **If this integration resists, escalate for a timeboxed spike rather than improvising** — `refinement.md` names Better Auth inside NestJS as a risk with thinner public prior art than the Next.js pairing.
 
 ## Out of scope for this TASK
+
+**Split 2026-08-04 on Juano's ruling:** the auth-surface protection — `authBodyCap`,
+the IP rate-limit buckets, the `hooks.before` email bucket, `AUTH_RATE_LIMIT_PORT`
+and `LocalAuthRateLimiter` — moved to **TASK-058**, which depends on this TASK.
+Design roughly doubled this TASK's scope and it sits in wave 2 with most of the
+initiative behind it. Mount the auth surface here; protect it there.
 
 Email verification and email sending (TASK-010), the request guard and tenant binding (TASK-011), tenant creation on signup (TASK-013), any UI.
 

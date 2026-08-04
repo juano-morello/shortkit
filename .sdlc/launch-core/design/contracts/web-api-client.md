@@ -56,8 +56,12 @@ Ordered. Normative.
 3. Status 401 with `code: 'token_expired'`: the **proxy** refreshes and retries once
    before the client sees anything. Two consecutive failures clear both cookies and
    return 401 `unauthenticated`.
-4. Status 429: `ApiError` with `retryAfterSeconds` from the `Retry-After` header.
-   Handled centrally so no screen reimplements it (TASK-052).
+4. Status 429: `ApiError` with `retryAfterSeconds` taken from the `Retry-After` header
+   **and, when that header is absent, from a `retryAfterSeconds` field in the body**.
+   `/api/auth/*` is mounted outside Nest, so a 429 from the email rate limiter carries
+   the value in the body rather than the header (F-027, `rate-limit.md`). Normalising
+   both here is what lets TASK-052's central rendering work on the login screen, which
+   is the 429 a user is most likely to see. No screen reimplements it.
 5. Body not matching the envelope, including Better Auth's native errors from
    `/api/auth/*` (ADR-0013): mapped to `ApiError` with `code: 'internal_error'` and the
    original status, except Better Auth's documented shapes which TASK-008 maps

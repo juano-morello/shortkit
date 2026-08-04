@@ -240,7 +240,10 @@ Order inside `POST /api/gdpr/delete`:
    (AC-30). The JWT carries no role claim, which is why.
 7. A member removed from W1 gets 404 on W1 resources and is unaffected on W2 (AC-30).
 8. **Every authenticated route is authorised by exactly one of Form A, Form B or
-   Form C.** TASK-056 flags a route using none.
+   Form C.** Form A is a decorator and route enumeration sees it; Forms B and C are
+   calls, so TASK-056 additionally scans each handler and one level of delegation for an
+   `authorizer.assert*` call. **A route it cannot resolve fails the suite as
+   `unverified` rather than passing.** Mechanism in `isolation-coverage.md`.
 
 ## What the implementer must guarantee
 
