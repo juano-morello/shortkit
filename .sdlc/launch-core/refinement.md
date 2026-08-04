@@ -81,9 +81,12 @@ this initiative was worth building.
 - **SC-7 — The redirect path degrades rather than fails.** With Redis
   unavailable, redirects still resolve correctly via Postgres. No unresolvable
   request returns 5xx to a visitor; it returns the branded 404.
-- **SC-8 — Four published posts, each carrying a real artifact** (a benchmark, a
-  diagram, or an ADR): multi-tenancy with RLS; the redirect hot path and its
-  numbers; custom-domain TLS automation; the agent-driven SDLC workflow itself.
+- **SC-8 — DEFERRED OUT OF THIS INITIATIVE on 2026-08-03.** Originally: four
+  published posts, each carrying a real artifact. Deferred because the
+  publication venue was undecided and the Plan phase found that one candidate
+  answer (publishing on the Shortkit site) requires an unplanned blog surface.
+  Juano deferred the writing discussion until after implementation. See
+  Amendment A-3. **This criterion is not measured by `launch-core`.**
 
 ## Scope
 
@@ -185,6 +188,10 @@ on 2026-08-03:
 | Test framework: jest (NestJS default) or vitest (shared with the web app)? | Design | No | Design decision. Recorded here so `init`'s null `framework:` is filled deliberately rather than by whichever scaffolder runs first. |
 | How does an expired link leave the redirect cache, given nothing writes at expiry time? | Design | No | Design decision. Candidate approaches: bound the cache TTL by time-to-expiry, or sweep on read. |
 | Can SC-2's load test run as a CI gate at 500 RPS, or only locally? | Design | No | Unresolved. See Risks. |
+| Which roles exist at the tenant and workspace levels? | Juano | Was blocking Plan | **Answered 2026-08-03.** See Amendment A-1. |
+| How do SC-6's append-only guarantee and GDPR erasure coexist? | Juano | Was blocking Plan | **Answered 2026-08-03.** See Amendment A-2. |
+| Where do the four posts publish? | Juano | Was blocking Plan | **Deferred 2026-08-03.** SC-8 moved out of this initiative. See Amendment A-3. |
+| What happens on an unknown slug — branded 404, or a configurable fallback? | Juano | Was blocking Plan | **Answered 2026-08-03.** See Amendment A-4. |
 
 ## Risks & unknowns
 
@@ -209,6 +216,38 @@ on 2026-08-03:
   during this refinement. The EPIC/STORY breakdown has to allow a coherent
   partial ship, so that running out of time leaves a smaller working product
   instead of an unfinished one.
+
+## Amendments after gate approval
+
+The Refine gate was approved on 2026-08-03. The Plan phase then found four gaps
+that made three STORIEs fail Definition of Ready. Juano ruled on all four the
+same day. Each ruling is recorded here rather than merged silently, because
+amending an approved artifact is his call and downstream work cites this file.
+
+**A-1 — Role taxonomy named.** "Members with per-workspace roles" never named the
+roles, so the membership ACs could not be tested. Resolved: tenant level `owner`
+and `admin`; workspace level `workspace_admin`, `member`, and `viewer`.
+`viewer` is read-only and nothing in `launch-core` reads it — it exists so the
+schema and the authorization checks are correct before SP7 reporting needs it.
+
+**A-2 — Append-only is scoped to the tenant-facing API.** SC-6 and the in-scope
+GDPR erasure requirement contradicted each other as written: one said click
+events are never deleted, the other said a tenant's rows are gone after account
+deletion. Resolved: no tenant-facing interface may delete or mutate a click
+event, and account deletion runs as a separate privileged path outside that
+interface which does hard-delete rows. Both claims hold under that scoping. This
+inconsistency reached the approved gate unnoticed.
+
+**A-3 — SC-8 and the four posts deferred out.** The refinement required four
+*published* posts and never said where they publish. Publishing on the Shortkit
+site needs a blog surface nobody planned. Juano chose to settle the writing
+after implementation, so SC-8, STORY-022 and TASK-058 through TASK-061 leave
+`launch-core`. The apex landing page (STORY-021) stays; it is a marketing
+surface, not a writing one.
+
+**A-4 — Fallback semantics decided.** "Branded 404 / fallback" never defined
+fallback. Resolved as an optional per-workspace fallback URL: an unknown slug
+302s there when set, and renders the branded 404 when unset.
 
 ## Existing-system notes
 

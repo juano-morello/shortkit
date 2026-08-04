@@ -1,0 +1,23 @@
+slug: tech-writing
+title: Publish the launch-core engineering posts
+type: feature
+phase: refine
+status: deferred
+created: 2026-08-03
+updated: 2026-08-03
+
+blocked_by: launch-core
+
+gates:
+  refine:    { status: not-started, approved_at: null }
+  plan:      { status: not-started, approved_at: null }
+  design:    { status: not-started, approved_at: null }
+  test:      { status: not-started, approved_at: null }
+  implement: { status: not-started, approved_at: null }
+  ship:      { status: not-started, approved_at: null }
+
+tasks: {}
+escalations: []
+
+log:
+  - "2026-08-03 stub created. SC-8 moved out of launch-core (Amendment A-3) because the publication venue was undecided and one candidate answer requires an unplanned blog surface. Refine this after launch-core implementation."

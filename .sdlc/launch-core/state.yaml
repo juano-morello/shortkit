@@ -1,13 +1,13 @@
 slug: launch-core
 title: Launchable core — tenancy, links, redirect, custom domains
 type: feature
-phase: plan
+phase: design
 created: 2026-08-03
 updated: 2026-08-03
 
 gates:
   refine:    { status: approved, approved_at: 2026-08-03 }
-  plan:      { status: pending, approved_at: null }
+  plan:      { status: approved, approved_at: 2026-08-03 }
   design:    { status: pending, approved_at: null }
   test:      { status: pending, approved_at: null }
   implement: { status: pending, approved_at: null }
@@ -22,3 +22,13 @@ log:
   - "2026-08-03 refine: refinement.md drafted; 8 success criteria, 6 additions accepted into scope, 2 deferred (password-protected links, bulk CSV import)"
   - "2026-08-03 refine: stop-slop pass applied to Problem, Outcome, Scope, Constraints, Risks"
   - "2026-08-03 refine: GATE APPROVED by Juano. Phase advanced to plan."
+  - "2026-08-03 plan: sdlc-planner dispatched; returned 61 TASKs / 6 EPICs / 22 STORIEs. Breakdown at work/plan-breakdown.md"
+  - "2026-08-03 plan: 3 STORIEs failed DoR (007 roles undefined, 019 SC-6 vs GDPR erasure conflict, 022 post venue undefined). Escalated to Juano per routing rule 0 (findings against approved artifacts never route to an agent)."
+  - "2026-08-03 plan: Juano ruled. A-1 roles owner/admin + workspace_admin/member/viewer. A-2 append-only scoped to tenant-facing API, deletion is a privileged path. A-3 SC-8 + STORY-022 + TASK-058..061 deferred out of launch-core. A-4 optional per-workspace fallback URL confirmed. Amendments recorded in refinement.md."
+  - "2026-08-03 plan: planner resumed via SendMessage to apply rulings and recompute edges, waves, coverage, DoR."
+  - "2026-08-03 plan: revision applied. All DoR failures cleared; no STORY FAILs. Corrected: only 3 TASKs (042,043,044) are apex-domain-blocked, not 10 — STORY-016 and TASK-038..041 are not blocked."
+  - "2026-08-03 plan: adopted the alternative sequence as default — EPIC-005 runs before the 3 domain TASKs, which move to trailing wave D. Costs nothing if the domain is registered early."
+  - "2026-08-03 plan: config.yaml machine-validated for the first time via `npx js-yaml` (exit 0). Nothing installed. Constraint met."
+  - "2026-08-03 plan: tech-writing initiative stub created as SC-8's home."
+  - "2026-08-03 plan: 84 artifact files written (6 epics, 21 stories, 57 tasks) + plan.md. Cross-references verified: every TASK->STORY and STORY->EPIC resolves; all 57 TASKs claimed by a STORY."
+  - "2026-08-03 plan: GATE APPROVED by Juano. Ids frozen. Phase advanced to design."

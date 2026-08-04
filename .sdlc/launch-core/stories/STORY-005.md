@@ -1,0 +1,40 @@
+---
+id: STORY-005
+epic: EPIC-002
+title: Signup, login, and email verification
+status: todo
+tasks: [TASK-009, TASK-010, TASK-011, TASK-012]
+depends_on: [STORY-003, STORY-004]
+---
+
+## User story
+
+As an agency operator, I sign up with my work email, verify it, and log in, so that I have an account.
+
+## Acceptance criteria
+
+- [ ] AC-16: Given a visitor submits a valid, unused email and a password meeting the stated policy, when signup completes, then an account exists in an unverified state and exactly one verification email is dispatched to that address.
+- [ ] AC-17: Given an existing unverified account, when it presents a valid session to any authenticated API endpoint, then the response is 403 with error `code` `email_not_verified`.
+- [ ] AC-18: Given an unexpired verification token, when the verification link is opened, then the account becomes verified and a subsequent authenticated API call returns 200.
+- [ ] AC-19: Given a verification token that has already been consumed or has expired, when the verification link is opened, then verification fails with a distinct error and the account's verified state is unchanged.
+- [ ] AC-20: Given correct credentials for a verified account, when login is submitted, then a session/JWT is issued; given incorrect credentials, then the response is 401 and no session is issued.
+- [ ] AC-21: Given an authenticated session, when logout is invoked, then a subsequent request using the prior credential is rejected with 401.
+
+Each AC is objectively verifiable. `sdlc-test-architect` turns these into tests
+and `sdlc-product-auditor` verifies against them verbatim.
+
+## Definition of Ready
+
+**PASS with a design dependency.** The email provider is undecided and explicitly non-blocking: TASK-010's adapter is fakeable, so tests do not wait on it. Better Auth inside NestJS is a named risk in `refinement.md` — escalate to a timeboxed spike if it resists rather than improvising.
+
+- [x] ACs are testable and unambiguous
+- [x] Dependencies identified
+- [ ] Contracts it consumes exist in `design/contracts/` — Design has not run yet
+- [x] No blocking open questions
+
+## Definition of Done
+- [ ] All ACs green as automated tests
+- [ ] All auditors clear of blocker/major
+- [ ] Docs updated (README / API / ADR consequences)
+- [ ] Observability in place per config
+- [ ] Traceable: commits reference TASK ids
