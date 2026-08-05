@@ -1964,7 +1964,17 @@
     ERROR_CODE_STATUS. The AC-13 tests assert HTTP status, so a divergent second lookup would be
     caught there - but only for codes the tests exercise.
   owner_slot: sdlc-test-architect
-  status: open
+  ruling: >-
+    CLOSED 2026-08-05 by the TASK-007 audit. Both halves are satisfied. sdlc-reviewer verified the
+    filter routes through errorResponse() rather than re-declaring the lookup, and the ORCHESTRATOR
+    CONFIRMED IT INDEPENDENTLY - every body in exception-filter.ts is built by errorResponse() at
+    lines 114, 123, 137, 144, 151 and 159, and the two ERROR_CODE_STATUS reads at 143 and 147 COMPARE
+    an incoming framework status rather than derive one. The duplication the file's own comment
+    forbids did not appear. errorResponse() is now also exercised by all 18 filter round-trip tests,
+    which is the coverage half the finding asked for.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 # Wave-1 red tests, TASK-005 (STORY-003). Raised by the orchestrator while verifying the
 # test architect's red run. F-074, F-075 and F-076 are the same shape as F-070/F-071: the
@@ -2292,7 +2302,23 @@
     one. A 413 code is otherwise deferred: one appended code, one ERROR_CODE_STATUS row and one
     status-table row, in the commit that adds the first route documenting a body size limit.
   owner_slot: sdlc-implementer-backend
-  status: open
+  ruling: >-
+    CLOSED 2026-08-05. The implementer did NOT address this and sdlc-reviewer flagged that omission
+    separately, but the reviewer and sdlc-security-auditor each established the answer INDEPENDENTLY
+    while tracing branch 3 and agreed on both mechanism and outcome, so it costs a ledger edit rather
+    than another round. Body-parser errors DO reach this filter: Nest 11 registers an Express
+    error-layer middleware (routes-resolver.js registerExceptionHandler) built from the same global
+    filter set as route handlers, and APP_FILTER filters are in that chain. A malformed JSON
+    SyntaxError maps to BadRequestException and takes branch 3's 400 arm. A 413 is a
+    PayloadTooLargeError, not an HttpException, so it falls through unmapped to branch 4 and answers
+    500 with a VALID ENVELOPE. THEREFORE invariant 1 needs no stated exception and error-envelope.md
+    is accurate as written. The security auditor added why this was worth checking at all -
+    finalhandler returns err.stack in the response body whenever NODE_ENV is not production, and no
+    artifact in this repo yet guarantees NODE_ENV=production, so keeping that fallback out of reach
+    is load-bearing. The deferred 413 code itself stays deferred as originally written.
+  status: fixed
+  resolved_by: sdlc-reviewer, sdlc-security-auditor
+  resolved_round: 1
   note: deferred-observation
 
 - id: F-083
@@ -2415,4 +2441,486 @@
     manifests rather than by merging lockfile hunks. Wave 1 is unaffected - TASK-005 is the sole holder,
     so it stays parallel-safe.
   resolved_by: orchestrator
+  resolved_round: null
+- id: F-086
+  phase: implement
+  task: TASK-007
+  story: STORY-004
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: packages/contracts/src/errors.ts
+  line: 130
+  summary: >-
+    toValidationDetails accumulates into a `{}` literal and reads `fieldErrors[key] ?? []`, so a zod
+    issue whose first path segment names an Object.prototype member reads the INHERITED value and
+    throws TypeError inside the exception filter.
+  failure_scenario: >-
+    Raised independently by sdlc-reviewer (major) and sdlc-security-auditor (SEC-3, minor); deduped
+    here at the reviewer's severity. ORCHESTRATOR REPRODUCED IT rather than accepting either report:
+    z.record(z.string(), z.string()).safeParse(JSON.parse('{"constructor": 2}')) yields path
+    ["constructor"], and toValidationDetails then throws "TypeError: messages.push is not a function"
+    because fieldErrors['constructor'] resolves to the Object constructor. The consequence is worse
+    than the crash - it throws INSIDE ApiExceptionFilter.catch, which has no last-resort guard, so it
+    escapes the one component meant to answer for every throwable. A request that must answer 400
+    validation_failed with field errors answers 500 with none. Where the escape reaches finalhandler
+    rather than Nest's error layer, the body is HTML carrying err.stack whenever NODE_ENV is not
+    production. Unreachable from any schema in the repo today; reachable the first time a contract
+    declares z.record over caller-supplied keys, and this function is inherited unmodified by the
+    validation_failed path of all fourteen consuming TASKs.
+  required_change: >-
+    Build the accumulator with Object.create(null) or a Map and read with Object.hasOwn. Two extra
+    properties must hold afterwards: the result still passes validationDetailsContract and still
+    serialises through res.json, and a first segment of __proto__ produces an own, JSON-visible key
+    rather than silently setting a prototype. Paired with F-087 (the same defect in the approved
+    design stub) and F-088 (no direct test). Fixing only this one leaves the stub to restore it.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-087
+  phase: implement
+  task: TASK-007
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/launch-core/design/stubs/packages/contracts/src/errors.ts
+  line: 125
+  summary: >-
+    The approved design stub contains the F-086 prototype-chain defect byte-for-byte, so the
+    implementer transcribed it faithfully and the defect originates in design, not implementation.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED the stub's lines 125-137 are identical to the shipped loop. This matters for
+    attribution and for durability. Attribution - the implementer did exactly what a transcription
+    task asks and should not be marked down for it. Durability - design/stubs/ is what a later reader
+    consults when materialising or re-checking a contract, so correcting only packages/contracts
+    leaves the defect live in the artifact that would restore it. The reviewer identified this itself
+    and said so in its required_change rather than filing against the implementer alone.
+  required_change: >-
+    Apply the same prototype-safe accumulation to the stub, and state in the stub or ADR-0025 why the
+    plain-object accumulator is wrong, so the next person writing a details-shaped reducer does not
+    reintroduce it. Routing rule 0 - design/** belongs to sdlc-architect.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-088
+  phase: implement
+  task: TASK-007
+  story: STORY-004
+  source: sdlc-product-auditor, sdlc-reviewer
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: packages/contracts/src/errors.spec.ts
+  line: 1
+  summary: >-
+    isZodError and toValidationDetails have no direct unit test. Both normative rules they exist to
+    carry - empty path to FORM_ERROR_KEY, and collapse to the first path segment - are unasserted
+    anywhere in the suite.
+  failure_scenario: >-
+    Raised by sdlc-product-auditor (major) and sdlc-reviewer (minor); deduped at the higher severity
+    because F-086 is the concrete cost of the gap - a demonstrable crash shipped inside an untested
+    function. ORCHESTRATOR VERIFIED errors.spec.ts contains ZERO references to any of the three new
+    exports. The only coverage is transitive, through the filter spec's zod probe, which produces a
+    single issue with a one-segment path. Deleting the path.length === 0 branch, or keying by
+    issue.path.join('.') instead of path[0], passes all 44 tests. ADR-0025 rests its whole placement
+    argument on these two rules living beside the shape they produce, and nothing checks that they do.
+  required_change: >-
+    Direct unit tests over a real ZodError in packages/contracts/src/errors.spec.ts - a root .refine()
+    failure lands under FORM_ERROR_KEY; two issues on a.b and a.c collapse to one `a` key with both
+    messages in issue order; a prototype-named first segment survives, which guards F-086's fix;
+    isZodError accepts a real ZodError and rejects a plain object carrying { name: 'ZodError',
+    issues: [] }. NOTE THE TDD SHAPE - the production code already exists and the auditors judged it
+    correct, so there is no ordinary red step. Each new test must be DEMONSTRATED to fail by
+    temporarily mutating the implementation, the probe technique used on AC-4 in TASK-001. A coverage
+    test never shown to fail is the hollow assertion this initiative has twice caught.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-089
+  phase: implement
+  task: TASK-007
+  story: STORY-004
+  source: sdlc-product-auditor
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/src/common/errors/exception-filter.spec.ts
+  line: 1
+  summary: >-
+    Branch 3's 400 arm (_form forwarding) and its any-other-status 500 fallback have zero test
+    coverage. Only the 404 sub-branch is exercised.
+  failure_scenario: >-
+    Found by the product auditor independently of what its dispatch asked it to check. ORCHESTRATOR
+    VERIFIED the filter spec probes NotFoundException and nothing else - no 400 and no other-status
+    HttpException anywhere in the file. Both arms are mandated by error-envelope.md's normative table,
+    and the reviewer separately confirmed the 400 arm is load-bearing rather than speculative, since a
+    malformed JSON body maps to BadRequestException and lands there. A future edit to
+    resolveHttpException regresses the 400 path silently while all 44 tests stay green; the first
+    signal is a malformed request answering with an envelope clients cannot render.
+  required_change: >-
+    Add a probe route throwing a 400 HttpException with a known message and one throwing an
+    HttpException with an unmapped status, asserting the _form key and the 500 fallback respectively.
+    Same TDD shape as F-088 - the code exists and is judged correct, so satisfiability must be
+    demonstrated by mutation rather than by a natural red.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-090
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor, sdlc-reviewer
+  round: 1
+  severity: major
+  kind: scope
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 79
+  summary: >-
+    The comment defers the pino swap to TASK-003, whose paths cannot reach
+    apps/api/src/common/errors/**, so the one log line carrying raw error text has no owner able to
+    move it behind pino's redaction.
+  failure_scenario: >-
+    Raised by sdlc-security-auditor as SEC-1 (major) and sdlc-reviewer (minor); deduped at the higher
+    severity. ORCHESTRATOR VERIFIED TASK-003's paths - fly.toml, Dockerfile, infra/**,
+    apps/api/src/health/**, apps/api/src/app.module.ts, apps/api/src/main.ts - none reaching
+    common/errors/**. exception-filter.ts is in no TASK's paths but TASK-007's, and TASK-007 closes
+    here. logging-and-headers.md makes REDACT_PATHS the sole mechanism enforcing GC-9, and this filter
+    is the only place in the API that writes an arbitrary error's message and stack, so it stays
+    outside that mechanism for as long as nobody owns the file. error-envelope.md invariant 9 -
+    debugging a 500 means finding its request_id in the logs - stays false for every 500 the product
+    returns. THIRTEENTH instance of the artifact-assigns-work-a-TASK-cannot-do class; F-060 is the
+    closest precedent and Juano ruled it by widening paths rather than by moving the work.
+  required_change: >-
+    Juano's call under routing rule 0 - both candidate homes are approved artifacts. Either widen
+    TASK-003's paths to apps/api/src/common/errors/** and name the swap in its Produces block, or name
+    the TASK that does own it. A code comment is not an owner. Both auditors agree the CHOICE of Nest
+    Logger for now is correct and should not be reworked; the defect is the dangling hand-off.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-091
+  phase: implement
+  task: TASK-007
+  story: STORY-004
+  source: sdlc-product-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/launch-core/design/test-strategy.md
+  line: 172
+  summary: >-
+    AC-14's recorded compensating mechanism assumes an incompatible contract change breaks apps/web's
+    typecheck, but the three exports this TASK added to packages/contracts are consumed only by
+    apps/api, so a change confined to them never reaches apps/web.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED apps/web's only @shortkit/contracts import anywhere is ERROR_CODE_STATUS, in
+    not-found.tsx and its spec. So an incompatible change to isZodError, toValidationDetails or
+    FORM_ERROR_KEY fails apps/api's typecheck - pnpm -r typecheck still exits non-zero, but not
+    "because apps/web no longer compiles", which is AC-14's literal clause. Once TASK-002 builds the
+    recommended contract-drift check from the documented ERROR_CODES-rename mutation alone, it reports
+    AC-14 as covered while a real class of incompatible changes goes undetected by any gate. This diff
+    changed the premise the recorded reasoning rests on, which is why it surfaced now.
+  required_change: >-
+    Before TASK-002 implements the contract-drift check, revisit test-strategy.md's AC-14 entry to
+    either scope AC-14 explicitly to the exports apps/web consumes and record the API-only exports as
+    a separate currently-unenforced surface, or widen the planned check's mutation set to include one
+    of the three new exports and state whether surfacing that failure via apps/api rather than apps/web
+    is acceptable. Routing rule 0 - design/** belongs to sdlc-architect. TASK-002 is wave 1 and not yet
+    dispatched, so this lands before the check is written rather than after.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-092
+  phase: implement
+  task: TASK-007
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: implementation
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 83
+  summary: >-
+    catch() has no last-resort guard, so anything thrown while resolving or writing the response
+    escapes the one component that is supposed to answer for every throwable.
+  failure_scenario: >-
+    Three live paths, all in code fourteen TASKs will write - F-086's crash; a DomainError carrying a
+    BigInt or a circular reference in `details`, which ADR-0024 says is forwarded verbatim, making
+    res.json throw; and a headers value Node rejects, making setHeader throw ERR_INVALID_CHAR after
+    earlier headers were already written, leaving a half-headered response. In each case the filter
+    throws instead of answering and the client gets whichever of Nest's error layer or finalhandler
+    catches it - a 500 with the wrong code, or HTML with a stack outside production. Bundled into this
+    round for free per the severity policy, since the TASK is already reworking.
+  required_change: >-
+    Wrap the resolve-and-write in a last-resort path that logs the secondary failure and, if
+    headersSent is still false, answers 500 internal_error with INTERNAL_ERROR_MESSAGE and no details.
+    Not a new branch in the normative table - the table describes classification, this is the write
+    step. Also covers sdlc-security-auditor's SEC-8 nit, where a marker-carrying object without a
+    toEnvelope method throws in branch 1.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-093
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 168
+  summary: >-
+    Branch 4 logs the raw error message and full stack through an unredacted logger, which is exactly
+    what F-064's ruling removed from main.ts, so the two files now state opposite policies in one repo.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED BOTH SIDES. main.ts:59-62 reads "The stack is deliberately not logged:
+    ADR-0022 redacts by path at the logger, and no path reaches into a stack, so it would be the one
+    field on the boot line outside the redaction pipeline." exception-filter.ts:168 passes
+    exception.stack to this.logger.error. The exposure is to the log sink, not to a client - a pg or
+    Redis connection failure puts an internal host and, for a URL-style DSN, credentials into message;
+    a hand-parsed body puts a request fragment there. Path-based redaction cannot reach inside a
+    message string, so REDACT_PATHS will not cover it even after TASK-003 lands.
+  required_change: >-
+    Make the two files agree and record which way. The conservative reading is that main.ts already
+    carries a ruling-backed policy and the newer file deviated from it, so exception-filter.ts should
+    match rather than the reverse - which keeps the change inside TASK-007's own paths and needs no
+    ruling. If the answer is instead that both should log the stack, that spans TASK-003's paths and
+    becomes part of F-090's escalation.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-094
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/error-envelope.md
+  line: 192
+  summary: >-
+    Branch 3's 400 arm copies an HttpException's message into the body verbatim, and for the
+    framework's own 400 that message contains a fragment of the raw request body - which the contract
+    mandates, so the code is compliant and the contract is what needs changing.
+  failure_scenario: >-
+    ORCHESTRATOR REPRODUCED the reflection on Node 24.19 - JSON.parse of
+    '{"password":"hunter2","token":"eyJhbGciOi","x":}' produces the message
+    `Unexpected token '}', ..."ciOi","x":}" is not valid JSON`, carrying a fragment of the token into
+    details.fieldErrors._form. Nest maps a body-parser SyntaxError to BadRequestException(err.message),
+    so an unauthenticated POST with a malformed JSON body reflects roughly 15-30 raw bytes of that body.
+    The bytes are the sender's own so no privilege boundary is crossed, but error-envelope.md invariant
+    8 says flatly that no error body contains a password or a token, and this path can put a fragment
+    of one there. It is also inconsistent with the 404 arm three lines above, where the implementer
+    introduced a fixed NOT_FOUND_MESSAGE for precisely this reason.
+  required_change: >-
+    Amend error-envelope.md so the framework-400 arm gets the same treatment as the 404 arm - a fixed
+    _form message, or a hard truncation with the raw fragment dropped - then the code half follows.
+    Filed against the contract rather than the code because the code implements the contract as
+    written. Routing rule 0 - design/** belongs to sdlc-architect.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-095
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: packages/contracts/src/errors.ts
+  line: 125
+  summary: >-
+    toValidationDetails caps neither the issue count nor the messages per key, so a small request body
+    produces a large response built inside the exception filter.
+  failure_scenario: >-
+    zod reports one issue per failing array element. Against a future z.array(z.string()) body, a 100 KB
+    request of [1,1,1,...] is roughly 50k elements and so roughly 50k messages of ~46 bytes - a 2-3 MB
+    response from a 100 KB request, about 30x amplification, unauthenticated, with the whole structure
+    held in memory during the throw path. Separately a z.strictObject body of unknown keys returns every
+    submitted key name verbatim in one unrecognized_keys message, echoing at roughly 1:1. No route parses
+    a body today, which is what keeps this minor; TASK-007 is the moment the cap is cheap, before
+    fourteen TASKs inherit the uncapped version.
+  required_change: >-
+    Cap the issue count and the per-key message count with a truncation marker, and state the cap in
+    error-envelope.md beside the ValidationDetails shape. The contract half routes to sdlc-architect
+    alongside F-094; the code half is here.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-096
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 108
+  summary: >-
+    `details` is forwarded verbatim for every code and nothing validates it against the shape the
+    contract names, contesting an accepted consequence of ADR-0024.
+  failure_scenario: >-
+    ADR-0024 recorded this as an accepted cost - "details is typed unknown ... The filter forwards it
+    verbatim. Only review catches that" - written before the filter existed. The filter now imports from
+    the package declaring validationDetailsContract, so the check costs one line. Without it, a later
+    TASK attaches the conflicting row to `details` on a 409 to help the client, and another workspace's
+    fields ship to the caller. Nothing catches it - errorEnvelopeContract types details as
+    z.unknown().optional(), so every envelope assertion in every downstream spec still passes, and the
+    fourteen throwing TASKs each write their own throw site with no reviewer between it and the browser.
+  required_change: >-
+    Decide whether ADR-0024's accepted cost still stands now that the check is one line. If it does not
+    - when code is validation_failed, parse details with validationDetailsContract and drop it if it does
+    not match; for any code the contract names no shape for, drop details and log the drop. Filed against
+    design because it contests an ADR consequence rather than an implementation choice.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-097
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: packages/contracts/src/errors.ts
+  line: 72
+  summary: >-
+    The 409 uniqueness codes are cross-tenant existence oracles, and error-envelope.md's invariants 5
+    and 6 cover access but say nothing about uniqueness conflicts.
+  failure_scenario: >-
+    Invariant 5 - cross-tenant access always returns 404, never 403 - makes the product's central
+    property true for READS. It does not reach writes that collide on a globally unique value.
+    hostname_already_claimed is the sharp one: any user who can sign up for a free workspace can POST
+    candidate hostnames at TASK-040's endpoint and learn, one 409 at a time, which custom domains other
+    tenants have claimed - the tenant-enumeration primitive SC-1 and GC-5 exist to prevent, reached
+    without touching another tenant's records. slug_taken is the same shape but bounded by
+    (domain_id, slug) per GC-6, so it discloses only within a domain the caller already reaches.
+    ORCHESTRATOR VERIFIED both codes are present at 409 in the shipped registry. TASK-007 ships the
+    registry; TASK-040 ships the throw site, which is why this is design rather than a defect in this diff.
+  required_change: >-
+    State in error-envelope.md or domains.md what a uniqueness conflict may disclose, BEFORE TASK-040 is
+    dispatched. The auditor's suggested answer is to answer 409 only after the caller has proved control
+    of the hostname via DNS, and to answer the pre-proof case identically whether or not the hostname is
+    claimed. Routing rule 0 - design/** belongs to sdlc-architect.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-098
+  phase: implement
+  task: TASK-007
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/error-envelope.md
+  line: 195
+  summary: >-
+    The contract fixes code and status for the framework 404 and 400 rows but is silent on the
+    envelope's top-level message, which errorEnvelopeContract requires non-empty, so the implementer
+    had to invent two strings.
+  failure_scenario: >-
+    Low impact - invariant 3 forbids callers branching on message, so nothing functional depends on the
+    wording. Worth recording because seventeen TASKs consume this contract and a second implementer
+    meeting the same gap picks different text with no test catching the divergence. The reviewer
+    independently endorsed the implementer's CHOICE for a reason the report understated: Nest's
+    not-found handler throws NotFoundException(`Cannot ${method} ${url}`), so the framework text would
+    have reflected the request URL into a JSON body on every unmatched route.
+  required_change: >-
+    Add the chosen strings to error-envelope.md, or an explicit note that the wording is the
+    implementer's choice and not normative, so the decision is not re-derived. Routing rule 0 -
+    design/** belongs to sdlc-architect.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-099
+  phase: implement
+  task: TASK-005
+  story: STORY-003
+  source: sdlc-scout, orchestrator
+  round: 1
+  severity: major
+  kind: contract
+  file: .sdlc/launch-core/plan.md
+  line: 28
+  summary: >-
+    GC-5, the Global Constraint this whole initiative exists to satisfy, names `SET LOCAL app.tenant_id`
+    - a mechanism F-007 established is not executable and that design/contracts/tenant-context.md
+    replaced with set_config.
+  failure_scenario: >-
+    VERIFIED THREE LEVELS DEEP. plan.md:28 reads "a per-request SET LOCAL app.tenant_id" and explains
+    SET LOCAL is transaction-scoped. tenant-context.md:70 says in bold "set_config(name, value, true),
+    never SET LOCAL", because SET and SET LOCAL accept no bind parameters. F-007 is status fixed, but
+    its required_change named tenant-context.md, ADR-0002, redirect-read.ts and the eraser sequence -
+    never plan.md - so GC-5 was never in the fix's scope. The root is one level higher still:
+    refinement.md:172 carries the same phrase and GC-5 cites source "Constraints", meaning it copies
+    refinement.md verbatim. WHY THIS ONE BITES HARDER THAN THE OTHER TWELVE: implement.md requires the
+    Global Constraints be passed to every auditor VERBATIM as the reviewer's attention lens, so when
+    TASK-005 correctly implements set_config, three auditors will hold a constraint naming the
+    superseded mechanism and can reasonably file the correct implementation as a GC-5 violation.
+    Harmless for TASK-007, which touches no RLS. Not harmless for TASK-005, whose entire purpose is GC-5.
+  required_change: >-
+    Juano's call under routing rule 0 - correcting it touches refinement.md (Refine gate) and plan.md
+    (Plan gate), two approved artifacts across two gates, which is why this is not applied as a
+    transcription fix. The substance is already settled by F-007; only the wording lags. The alternative
+    is to leave both and carry an explicit override into the TASK-005 dispatch and every audit prompt,
+    which means an attention lens that is knowingly wrong.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-100
+  phase: implement
+  task: TASK-005
+  source: sdlc-scout
+  round: 1
+  severity: minor
+  kind: scope
+  file: apps/api/test/support/psql.ts
+  line: 4
+  summary: >-
+    The fixture files instruct TASK-005 to replace them, inside files TASK-005 has no path to write.
+    Extends F-077, which recorded the routing tension but not that the instruction lives in the code.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED both. psql.ts:4 reads "⚠ TASK-005 MUST REPLACE THIS FILE" and rls-fixture.ts:20
+    reads "⚠ TASK-005 owes this fixture two things it currently fakes". apps/api/test/support/** is
+    sdlc-test-architect's under routing rule 0 and appears in no TASK-005 path. The test architect's own
+    hand-off report gives the same instruction. An implementer reading its own grounding meets a direct
+    order it cannot lawfully obey, and the two available responses are both bad - edit outside its paths,
+    or stall and ask. This is the mirror image of the twelve artifact-assigns-work findings: here the
+    artifact assigning the work is the source file itself.
+  required_change: >-
+    Reword both headers to name sdlc-test-architect as the party that swaps psql spawn for pg.Client
+    once TASK-005 lands the dependency, and state that TASK-005's obligation is the dependency alone.
+    Fold into F-077's resolution rather than tracking separately. Routing rule 0 - a test file belongs
+    to sdlc-test-architect.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
   resolved_round: null
