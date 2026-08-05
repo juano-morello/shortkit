@@ -17,8 +17,4 @@ describe('AppModule', () => {
 
     expect(moduleRef.get(AppModule)).toBeInstanceOf(AppModule);
   });
-
-  it('starts with no feature modules registered', () => {
-    expect(Reflect.getMetadata('imports', AppModule)).toEqual([]);
-  });
 });

@@ -857,9 +857,19 @@
     Assert something that stays true as modules are added; the existing compile-and-resolve
     test already covers AC-3. Drop the empty-imports assertion.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1 by REMOVING the assertion rather than replacing it. The test architect
+    looked for a replacement that would stay true as modules are added and reported that
+    none exists which is not either a transient-count assertion in disguise or an assertion
+    against Reflect.getMetadata, i.e. testing Nest's own decorator-metadata storage rather
+    than this codebase. The surviving test compiles AppModule through
+    Test.createTestingModule().compile() and resolves the instance, which is AC-3's real
+    assertion and exercises actual Nest DI on the production composition root. Orchestrator
+    verified: only app.module.spec.ts changed, 14 tests green (was 15; the delta is exactly
+    the deleted assertion), all three workspaces still carry a passing test so AC-3 holds.
 
 - id: F-044
   phase: test
