@@ -2486,9 +2486,18 @@
     that phrasing is the one that ships an empty body. Paired with F-087 (the same defect in the approved
     design stub) and F-088 (no direct test). Fixing only this one leaves the stub to restore it.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1, verdicted ADDRESSED by BOTH sdlc-reviewer (r2) and sdlc-security-auditor (r2)
+    independently. The reviewer re-ran all three empirical claims behind the amended required_change
+    against installed zod 4.4.3 and confirmed each, agreeing the __proto__ strike was right and that its
+    own 'drained at the end' wording is what shipped. The security auditor verified the prototype hazard
+    is GONE rather than moved, end to end: Object.fromEntries produces own properties via
+    CreateDataProperty with Object.prototype intact and unpolluted, the re-parse builds a fresh object,
+    and res.json is JSON.stringify - no pollution sink anywhere in the chain. It also stated plainly that
+    its own SEC-3 parenthetical 'or a Map' was the imprecise phrasing and the reviewer's was correct.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-087
   phase: implement
@@ -2514,9 +2523,15 @@
     plain-object accumulator is wrong, so the next person writing a details-shaped reducer does not
     reintroduce it. Routing rule 0 - design/** belongs to sdlc-architect.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1 by sdlc-architect, verdicted ADDRESSED by sdlc-security-auditor, which confirmed
+    the design stub's function body is now BYTE-IDENTICAL to the shipped function - the reviewer diffed
+    them - so the artifact that would have restored the defect for the next reader no longer carries it.
+    That was the whole point of splitting F-087 from F-086 by owner rather than filing one finding with
+    two homes.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
 
 - id: F-088
   phase: implement
@@ -2550,9 +2565,15 @@
     temporarily mutating the implementation, the probe technique used on AC-4 in TASK-001. A coverage
     test never shown to fail is the hollow assertion this initiative has twice caught.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1 by sdlc-test-architect, verdicted ADDRESSED by sdlc-product-auditor (r2), which
+    confirmed both load-bearing rules it named are now directly asserted - an empty path landing under
+    _form, and two issues under one parent collapsing to a single first-segment key - plus a
+    constructor-named field test that guards F-086's fix and one asserting message order. sdlc-reviewer
+    and sdlc-security-auditor independently noted the same coverage now exists.
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
 
 - id: F-089
   phase: implement
@@ -2581,9 +2602,15 @@
     Same TDD shape as F-088 - the code exists and is judged correct, so satisfiability must be
     demonstrated by mutation rather than by a natural red.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1 by sdlc-test-architect, verdicted ADDRESSED AND EXCEEDING THE ASK by
+    sdlc-product-auditor (r2). It asked for two probes and got four: the two requested, plus one keeping
+    the quoted request bytes out of the body and one keeping an unmapped exception's message out of it.
+    Both extras trace to F-094 and ADR-0026 rather than to padding. All go through real HTTP against a
+    booted AppModule, matching the discipline of the rest of the file.
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
 
 - id: F-090
   phase: implement
@@ -2657,9 +2684,17 @@
     is acceptable. Routing rule 0 - design/** belongs to sdlc-architect. TASK-002 is wave 1 and not yet
     dispatched, so this lands before the check is written rather than after.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1 by sdlc-architect, verdicted ADDRESSED by sdlc-product-auditor (r2) as 'the exact
+    form of closure my finding asked for - an explicit, reasoned scope call rather than a silent gap'.
+    test-strategy.md now carries a two-mutation table, one row per consumer workspace, and takes the
+    scoping option explicitly: if TASK-002 ships only the first row, the API-only exports are an
+    unenforced surface and the entry is the record that they are. TASK-002's Approach was amended by the
+    orchestrator to point at that entry, so an implementer building from the Approach alone cannot build
+    the single-mutation check the finding exists to prevent.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
 
 - id: F-092
   phase: implement
@@ -2688,9 +2723,18 @@
     step. Also covers sdlc-security-auditor's SEC-8 nit, where a marker-carrying object without a
     toEnvelope method throws in branch 1.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1, ADDRESSED by both auditors. The reviewer judged ONE LAYER CORRECT and said it
+    would not accept a second: the last-resort body is two string literals through a function reading one
+    table entry, so a third nesting is depth with no failure behind it. The security auditor confirmed the
+    guard covers SEC-8's class and that omitting the typeof-toEnvelope probe is fine, because the guard
+    converts the mistake into a logged 500 with a valid envelope, which was the point. The implementer
+    PROBED the guard live - a marker object without toEnvelope, and a CRLF header value - and deleted the
+    probe. TWO RESIDUALS DEFERRED, not blocking: no test asserts the guard (filed as part of the deferred
+    set), and headers written before the failure survive onto the last-resort 500.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-093
   phase: implement
@@ -2719,9 +2763,18 @@
     ruling. If the answer is instead that both should log the stack, that spans TASK-003's paths and
     becomes part of F-090's escalation.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1, ADDRESSED by both auditors - the filter now matches main.ts's F-064 policy and
+    the two files agree, which is what the finding asked for. THE FIX CREATED F-106: the normative contract
+    still instructs the opposite in two places, and TASK-003 - which gained this file in the same round -
+    would read it and restore the stack. The security auditor separately PUSHED BACK ON THE PERMANENT FORM
+    with an argument worth carrying to TASK-003: err.stack's first line IS name: message, which logError
+    still writes in full, so the change dropped only the frames - file paths and function names of our own
+    source, no user data - and kept the one field that genuinely sits outside redaction. Its inverse
+    recommendation is to log the frames through pino's serialiser and treat the MESSAGE as the risky field.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-094
   phase: implement
@@ -2752,9 +2805,18 @@
     Filed against the contract rather than the code because the code implements the contract as
     written. Routing rule 0 - design/** belongs to sdlc-architect.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1 - contract half by sdlc-architect, code half by sdlc-implementer-backend - and
+    ADDRESSED by both auditors. Resolving it as a CONTRACT AMENDMENT rather than a code-only fix was
+    correct: the code implemented the contract as written, so a code-only fix would have left the
+    contract instructing the leak. The shipped constant matches the pinned value exactly and the
+    HttpException message no longer reaches the body on any arm. Keeping it module-private is right -
+    the frozen spec hand-copies the literal, and exporting it would invite a test asserting the code
+    against itself. SEC-10 records that the bytes moved to the LOG, which is a narrower audience but not
+    a GC-9 fix; deferred to TASK-003, which owns this file and the logging policy.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
 
 - id: F-095
   phase: implement
@@ -2781,9 +2843,18 @@
     error-envelope.md beside the ValidationDetails shape. The contract half routes to sdlc-architect
     alongside F-094; the code half is here.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1, ADDRESSED by both auditors, and the security auditor MEASURED the result rather
+    than inspecting it: z.array(z.string()) against 50,000 bad elements now produces a 564-BYTE response,
+    where round 1 costed the same input at 2-3 MB. Ceiling is 101 messages regardless of input. The
+    truncation notice is a fixed constant carrying no count, key names or schema shape, so it leaks
+    nothing. The reviewer checked the two boundaries that matter and found both right - the over-cap flag
+    is computed from issues.length BEFORE the slice, and the per-key check makes exactly 10 not-truncated
+    and 11 truncated. Two nits deferred: _form can reach 11 messages when the notice is appended past its
+    own cap, and the caps count issues rather than bytes.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-096
   phase: implement
@@ -2811,9 +2882,18 @@
     not match; for any code the contract names no shape for, drop details and log the drop. Filed against
     design because it contests an ADR consequence rather than an implementation choice.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1 - ADR-0026 by sdlc-architect, narrowEnvelope by sdlc-implementer-backend - and
+    ADDRESSED by both auditors, each reviewing it as NEW CODE rather than as a fix. The load-bearing half
+    is right: the validation_failed arm returns parsed.data rather than the input, and the security
+    auditor verified a sibling key beside fieldErrors cannot survive and that the parse output is a FRESH
+    object rather than an alias. The drop logs the code and never the value. Applying it once in write()
+    rather than inside toEnvelope() is correct, because a feature-directory subclass can override
+    toEnvelope and branches 2-4 never call it. The reviewer also confirmed narrowEnvelope does NOT undo
+    F-086. SEC-9 is the adjacent variant it does not reach and is filed separately.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-097
   phase: implement
@@ -2843,9 +2923,18 @@
     of the hostname via DNS, and to answer the pre-proof case identically whether or not the hostname is
     claimed. Routing rule 0 - design/** belongs to sdlc-architect.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1 by sdlc-architect, ADDRESSED by sdlc-security-auditor, which ALSO ENDORSED the
+    architect's decision to decline its own suggested remedy. Its round-2 assessment is the material
+    point for F-102: the narrower rule is sufficient ON THE MERITS, because every state returning 409
+    requires a public CNAME to the Fly app and active additionally lands in a CT log, so one unauthenticated
+    DNS query answers the same question faster than signing up - the 409 confers no capability. Forbidding
+    it on pending_verification closes the half that WAS a real oracle. One residual it wants pinned: the DNS
+    equivalence is evaluated at verification time, not at 409 time, so a row whose CNAME was later removed
+    keeps answering 409 after the public evidence is gone. Bites verified and provisioning only.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
 
 - id: F-098
   phase: implement
@@ -3149,6 +3238,77 @@
     answer - at both :192 and :398. Bundle with F-105, which is the same contradiction one file over
     and one level down. Routing rule 0 - design/** belongs to sdlc-architect.
   owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-107
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/api/src/common/errors/error-envelope.ts
+  line: 48
+  summary: >-
+    narrowEnvelope returns the caller's envelope BY REFERENCE when details is absent, so a top-level
+    sibling key on a toEnvelope() override reaches the wire unnarrowed - the same leak ADR-0026
+    closes for details, one level up.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED AT SOURCE: error-envelope.ts:48 is `if (details === undefined) return
+    envelope;` while every other path reconstructs { code, message } or { code, message, details:
+    parsed.data }. Branch 1 is the only branch whose body is not built by errorResponse, and ADR-0026
+    itself names the reachable producer - "a subclass in a feature directory can override
+    toEnvelope()". The auditor typechecked the mistake under --strict and it COMPILES CLEAN, because
+    excess-property checking does not apply to properties arriving from a spread, though the
+    equivalent direct literal errors TS2353. So TASK-018's last_owner_protected or TASK-040's
+    hostname_already_claimed written as `return { ...conflictingRow, code, message }` ships tenantId,
+    hostname and ownerEmail to a caller of another tenant, with no drop and no warn line, while
+    errorEnvelopeContract.safeParse in every downstream spec still passes because nothing parses the
+    outgoing body. Minor rather than major only because it needs a developer mistake to trigger -
+    the same reachability class as F-096, which was accepted as worth fixing.
+  required_change: >-
+    One line - `if (details === undefined) return { code, message };`. The reference body in
+    error-envelope.md and ADR-0026's table row "any | absent | envelope unchanged" carry the same
+    shape, so the contract half moves with it and routes to sdlc-architect alongside F-106.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-108
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 210
+  summary: >-
+    The framework-400 arm moved the raw request bytes out of the body and into the log, where neither
+    REDACT_PATHS nor pino can reach them, and the same line lets an unauthenticated caller put a
+    newline into a log record.
+  failure_scenario: >-
+    The move itself is the correct trade and F-094 is not being re-litigated - a log sink is a
+    narrower audience than a response body, and invariant 8 is now absolute. What it is NOT is a GC-9
+    fix. The bytes are the same bytes and they now sit at rest in the log store, while TASK-003's
+    Produces block says to pass the message through ADR-0022's serialisation, which cannot help:
+    redaction is path-based and no path reaches inside a message string. An unauthenticated POST of a
+    malformed body containing a token puts a token fragment in the log exactly as it used to put it in
+    the body. Second property, verified by the auditor on Node 24.19: the quoted slice is raw input so
+    it can contain a literal newline, and Nest's text Logger writes it as two physical lines - bounded
+    to roughly 15 characters, so it splits a line-oriented log without forging a convincing record.
+    JSON encoding by pino removes the newline property but not the credential fragment.
+  required_change: >-
+    DEFERRED to TASK-003 rather than reopening TASK-007, on the auditor's own recommendation. The
+    remedy for this arm is not to serialise the message better but to stop logging it - log
+    exception.name plus the SyntaxError's position, or a hard-truncated message, not the quoted slice.
+    TASK-003 already owns this file under the F-090 ruling and already holds the F-093 policy decision,
+    so this belongs in the same call. Recorded in TASK-003 so it reaches an implementer rather than
+    living only in a report, which is the F-064 failure this initiative has filed three times.
+  owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
   resolved_round: null
