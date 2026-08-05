@@ -88,7 +88,7 @@ release: (1) `rateLimit` defaults to enabled-in-production, the reason ADR-0013
 disables it; (2) `hooks.before` / `createAuthMiddleware` signature; (3)
 `ctx.body.email` shape; (4) `ctx.path` being base-path-relative. If (1) has changed the
 disable is harmless; if (2) or (3) has changed, F-019's and F-021's mechanisms need
-revisiting before the pin lands. This travels with TASK-001's pinning step below.
+revisiting before the pin lands. This travels with TASK-009's pinning step below.
 
 **Layer 3: the artifact separates the numbers.** `infra/loadtest/baseline.json` carries
 both, and `docs/performance/redirect-baseline.md` says which is which in prose, so
@@ -171,11 +171,13 @@ consistent with SC-2's wording, and it is an interpretation rather than a fact.
   `ubuntu-latest`), and writes a document that keeps them apart.
 - TASK-037 owns both jobs, the median-of-three logic, and the documented on-demand
   invocation.
-- TASK-001 pins `better-auth` exactly in `apps/api/package.json` and commits
+- TASK-009 pins `better-auth` exactly in `apps/api/package.json` and commits
   `pnpm-lock.yaml`, **and re-checks the four Better Auth facts listed in the pinning
   paragraph above against the docs for that exact version**, recording the result in
   the commit message. A divergence on `hooks.before` or `ctx.body.email` blocks the pin
-  and escalates.
+  and escalates. Re-attributed from TASK-001 on 2026-08-04 (F-040): TASK-001 bootstraps
+  the monorepo and excludes auth by name, so the pin had no producer there. The
+  implementer that mounts the library is the one that needs the four facts to hold.
 - TASK-002 adds `--frozen-lockfile` to every job and the `pnpm audit --prod
   --audit-level high` step to `quality`.
 - **Gate item for Juano:** confirm the reading of SC-2 recorded above.

@@ -324,5 +324,5 @@ a wave-6 dependency.
   leans on, this is the only one that degrades silently and only in production — the
   hook signature and `ctx.body.email` fail loudly, and the `ctx.path` predicate is
   pinned by the three integration tests — so it gets its own pin. The obligation to
-  re-verify all four facts against the pinned version travels with TASK-001's pinning
-  step (ADR-0018).
+  re-verify all four facts against the pinned version travels with TASK-009's own
+  pinning step (ADR-0018). Re-attributed from TASK-001 on 2026-08-04 (F-040).

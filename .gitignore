@@ -16,3 +16,6 @@ coverage/
 
 .DS_Store
 *.log
+
+# superpowers review packages: regenerable diffs, not source
+.superpowers/
