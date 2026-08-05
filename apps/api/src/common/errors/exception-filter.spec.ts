@@ -7,9 +7,11 @@ import {
   validationDetailsContract,
 } from '@shortkit/contracts';
 import type { ErrorEnvelope } from '@shortkit/contracts';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { AppModule } from '../../app.module';
+import { DomainError } from './domain-error';
+import type * as domainErrorModule from './domain-error';
 
 /**
  * AC-13 — every rejected API request answers with the shared error envelope and a
@@ -27,10 +29,42 @@ import { AppModule } from '../../app.module';
  * a filter class directly. AC-13 is about the response a client receives, and calling
  * `catch()` on a filter instance would assert the filter's arguments instead — which
  * would still pass if the filter were never registered.
+ *
+ * ADR-0024 added branch 1 of the four: a thrown `DomainError` answers with its own code
+ * and the status `ERROR_CODE_STATUS` gives that code. The tests for it are below the
+ * three that were here first (unmapped throwable, framework exception, `ZodError`).
+ * `domain-error.spec.ts` holds the assertions on the constructed error itself; what is
+ * here is only what a client observes, which is the part that proves the filter reads
+ * `isDomainError` rather than deciding for itself.
  */
 
 /** Stands in for the class of value invariant 8 forbids in a body: a credential. */
 const LEAKED_SECRET = 'postgres://shortkit:hunter2@db.internal:5432';
+
+/** Safe to show a stranger, which is what constructing a `DomainError` promises. */
+const SLUG_TAKEN_MESSAGE = 'The short code launch is already in use.';
+const RATE_LIMITED_MESSAGE = 'Too many requests. Try again in 30 seconds.';
+const VALIDATION_MESSAGE = 'That short code cannot be used.';
+
+/** Delta-seconds, as invariant 7 requires of every 429. */
+const RETRY_AFTER = '30';
+
+/**
+ * Route, code and status, with the status hand-read off `error-envelope.md`'s table
+ * rather than looked up in `ERROR_CODE_STATUS`. Two codes with two different statuses,
+ * neither of which the framework produces on its own, so a filter answering a constant
+ * status — or the status of whichever code it saw last — fails one of the rows.
+ */
+const DOMAIN_ERROR_CASES = [
+  { route: 'domain-error', code: 'slug_taken', status: 409 },
+  { route: 'domain-error-headers', code: 'rate_limited', status: 429 },
+] as const;
+
+/**
+ * The second module graph, loaded in `beforeAll` and thrown from by the probe route
+ * below. See `loadSecondCopyOfDomainError`.
+ */
+let secondGraph: typeof domainErrorModule | undefined;
 
 /**
  * A real ZodError, built by failing a contract that already exists. `apps/api` has no
@@ -68,6 +102,77 @@ class ErrorProbeController {
   zod(): never {
     throw zodErrorFixture();
   }
+
+  /**
+   * ADR-0024: the only way application code asks for a status other than 500. The
+   * `cause` is what a real throw site would attach — it belongs in the log and nowhere
+   * near the body.
+   */
+  @Get('domain-error')
+  domainError(): never {
+    throw new DomainError('slug_taken', SLUG_TAKEN_MESSAGE, {
+      cause: new Error(`connection to ${LEAKED_SECRET} refused`),
+    });
+  }
+
+  /** What TASK-051's rate-limit guard throws: a code and a `Retry-After` header. */
+  @Get('domain-error-headers')
+  domainErrorWithHeaders(): never {
+    throw new DomainError('rate_limited', RATE_LIMITED_MESSAGE, {
+      headers: { 'Retry-After': RETRY_AFTER },
+    });
+  }
+
+  /** A code the contract names a `details` shape for, carried by the error itself. */
+  @Get('domain-error-details')
+  domainErrorWithDetails(): never {
+    throw new DomainError('validation_failed', VALIDATION_MESSAGE, {
+      details: { fieldErrors: { slug: ['is reserved'] } },
+    });
+  }
+
+  /** A `DomainError` from a second evaluation of `domain-error.ts` in this process. */
+  @Get('domain-error-second-graph')
+  domainErrorFromSecondGraph(): never {
+    if (secondGraph === undefined) {
+      throw new Error('fixture is missing: the second copy of domain-error.ts never loaded');
+    }
+
+    throw new secondGraph.DomainError('slug_taken', SLUG_TAKEN_MESSAGE);
+  }
+}
+
+/**
+ * A second evaluation of `domain-error.ts`: a distinct class object that
+ * `instanceof DomainError` rejects, carrying the same `Symbol.for` marker. TASK-056's
+ * isolation suite and the integration config load these same sources under a second
+ * vitest project, which is the duplication ADR-0024 chose a registered symbol for.
+ *
+ * Called after the app is listening, so every module Nest resolves lazily is already
+ * in the registry when the reset happens and only `domain-error.ts` and its imports
+ * are re-evaluated.
+ *
+ * The guards are the honesty check: if the runner ever hands back the cached module,
+ * this stops being a second graph and the test below would pass against an
+ * `instanceof` filter. It fails loudly instead of quietly proving nothing.
+ */
+async function loadSecondCopyOfDomainError(): Promise<typeof domainErrorModule> {
+  vi.resetModules();
+  const loaded = await import('./domain-error');
+
+  if (loaded.DomainError === DomainError) {
+    throw new Error(
+      'fixture is stale: the dynamic import returned the same class object, so this is not a second module graph',
+    );
+  }
+
+  if (new loaded.DomainError('not_found', 'x') instanceof DomainError) {
+    throw new Error(
+      'fixture is stale: an error from the second copy still satisfies instanceof, so this test no longer distinguishes the two implementations',
+    );
+  }
+
+  return loaded;
 }
 
 let app: INestApplication;
@@ -83,6 +188,8 @@ beforeAll(async () => {
   app = moduleRef.createNestApplication({ logger: false });
   await app.listen(0, '127.0.0.1');
   baseUrl = await app.getUrl();
+
+  secondGraph = await loadSecondCopyOfDomainError();
 });
 
 afterAll(async () => {
@@ -93,6 +200,7 @@ interface Probe {
   readonly status: number;
   readonly body: unknown;
   readonly raw: string;
+  readonly headers: Headers;
 }
 
 /**
@@ -110,7 +218,7 @@ async function probe(route: string): Promise<Probe> {
     /* left as the raw text */
   }
 
-  return { status: response.status, body, raw };
+  return { status: response.status, body, raw, headers: response.headers };
 }
 
 /** Shared precondition: the response body is an envelope at all. */
@@ -182,5 +290,61 @@ describe('the API exception filter', () => {
     const details = validationDetailsContract.parse(envelope.details);
 
     expect(Object.keys(details.fieldErrors)).toEqual(['message']);
+  });
+
+  it.each(DOMAIN_ERROR_CASES)(
+    'AC-13: answers a thrown DomainError with the code it carries, $code',
+    async ({ route, code }) => {
+      const probed = await probe(route);
+
+      expect(expectEnvelope(probed).code).toBe(code);
+    },
+  );
+
+  it.each(DOMAIN_ERROR_CASES)(
+    'AC-13: answers a thrown DomainError carrying $code with status $status, the row the contract gives that code',
+    async ({ route, status }) => {
+      const probed = await probe(route);
+
+      expect(probed.status).toBe(status);
+    },
+  );
+
+  it("AC-13: passes a DomainError's own message to the body", async () => {
+    const probed = await probe('domain-error');
+
+    expect(expectEnvelope(probed).message).toBe(SLUG_TAKEN_MESSAGE);
+  });
+
+  it("AC-13: keeps a DomainError's cause out of the response body", async () => {
+    const probed = await probe('domain-error');
+    expectEnvelope(probed);
+
+    expect(probed.raw).not.toContain(LEAKED_SECRET);
+  });
+
+  it("AC-13: writes a DomainError's headers to the response", async () => {
+    const probed = await probe('domain-error-headers');
+
+    expect(probed.headers.get('retry-after')).toBe(RETRY_AFTER);
+  });
+
+  it("AC-13: forwards a DomainError's details to the body", async () => {
+    const probed = await probe('domain-error-details');
+    const envelope = expectEnvelope(probed);
+
+    expect(envelope.details).toEqual({ fieldErrors: { slug: ['is reserved'] } });
+  });
+
+  it('AC-13: answers a DomainError thrown from a second module graph with its own code', async () => {
+    const probed = await probe('domain-error-second-graph');
+
+    expect(expectEnvelope(probed).code).toBe('slug_taken');
+  });
+
+  it('AC-13: answers a DomainError thrown from a second module graph with its own status', async () => {
+    const probed = await probe('domain-error-second-graph');
+
+    expect(probed.status).toBe(409);
   });
 });
