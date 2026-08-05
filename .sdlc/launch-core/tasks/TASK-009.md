@@ -6,7 +6,7 @@ title: Better Auth mounted in NestJS: signup, login, logout, session
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-005, TASK-007]
-paths: ["apps/api/src/auth/**", "apps/api/src/main.ts", "packages/contracts/src/auth/**", "apps/api/src/app.module.ts"]
+paths: ["apps/api/src/auth/**", "apps/api/src/main.ts", "packages/contracts/src/auth/**", "apps/api/src/app.module.ts", "apps/api/test/auth/**"]
 contracts: [design/contracts/auth-tokens.md, design/contracts/rate-limit.md, design/contracts/tenant-context.md]
 test_files: []
 acceptance: [AC-16, AC-20, AC-21, AC-112]
@@ -104,3 +104,15 @@ of in production traffic.
 
 **What is not yours:** the resolver, the body cap, the IP buckets, the email hook, the
 port and the local limiter all moved to **TASK-058**.
+
+## ⚠ Test path added 2026-08-04 (F-057, ruled by Juano)
+
+`paths` gained `apps/api/test/auth/**`. ADR-0013 assigns you an e2e test asserting
+`POST /api/auth/sign-up/email` receives a parsed body; that needs a live server, so
+`design/test-strategy.md` puts it in the integration layer, and your paths previously
+reached no test directory at all. The test stays with the mount it verifies rather than
+migrating to TASK-058, which would ship your mount one wave without its acceptance signal.
+
+You now share `apps/api/test/auth/**` with TASK-058, as you already share `auth.config.ts`.
+`depends_on` sequences you first. Create the directory; TASK-058 adds its three rate-limit
+integration tests beside yours.

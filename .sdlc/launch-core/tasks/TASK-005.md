@@ -43,3 +43,12 @@ here.
 **Produces**
 
 `withTenantTransaction(tenantId, fn)` — runs `fn` inside a transaction with `app.tenant_id` set and rolls back on throw; `db` — the Drizzle client; the migration runner command; `tenants` table with columns `id`, `name`, `created_at`; a documented RLS policy template that every later tenant-scoped table applies.
+
+## ⚠ Obligation added 2026-08-04 (F-064, ruled by Juano)
+
+**Remove `passWithNoTests: true` from `apps/api/vitest.integration.config.ts`.** TASK-001
+set it so `pnpm test:integration` would not fail an empty repo, and named you and TASK-056
+as the suppliers of real suites. It must not survive past the first real `.int-spec.ts`.
+While it stands, an integration run that matches nothing is indistinguishable from one that
+passed. You produce `docker-compose.test.yml` and the migration runner, so you are the
+first TASK that can write an integration test at all.

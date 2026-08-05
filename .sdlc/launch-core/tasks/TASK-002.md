@@ -53,3 +53,23 @@ Workflow `ci` also with a job named `integration`, running `pnpm test:integratio
 against a `postgres:17-alpine` service container, triggered on the same events and
 failing the workflow on any non-zero exit. Per ADR-0001 the job runs migrations before
 the suite. Per ADR-0018 every job installs with a frozen lockfile.
+
+## ⚠ Two obligations added 2026-08-04 (F-064, ruled by Juano)
+
+Both were stated in round-1 audit findings and never reached this file. The orchestrator
+recorded F-047 and F-044 as fixed on their code halves alone; these are the missing halves.
+
+**1. Resolve pnpm from `packageManager`, do not hardcode a version.** The root
+`package.json` carries `pnpm@11.20.0+sha512.9a6f330a...`, an integrity hash the security
+auditor verified against the npm registry. A setup step that hardcodes a bare `11.20.0`
+never checks that hash, so the hash is decorative and reads as supply-chain coverage that
+does not exist. Use a setup step that reads `packageManager`. Consider
+`node-version-file: package.json` for the Node floor too, so `engines` stays the single
+source of truth.
+
+**2. The `integration` job must assert a non-zero test count.** `pnpm test:integration`
+passes with `passWithNoTests: true`, so a suite that matches nothing exits 0 while a real
+Postgres service container spins up and zero assertions run. TASK-001 added a guard that
+catches a *near-miss* filename, but not the case where the glob legitimately matches
+nothing. Without this assertion SC-1 can read as proven by a suite no pipeline invokes,
+which is the failure F-039 exists to prevent.
