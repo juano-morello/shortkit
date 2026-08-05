@@ -56,7 +56,7 @@ quality:
   build: pnpm build
 
 git:
-  branch_prefix: sdlc/
+  branch_prefix: feat/            # renamed 2026-08-04; was sdlc/
   commit_convention: conventional   # feat(scope): subject [TASK-001]
   ai_attribution: false             # HARD false. Juano is sole author.
   worktree_isolation: auto
