@@ -2981,9 +2981,18 @@
     for stage 2 rather than becoming a test of nothing. Routing rule 0 - a test file belongs to
     sdlc-test-architect, resumed via SendMessage since this is round 1 of 5 and its context is intact.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 1 by sdlc-test-architect (resumed), commits 3ff01c9 and 0154312. ORCHESTRATOR
+    VERIFIED: the corrected assertion is RED for the right reason and the probe now throws the message
+    NEST ACTUALLY PRODUCES rather than an invented one - Node 24.19's JSON.parse text quoting the token
+    fragment, the same string the contract amendment quotes. The architect went beyond the required
+    change with a second test, and the reason is good: a fixed-string assertion alone does not state
+    the security property, so it added one asserting the quoted request bytes are ABSENT from the body,
+    whose failure output is the leak printed verbatim. It also confirmed independently, not on the
+    architect's word, that the other three F-089 tests survive the amended contract.
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
 
 - id: F-102
   phase: implement
@@ -3017,5 +3026,62 @@
     wave 9, so this is not urgent, but it must be settled before that dispatch.
   owner_slot: null
   status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-103
+  phase: implement
+  task: TASK-007
+  source: sdlc-test-architect
+  round: 1
+  severity: nit
+  kind: implementation
+  file: apps/api/src/common/errors/exception-filter.spec.ts
+  line: 1
+  summary: >-
+    The existing test named "AC-13: forwards a DomainError's details to the body" still passes but
+    its verb is the exact word this round spent itself removing.
+  failure_scenario: >-
+    Behaviourally fine - a valid ValidationDetails under validation_failed survives ADR-0026's
+    narrowing unchanged, so the assertion holds. Semantically stale: after F-094 and F-096 the filter
+    no longer forwards anything verbatim, it narrows and replaces, and a reader grepping "forwards"
+    to find the pass-through behaviour will land on a test that no longer describes one. The test
+    architect found it and correctly did not act, because its dispatch forbade renaming any existing
+    test - a rule I wrote to stop tests being weakened, which also blocks a harmless clarification.
+  required_change: >-
+    Rename to say the details SURVIVE narrowing rather than are forwarded. Authorised by the
+    orchestrator: renaming a test whose assertions and behaviour are unchanged is not the weakening
+    the no-rename rule exists to prevent. Bundle into the next test dispatch; no rush.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-104
+  phase: implement
+  task: TASK-007
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: apps/api/src/common/errors/exception-filter.spec.ts
+  line: 1
+  summary: >-
+    NOT_FOUND_MESSAGE is normative in the amended contract and nothing asserts it. No test checks
+    that the request URL is absent from a 404 body - the same defect class as F-094, one arm up.
+  failure_scenario: >-
+    Nest's not-found handler throws NotFoundException with `Cannot ${method} ${url}`, so the framework
+    text reflects the request URL into a JSON body on every unmatched route. The shipped filter already
+    replaces it with NOT_FOUND_MESSAGE and is correct, which is why this is a green-with-probe test
+    rather than a red. But F-094 is the proof that an unasserted replacement is exactly where a
+    reflection survives: the 400 arm had the identical shape and shipped the leak. If a later edit
+    reverts the 404 arm to the framework message, all 61 tests stay green.
+  required_change: >-
+    Add a test asserting a 404 body contains neither the request path nor the method, demonstrating it
+    can fail by temporarily restoring the framework message. The test architect declined to write it
+    this round - it had already expanded scope twice unrequested and the round carries eight reds - and
+    recommended it for the next dispatch instead, which is the right call.
+  owner_slot: sdlc-test-architect
+  status: open
   resolved_by: null
   resolved_round: null
