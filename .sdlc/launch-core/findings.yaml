@@ -3583,3 +3583,134 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-116
+  phase: implement
+  task: TASK-005
+  source: sdlc-implementer-backend
+  round: 1
+  severity: major
+  kind: scope
+  file: apps/api/src/db/rls.ts
+  line: 124
+  summary: >-
+    assertRuntimeRoleCannotBypassRls() is implemented and CALLED BY NOTHING, so the API boots happily
+    against a BYPASSRLS role - the one condition GC-5 exists to make impossible.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED: grep over apps/api/src finds exactly one occurrence, the export itself. The
+    function is the runtime guard that the application role cannot see through row-level security. With
+    no call site, a misconfigured DATABASE_URL pointing at a superuser or a BYPASSRLS role starts the
+    API normally and every tenant-scoped query silently returns every tenant's rows. The integration
+    suite cannot catch it: the fixture asserts the role's own attributes before it runs, so the tests
+    prove the POLICIES work while nothing proves the deployed process refuses the wrong role. The
+    implementer built the guard because rls-policy-template.md names it, and disclosed that nothing
+    calls it - main.ts is TASK-003's path and the composition root is not in TASK-005's.
+  required_change: >-
+    Juano's call under routing rule 0 - the two candidate homes, apps/api/src/main.ts and the DbModule
+    composition root, are both outside TASK-005's paths, and choosing between boot-time assertion and
+    module-init assertion is a decision rather than a transcription. Recommend it lands in TASK-003
+    alongside the F-090 and F-108 obligations it already carries in main.ts, as a boot-time check that
+    refuses to start rather than a warning.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-117
+  phase: implement
+  task: TASK-005
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-005.md
+  line: 9
+  summary: >-
+    Three artifacts named as TASK-005's deliverables are unreachable from its paths - drizzle.config.ts
+    (created anyway), docs/architecture/rls.md and docs/architecture/migrations.md (not created), and
+    the db:check-policies script (not created).
+  failure_scenario: >-
+    INSTANCE SIXTEEN of the artifact-assigns-work-a-TASK-cannot-do class, and the implementer split it
+    correctly rather than treating it as one. ORCHESTRATOR VERIFIED each: no TASK file names
+    drizzle.config.ts anywhere, yet ADR-0004 assigns it to TASK-005 and drizzle-kit migrate has no CLI
+    flag for the connection URL, so without it db:migrate is F-080 one level down - which is why the
+    implementer built it despite the paths mismatch and said so. docs/ does not exist and docs/** is in
+    no TASK's paths, while ADR-0003 and ADR-0004 follow-ups name both documents as TASK-005's; GC-13
+    makes docs a real obligation rather than a nicety. db:check-policies is named by ADR-0004,
+    rls-policy-template.md AND ADR-0018 and produced by nobody - and it is specified against
+    tenantScopedTables(), which is TASK-053's and does not exist, so the implementer correctly declined
+    to build a half version rather than inventing a stub for a symbol three waves out.
+  required_change: >-
+    Juano's call, three separate ones. (1) drizzle.config.ts: add to TASK-005's paths as a transcription
+    gap of the F-053 class - the file exists and is committed, so this ratifies reality. (2) The two
+    architecture documents: assign to a TASK with docs/** in its paths, or rule them out of launch-core
+    scope. (3) db:check-policies: attach to TASK-053 or TASK-056, both of which run after
+    tenantScopedTables() exists.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-118
+  phase: implement
+  task: TASK-005
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0003-context-flags.md
+  line: 1
+  summary: >-
+    ADR-0003 asserts each context flag appears in exactly one non-test source file and the
+    tenant-context stub header claims that file is tenant-context.ts. Both are unsatisfiable, because
+    the policies that READ app.tenant_id must live in rls.ts while the statement that SETS it lives in
+    tenant-context.ts.
+  failure_scenario: >-
+    The fifteenth contradiction, raised by the implementer as the one it most wanted checked. The
+    constraint is not merely awkward, it is impossible as written: the frozen fixture builds its
+    policies from production tenantScopedPolicies(), so the flag name must be in rls.ts, and
+    withTenantTransaction must set it, so the flag must also be reachable from tenant-context.ts. The
+    implementer resolved it by exporting TENANT_ID_SETTING from rls.ts and importing it in
+    tenant-context.ts, then reworded one header sentence from "may CONTAIN the string" to "may SET it".
+    That is a reasonable reading but it is a DESIGN decision made by an implementer under time
+    pressure, and TASK-056's isolation suite is specified to grep for this property - so whether the
+    grep counts string occurrences or set_config call sites decides whether the constant is necessary
+    or pointless. The migration SQL also contains two flag literals and will need explicit exclusion.
+  required_change: >-
+    sdlc-architect settles what ADR-0003's one-file property actually means and states it so TASK-056
+    can implement a grep against it - occurrences of the string, or call sites that SET the flag. If it
+    is call sites, TENANT_ID_SETTING is unnecessary and the stub header should be restored rather than
+    reworded. Either way the migration SQL needs a stated exclusion. Routing rule 0 - design/** belongs
+    to sdlc-architect.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-119
+  phase: implement
+  task: TASK-003
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: design
+  file: apps/api/package.json
+  line: 1
+  summary: >-
+    db:migrate runs drizzle-kit, a devDependency, while ADR-0004 has the Fly release command running
+    migrations in the deployed image - where devDependencies are not installed.
+  failure_scenario: >-
+    Flagged by the implementer for TASK-003, which owns fly.toml and the Dockerfile. A production image
+    built with --prod, or any multi-stage build that prunes devDependencies, has no drizzle-kit binary,
+    so the release command fails at deploy time rather than at build time - the worst place to find it.
+    The alternative readings are equally load-bearing: promote drizzle-kit to a dependency and ship a
+    migration toolchain into the runtime image, or have the release command run something else
+    entirely. This is a deployment-shape decision, not a manifest typo.
+  required_change: >-
+    TASK-003 settles it when it writes the Dockerfile and the Fly release command, and records which
+    way in its report. Recorded in TASK-003's card by the orchestrator rather than left in a report -
+    the F-064 failure this initiative has now filed four times.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
