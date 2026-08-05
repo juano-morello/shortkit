@@ -736,10 +736,18 @@
     TASK-001 and widen its Out-of-scope block, but its implementer has no
     documentation-fetch tool, so the re-verification half would still have no owner.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
-  resolved_by: null
-  resolved_round: null
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    RULED by Juano 2026-08-04: the pin and the four-fact re-verification both move to
+    TASK-009. TASK-009's Approach gained the full pinning step, the four facts verbatim
+    from ADR-0018, and a stop-and-escalate trigger if fact (2) hooks.before or (3)
+    ctx.body.email has changed. The ADR half was routed to sdlc-architect, which
+    re-attributed adr-0018 and adr-0013 and added dated provenance notes; orchestrator
+    verified by grep that no live TASK-001 attribution of the pin survives. Residual: the
+    obligation is prose, not an AC - see F-050.
 
 - id: F-041
   phase: test
@@ -764,6 +772,424 @@
     Amend AC-2 to name the three workspace packages and state that the workspace-root
     entry is expected, or to assert on the three @shortkit/* package names rather than
     on the full output. No code change either way.
+  owner_slot: null
+  status: fixed
+  escalated_to: juano
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    RULED by Juano 2026-08-04: AC-2 amended in STORY-001 to name the three @shortkit/*
+    packages and state that the workspace-root line is expected. Id unchanged, STORY-001
+    still holds 5 ACs. sdlc-product-auditor subsequently verified AC-2 against the amended
+    text and independently confirmed --no-include-workspace-root does not suppress the
+    root line. sdlc-reviewer agreed the amendment is the only reading that keeps AC-1
+    satisfiable.
+
+# TASK-001 audit round 1. Panel: sdlc-reviewer (changes-requested, 1 major / 4 minor /
+# 2 nit), sdlc-security-auditor (clear, 4 minor / 2 nit), sdlc-product-auditor (approved,
+# 1 nit), sdlc-design-auditor (approved, 0). Plus 2 raised by sdlc-architect outside its
+# F-040 brief. The two nits both auditors raised are deduped into F-051 and F-052.
+# owner_slot resolved by the orchestrator per routing.md; auditors never assign it.
+
+- id: F-042
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: implementation
+  file: apps/api/tsconfig.build.json
+  line: 6
+  summary: >-
+    apps/api has no working build or runtime path to @shortkit/contracts. The first
+    apps/api/src file that imports it makes `pnpm build` exit non-zero, and the emitted
+    CommonJS would require TypeScript source the declared minimum Node cannot load.
+  failure_scenario: >-
+    REPRODUCED IN-REPO by the orchestrator, not accepted on the auditor's scratch project.
+    Adding apps/api/src/probe-contracts.ts importing ERROR_CODE_STATUS from
+    @shortkit/contracts gives pnpm typecheck EXIT=0, pnpm test EXIT=0, pnpm build EXIT=2
+    with two TS6059 "not under rootDir" errors. Two gates green, one red. ADR-0005 and
+    errors.ts's own header say the API exception filter reads this table, so the import is
+    certain, not hypothetical - it lands in wave 1 or 2. Relaxing rootDir does not fix it:
+    tsc never rewrites module specifiers, so dist/main.js would resolve the package to a
+    .ts file. Node 22.12-22.17 (inside the declared engines floor of >=22.12.0) has no
+    default type stripping and dies with ERR_UNKNOWN_FILE_EXTENSION. Type stripping is
+    erasable-syntax-only regardless, so an enum or decorator in contracts breaks the
+    production API at require time on any Node version. SECOND OBSERVATION the auditor did
+    not report: the failed build emitted errors.js, errors.js.map, index.js and
+    index.js.map into packages/contracts/src/, and none is gitignored, so `git add -A`
+    after a failed build commits compiler output into the contracts package.
+  required_change: >-
+    apps/api needs a proven compile-and-run path for the contracts package before any
+    wave-1 TASK imports it. Options: (a) build packages/contracts to dist JS + .d.ts and
+    point exports there for the API while keeping source for the bundler-based web app;
+    (b) build apps/api with swc/tsup so workspace source is inlined, rather than bare tsc
+    with rootDir src; (c) widen rootDir and add specifier rewriting. Acceptance evidence
+    must include pnpm build exiting 0 AND node apps/api/dist/main.js starting, with a real
+    apps/api/src -> @shortkit/contracts import present. Also gitignore the emitted JS.
+    ADR-0005's alternatives table rules out (a) on TYPECHECK grounds only and never
+    addresses the API's runtime, so this needs a design ruling before an implementation.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+  resolved_by: null
+  resolved_round: null
+
+- id: F-043
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: implementation
+  file: apps/api/src/app.module.spec.ts
+  line: 21
+  summary: >-
+    The test "starts with no feature modules registered" asserts
+    Reflect.getMetadata('imports', AppModule) equals [], encoding a transient bootstrap
+    state as a permanent invariant.
+  failure_scenario: >-
+    TASK-003 registers HealthModule, or TASK-005 registers DbModule, in AppModule.imports.
+    pnpm test goes red in a spec file whose owning TASK's paths do not necessarily cover
+    it, so that implementer must delete or rewrite a test it does not own - a rework round
+    or an out-of-scope edit, on the very next backend TASK.
+  required_change: >-
+    Assert something that stays true as modules are added; the existing compile-and-resolve
+    test already covers AC-3. Drop the empty-imports assertion.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-044
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: implementation
+  file: apps/api/vitest.integration.config.ts
+  line: 19
+  summary: >-
+    passWithNoTests true makes `pnpm test:integration` exit 0 when its glob matches
+    nothing, which is indistinguishable from a suite that ran.
+  failure_scenario: >-
+    TASK-056's isolation suite lands as rls.int.spec.ts (dot instead of hyphen) or under
+    src/. The include glob test/**/*.int-spec.ts matches nothing, vitest prints "No test
+    files found" and exits 0, and TASK-002's integration job is green with a real Postgres
+    service container spun up and zero assertions executed. SC-1 then reads as proven by a
+    suite no pipeline runs - the exact failure shape F-039 was filed to prevent.
+  required_change: >-
+    The flag must not survive past the first real .int-spec.ts. Remove it and give the
+    command something to match, or make its removal a named obligation on TASK-005, and
+    have the CI integration job assert a non-zero test count.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-045
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: contract
+  file: packages/contracts/package.json
+  line: 8
+  summary: >-
+    The subpath export "./*" -> "./src/*/index.ts", mirrored in both apps' tsconfig paths,
+    cannot resolve any file in the contracts package as the stubs lay it out.
+  failure_scenario: >-
+    REPRODUCED IN-REPO by the orchestrator. `import { RESERVED_SLUGS } from
+    '@shortkit/contracts/slug'` gives pnpm typecheck EXIT=2, error TS2307 Cannot find
+    module '@shortkit/contracts/slug'. The map resolves to src/slug/index.ts; the stub is
+    src/slug.ts. Same for /roles, /pagination and /domains. Every subpath the map
+    advertises is dead. TASK-024 must import the reserved-slug list per ADR-0006's
+    follow-up, so this is hit in a later wave.
+  required_change: >-
+    Either the map becomes "./*" -> "./src/*.ts" plus a nested entry, or the stub layout
+    moves to directory-per-module, or the subpath entry is removed and only the root
+    specifier is supported. TASK-001 copied ADR-0005's block verbatim, so the
+    inconsistency originates between ADR-0005 and design/stubs. Whatever is chosen applies
+    in three places at once: packages/contracts/package.json, apps/api/tsconfig.json,
+    apps/web/tsconfig.json.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-046
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: implementation
+  file: apps/api/tsconfig.json
+  line: 5
+  summary: apps/api uses moduleResolution "Node" (node10), which ignores package exports maps.
+  failure_scenario: >-
+    node10 finds types only via main/typings and real directories. Every dependency the
+    roadmap adds that publishes subpath types exclusively through "exports" - better-auth
+    (ADR-0013 mounts better-auth/node), several @upstash/redis and pino transport subpaths
+    - resolves to TS2307, and the cheapest green fix is a declare-module shim or any, which
+    silently discards the types the design relies on. Auditor's stated limit: none of those
+    packages are installed yet, so it could not demonstrate the failure; everything
+    currently in apps/api does resolve under node10, which is why typecheck is green today.
+  required_change: >-
+    Move apps/api to moduleResolution node16 (or nodenext with the matching module setting)
+    now, while the workspace has four dependencies, rather than after fifty TASKs are
+    written against node10 semantics. If node10 is deliberate, record why - it constrains
+    every backend dependency choice that follows.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-047
+  phase: test
+  task: TASK-001
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: package.json
+  line: 6
+  summary: packageManager pins pnpm@11.20.0 with no integrity hash.
+  failure_scenario: >-
+    Whoever can serve a tampered pnpm tarball to a CI runner - pnpm publisher account
+    compromise, or a registry proxy/mirror - gets code execution as the build user on every
+    job, and those jobs will hold Fly, Neon and Upstash credentials. Corepack runs before
+    any lockfile integrity check, because pnpm is what performs those checks. All 470
+    locked packages carry a sha512; the package manager itself is the only unverified fetch.
+  required_change: >-
+    Use pnpm@11.20.0+sha512.<hash> from `corepack use pnpm@11.20.0`, and have TASK-002 use a
+    setup step that reads packageManager rather than hardcoding a bare version.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-048
+  phase: test
+  task: TASK-001
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: .gitignore
+  line: 13
+  summary: >-
+    Covers .env and .env.* but no key, cert or registry-credential patterns, in a repo
+    ADR-0018 assumes is public.
+  failure_scenario: >-
+    A later TASK produces credential material that is not a dotenv file - a Neon CA bundle
+    or client cert, a service-account JSON, a repo-local .npmrc with _authToken during
+    install debugging. `git add -A` commits it to a public repo and the remedy is rotation,
+    not deletion. This is the commit that sets repo-wide ignore policy for all 57
+    downstream TASKs.
+  required_change: >-
+    Add .npmrc, *.pem, *.key, *.crt, *.p12, *.pfx, id_rsa*, .envrc; keep the !.env.example
+    negation. Also gitignore compiler output under packages/contracts/src (see F-042).
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-049
+  phase: test
+  task: TASK-001
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0018-ci-performance-gate.md
+  line: 73
+  summary: >-
+    --audit-level high misses moderate advisories, and with everything now exact-pinned
+    nothing else surfaces one.
+  failure_scenario: >-
+    ADR-0018 calls the exact pin and the audit load-bearing together. A moderate-rated
+    better-auth advisory - the band covering session fixation, open redirect and timing
+    leaks - passes the gate silently. The exact pin means no automatic patch, and there is
+    no Dependabot or renovate config. The vulnerable auth library stays deployed with green
+    CI. TASK-001 widened this by pinning everything exactly, so the ADR's "lockfile makes
+    caret ranges reproducible" reasoning no longer applies to anything. Interacts with F-055.
+  required_change: >-
+    Lower the prod audit to --audit-level moderate (the prod tree is small and currently has
+    zero advisories at any level), or add a scheduled moderate audit that files an issue.
+    Decide in ADR-0018 so TASK-002 implements one thing.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-050
+  phase: test
+  task: TASK-009
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: process
+  file: .sdlc/launch-core/tasks/TASK-009.md
+  line: 26
+  summary: >-
+    TASK-009's better-auth pinning step and four-fact re-check are prose; its acceptance is
+    [AC-16, AC-20, AC-21] and none covers the pin.
+  failure_scenario: >-
+    Residual of F-040, and the same failure mode that produced it - an obligation no gate
+    checks. sdlc-product-auditor verifies ACs verbatim; an implementer writes
+    "better-auth": "^1.x", every AC passes, and a transitive bump breaks or weakens auth
+    with no code change while F-019's and F-021's four facts were never checked against the
+    shipped release.
+  required_change: >-
+    Add an AC to STORY-005: apps/api/package.json declares better-auth at an exact version
+    with no range character, and the TASK report records the four facts verified against
+    that release. Nothing changes in TASK-001. Minting a new AC id reopens STORY-005 to
+    that extent, so this is Juano's call.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+  resolved_by: null
+  resolved_round: null
+
+- id: F-051
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer + sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: implementation
+  file: apps/api/src/main.ts
+  line: 19
+  summary: >-
+    process.env.PORT ?? DEFAULT_PORT treats an empty PORT as valid, and a failed bootstrap
+    surfaces only as a bare unhandled rejection. Raised independently by both auditors.
+  failure_scenario: >-
+    ?? falls back only on null/undefined. PORT="" - common when an unset var is expanded
+    into an env file or compose config - makes the app listen on '' rather than 3001;
+    Express treats an empty string as a path/pipe, so the process comes up unreachable
+    instead of falling back and the health check on the documented port fails against an
+    otherwise healthy process.
+  required_change: >-
+    Validate as an integer in 1-65535 and fall back otherwise, or defer entirely to
+    TASK-004's env schema, and attach a failure handler to bootstrap() that logs before exit.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-052
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer + sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: implementation
+  file: package.json
+  line: 7
+  summary: >-
+    engines.node ">=22.12.0" while @types/node is 24.13.3, so the compiler advertises a Node
+    API surface wider than the minimum supported runtime. Raised independently by both.
+  failure_scenario: >-
+    Code typechecks against a Node 24-only API and fails at runtime on the 22.12 floor the
+    repo claims to support. engines is also advisory here - no .npmrc, no engine-strict - so
+    a contributor or runner on EOL Node installs and runs without error. The deploy image is
+    TASK-042's, so exposure is local and CI only.
+  required_change: >-
+    Align the two: raise the engines floor to the Node major actually targeted for deploy,
+    or pin @types/node to the 22.x line. Optionally add .npmrc with engine-strict=true.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-053
+  phase: test
+  task: TASK-001
+  source: sdlc-product-auditor
+  round: 1
+  severity: nit
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-001.md
+  line: 9
+  summary: >-
+    .gitattributes is genuinely produced under ADR-0004's assignment, but TASK-001's own
+    paths frontmatter never names it. sdlc-reviewer raised the same class more broadly.
+  failure_scenario: >-
+    A reader checking scope against the TASK file alone flags .gitattributes as
+    unexplained. The wider version: pnpm-lock.yaml, root vitest.config.ts and root
+    manifests are all required by ADR-0001/ADR-0004/ADR-0018 and none is in the paths list
+    either, since tsconfig*.json and "lint config" do not cover vitest.config.ts. The
+    implementer wrote them anyway and flagged .gitattributes explicitly, which was correct.
+  required_change: >-
+    Widen TASK-001's paths to cover what the TASK must actually produce. Documentation
+    only, no code change. Worth a Retro item so the same class does not recur across 57
+    TASKs.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+  resolved_by: null
+  resolved_round: null
+
+- id: F-054
+  phase: test
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0013-better-auth-in-nestjs.md
+  line: 298
+  summary: >-
+    ADR-0013's follow-up list still says "TASK-009 owns the entire auth surface, including
+    its rate limiting" and assigns authBodyCap, the hooks.before email bucket,
+    AUTH_RATE_LIMIT_PORT, LocalAuthRateLimiter and three integration tests to TASK-009. The
+    file contains zero occurrences of TASK-058.
+  failure_scenario: >-
+    Orchestrator confirmed by grep: `grep -c TASK-058 adr-0013` returns 0. Juano split
+    exactly that surface out to TASK-058 on 2026-08-04. A TASK-009 implementer reading
+    ADR-0013 as its normative source builds the whole protection surface that TASK-058
+    owns, or a TASK-058 implementer reads ADR-0013 and concludes the work is not its. Same
+    defect class as F-038, F-039 and F-040 - an ADR follow-up outliving a TASK boundary
+    change. Parked F-037 covers rate-limit.md's ownership table, NOT this list.
+  required_change: >-
+    Re-attribute ADR-0013's follow-up list against the current TASK-009 / TASK-058 split.
+    Knock-on the architect flagged: line 325 justifies the rateLimit.enabled unit test
+    partly with "the ctx.path predicate is pinned by the three integration tests", and those
+    tests now sit in TASK-058, so the argument spans two TASKs. The conclusion holds either
+    way - the unit test stays with TASK-009, matching its Approach.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-055
+  phase: test
+  task: TASK-001
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: design
+  file: package.json
+  line: 1
+  summary: >-
+    TASK-001 pinned every dependency exactly, while ADR-0018 line 83 says "Everything else
+    keeps caret ranges; the lockfile is what makes them reproducible." A silent deviation
+    from an accepted ADR that nothing recorded.
+  failure_scenario: >-
+    Orchestrator confirmed: 0 caret ranges across all four package.json files. The two
+    auditors disagree on impact and both are worth recording. sdlc-security-auditor calls it
+    "stricter than ADR-0018 required, and strictly better" for supply chain. sdlc-architect
+    calls it an unrecorded deviation from an accepted decision. They combine badly with
+    F-049: exact pins mean no automatic patch uptake, so a moderate advisory that
+    --audit-level high ignores has nothing else that would surface it, and there is no
+    Dependabot or renovate config.
+  required_change: >-
+    Decide which stance ADR-0018 holds and record it. Either amend ADR-0018 to say
+    everything is exact-pinned and pair it with an update mechanism (renovate, or the
+    moderate audit from F-049), or revert non-better-auth deps to caret ranges as the ADR
+    currently states. Deviating silently from an accepted ADR is the part to fix either way.
   owner_slot: null
   status: escalated
   escalated_to: juano
