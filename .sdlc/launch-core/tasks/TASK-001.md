@@ -3,7 +3,7 @@ id: TASK-001
 story: STORY-001
 epic: EPIC-001
 title: pnpm monorepo bootstrap and quality gates
-status: todo
+status: done
 owner_slot: sdlc-implementer-backend
 depends_on: []
 paths: ["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig*.json", "vitest.config.ts", ".editorconfig", ".gitattributes", "eslint.config.mjs", "apps/api/**", "apps/web/**", "packages/contracts/**", ".gitignore", "README.md"]
