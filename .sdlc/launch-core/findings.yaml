@@ -3714,3 +3714,466 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-120
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/api/src/db/client.ts
+  line: 101
+  summary: >-
+    The DrizzleQueryError unwrap runs only at the databaseTransaction boundary, but drizzle wraps at
+    the STATEMENT level - so every catch site inside fn still holds the wrapper, whose message embeds
+    every bound parameter.
+  failure_scenario: >-
+    RAISED INDEPENDENTLY BY BOTH AUDITORS as their headline major, which is the strongest signal in
+    the panel. The reviewer supplied the concrete downstream defect: contracts/slug.md:76-86 specifies
+    TASK-025's collision loop as insert inside SAVEPOINT slug_try, catch 23505, rollback, redraw - and
+    that catch is INSIDE fn. It will read error.code as undefined, which is exactly the AC-9 failure
+    the implementer just repaired one layer up, so the loop either rethrows a generated-slug collision
+    as a 500 or misclassifies a supplied-slug 409 (AC-38). domain-provisioning.md:242 has the same
+    shape. The security auditor supplied the leak half: the wrapper's message is
+    "Failed query: ${query}\nparams: ${params}", so a developer debugging that undefined code logs the
+    caught error and writes the full INSERT plus every bound value - user email, workspace name, link
+    destination - into the log, and TASK-007's filter never sees it because the error never escapes fn.
+    BOTH AUDITORS AGREE THE UNWRAP ITSELF IS CORRECT and strictly reduces exposure on the escape path;
+    the defect is that it sits one boundary too far out. The reviewer also found the residual nobody
+    had stated: even the unwrapped pg.DatabaseError is not value-free, because detail on a unique
+    violation contains column values ("Key (slug)=(abc) already exists"), as do where and internalQuery.
+  required_change: >-
+    Make the driver error the same shape at every catch site inside fn. The security auditor's cheaper
+    option, which the reviewer's framing also satisfies: export a narrow accessor from client.ts -
+    postgresErrorCode(e): string | undefined - and state in tenant-context.md that in-fn catches must
+    go through it and must never read .message off a caught database error. The alternative is
+    normalising at the statement boundary rather than the transaction boundary. Either way client.ts's
+    comment and tenant-context.md must stop claiming the wrapper does not leave the module, because
+    downstream TASKs read those documents rather than this diff.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-121
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 154
+  summary: >-
+    The TenantDb handle and the AsyncLocalStorage store outlive the transaction, so a detached
+    continuation can issue queries on a connection already returned to the pool - potentially inside
+    another tenant's open transaction.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED THE CODE SHAPE: tenantStorage.run(...) at :154 is bound INSIDE the
+    databaseTransaction callback opened at :144, so Node's ALS keeps that store visible to every
+    continuation descended from inside the callback, including ones resolving after run() returns.
+    drizzle's node-postgres session commits and then releases the client in its finally, and pg's
+    PoolClient.query is not disabled by release. So a fire-and-forget inside fn - void this.warmCache(),
+    or any unawaited promise chain, which is the ordinary way this bug gets written - runs after COMMIT,
+    calls tenantDb(), gets the stale handle, and queues a query onto a physical connection another
+    request has since checked out. That query then executes inside a DIFFERENT TENANT'S open
+    transaction: it reads under that tenant's app.tenant_id, and any write it makes commits or rolls
+    back with that tenant's transaction. The same stale store makes a nested withTenantTransaction take
+    the reuse branch at :126, running fn against a released handle with no BEGIN and no set_config at
+    all. Nothing reaches this today because no route touches the database, but this file is where the
+    guard belongs and every consuming TASK inherits its absence.
+  required_change: >-
+    Invalidate the context when the transaction ends. Add a mutable settled flag to
+    ActiveTenantContext, set it in a finally around the databaseTransaction call, and have
+    activeContext() - and therefore tenantDb(), currentTenantId() and the nesting branch - throw when
+    it is set. Do not rely on the handle itself: fn holds db directly, so the check must live on the
+    path everything else uses, and the nesting branch at :126 is the one that currently degrades
+    silently rather than loudly.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-122
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: docker-compose.test.yml
+  line: 74
+  summary: >-
+    Table-level grants to shortkit_app are automatic via ALTER DEFAULT PRIVILEGES while RLS is opt-in
+    per table and nothing checks the opt-in. One forgotten line in a future migration is a silently
+    unprotected table.
+  failure_scenario: >-
+    The role model is allow-by-default on privilege and deny-by-default only if someone remembers the
+    DDL. shortkit_app receives SELECT/INSERT/UPDATE/DELETE on every table the migrator creates,
+    forever, with no per-table action. RLS is not automatic: it needs two hand-appended ALTER TABLE
+    lines per table, in a migration drizzle-kit does not generate. TASK-023 adds links, hand-appends
+    the CREATE POLICY block, omits ENABLE ROW LEVEL SECURITY or omits FORCE - and every gate stays
+    green, because the grants exist so the feature's own queries work, its tests pass, typecheck and
+    lint say nothing about SQL in a .sql file, and the isolation suite tests tenants and
+    rls_fixture_rows rather than links. Authenticated tenant A then reads and writes every tenant's
+    links. THE INTENDED DETECTOR IS pnpm db:check-policies, which is named by ADR-0004,
+    rls-policy-template.md AND ADR-0018 and was not built - F-117 records that as an ownership gap and
+    this is its security consequence. It is the only reason the scheme is not self-verifying.
+  required_change: >-
+    Land the check before the second tenant-scoped table, not after. The auditor supplied a minimum
+    viable form that needs no tenantScopedTables() and so is not blocked on TASK-053: assert from
+    pg_class that every table in schema public has relrowsecurity AND relforcerowsecurity true, with an
+    explicit exception list, and run it in the integration job. Routing is F-117's open question; the
+    point of this finding is that it is a blocking prerequisite for the next schema TASK rather than a
+    tidy-up.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-123
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor, sdlc-reviewer
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/api/src/db/client.ts
+  line: 58
+  summary: >-
+    The pg.Pool has no error listener, no max and no connectionTimeoutMillis. An error on an idle
+    pooled connection takes the process down, and pool exhaustion hangs requests forever instead of
+    failing them.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED: client.ts sets only allowExitOnIdle - no pool.on('error'), no max, no
+    connectionTimeoutMillis. The security auditor verified the upstream half in the resolved
+    pg-pool@3.14.0: makeIdleListener ends with pool.emit('error', err, client), Pool extends
+    EventEmitter, and no default error listener exists in pg-pool or drizzle's driver. Node throws when
+    'error' is emitted with no listener, so it becomes an uncaughtException and the API exits. The
+    trigger is routine rather than exotic - ADR-0002 targets Neon, which terminates idle connections on
+    scale-to-zero, and any restart, failover or idle_session_timeout does the same. Separately, both
+    auditors independently flagged the pool defaults: max 10 and connectionTimeoutMillis 0 means the
+    11th concurrent transaction waits forever with no error and no timeout, which ADR-0002's own
+    accepted-cost section predicts as the concurrency limit. statement_timeout does not apply because
+    no statement has been issued yet. The process looks alive and the platform health check passes
+    while requests hang.
+  required_change: >-
+    Attach pool.on('error', ...) that logs and discards - the client is already removed from the pool
+    by the time the event fires, so there is nothing to clean up. Set an explicit max and a finite
+    connectionTimeoutMillis, justified against the Neon pooled endpoint ADR-0002 targets, so exhaustion
+    produces a bounded observable failure rather than an indefinite wait. The security auditor also
+    recommends set_config('idle_in_transaction_session_timeout', ..., true) alongside the existing two
+    in withTenantTransaction, which turns the contract's prohibition on third-party I/O inside fn from
+    documentation into enforcement.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-124
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: pnpm-lock.yaml
+  line: 1
+  summary: >-
+    drizzle-kit introduces GHSA-67mh-4wv8-2f99 (moderate, esbuild <= 0.24.2) through a deprecated
+    loader chain, and the configured CI audit gate is structurally blind to it because the finding is
+    dev-only.
+  failure_scenario: >-
+    ORCHESTRATOR REPRODUCED BOTH HALVES. pnpm audit --prod --audit-level moderate, which is exactly
+    ADR-0018's quality-job command, exits 0. pnpm audit --audit-level low reports the advisory at
+    apps__api > drizzle-kit > @esbuild-kit/esm-loader > @esbuild-kit/core-utils > esbuild@0.18.20. The
+    auditor's assessment, which I am recording rather than overriding: NOT EXPLOITABLE HERE and it
+    should not block - the vulnerability is in esbuild's development server, @esbuild-kit/core-utils
+    uses only the transform API, and drizzle-kit never starts a server. What makes it worth a finding
+    rather than a shrug is that @esbuild-kit/esm-loader and @esbuild-kit/core-utils are DEPRECATED
+    upstream, superseded by tsx which drizzle-kit also already depends on - so this pinned-back
+    esbuild will not be patched by anything short of a drizzle-kit release dropping the dependency,
+    and the gate as configured will never surface it.
+  required_change: >-
+    No dependency change. Record the advisory and its assessment somewhere the weekly dependencies job
+    reads, so a human sees it once rather than never. ADR-0018 already defines a weekly
+    pnpm audit --audit-level moderate across all dependencies, which WOULD catch it - confirm that job
+    is what TASK-002 builds, since the quality job alone cannot.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-125
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 134
+  summary: >-
+    A nested call registers its afterCommit hook BEFORE its fn runs, so the hook still fires when the
+    nested fn throws and the outer frame swallows the throw.
+  failure_scenario: >-
+    Outer withTenantTransaction is active - in production that is TASK-011's interceptor. Inside it, a
+    nested call with afterCommit: sendInviteMail pushes the hook at :135, then calls its fn, which
+    throws before writing anything. The outer fn catches it to build a partial-success response and
+    returns normally, COMMIT succeeds, and the hook loop at :159 sends an invitation email for a row
+    that was never inserted. The top-level path has the OPPOSITE behaviour - a throw rolls back and no
+    hook runs - so the two paths disagree about what afterCommit means. Contract invariant 6 is
+    literally satisfied, which is why this is minor rather than a contract violation. The reviewer
+    flagged that severity depends on something it could not verify: if TASK-011's interceptor makes
+    handlers routinely nest, which ADR-0002 layer 3 implies, nesting is the normal case and this is
+    worth more than minor.
+  required_change: >-
+    A nested frame's afterCommit hook is enqueued only if that frame's fn resolved. Statements the
+    nested frame already issued still commit with the outer, since nesting opens no savepoint - that
+    part is correct and should stay.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-126
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: contract
+  file: apps/api/src/db/rls.ts
+  line: 17
+  summary: >-
+    rls.ts now calls databaseTransaction, making it a fourth consumer of a list that client.ts and
+    tenant-context.md both declare has three, and that TASK-056 is specified to assert.
+  failure_scenario: >-
+    Raised by both auditors. client.ts:10-12 says the only sanctioned callers are
+    withTenantTransaction, withRedirectRead and privilegedTenantEraser and that TASK-056 asserts the
+    list; tenant-context.md says the same. grep returns two call sites today, tenant-context.ts:144 and
+    rls.ts:125. When TASK-056 writes the assertion it either fails on a legitimate caller or is
+    weakened to accommodate an unlisted one - and a weakened enumeration is how a real fourth consumer
+    gets in later. Secondary smell both auditors noted: rls.ts was a pure policy-string module that the
+    FROZEN FIXTURE imports, and it now also opens database connections, so importing the policy
+    template pulls in pg. The reviewer's sharpest line is that putting the boot check in rls.ts is what
+    makes this finding exist at all.
+  required_change: >-
+    Either the boot check moves out of the policy-template module into whatever module owns its call
+    site - which F-116 is deciding anyway, so bundle them - or the sanctioned-consumer list in
+    client.ts and tenant-context.md is amended to name it in the same round, so TASK-056 has one list
+    that is true. The security auditor adds a framing worth carrying: the guarantee is not that
+    databaseTransaction is unreachable, since any module can import it, but that an unscoped
+    transaction sees zero rows and can write none, which is fail-closed by policy.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-127
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: docker-compose.test.yml
+  line: 45
+  summary: >-
+    The healthcheck does not gate on the init script. pg_isready reports success regardless of whether
+    the role, the database or TCP listening exist yet, so up -d --wait can return before the roles are
+    created - and the file's own comment claims the opposite.
+  failure_scenario: >-
+    Raised by both auditors. pg_isready does not authenticate - the -U and -d values only affect what
+    the server logs - and with no -h it uses the unix socket. The postgres entrypoint runs initdb,
+    starts a TEMPORARY socket-only server, runs the init script, then stops it and starts the real
+    server. A probe landing in that window returns 0 and marks the container healthy, so --wait returns
+    and the next command gets ECONNREFUSED or "role shortkit_app does not exist". With interval 1s and
+    initdb on tmpfs finishing in 1-2s, the probe lands there on a slow or loaded machine. The comment
+    at :43-45 says the container only reports healthy once the init script has run, so the next person
+    debugging a flaky start will trust it. THIS IS ALSO THE FAILURE I HIT MYSELF while verifying,
+    though mine was a wrong DSN rather than a race.
+  required_change: >-
+    The healthcheck must be false until the init script has completed and the real server accepts TCP -
+    a probe that executes a statement as shortkit_app against shortkit_test over 127.0.0.1, not
+    pg_isready over the socket. The comment must describe whatever it actually gates on.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-128
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer, sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/tenancy/tenant-context.int-spec.ts
+  line: 1
+  summary: >-
+    Contract invariants 4, 5 and 6 have zero coverage, and 5 and 6 are exactly the logic the
+    implementer built unprompted and named as most arguable.
+  failure_scenario: >-
+    Raised by the reviewer and independently by sdlc-product-auditor. The six frozen tests cover
+    AC-8..AC-11 only. Nothing asserts tenantDb() outside a context throws TenantContextMissingError
+    rather than returning something usable - invariant 4, a GC-5 guarantee and a pure in-process unit
+    test needing no database. Nothing asserts nesting the same tenantId reuses the outer transaction
+    and opens no savepoint, or that a different tenantId throws TenantContextMismatchError. Nothing
+    asserts afterCommit runs once after COMMIT, never after rollback, and that a throw in it does not
+    propagate. F-125 is a LIVE DEFECT sitting in exactly that untested region, which is the evidence
+    the region needs coverage rather than an argument from principle. The product auditor added a
+    second gap in the same file: AC-9's UPDATE test does not cover re-parenting A's own row to tenant
+    B, which the same WITH CHECK clause would reject but which no test demonstrates.
+  required_change: >-
+    Tests for invariants 4, 5 and 6 before further TASKs inherit withTenantTransaction. Invariant 4 is
+    unit-testable; 5 and 6 need the integration harness that now exists. Add the AC-9 re-parenting case
+    while in the file. Routing rule 0 - a test file belongs to sdlc-test-architect.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-129
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/api/src/db/rls.ts
+  line: 127
+  summary: >-
+    The boot assertion checks two of the three properties ADR-0003 names and skips the one that ADR
+    says is the one that gets missed - table ownership.
+  failure_scenario: >-
+    ADR-0003:13-17 states the problem as "TASK-005 already forbids BYPASSRLS; ownership is the part
+    that gets missed", and the shipped query checks rolbypassrls and is_superuser only. A DSN whose
+    role OWNS the application tables passes the assertion, and ownership is a bypass wherever FORCE ROW
+    LEVEL SECURITY is absent - which is precisely the per-table, hand-appended, currently unverified
+    line from F-122. THE TWO GAPS COMPOUND: the check that would catch a missing FORCE does not look,
+    and the check that would catch an owning role does not look either. Smaller second gap the auditor
+    noted so the assertion is not later read as stronger than it is: rolbypassrls is a role attribute
+    and attributes are not inherited, so a role that is a MEMBER of a BYPASSRLS role reads false -
+    only reachable if application code issues SET ROLE, which nothing does.
+  required_change: >-
+    Extend the same query to count tables in schema public owned by current_user and fail when it is
+    non-zero. Same round trip, and it turns ADR-0003's stated failure mode into a startup error.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-130
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor, sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: implementation
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 190
+  summary: >-
+    assertUuid accepts any casing and returns the value unnormalised, so currentTenantId() can differ
+    by case from the tenant_id Postgres returns for the same tenant.
+  failure_scenario: >-
+    Raised by both auditors. The regex is case-insensitive and the function returns value unchanged,
+    while Postgres normalises uuid to lower case on output. Two consequences: the nesting check is a
+    case-sensitive string compare, so the same tenant spelled two ways inside one request raises a
+    spurious TenantContextMismatchError; and any later equality check between currentTenantId() and a
+    row's tenant_id silently disagrees. Both fail closed today and require a non-lower-case tenant id
+    to exist, which none of the three sanctioned sources produces - which is why it is minor. The
+    security auditor confirmed the regex is correctly STRICTER than Postgres's own uuid parser, which
+    also accepts brace and unhyphenated forms.
+  required_change: >-
+    Return value.toLowerCase(), and say in the docblock that the returned value is the canonical form
+    and the one to compare against database output.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-131
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: implementation
+  file: docker-compose.test.yml
+  line: 63
+  summary: >-
+    This is the repo's only role-provisioning artifact and it is not a safe production template, while
+    nothing else describes how the production roles come to exist.
+  failure_scenario: >-
+    The auditor answered the question directly. The role SHAPE is correct and worth copying - both
+    roles NOBYPASSRLS with attribute defaults, shortkit_app owning nothing, DML granted only through
+    ALTER DEFAULT PRIVILEGES from the migrator, USAGE on schema public and nothing more, matching
+    ADR-0003's table. What must NOT be copied: literal passwords in a committed file including the
+    bootstrap superuser; no TLS requirement, and note that a production DSN with sslmode=require gets
+    encryption with NO certificate verification, so verify-full is the setting that means what it looks
+    like; tmpfs for the data directory; and that ALTER DEFAULT PRIVILEGES is scoped to the identity
+    shortkit_migrator, so a deploy running migrations as any other role grants shortkit_app nothing and
+    fails closed at runtime rather than at deploy. The risk is that this file is the only worked example
+    in the repo, so it is what someone adapts under time pressure. THE REVIEWER INDEPENDENTLY FLAGGED
+    the same gap from the other side: nothing in this diff provisions the roles on the deployed
+    database, and rls-policy-template.md's Roles section names no producing TASK.
+  required_change: >-
+    Add a header stating the file is test-only, that the role attributes and grant model are the
+    reusable part, and that passwords, TLS and storage are not. The production provisioning artifact
+    itself is unowned - route it alongside F-116, which is the same missing owner.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-132
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: implementation
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 176
+  summary: >-
+    InvalidTenantIdError interpolates the rejected value into its message, and for ADR-0021's
+    capability-token routes that value is an unauthenticated URL segment.
+  failure_scenario: >-
+    The error is a plain Error, so TASK-007's filter takes branch 4 - the body says nothing, and
+    logError writes the message including the attacker bytes to the log. JSON.stringify escapes control
+    characters, so unlike F-108 this is not log injection, but it is unbounded attacker-controlled
+    content at rest in the log store, and it answers a malformed public URL with a 500 rather than a
+    client error.
+  required_change: >-
+    Truncate the interpolated value to a fixed prefix, or report only its length. Whether the
+    capability-token route should answer 400 or 404 instead of 500 belongs to ADR-0021's TASK.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-133
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer
+  round: 1
+  severity: nit
+  kind: implementation
+  file: apps/api/drizzle.config.ts
+  line: 1
+  summary: >-
+    drizzle.config.ts is outside apps/api/tsconfig.json's include, so pnpm typecheck never sees the
+    file db:migrate depends on.
+  failure_scenario: >-
+    A typo in dialect, schema or out, or a wrong defineConfig field type, passes typecheck and lint and
+    fails at pnpm db:migrate - which no gate runs. Disclosed by the implementer itself. F-117 covers the
+    paths mismatch for the file's existence; this is the separate question of it being unchecked.
+  required_change: >-
+    The file is typechecked by whoever owns apps/api/tsconfig.json, or the caveat moves into the file
+    so the next reader knows it is unchecked.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
