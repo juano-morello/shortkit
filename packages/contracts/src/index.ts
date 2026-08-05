@@ -12,14 +12,11 @@
  */
 
 export * from './errors';
+export * from './pagination';
+export * from './roles';
+export * from './slug';
 
-// TASK-001 materialised `errors.ts` alone, because AC-4 needs one real
-// cross-workspace import to resolve. TASK-007 materialises the rest of
-// design/stubs/packages/contracts/src and restores these four lines.
-// export * from './pagination';                 // TASK-007
-// export * from './roles';                      // TASK-007
-// export * from './slug';                       // TASK-007
-// export * from './domains/reserved-hostnames'; // TASK-007
+export * from './domains/reserved-hostnames';
 
 // Feature contracts are added here by their producing TASK, one line each,
 // alphabetically. Keep this file re-exports only, so a wave conflict is one line.
