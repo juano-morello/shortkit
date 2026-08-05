@@ -25,6 +25,14 @@ zod contracts (already decided); error bodies carry a stable machine-readable `c
 
 Any feature-specific contract (each feature TASK adds its own), the web client (TASK-008), API exception filter wiring beyond the shared envelope.
 
+**Corrected 2026-08-05 (found by `sdlc-scout` at dispatch).** Read the clause above as written:
+what is out of scope is wiring *beyond* the shared envelope, not the shared envelope's own
+registration. **Registering this TASK's filter via `APP_FILTER` in `apps/api/src/app.module.ts`
+is IN scope** — that is exactly why the F-070 amendment below widened `paths` to include that
+file, and the red tests boot `AppModule` and assert on real HTTP responses, so AC-13 cannot go
+green without it. The line predates the amendment and read as barring the very thing the
+amendment requires.
+
 ## Interfaces
 
 **Consumes**
@@ -66,8 +74,23 @@ still pass if the filter were never wired. AC-13 cannot go green without this fi
 by every TASK that registers a Nest module. No other wave-1 TASK touches it — verified — so
 wave 1 stays parallel-safe. Later waves must merge it deliberately.
 
-**Still unsettled at the time of writing: F-071** (the filter must recognise a `ZodError`, but
-zod is not resolvable from `apps/api`). `sdlc-architect` is ruling whether the check belongs in
-`packages/contracts/src/errors.ts` — which you already own — or whether this TASK needs
-`apps/api/package.json` as well. Do not invent a duck-type check on error shape in the meantime;
-it stops matching silently when zod changes its internals.
+~~**Still unsettled at the time of writing: F-071**~~ — **SETTLED 2026-08-05 by ADR-0025.**
+The note below was stale and is corrected here rather than deleted, so the history stays
+readable.
+
+**F-071 resolved: the zod recognition lives in `packages/contracts/src/errors.ts`, which this
+TASK already owns. This TASK does NOT gain `apps/api/package.json`, and zod is never added to
+`apps/api`.** Add three exports to the contracts package and import them in the filter:
+
+```ts
+export function isZodError(value: unknown): value is z.ZodError;
+export function toValidationDetails(error: z.ZodError): ValidationDetails;
+export const FORM_ERROR_KEY = '_form';
+```
+
+`error-envelope.md` step 2 and `adr-0025` both state this; they agree. The original warning
+still stands — **do not invent a duck-type check on error shape.** ADR-0025's reasoning is that
+zod 4's `ZodError` carries its own `Symbol.hasInstance`, so `instanceof` is a trait check that
+survives a second copy of the module; that was verified against the installed zod 4.4.3. Note
+also that ADR-0025 found `err.flatten()`, which an earlier draft of the contract mandated,
+silently drops root-level `.refine()` failures — which is what `FORM_ERROR_KEY` exists for.
