@@ -52,6 +52,24 @@ Block merges that fail lint, typecheck, test or build.
 
 Uses the root scripts produced by TASK-001 and the values `init` wrote into `config.yaml`; must fail the workflow on any non-zero exit; free-tier runner minutes only (GC-3).
 
+**Contract-drift check — read `design/test-strategy.md`'s AC-14 entry before building it (F-091, 2026-08-05).**
+This TASK carries a recommendation to add a contract-drift step to the `quality` job. `test-strategy.md`
+is where its mutation set is specified, and that specification **changed after this TASK was written**.
+
+The original entry assumed one mutation was enough: rename an `ERROR_CODES` member and assert
+`apps/web` fails to compile. `sdlc-product-auditor` found that TASK-007 broke the premise — the three
+exports it added to `packages/contracts` (`isZodError`, `toValidationDetails`, `FORM_ERROR_KEY`) are
+consumed **only by `apps/api`**, and I verified `apps/web`'s sole `@shortkit/contracts` import anywhere
+is `ERROR_CODE_STATUS`. So a breaking change confined to those three fails `apps/api` and never reaches
+`apps/web`. `pnpm -r typecheck` still exits non-zero, but not for AC-14's literal reason, and a check
+built on the single documented mutation would report AC-14 covered while that whole class went
+unenforced.
+
+`sdlc-architect` amended the entry so the check runs **two mutations, one per consumer workspace**.
+Build what `test-strategy.md` now says, not what this Approach originally implied. This TASK's
+`contracts:` list is empty because it binds to no interface contract; that is correct and is not a
+licence to skip the test-strategy entry.
+
 ## Out of scope for this TASK
 
 Deployment, the performance gate (TASK-037), coverage thresholds.
