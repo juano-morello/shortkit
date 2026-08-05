@@ -3202,9 +3202,15 @@
     fixes because they pollute context and skip review. Bundle into the next round for this owner, or
     into the scoped re-review's outcome.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 2, ADDRESSED by sdlc-reviewer (r3). exception-filter.ts:23 now matches logError
+    at :234-241 and matches the contract's words, including the 'TASK-003's pino error serialiser is
+    the permanent answer' clause the required_change asked for. The implementer transcribed from the
+    normative source rather than paraphrasing, which is what F-105 existed to enforce - the finding was
+    that the same statement had been written in several places and drifted apart.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
 
 - id: F-106
   phase: implement
@@ -3238,9 +3244,19 @@
     answer - at both :192 and :398. Bundle with F-105, which is the same contradiction one file over
     and one level down. Routing rule 0 - design/** belongs to sdlc-architect.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 2, ADDRESSED by sdlc-reviewer (r3), which TRACED THE DELIVERY PATH END TO END
+    rather than checking the two cited lines. Four entry points now all correct: TASK-003.md cites
+    logging-and-headers.md by name; that doc's new section sends the reader to error-envelope.md's
+    new section; error-envelope.md states what ships, why, the three facts, the owner and an explicit
+    negation; and exception-filter.ts names the section by title independently. It grepped 'stack'
+    across design/, tasks/, apps/api/src/common/errors/ and main.ts looking for a fourth artifact
+    pointing the wrong way and found none, and confirmed there is NO exception-filter stub - the
+    highest-risk artifact class in this workflow does not exist here. The failure F-106 named is now
+    unreachable from any design artifact. The architect fixed FIVE places where the finding named two.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
 
 - id: F-107
   phase: implement
@@ -3273,9 +3289,19 @@
     error-envelope.md and ADR-0026's table row "any | absent | envelope unchanged" carry the same
     shape, so the contract half moves with it and routes to sdlc-architect alongside F-106.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 2, ADDRESSED by sdlc-security-auditor (r3) in code and in FOUR artifact halves
+    where its required_change named two - the reference body, the table row, a new contract paragraph,
+    and ADR-0026's Decision bullet, which the architect correctly extended to because it is the
+    statement a reader reaches first. ADR-0026 also gained two honest new accepted costs: the rebuild
+    is now an allowlist so a fourth envelope field would be silently dropped, and nothing may rely on
+    the return being the input. THE AUDITOR ANSWERED THE LARGER QUESTION TOO - it traced every write
+    site and confirmed the KEY SET is now uniformly closed with no route by which a developer-supplied
+    object reaches the wire whole, while stating precisely what is still open: code and message are
+    copied through unvalidated, which is F-113 and is a documented design position rather than a hole.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
 
 - id: F-108
   phase: implement
@@ -3307,8 +3333,253 @@
     exception.name plus the SyntaxError's position, or a hard-truncated message, not the quoted slice.
     TASK-003 already owns this file under the F-090 ruling and already holds the F-093 policy decision,
     so this belongs in the same call. Recorded in TASK-003 so it reaches an implementer rather than
-    living only in a report, which is the F-064 failure this initiative has filed three times.
+    living only in a report. CORRECTED 2026-08-05 (F-110): that sentence was written in the PAST TENSE
+    describing work I had not done - sdlc-security-auditor grepped tasks/ and found no occurrence of
+    F-108 at all. It is now true: TASK-003 carries a dedicated F-108 section with the 400 arm, the
+    unredactable-message reason, the newline property and the concrete remedy. I invoked the F-064
+    delivery-path failure class in the same sentence in which I committed it.
   owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-109
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 3
+  severity: minor
+  kind: contract
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 231
+  summary: >-
+    logError's docblock says "the stack returns when TASK-003 lands the pino error serialiser", and
+    main.ts:62 says the same - both assert the outcome the amended contract deliberately leaves to
+    TASK-003 to decide.
+  failure_scenario: >-
+    THE NEAREST ARTIFACT WINS. TASK-003's implementer rewrites logError; the docblock on the method it
+    is editing says the stack returns, while error-envelope.md's new section says the decision is its
+    own, records the argument for the inverse, and states "what this section does not say is that the
+    stack goes to the log". The frames go back with no reason recorded, and the live question this
+    round existed to hand over is answered by a leftover sentence. A LOST DECISION, not a wrong
+    behaviour - the outcome sits inside what the contract permits, which is why it is minor. Neither
+    line was touched by the fix diff; both predate it. The shape is the round's own lesson recurring
+    one layer down: the amendment corrected the artifact layer ABOVE these comments and left the layer
+    below still closing the question.
+  required_change: >-
+    Both comments say what the contract says - TASK-003 owns the answer, either outcome is open, with
+    the pointer to the named section. main.ts is TASK-003's path too, so the pair moves in the same
+    commit that moves the line onto pino. Deferred to TASK-003; does not extend TASK-007's loop.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-110
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/tasks/TASK-003.md
+  line: 71
+  summary: >-
+    TASK-003's card prescribed the stack as a deliverable, stated a repo condition that stopped being
+    true at F-093, and did not carry F-108 at all - while F-108's own ledger entry claimed it did.
+  failure_scenario: >-
+    Raised independently by both auditors and deduped here. The reviewer: the Produces clause required
+    "the message and stack passed through ADR-0022's serialisation", so if TASK-003 accepts the
+    contract's invitation and decides against frames it fails its own Produces clause, and if it
+    follows Produces it has answered the question without reading the section that frames it. The
+    security auditor: grep over tasks/ returned NO occurrence of F-108, the card named neither the
+    400 arm nor the quoted request bytes nor the newline property, and the card still instructed the
+    exact non-remedy F-108 exists to reject. ORCHESTRATOR DEFECT AT THE CENTRE OF IT - I wrote F-108's
+    required_change saying "Recorded in TASK-003 so it reaches an implementer rather than living only
+    in a report, which is the F-064 failure this initiative has filed three times", in the past tense,
+    describing work I had not done. I invoked the delivery-path failure class in the same sentence in
+    which I committed it.
+  required_change: >-
+    APPLIED by the orchestrator 2026-08-05, rule 0 - tasks/** has no agent owner. The Produces clause
+    now reads "with the stack/message policy decided and recorded" rather than naming a field list;
+    the pre-F-093 paragraph is corrected and dated; a new F-108 section carries the 400 arm, the
+    unredactable-message reason, the newline property and the auditor's concrete remedy; and
+    error-envelope.md's section is named explicitly, since TASK-003's contracts: front-matter is empty
+    and prose is the only delivery path. F-108's required_change corrected from a false past-tense
+    claim to a pointer at the section that now exists.
+  owner_slot: null
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 2
+
+- id: F-111
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/error-envelope.md
+  line: 253
+  summary: >-
+    The contract tells TASK-003 that moving to pino makes message and stack named fields and so makes
+    truncation or redaction possible. With pino's default error serialiser it does not - the message
+    is emitted twice, once as message and once inside stack.
+  failure_scenario: >-
+    Raised independently by both auditors and deduped. The implementer accepts the recommendation the
+    section records, reaches for serializers: { err: pino.stdSerializers.err } plus redact:
+    ['err.message'], and if that serialiser emits the full err.stack - whose first line IS name:
+    message, a fact the contract states two bullets earlier without drawing the consequence - the
+    redacted record still carries the DSN, internal host or request fragment inside stack, with every
+    gate green. The implementer has followed the contract's recommendation and defeated it in the same
+    line. BOTH the architect and the security auditor identified this and BOTH declined to write the
+    serialiser's shape into a normative document because pino is not installed and neither could
+    measure it. That restraint is correct - ADR-0024 acquired "the redaction paths already cover the
+    fields" exactly that way, and this same round had to strike it as wrong-when-written.
+  required_change: >-
+    Write the CHECK rather than the ANSWER, which needs no pino to be true: verify what the chosen err
+    serialiser puts in stack before redacting message, because err.stack's first line is name: message
+    and a serialiser emitting the raw stack reinstates the field you just redacted. A question needs no
+    verification to be written down and cannot become the next struck claim. The orchestrator has
+    already carried this into TASK-003's card as a check; the contract half remains for sdlc-architect.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-112
+  phase: implement
+  task: TASK-040
+  story: STORY-014
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/domain-provisioning.md
+  line: 203
+  summary: >-
+    The new F-097 residual paragraph accepts the 409 staleness on the premise that a row's time in a
+    409 state is bounded, and the same document contradicts that premise twice.
+  failure_scenario: >-
+    The paragraph's load-bearing clause is "the window is short by construction". Two documented paths
+    defeat it. (1) The fly_quota: case the architect flagged against its own argument: the provisioning
+    window says exceeding 15 minutes moves the row to certificate_failed, and three lines later a quota
+    response "keeps the domain in provisioning with a 5-minute backoff". Neither states precedence, so
+    a multi-hour quota outage holds a row in provisioning indefinitely - which also makes invariant 1
+    and AC-70 false as written. (2) UNFLAGGED BY ANYONE UNTIL NOW: the "Accepted gap, stated" section
+    already concedes a non-durable work queue where "a domain nobody looks at can stall", and
+    verified/provisioning have NO expiry sweeper - the 7-day TTL covers only pending_verification and
+    verification_failed. The two failure modes CORRELATE rather than being independent: the residual's
+    scenario is an owner who removed the CNAME and walked away, and that is exactly the owner who never
+    opens /domains to re-enqueue. So the unbounded case is not exotic, it is the modal case of the
+    scenario being accepted.
+  required_change: >-
+    The auditor's option (b), which it argues is the better trade and I agree: keep the accept and
+    re-ground it, because the residual survives with no window claim at all - the hostname's CNAME was
+    publicly resolvable at verification time and passive-DNS archives make that historically queryable
+    regardless of what the zone says today. Do not leave the paragraph asserting a bound the same file
+    contradicts. The fly_quota:-versus-invariant-1 precedence question is worth settling on its own
+    merits before TASK-040, but that half is a correctness question against AC-70 rather than a
+    security one. The auditor ALSO argued strongly AGAINST adding the re-check, on grounds stronger
+    than the architect's: it would let any authenticated free-workspace caller trigger an outbound DoH
+    lookup against an arbitrary attacker-chosen hostname they do not own, which is a strictly worse
+    primitive than the bit it removes.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-113
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor
+  round: 3
+  severity: nit
+  kind: implementation
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 34
+  summary: >-
+    The file header's claim that "the only values that reach a client are strings written in this file
+    and shapes validated against a schema" is still one line stronger than the code - now on message
+    rather than on the envelope's key set.
+  failure_scenario: >-
+    After F-107 the KEY SET is closed and uniformly so - the auditor traced every write site and
+    confirmed there is no remaining route by which a developer-supplied object reaches the wire whole.
+    But code and message are copied through narrowEnvelope unvalidated, and on branch 1 message is
+    exception.message, a string written in a feature directory with caller data interpolated into it BY
+    DESIGN - ADR-0024's canonical subclass is super('slug_taken', `The short code ${slug} is already in
+    use.`). What holds the line there is throw-site discipline, which ADR-0026 correctly says it does
+    not cover: "Anyone reading this ADR as 'the filter now prevents leaks' is reading it wrong". The
+    ADR states the guarantee as partial; the header states it as absolute, and the header is what a
+    developer reads before writing a subclass. What changed this round is that this is now the ONLY
+    remaining gap, which makes the overstatement more misleading than when details was also open.
+  required_change: >-
+    Reword to match ADR-0026 - the filter emits at most three keys, the values it chooses itself are
+    literals in this file, and a DomainError's own message reaches the body under ADR-0024's throw-site
+    promise. Optional hardening the auditor offers but does not require: run the envelope through
+    errorEnvelopeContract.safeParse before the details step, which would validate code and message and
+    make invariant 1 hold by construction rather than by type.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-114
+  phase: implement
+  task: TASK-007
+  source: sdlc-security-auditor
+  round: 3
+  severity: nit
+  kind: implementation
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 130
+  summary: >-
+    The last-resort guard writes its body without passing it through narrowEnvelope, while the contract
+    says every body the filter writes goes through it first.
+  failure_scenario: >-
+    No leak today - the body is errorResponse('internal_error', INTERNAL_ERROR_MESSAGE), two module
+    constants and three keys. The defect is that an absolutely-stated invariant has an UNMARKED
+    exception, so the next edit to that arm - adding a details, or choosing a code from the failure -
+    inherits no checkpoint and no warn line. F-107 made the fix free: narrowEnvelope on a details-less
+    envelope is now a pure rebuild, so routing this body through it is semantically identical to today.
+  required_change: >-
+    Either route the last-resort body through this.narrow(...), or add a clause to the contract bullet
+    naming this one path and why it is exempt. Deferred; does not extend the loop.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-115
+  phase: implement
+  task: TASK-007
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: test-coverage
+  file: apps/api/src/common/errors/exception-filter.spec.ts
+  line: 1
+  summary: >-
+    The F-092 last-resort guard is asserted by no test, so a future edit deletes it with all 61 green.
+    The implementer verified it with a throwaway probe and deleted the probe.
+  failure_scenario: >-
+    ORCHESTRATOR BOOKKEEPING DEFECT - the reviewer filed this in round 2 and explicitly said "the guard
+    test in particular belongs with F-088/F-089/F-104 in the next test dispatch", and I recorded it
+    only inside F-092's ruling text rather than as a finding with an id and an owner. A residual noted
+    inside a closed finding's prose is not tracked by anything - it does not appear in an open-findings
+    query, no dispatch will ever carry it, and Ship-phase triage reads the ledger's open list. That is
+    the same shape as F-064 and F-110: an obligation recorded somewhere that is not the place work is
+    drawn from. Filed properly here. The reviewer confirmed the gap directly: removing the try/catch
+    from catch() and inlining this.write(...) leaves every test passing. The behaviour it protects is
+    the one the finding called load-bearing - a marker-carrying object with no toEnvelope, and a header
+    value Node rejects, both escape into finalhandler, which writes err.stack into the body whenever
+    NODE_ENV is not production.
+  required_change: >-
+    Two tests over a real round trip, in the style the implementer's deleted probe already proved
+    passes - a throw whose headers carry a CRLF value answers 500 internal_error with a valid envelope
+    and no injected header, and a marker-carrying object without toEnvelope answers the same. Bundle
+    with F-103, F-104 and F-113 in the next test dispatch. Deferred; does not extend TASK-007's loop.
+  owner_slot: sdlc-test-architect
   status: open
   resolved_by: null
   resolved_round: null

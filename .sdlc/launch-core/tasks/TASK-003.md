@@ -69,17 +69,54 @@ redaction pipeline entirely, and `error-envelope.md` invariant 9 — debugging a
 finding its `request_id` in the logs — is false for every 500 the product returns.
 
 **Add to Produces:** the `exception-filter.ts` log line moved onto the pino logger, carrying
-`request_id`, with the message and stack passed through ADR-0022's serialisation rather than
-concatenated into a string. Path-based redaction cannot reach inside a message string, which
+`request_id`, **with the stack/message policy decided and recorded** — not a fixed field list.
+Corrected 2026-08-05 (F-110): this clause used to require "the message and stack passed through
+ADR-0022's serialisation", which prescribed an outcome the contract deliberately leaves to you and
+named a remedy that does not work. Path-based redaction cannot reach inside a message string, which
 is the point `sdlc-security-auditor` made when it noted a URL-style DSN in a connection error
 puts credentials in `message` where `REDACT_PATHS` will never find them.
 
-**Related, and yours to settle in the same edit:** F-093 records that `main.ts:59-62`
-deliberately does *not* log a stack, on the reasoning that no redact path reaches inside one,
-while `exception-filter.ts` logs `exception.stack` in full. Two files in one repo currently
-state opposite policies. TASK-007's implementer is making the filter match `main.ts` in the
-interim; when you land the error serialiser, decide the policy once and make both files agree
-under it.
+**Related, and yours to settle in the same edit:** F-093 recorded that `main.ts:59-62`
+deliberately does *not* log a stack, while `exception-filter.ts` logged `exception.stack` in
+full — two files in one repo stating opposite policies. **That is no longer the state**:
+TASK-007's implementer made the filter match `main.ts`, so neither logs a stack today.
+(Corrected 2026-08-05, F-110; this paragraph described the pre-F-093 repo.)
+
+**Read `design/contracts/error-envelope.md`, section "What the 500 log line carries, and who
+owns changing it", before you touch the log line.** It is normative, it states what ships
+today and why, and it names you as the owner of the permanent answer. `design/contracts/
+logging-and-headers.md` § "The exception filter's error line" points at it as well. This
+TASK's `contracts:` front-matter is empty, so this sentence is the delivery path — do not
+rely on the field.
+
+## ⚠ F-108 — the framework-400 arm, and why ADR-0022 serialisation will not fix it
+
+Added 2026-08-05. `sdlc-security-auditor` deferred this to you rather than reopening TASK-007,
+and the ledger previously claimed it had been recorded here when it had not.
+
+`exception-filter.ts`'s branch-3 400 arm logs the framework's own message. For a malformed
+JSON body that message is Nest's `BadRequestException(err.message)` over Node's `JSON.parse`
+text, **which quotes raw request bytes** — an unauthenticated POST containing a credential can
+put a fragment of it in the log. Two properties follow:
+
+- `REDACT_PATHS` cannot reach it. Redaction is path-based and a message string has no path, so
+  "pass it through ADR-0022's serialisation" is not a remedy. This is why the Produces clause
+  above was corrected.
+- The quoted slice is raw input, so it can contain a literal newline. Verified on Node 24.19:
+  Nest's text logger writes it as two physical lines, splitting a line-oriented log. JSON
+  encoding by pino removes that property; it does not remove the credential fragment.
+
+**The remedy the auditor recommends:** log `exception.name` plus the `SyntaxError`'s position,
+or a hard-truncated message — not the quoted slice. The message has no diagnostic value the
+client is allowed to see anyway.
+
+**One check to run before you choose a serialiser (F-111).** `err.stack`'s first line *is*
+`name: message`. A serialiser that emits the raw stack therefore reinstates the message inside
+the `stack` field, which defeats redacting `message`. Verify what your chosen `err` serialiser
+puts in `stack` **before** you redact anything. This is stated as a check rather than an answer
+because `pino` is not installed in this workspace and nobody has been able to measure it —
+`sdlc-architect` and `sdlc-security-auditor` both declined to write the shape as a claim, which
+was the right call after ADR-0024 had to strike an unverified redaction claim as wrong-when-written.
 
 **Ownership note.** TASK-003 and TASK-007 now both hold `apps/api/src/common/errors/**`.
 TASK-007 is wave 1 and closes before TASK-003 runs in wave 2, so they never execute
