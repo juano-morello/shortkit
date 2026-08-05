@@ -1377,10 +1377,16 @@
     one wave without its acceptance signal. The architect declined to choose, correctly - this
     is an ownership call, and reassigning it silently would hide the one-wave gap.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
-  resolved_by: null
-  resolved_round: null
+
+  resolved_by: orchestrator
+  resolved_round: 2
+  ruling: >-
+    RULED by Juano and APPLIED by the orchestrator. TASK-009's paths gained apps/api/test/auth/**
+    so the e2e test sits with the mount it verifies, rather than migrating to TASK-058 and shipping
+    the mount one wave without its acceptance signal. TASK-009 and TASK-058 now share that directory
+    as they already share auth.config.ts, sequenced by depends_on.
 
 # TASK-001 scoped re-review, round 2. sdlc-reviewer: APPROVED, 7/7 addressed, 6 new minor.
 # sdlc-security-auditor: changes-requested on the F-047 residual only, 7 minor + 1 nit new.
@@ -1410,7 +1416,14 @@
     Move to apps/api/src/common/errors/error-envelope.ts, inside TASK-007's existing paths,
     updating only the main.ts import. One git mv now versus a rework round later.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
+  ruling: >-
+    Fixed in round 2 by git mv to apps/api/src/common/errors/error-envelope.ts, inside TASK-007's
+    existing paths, with contents untouched and only the main.ts import following. VERIFIED:
+    apps/api/src/common/ now contains only errors/, and error-envelope.ts sits inside it. TASK-007
+    can now own the file it was always going to need.
 
 - id: F-059
   phase: test
@@ -1437,7 +1450,22 @@
     process.exit(1) after the log flushes rather than relying on the loop draining. Route the
     stack through ADR-0022's redaction, or log a redacted summary until TASK-003 lands pino.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
+  ruling: >-
+    Fixed in round 2 and DEMONSTRATED RATHER THAN ARGUED, which is what the dispatch asked for. The
+    implementer built a temporary handle-holding provider of the DbModule shape, occupied the port,
+    and measured both handlers: the round-1 handler was killed by timeout at 15s with exit 124,
+    never exiting; the new one exits 1 in 0s with the provider's onModuleDestroy marker proving
+    app.close() ran. Scratch provider reverted before commit. ORCHESTRATOR REPRODUCED the exit path
+    independently under EADDRINUSE: exit code 1, elapsed 0s, and the envelope line
+    {"code":"internal_error","message":"the API failed to start","cause":"Error: listen EADDRINUSE
+    ..."} on stderr. app is held outside bootstrap, stderr is flushed via a write callback because
+    process.exit drops pending writes on a pipe, app?.close() is awaited with its own catch so a
+    failing close cannot strand the exit, then process.exit(1). The raw error.stack is gone, with a
+    comment explaining that ADR-0022 redacts by path and no path reaches into a stack, so the stack
+    would be the one boot-line field outside the redaction pipeline.
 
 - id: F-060
   phase: test
@@ -1464,8 +1492,16 @@
     change the comment to name the TASK that owns main.ts. The contract half routes to
     sdlc-architect; the paths half is Juano's.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
+  resolved_by: orchestrator
+  resolved_round: 2
+  ruling: >-
+    RULED by Juano and APPLIED by the orchestrator. TASK-003's paths gained apps/api/src/main.ts,
+    which design/contracts/logging-and-headers.md already implied by naming main.ts as TASK-003's
+    normative form while stating 'every API TASK. Nothing may opt out.' The comment in main.ts is
+    now true and the interim console-based boot log has an owner able to replace it. TASK-003 is
+    wave 2 and TASK-009 wave 3, so TASK-003 lands first on the shared file.
 
 - id: F-061
   phase: test
@@ -1495,7 +1531,15 @@
     remove it. Better: a TASK-002 CI step that runs the built artifact to a successful listen, so
     a bundle Nest cannot boot fails the pipeline rather than the deploy.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
+  ruling: >-
+    Fixed in round 2, cheap half only as Juano ruled. The @swc/core coupling is now named in
+    tsup.config.ts as must-not-remove, so a dependency cleanup cannot silently drop the optional
+    peer and fall back to esbuild. VERIFIED present. The CI step that boots the built artifact to a
+    successful listen remains a TASK-002 obligation and was not done here. The F-066 comment clause
+    was folded in: the config comment now states noExternal is transitive, so zod is inlined.
 
 - id: F-062
   phase: test
@@ -1524,7 +1568,19 @@
     change. Then decide separately whether the .npmrc ignore stays; the security auditor's
     CI-append argument is the stronger one and nothing else currently needs the file.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
+  ruling: >-
+    Fixed in round 2 by the route that satisfies BOTH auditors, so neither the reviewer's nor the
+    security auditor's position on .npmrc had to be overruled. engineStrict: true set in
+    pnpm-workspace.yaml, which is tracked and already held allowBuilds; the .gitignore credential
+    block is untouched. VERIFIED EMPIRICALLY BY THE IMPLEMENTER rather than assumed: pnpm config get
+    engine-strict returns true, and with engines.node temporarily >=99.0.0 the install fails
+    ERR_PNPM_UNSUPPORTED_ENGINE exit 1, while the same range with engineStrict removed only WARNs
+    and exits 0. Both temporary edits reverted. Orchestrator confirmed engineStrict: true at
+    pnpm-workspace.yaml:9 and pnpm config get engine-strict -> true. The >=24.13.0 floor from F-052
+    is now enforced rather than advisory.
 
 - id: F-063
   phase: test
@@ -1548,7 +1604,14 @@
   required_change: >-
     Add "tsup.config.ts" to apps/api/tsconfig.json's include, matching its two vitest siblings.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
+  ruling: >-
+    Fixed in round 2. tsup.config.ts added to apps/api/tsconfig.json's include, matching its two
+    vitest siblings. VERIFIED AGAINST THE FINDING'S OWN SCENARIO by the implementer: noExternal
+    written as a bare string now gives tsup.config.ts(32,3): error TS2322 and exit 2, where it
+    previously typechecked clean. The path by which F-042 could silently return is closed.
 
 - id: F-064
   phase: test
@@ -1578,8 +1641,18 @@
     and an integration job asserting a non-zero test count. TASK-005: named obligation to remove
     passWithNoTests once real suites exist.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
+  resolved_by: orchestrator
+  resolved_round: 2
+  ruling: >-
+    RULED by Juano and APPLIED by the orchestrator. Both missing halves written into the TASK files
+    they belonged in: TASK-002 must resolve pnpm from packageManager rather than hardcoding a bare
+    version (otherwise the registry-verified integrity hash is decorative) and its integration job
+    must assert a non-zero test count; TASK-005 must remove passWithNoTests once real suites exist.
+    This finding records an orchestrator defect - I marked F-044 and F-047 fixed on their code
+    halves alone - and the corrective is mechanical: a required_change with a TASK-side clause is
+    not fixed until that clause reaches a TASK file.
 
 - id: F-065
   phase: test
