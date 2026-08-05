@@ -23,6 +23,34 @@ Better Auth mounted in NestJS (already decided); JWT for the web app; API keys a
 
 **If this integration resists, escalate for a timeboxed spike rather than improvising** — `refinement.md` names Better Auth inside NestJS as a risk with thinner public prior art than the Next.js pairing.
 
+**Pinning step, added 2026-08-04 (F-040, ruled by Juano).** This TASK pins
+`better-auth` to an **exact version**, not a caret range, and adds it to
+`apps/api/package.json`. ADR-0018 requires the exact pin because ADR-0013 accepts that
+a Better Auth release can break the hand-written mount, so a floating range lets a
+transitive bump break authentication with no code change.
+
+Pinning carries an obligation that travels with it. Before the pin lands, re-check
+these four facts against the documentation **for the version you are pinning**, because
+the design was written against current-latest docs rather than a pinned release:
+
+1. `rateLimit` defaults to enabled-in-production. This is why this TASK sets
+   `rateLimit: { enabled: false }` and owns the unit test asserting the composed
+   `betterAuth` config carries `rateLimit.enabled === false`. If this default has
+   changed, the disable is harmless and nothing else moves.
+2. The `hooks.before` / `createAuthMiddleware` signature.
+3. The `ctx.body.email` shape.
+4. `ctx.path` being base-path-relative.
+
+**If (2) or (3) has changed, stop and escalate** — ADR-0018 states that F-019's and
+F-021's mechanisms need revisiting before the pin lands, and that is a design decision,
+not something to improvise here. Record all four results in your report and in the
+commit message.
+
+This step was assigned to TASK-001 by ADR-0018 and ADR-0013. TASK-001 excludes auth by
+name, had no such step, and its implementer had no way to fetch documentation, so the
+requirement had no producer. It lands here because the implementer that mounts the
+library is the one that needs these four facts to be true.
+
 ## Out of scope for this TASK
 
 **Split 2026-08-04 on Juano's ruling:** the auth-surface protection — `authBodyCap`,

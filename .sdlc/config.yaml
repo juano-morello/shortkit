@@ -35,21 +35,25 @@ ownership:
   - { paths: ["README.md", "docs/**", "*.md"], slot: sdlc-implementer-backend }
   - { paths: ["**"], slot: sdlc-implementer-backend }   # fallback: root manifests, tsconfig
 
-# All null: the repo was empty at init. Nothing here is a guess.
-# The first TASK scaffolds the monorepo; re-run `/juano-sdlc init` afterwards
-# to populate these before any further TASK dispatches. Implement has no
-# quality gates to run until then.
+# Populated 2026-08-04 by the `/juano-sdlc init` re-run that TASK-001 declares as a
+# hard gate. Every value below was recorded by RUNNING the command from a state with
+# all node_modules, .next and dist deleted, not by reading a manifest. All exit 0.
 testing:
-  command: null
-  unit: null
-  integration: null
-  coverage_gate: null
-  framework: null              # jest vs vitest is a Design decision
+  command: pnpm test
+  unit: pnpm test
+  # Currently collects zero test files and passes via `passWithNoTests`. It becomes
+  # meaningful once TASK-005 lands docker-compose.test.yml and TASK-006 the isolation
+  # harness. Recorded now because ADR-0001 fixes the command name and TASK-002 wires
+  # the CI job to it; init.md's "a command collecting nothing is broken" caveat is
+  # noted rather than ignored.
+  integration: pnpm test:integration
+  coverage_gate: null          # no coverage tooling installed, no threshold chosen
+  framework: vitest            # ADR-0001: Vitest 3 in all three workspaces
 
 quality:
-  lint: null
-  typecheck: null
-  build: null
+  lint: pnpm lint
+  typecheck: pnpm typecheck
+  build: pnpm build
 
 git:
   branch_prefix: sdlc/
