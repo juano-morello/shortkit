@@ -3085,3 +3085,34 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-105
+  phase: implement
+  task: TASK-007
+  source: orchestrator
+  round: 1
+  severity: nit
+  kind: implementation
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 23
+  summary: >-
+    The F-093 fix left the file contradicting itself. The header block still promises "Name, message
+    and stack go to the log and stop there", while logError deliberately no longer logs the stack and
+    its own docblock explains why.
+  failure_scenario: >-
+    Found by the orchestrator while verifying the stage-2 traps, not by an auditor. Both halves
+    verified in place: line 23 states the stack reaches the log, and the method at 234 logs only name
+    and message, with a docblock at 226-231 giving F-064's reasoning for the omission. Nothing breaks
+    and no test can catch it, but this is the artifact-contradicts-artifact class arriving INSIDE a
+    single file rather than between two - and it was introduced by the fix for a finding that existed
+    because two files said opposite things. A reader trusting the header believes a 500's stack is
+    recoverable from the logs. It is not, until TASK-003 lands the pino error serialiser.
+  required_change: >-
+    Correct the header to match the method - name and message reach the log, the stack does not, and
+    TASK-003 owns the permanent answer. Not fixed by the orchestrator: implement.md forbids controller
+    fixes because they pollute context and skip review. Bundle into the next round for this owner, or
+    into the scoped re-review's outcome.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
