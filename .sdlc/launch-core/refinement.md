@@ -169,7 +169,14 @@ on 2026-08-03:
 - TypeScript end to end. Next.js (frontend) and NestJS (backend) only. No
   Next.js backend, no third service.
 - Postgres with row-level security; tenant scoping via `tenant_id` and a
-  per-request `SET LOCAL app.tenant_id`.
+  per-request `SELECT set_config('app.tenant_id', $1, true)`.
+  *(Mechanism corrected 2026-08-05 per F-099. This line originally read
+  `SET LOCAL app.tenant_id`. F-007, filed in Design, established that `SET` and
+  `SET LOCAL` accept no bind parameters, so that form was not executable at all and
+  the cheapest green fix would have been string interpolation at the one statement
+  all of RLS depends on. `design/contracts/tenant-context.md` is normative. The
+  constraint — transaction-scoped tenant context that no query path may bypass — is
+  unchanged; only the SQL that expresses it is.)*
 - Drizzle as the data-access layer.
 - Redis for the redirect cache and rate limiting.
 - Fly.io (API), Vercel (web), Neon (Postgres).
