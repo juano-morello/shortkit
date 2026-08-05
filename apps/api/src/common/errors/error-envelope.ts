@@ -30,7 +30,9 @@ export function errorResponse(code: ErrorCode, message: string, details?: unknow
  * to another tenant. This narrowing makes attaching an unnamed shape a drop rather than
  * a leak.
  *
- * - `details` absent: the envelope is returned untouched.
+ * - `details` absent: the envelope is rebuilt as `{ code, message }`. Corrected 2026-08-05
+ *   (F-107); this row used to return the caller's envelope by reference, which shipped any
+ *   top-level sibling key on it unnarrowed.
  * - `validation_failed`: kept only if it parses, and what is kept is the PARSE OUTPUT.
  *   `z.object` strips unknown keys, so a sibling attached beside `fieldErrors` does not
  *   survive — forwarding the input on a successful parse would let it through.
@@ -46,7 +48,7 @@ export function narrowEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
   const { code, message, details } = envelope;
 
   if (details === undefined) {
-    return envelope;
+    return { code, message };
   }
 
   if (code === 'validation_failed') {

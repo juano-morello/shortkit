@@ -20,8 +20,9 @@
  *
  * BRANCH 4 PUTS NOTHING OF THE ORIGINAL ERROR IN THE BODY. A Postgres error naming a
  * connection string, a Redis timeout naming an internal host and an assertion quoting a
- * row all land there. Name, message and stack go to the log and stop there (GC-9,
- * error-envelope.md invariant 8).
+ * row all land there. Name and message reach the log, at `error` level; the stack does
+ * not, and TASK-003's pino error serialiser is the permanent answer (GC-9, error-envelope.md
+ * "What the 500 log line carries, and who owns changing it").
  *
  * THE FILTER DOES NOT WALK `cause`. A DomainError re-thrown inside a plain Error is a
  * 500 (ADR-0024).
