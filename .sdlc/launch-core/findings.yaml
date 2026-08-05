@@ -830,10 +830,20 @@
     ADR-0005's alternatives table rules out (a) on TYPECHECK grounds only and never
     addresses the API's runtime, so this needs a design ruling before an implementation.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
-  resolved_by: null
-  resolved_round: null
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    RULED by Juano (bundle with swc/tsup) and FIXED in round 1. tsup.config.ts added with
+    noExternal ['@shortkit/contracts']; tsconfig.build.json DELETED - its rootDir emit is what
+    produced TS6059. ORCHESTRATOR VERIFIED FROM A CLEAN INSTALL: install, lint, typecheck, test,
+    build and test:integration all exit 0; `node apps/api/dist/main.js` prints "Nest application
+    successfully started"; grepping requires over dist/main.js yields only @nestjs/common,
+    @nestjs/core and reflect-metadata, with ZERO .ts requires; slug_generation_exhausted appears
+    in the bundle, proving contracts was inlined as JavaScript rather than required as source.
+    The ERR_UNKNOWN_FILE_EXTENSION risk on the engines floor is therefore closed, and no compiler
+    output remains in packages/contracts/src.
 
 - id: F-043
   phase: test
@@ -894,9 +904,14 @@
     command something to match, or make its removal a named obligation on TASK-005, and
     have the CI integration job assert a non-zero test count.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1, and more strongly than asked. Include glob widened to **/*.int-spec.ts PLUS a
+    guard that throws on a spec file the glob would miss. The named failure case
+    (rls.int.spec.ts, dot instead of hyphen) now exits 1 with a named error instead of silently
+    matching nothing, while the genuine zero-suite case still exits 0.
 
 - id: F-045
   phase: test
@@ -925,9 +940,17 @@
     in three places at once: packages/contracts/package.json, apps/api/tsconfig.json,
     apps/web/tsconfig.json.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1. Architect ruled root-specifier-only and amended ADR-0005; the implementer
+    applied it across packages/contracts/package.json and both tsconfigs atomically. ORCHESTRATOR
+    VERIFIED BOTH DIRECTIONS: a root import typechecks at exit 0, and importing
+    '@shortkit/contracts/slug' gives exit 2 with TS2307, so a subpath fails loudly at typecheck
+    rather than resolving one way in the bundler and another in tsc. design/stubs needed no
+    relaying. sideEffects false was added beyond the finding, with its own cost recorded: nothing
+    enforces it, so contracts must stay declaration-only.
 
 - id: F-046
   phase: test
@@ -953,9 +976,19 @@
     written against node10 semantics. If node10 is deliberate, record why - it constrains
     every backend dependency choice that follows.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    FIXED, remedy PARTIALLY DISPUTED and the dispute ACCEPTED on evidence. The implementer moved
+    apps/api to module Preserve / moduleResolution Bundler rather than the nodenext the reviewer
+    proposed, arguing nodenext forces .js extensions in the ESM contracts source, which makes
+    Turbopack fail to resolve ./errors.js -> errors.ts and turns pnpm build red for apps/web, and
+    that it contradicts the frozen TASK-007 stub. ORCHESTRATOR VERIFIED THE UNDERLYING DEFECT IS
+    FIXED rather than accepting the argument: importing reflect-metadata/lite, an exports-only
+    subpath, gives typecheck exit 2 TS2307 under node10 and exit 0 under Bundler. Reading exports
+    maps is the property F-046 was about. Bundler is also the semantically correct mode now that
+    Juano ruled apps/api is built by tsup, which is a bundler.
 
 - id: F-047
   phase: test
@@ -977,9 +1010,13 @@
     Use pnpm@11.20.0+sha512.<hash> from `corepack use pnpm@11.20.0`, and have TASK-002 use a
     setup step that reads packageManager rather than hardcoding a bare version.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1 via `corepack use pnpm@11.20.0`. VERIFIED: packageManager reads
+    pnpm@11.20.0+sha512.9a6f330a..., and pnpm install --frozen-lockfile exits 0 from a clean
+    install. The one unverified fetch in a 470-package sha512 tree is closed.
 
 - id: F-048
   phase: test
@@ -1003,9 +1040,13 @@
     Add .npmrc, *.pem, *.key, *.crt, *.p12, *.pfx, id_rsa*, .envrc; keep the !.env.example
     negation. Also gitignore compiler output under packages/contracts/src (see F-042).
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1. VERIFIED present in .gitignore: .npmrc, *.pem, *.key, id_rsa*, .envrc, with
+    the !.env.example negation preserved. Compiler-output patterns added too, covering the stray
+    packages/contracts/src/*.js that F-042's failed build produced.
 
 - id: F-049
   phase: test
@@ -1031,9 +1072,14 @@
     zero advisories at any level), or add a scheduled moderate audit that files an issue.
     Decide in ADR-0018 so TASK-002 implements one thing.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1. ADR-0018 lowers the quality gate to `pnpm audit --prod --audit-level
+    moderate` and adds a weekly `dependencies` job running a full-tree moderate audit on schedule
+    and workflow_dispatch only, gating nothing so a failed scheduled run is the notification.
+    Resolved jointly with F-055 - same paragraph, same reasoning.
 
 - id: F-050
   phase: test
@@ -1059,10 +1105,17 @@
     that release. Nothing changes in TASK-001. Minting a new AC id reopens STORY-005 to
     that extent, so this is Juano's call.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
-  resolved_by: null
-  resolved_round: null
+  resolved_by: orchestrator
+  resolved_round: 1
+  ruling: >-
+    RULED by Juano and APPLIED by the orchestrator (rule 0: tasks/** and stories/** have no agent
+    owner). AC-112 minted on STORY-005, now 11 ACs: apps/api/package.json must declare better-auth
+    with no range character, and TASK-009's report must record the four ADR-0018 facts verified
+    against that exact release. TASK-009 acceptance is now [AC-16, AC-20, AC-21, AC-112]. This is
+    the gate that makes F-040's fix hold - without it sdlc-product-auditor verifies ACs verbatim
+    and never checks the pin.
 
 - id: F-051
   phase: test
@@ -1086,9 +1139,14 @@
     Validate as an integer in 1-65535 and fall back otherwise, or defer entirely to
     TASK-004's env schema, and attach a failure handler to bootstrap() that logs before exit.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1. resolvePort validates an integer in 1-65535 and falls back otherwise;
+    bootstrap().catch() logs through the shared error envelope and exits 1 rather than surfacing a
+    bare unhandled rejection. ORCHESTRATOR VERIFIED the predicate across PORT="" -> 3001, PORT=0
+    -> 3001, PORT=70000 -> 3001, PORT=abc -> 3001, PORT=8080 -> 8080.
 
 - id: F-052
   phase: test
@@ -1111,9 +1169,16 @@
     Align the two: raise the engines floor to the Node major actually targeted for deploy,
     or pin @types/node to the 22.x line. Optionally add .npmrc with engine-strict=true.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1 by raising engines.node to >=24.13.0 rather than pinning @types/node down to
+    the 22.x line. Compiler and declared runtime floor now agree. FLAGGED FOR JUANO: this DROPS
+    Node 22 support, which is a deployment-floor decision rather than a type alignment.
+    Defensible - Node 24 is active LTS and no deploy has happened yet, TASK-003 and TASK-042 own
+    the images - but it is a decision, not a cleanup. engine-strict was skipped because .npmrc is
+    now gitignored by F-048.
 
 - id: F-053
   phase: test
@@ -1138,10 +1203,17 @@
     only, no code change. Worth a Retro item so the same class does not recur across 57
     TASKs.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
-  resolved_by: null
-  resolved_round: null
+  resolved_by: orchestrator
+  resolved_round: 1
+  ruling: >-
+    RULED by Juano and APPLIED by the orchestrator. TASK-001's paths widened to include
+    pnpm-lock.yaml, vitest.config.ts, .gitattributes and eslint.config.mjs, all required by
+    ADR-0001/ADR-0004/ADR-0018 and none previously listed. Documentation only; sdlc-product-auditor
+    had already verified the TASK stayed in scope. The wider pattern - TASK paths narrower than what
+    the TASK must produce - is a Retro item, since sdlc-reviewer suspects it recurs across the
+    other 57 TASKs.
 
 - id: F-054
   phase: test
@@ -1170,9 +1242,15 @@
     tests now sit in TASK-058, so the argument spans two TASKs. The conclusion holds either
     way - the unit test stays with TASK-009, matching its Approach.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1. ADR-0013's follow-up list and three body references re-attributed against the
+    TASK-009 / TASK-058 split. VERIFIED: occurrences of TASK-058 in adr-0013 went from 0 to 13.
+    The knock-on is stated explicitly rather than left implicit - ctx.path is now pinned by
+    TASK-058's three integration tests, so ADR-0013 leans on them and they are required rather
+    than advisory, while the rateLimit.enabled unit test stays with TASK-009.
 
 - id: F-055
   phase: test
@@ -1201,10 +1279,16 @@
     moderate audit from F-049), or revert non-better-auth deps to caret ranges as the ADR
     currently states. Deviating silently from an accepted ADR is the part to fix either way.
   owner_slot: null
-  status: escalated
+  status: fixed
   escalated_to: juano
-  resolved_by: null
-  resolved_round: null
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    RULED by Juano (keep exact pinning, amend the ADR) and FIXED in round 1. ADR-0018 states exact
+    pinning as the stance and names .github/dependabot.yml as the update mechanism carrying the
+    weight caret ranges used to. Orchestrator applied the TASK-side consequence the architect
+    could not: TASK-002 paths moved from .github/workflows/** to .github/**, without which
+    dependabot.yml has no owner and the ruling would not take effect.
 
 - id: F-056
   phase: test
