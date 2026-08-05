@@ -1707,3 +1707,87 @@
   owner_slot: sdlc-implementer-backend
   status: open
   note: deferred-observation
+
+# Wave-1 stub materialisation. Raised by sdlc-implementer-backend, which flagged all three
+# rather than resolving them silently. 22 stubs remain unmaterialised, so a defect in the
+# stub set matters beyond its own file.
+
+- id: F-067
+  phase: test
+  source: sdlc-implementer-backend
+  round: 0
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/stubs/apps/api/src/tenancy/tenant-context.ts
+  line: 66
+  summary: >-
+    The stub contradicts itself on tenantStorage's visibility. The line reads
+    "/** Module-private. Never exported. */" and the next line is
+    "export const tenantStorage = new AsyncLocalStorage<TenantContext>()".
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED both lines are adjacent in the stub, and that
+    design/contracts/tenant-context.md says nothing about tenantStorage at all, so no
+    external consumer depends on the export. The implementer resolved it in favour of the
+    comment - un-exported, with an inert void reference to satisfy noUnusedLocals - and
+    flagged it for a second opinion because tenant-context.ts is the GC-5 seam. The reading
+    is right: a module-private AsyncLocalStorage is the correct shape, and an exported one
+    would let any later TASK reach around withTenantTransaction and set tenant context
+    directly, which is precisely what GC-5 forbids. Left as the stub had it, the export
+    would have been an escape hatch nobody intended.
+  required_change: >-
+    Correct the stub to match its own comment so the remaining 22 materialisations do not
+    inherit the same slip, and confirm no other stub exports something its comment calls
+    module-private.
+  owner_slot: sdlc-architect
+  status: open
+
+- id: F-068
+  phase: test
+  source: sdlc-implementer-backend
+  round: 0
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/design/stubs/packages/contracts/src/roles.ts
+  line: 4
+  summary: >-
+    roles.ts's own header says "Produced by: TASK-016", while design/stubs/README.md's
+    materialisation table assigns packages/contracts/src/** to TASK-001 and TASK-007.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED the header reads TASK-016 and the README table names TASK-007.
+    Materialisation was unaffected, so nothing is broken today. But this is the EIGHTH
+    instance of the artifact-disagrees-with-artifact-about-ownership class (F-038, F-039,
+    F-040, F-054, F-056, F-057, F-060, now this). It matters here because whoever implements
+    roles.ts for real needs to know whether the role enums land with the contracts package
+    or with the membership schema TASK, and ADR-0023's branded types make that a decision
+    rather than a filing question.
+  required_change: >-
+    Reconcile the header against the README table and TASK-007's Produces block. If TASK-016
+    genuinely owns the role enums, the contracts entry-point rule in TASK-007 needs to say
+    so, since every symbol reaches consumers through src/index.ts.
+  owner_slot: sdlc-architect
+  status: open
+
+- id: F-069
+  phase: test
+  task: TASK-005
+  source: sdlc-implementer-backend
+  round: 0
+  severity: nit
+  kind: implementation
+  file: apps/api/package.json
+  line: 1
+  summary: >-
+    drizzle-orm was pinned at 0.45.2 by implementer judgement. No ADR, contract or TASK pins
+    a version, though ADR-0018 now makes exact pinning the stance for everything.
+  failure_scenario: >-
+    Not a defect - the pin is exact as ADR-0018 requires and the version resolves cleanly.
+    But the data-access library for the entire initiative got its version chosen by an
+    implementer doing a transcription task, with no design input. ADR-0004 (schema layout and
+    migrations) is the artifact that should have named it. If 0.45.2 has a migration-generation
+    behaviour ADR-0004 assumed differently, that surfaces at TASK-005 rather than here.
+  required_change: >-
+    Record the pin in ADR-0004 so it is a decision rather than an accident, or confirm the
+    version against what ADR-0004's migration approach assumes.
+  owner_slot: sdlc-architect
+  status: open
+  note: deferred-observation
