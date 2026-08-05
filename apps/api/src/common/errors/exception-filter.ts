@@ -29,6 +29,10 @@
  * NO STATUS IS PICKED HERE. Every one comes from ERROR_CODE_STATUS, through
  * `errorResponse()` or through `DomainError.status`, which is a getter over the same
  * table.
+ *
+ * EVERY BODY GOES THROUGH `narrowEnvelope` (ADR-0026), so the only values that reach a
+ * client are strings written in this file and shapes validated against a schema in
+ * `packages/contracts`. No message an HttpException carried reaches a body.
  */
 import { Catch, HttpException, Logger } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
@@ -38,9 +42,10 @@ import {
   isZodError,
   toValidationDetails,
 } from '@shortkit/contracts';
+import type { ErrorEnvelope } from '@shortkit/contracts';
 
 import { INTERNAL_ERROR_MESSAGE, isDomainError } from './domain-error';
-import { errorResponse } from './error-envelope';
+import { errorResponse, narrowEnvelope } from './error-envelope';
 import type { ErrorResponse } from './error-envelope';
 
 /**
@@ -69,6 +74,18 @@ const VALIDATION_FAILED_MESSAGE = 'The request could not be validated.';
  */
 const NOT_FOUND_MESSAGE = 'The requested resource was not found.';
 
+/**
+ * What a framework 400 says under `_form`, in place of the exception's own message
+ * (F-094, ADR-0026). Nest maps a body-parser `SyntaxError` to
+ * `new BadRequestException(err.message)` and Node's `JSON.parse` message quotes the
+ * bytes it choked on, so forwarding it reflects 15 to 30 raw bytes of an unauthenticated
+ * request body — a fragment of a bearer token among them — into a JSON body, against
+ * invariant 8. The same arm receives express's `URIError`, whose message quotes the raw
+ * path segment, which is why this text says "request" rather than "body". The original
+ * goes to the log.
+ */
+const FRAMEWORK_BAD_REQUEST_FORM_MESSAGE = 'The request could not be parsed.';
+
 /** What is written to the response, once a branch has decided it. */
 interface FilterOutcome extends ErrorResponse {
   readonly headers?: Readonly<Record<string, string>>;
@@ -91,6 +108,31 @@ export class ApiExceptionFilter implements ExceptionFilter {
       return;
     }
 
+    try {
+      this.write(response, exception);
+    } catch (failure: unknown) {
+      // F-092. This filter is the one component that answers for every throwable, and
+      // resolving or writing can itself throw: `details` carrying a BigInt or a circular
+      // reference makes `res.json` throw, and a header value Node rejects makes
+      // `setHeader` throw ERR_INVALID_CHAR. Without this, the throw escapes into Nest's
+      // error layer or finalhandler and the client gets a 500 with the wrong code — or,
+      // outside production, HTML carrying a stack.
+      this.logError('while writing the error response', failure);
+
+      // A header may already have gone out, in which case there is nothing left to
+      // write but the end of the response.
+      if (response.headersSent) {
+        response.end();
+        return;
+      }
+
+      const { status, body } = errorResponse('internal_error', INTERNAL_ERROR_MESSAGE);
+      response.status(status).json(body);
+    }
+  }
+
+  /** Classify, write the headers, write the body. Everything that may throw. */
+  private write(response: HttpResponseLike, exception: unknown): void {
     const outcome = this.resolve(exception);
 
     // Before the body: this is how a 429 carries `Retry-After` (invariant 7) without
@@ -99,7 +141,23 @@ export class ApiExceptionFilter implements ExceptionFilter {
       response.setHeader(name, value);
     }
 
-    response.status(outcome.status).json(outcome.body);
+    response.status(outcome.status).json(this.narrow(outcome.body));
+  }
+
+  /**
+   * ADR-0026, applied once to the body the filter is about to write, so branch 1's
+   * `toEnvelope()` output passes through it along with branches 2 to 4.
+   */
+  private narrow(body: ErrorEnvelope): ErrorEnvelope {
+    const narrowed = narrowEnvelope(body);
+
+    if (body.details !== undefined && narrowed.details === undefined) {
+      // The code and nothing else. The dropped value is the one suspected of carrying
+      // another tenant's data, and a log is not a safe place for it (GC-9).
+      this.logger.warn(`dropped details from a ${body.code} envelope: no shape is named for it`);
+    }
+
+    return narrowed;
   }
 
   private resolve(exception: unknown): FilterOutcome {
@@ -145,11 +203,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
     }
 
     if (status === ERROR_CODE_STATUS.validation_failed) {
-      // The message comes from the exception's own response — the framework or an
-      // implementer wrote it — never from an arbitrary Error.message. It belongs to
-      // the request as a whole rather than to a field, so it lands under `_form`.
+      // The exception's own message never reaches the body (F-094, ADR-0026): the
+      // framework builds it out of the raw request bytes. It goes to the log instead,
+      // through the same helper branch 4 uses. What the caller gets is a fixed string,
+      // under `_form` because it belongs to the request as a whole rather than a field.
+      this.logError('framework exception with a 400 status', exception);
       return errorResponse('validation_failed', VALIDATION_FAILED_MESSAGE, {
-        fieldErrors: { [FORM_ERROR_KEY]: [exception.message] },
+        fieldErrors: { [FORM_ERROR_KEY]: [FRAMEWORK_BAD_REQUEST_FORM_MESSAGE] },
       });
     }
 
@@ -160,12 +220,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
   }
 
   /**
-   * The only place anything of the original error is recorded. Name, message and stack
-   * are what error-envelope.md sends here; nothing from here reaches a body.
+   * The only place anything of the original error is recorded. Nothing from here reaches
+   * a body.
+   *
+   * The stack is deliberately not logged, which is the policy `main.ts` already carries
+   * under F-064's ruling: ADR-0022 redacts by path at the logger and no path reaches
+   * into a stack, so it would be the one field on the line outside the redaction
+   * pipeline. Name and message are the summary. F-093 exists because these two files
+   * said opposite things; the stack returns when TASK-003 lands the pino error
+   * serialiser, which is the TASK that owns the permanent answer for both files.
    */
   private logError(context: string, exception: unknown): void {
     if (exception instanceof Error) {
-      this.logger.error(`${context}: ${exception.name}: ${exception.message}`, exception.stack);
+      this.logger.error(`${context}: ${exception.name}: ${exception.message}`);
       return;
     }
 

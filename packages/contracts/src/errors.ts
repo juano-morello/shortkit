@@ -115,23 +115,82 @@ export function isZodError(value: unknown): value is z.ZodError {
 export const FORM_ERROR_KEY = '_form';
 
 /**
+ * Caps on what one `ZodError` may turn into (F-095). zod reports one issue per failing
+ * element, so an array body of 50k bad elements would otherwise build a multi-megabyte
+ * body inside the exception filter from a 100 KB request.
+ *
+ * Issues past `MAX_VALIDATION_ISSUES` are not read. Messages past
+ * `MAX_MESSAGES_PER_FIELD` for one key are dropped. If anything was dropped,
+ * `VALIDATION_TRUNCATED_MESSAGE` is appended under `FORM_ERROR_KEY`, so a form shows
+ * that there is more rather than silently showing less.
+ */
+export const MAX_VALIDATION_ISSUES = 100;
+export const MAX_MESSAGES_PER_FIELD = 10;
+export const VALIDATION_TRUNCATED_MESSAGE = 'Some errors were omitted.';
+
+/**
  * ZodError -> the `details` of a `validation_failed` envelope.
  *
  * Keyed by the FIRST path segment, so `body.name` and `body.name.first` share the key
  * `name`. That matches zod's own flatten and the flat field map a form renders.
  * `issue.message` is zod's text; it names the field and the constraint and carries
  * nothing from the request value.
+ *
+ * ============================================================================
+ * THE ACCUMULATOR IS A `Map`, NOT AN OBJECT LITERAL. THIS IS NOT STYLE (F-086, F-087).
+ * ============================================================================
+ *
+ * `issue.path[0]` is caller-controlled the moment a request schema puts a user key in
+ * the first segment: a top-level `z.record`, a `catchall`, or a `superRefine` setting
+ * its own path. Accumulating into `{}` and reading `fieldErrors[key] ?? []` walks
+ * `Object.prototype`, so a key of `constructor`, `toString`, `valueOf` or
+ * `hasOwnProperty` reads an inherited value instead of `undefined` and the next line
+ * throws `TypeError: messages.push is not a function` — reproduced against zod 4.4.3,
+ * where `z.record(z.string(), z.string()).safeParse(JSON.parse('{"constructor": 2}'))`
+ * yields an issue with `path: ["constructor"]`. The throw escapes the exception filter,
+ * re-enters it as a TypeError and answers 500 with no field errors, on the shared
+ * validation path every consuming TASK inherits.
+ *
+ * `Map` fixes it by construction rather than by discipline: no prototype to consult, so
+ * no future edit has to remember an `Object.hasOwn` guard. `Object.fromEntries` then
+ * returns an ORDINARY object, which matters twice: `validationDetailsContract` accepts
+ * it, and a `__proto__` key lands as an own, JSON-visible property rather than setting a
+ * prototype (verified on Node 24.19 — `Object.fromEntries` uses CreateDataProperty,
+ * which ignores the `__proto__` setter). A null-prototype accumulator also fixes the
+ * crash, and is rejected only because it hands every downstream reader an object whose
+ * prototype is not the one they expect. RETURNING THE MAP ITSELF IS NOT AN OPTION:
+ * `validationDetailsContract` rejects it and `JSON.stringify` turns it into
+ * `{"fieldErrors":{}}` — an empty body, no throw, no signal.
+ *
+ * Any other reducer keyed by caller-supplied strings — `details`-shaped or not — has
+ * this defect unless it is written the same way.
  */
 export function toValidationDetails(error: z.ZodError): ValidationDetails {
-  const fieldErrors: Record<string, string[]> = {};
+  const byKey = new Map<string, string[]>();
+  let truncated = error.issues.length > MAX_VALIDATION_ISSUES;
 
-  for (const issue of error.issues) {
+  for (const issue of error.issues.slice(0, MAX_VALIDATION_ISSUES)) {
     const key = issue.path.length === 0 ? FORM_ERROR_KEY : String(issue.path[0]);
-    const messages = fieldErrors[key] ?? [];
+    const messages = byKey.get(key);
 
-    messages.push(issue.message);
-    fieldErrors[key] = messages;
+    if (messages === undefined) {
+      byKey.set(key, [issue.message]);
+    } else if (messages.length < MAX_MESSAGES_PER_FIELD) {
+      messages.push(issue.message);
+    } else {
+      truncated = true;
+    }
   }
 
-  return { fieldErrors };
+  if (truncated) {
+    const formMessages = byKey.get(FORM_ERROR_KEY);
+
+    if (formMessages === undefined) {
+      byKey.set(FORM_ERROR_KEY, [VALIDATION_TRUNCATED_MESSAGE]);
+    } else {
+      formMessages.push(VALIDATION_TRUNCATED_MESSAGE);
+    }
+  }
+
+  return { fieldErrors: Object.fromEntries(byKey) };
 }
