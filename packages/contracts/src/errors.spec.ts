@@ -156,3 +156,57 @@ describe('toValidationDetails', () => {
     expect(toValidationDetails(error).fieldErrors).toEqual({ constructor: ['must be text'] });
   });
 });
+
+/**
+ * The caps `error-envelope.md` added on 2026-08-05 (F-095): at most 100 issues read, at
+ * most 10 messages under one key, and `VALIDATION_TRUNCATED_MESSAGE` appended under
+ * `FORM_ERROR_KEY` when anything was dropped.
+ *
+ * zod reports one issue per failing array element, so an uncapped flatten turns a 100 KB
+ * body of bad elements into a multi-megabyte response assembled inside the exception
+ * filter. The numbers below are written as literals rather than imported from
+ * `./errors`: the exports do not exist yet, and a named import of a missing export would
+ * fail the whole file at load instead of failing these four tests on their assertions.
+ */
+describe('toValidationDetails caps', () => {
+  /** One issue per failing element, all collapsing to the same first path segment. */
+  const tagListContract = z.object({ tags: z.array(z.string({ error: 'must be text' })) });
+
+  /** One issue per key, so the issue cap is what binds rather than the per-key cap. */
+  const lookupContract = z.record(z.string(), z.string({ error: 'must be text' }));
+
+  function badTags(count: number): unknown {
+    return { tags: Array.from({ length: count }, (_, index) => index) };
+  }
+
+  function badLookup(count: number): unknown {
+    return Object.fromEntries(Array.from({ length: count }, (_, index) => [`k${index}`, index]));
+  }
+
+  it('keeps at most ten messages under one key', () => {
+    const error = zodErrorFrom(tagListContract, badTags(15));
+
+    expect(toValidationDetails(error).fieldErrors.tags).toHaveLength(10);
+  });
+
+  it('appends the truncation notice under _form when it dropped messages', () => {
+    const error = zodErrorFrom(tagListContract, badTags(15));
+
+    expect(toValidationDetails(error).fieldErrors._form).toEqual(['Some errors were omitted.']);
+  });
+
+  it('leaves no truncation notice when it dropped nothing', () => {
+    const error = zodErrorFrom(tagListContract, badTags(10));
+
+    expect(Object.keys(toValidationDetails(error).fieldErrors)).toEqual(['tags']);
+  });
+
+  it('reads at most a hundred issues', () => {
+    const error = zodErrorFrom(lookupContract, badLookup(150));
+    const keyed = Object.keys(toValidationDetails(error).fieldErrors).filter(
+      (key) => key !== '_form',
+    );
+
+    expect(keyed).toHaveLength(100);
+  });
+});

@@ -47,6 +47,14 @@ import type * as domainErrorModule from './domain-error';
 /** Stands in for the class of value invariant 8 forbids in a body: a credential. */
 const LEAKED_SECRET = 'postgres://shortkit:hunter2@db.internal:5432';
 
+/**
+ * Another tenant's id, which invariant 8 forbids in any body but the owner's. It stands
+ * in for the conflicting row a throw site would attach to `details` to help a client —
+ * the mistake ADR-0026 makes impossible at the filter rather than at fourteen throw
+ * sites.
+ */
+const OTHER_TENANT_ID = '33333333-3333-4333-8333-333333333333';
+
 /** Safe to show a stranger, which is what constructing a `DomainError` promises. */
 const SLUG_TAKEN_MESSAGE = 'The short code launch is already in use.';
 const RATE_LIMITED_MESSAGE = 'Too many requests. Try again in 30 seconds.';
@@ -181,6 +189,31 @@ class ErrorProbeController {
   domainErrorWithDetails(): never {
     throw new DomainError('validation_failed', VALIDATION_MESSAGE, {
       details: { fieldErrors: { slug: ['is reserved'] } },
+    });
+  }
+
+  /**
+   * ADR-0026: `details` on a code the contract names no shape for. A 409 is where a
+   * throw site is most tempted to attach the row it conflicted with.
+   */
+  @Get('domain-error-details-unnamed')
+  domainErrorWithUnnamedDetails(): never {
+    throw new DomainError('slug_taken', SLUG_TAKEN_MESSAGE, {
+      details: { conflictingRow: { tenantId: OTHER_TENANT_ID, slug: 'launch' } },
+    });
+  }
+
+  /**
+   * ADR-0026: a valid `ValidationDetails` with a second key attached beside it. The
+   * narrowing uses the parse output, and `z.object` strips what it did not declare.
+   */
+  @Get('domain-error-details-sibling')
+  domainErrorWithSiblingDetails(): never {
+    throw new DomainError('validation_failed', VALIDATION_MESSAGE, {
+      details: {
+        fieldErrors: { slug: ['is reserved'] },
+        conflictingRow: { tenantId: OTHER_TENANT_ID },
+      },
     });
   }
 
@@ -429,6 +462,25 @@ describe('the API exception filter', () => {
     const envelope = expectEnvelope(probed);
 
     expect(envelope.details).toEqual({ fieldErrors: { slug: ['is reserved'] } });
+  });
+
+  /**
+   * ADR-0026, added 2026-08-05. The filter narrows every body it writes: `details`
+   * survives only under `validation_failed` and only as the output of parsing it against
+   * `validationDetailsContract`. ADR-0026 records that a test asserting the body is the
+   * only thing that catches a drop — nothing else does, because `errorEnvelopeContract`
+   * types `details` as `unknown`.
+   */
+  it('AC-13: drops details from an envelope whose code names no details shape', async () => {
+    const probed = await probe('domain-error-details-unnamed');
+
+    expect(expectEnvelope(probed).details).toBeUndefined();
+  });
+
+  it('AC-13: strips a key attached beside fieldErrors on a validation_failed envelope', async () => {
+    const probed = await probe('domain-error-details-sibling');
+
+    expect(expectEnvelope(probed).details).toEqual({ fieldErrors: { slug: ['is reserved'] } });
   });
 
   it('AC-13: answers a DomainError thrown from a second module graph with its own code', async () => {
