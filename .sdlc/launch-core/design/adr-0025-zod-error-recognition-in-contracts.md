@@ -62,6 +62,40 @@ fieldErrors: {}}`. A form that renders `fieldErrors` and nothing else would show
 error list beside a submit button that keeps refusing. **No request contract may declare
 a field named `_form`.**
 
+**The accumulator is a `Map`, drained through `Object.fromEntries`. Added 2026-08-05
+(F-086, F-087).** The first version of `toValidationDetails` accumulated into a `{}`
+literal and read `fieldErrors[key] ?? []`. That reads through `Object.prototype`, so an
+issue whose first path segment is `constructor`, `toString`, `valueOf` or
+`hasOwnProperty` gets the inherited member instead of `undefined` and the next line
+throws `TypeError: messages.push is not a function`. I reproduced it against the
+installed zod 4.4.3: `z.record(z.string(), z.string()).safeParse(JSON.parse('{"constructor":
+2}'))` yields an issue with `path: ["constructor"]`. The throw escapes the exception
+filter, re-enters it as a TypeError, and the caller gets 500 with no field errors on the
+path every consuming TASK inherits.
+
+`issue.path[0]` is caller-controlled wherever a request schema puts a user key in the
+first segment: a top-level `z.record`, a `catchall`, or a `superRefine` that sets its own
+path. No schema in launch-core does that today, which is what made the defect ship.
+
+A `Map` removes the prototype from the problem rather than guarding against it, so no
+later edit has to remember `Object.hasOwn`. `Object.fromEntries` returns an ordinary
+object, so `validationDetailsContract` accepts it and downstream readers get the
+prototype they expect, while a `__proto__` key still lands as an own, JSON-visible
+property because `Object.fromEntries` uses CreateDataProperty and ignores the setter
+(verified on Node 24.19). A null-prototype accumulator fixes the crash equally well and
+loses on that second point.
+
+**The same shape is required of any reducer keyed by caller-supplied strings.** The
+rule is not about `details`. It is about building an object whose keys come from a
+request.
+
+**`toValidationDetails` caps its output. Added 2026-08-05 (F-095).** At most
+`MAX_VALIDATION_ISSUES` (100) issues are read and at most `MAX_MESSAGES_PER_FIELD` (10)
+messages land under one key. If anything was dropped,
+`VALIDATION_TRUNCATED_MESSAGE` is appended under `FORM_ERROR_KEY`. Without a cap, zod's
+one-issue-per-element behaviour turns a 100 KB array body into a multi-megabyte response
+assembled inside the filter, unauthenticated, at roughly 30x amplification.
+
 **The filter calls these three and imports zod nowhere**, value or type. TASK-007 needs
 no entry in `apps/api/package.json` for the `validation_failed` path, so it does not
 take the manifest under F-075's rule.
@@ -107,6 +141,16 @@ functions, because the shape they produce is defined eight lines above them.
 - `toValidationDetails` collapses nested paths to their first segment, so a field error
   on `branding.logoUrl` renders against `branding`. Every request body in launch-core is
   one level deep, and the day one is not, the shape of `ValidationDetails` changes.
+- The `Map` costs a second allocation and one more line than the object literal, and it
+  reads as defensive to anyone who has not met the crash. The comment above the function
+  is what keeps it from being simplified back.
+- The caps mean a request with more than 100 issues gets an incomplete answer. A form
+  showing ten errors on one field and a truncation notice is worse than showing all of
+  them, and it is the price of not letting a 100 KB body dictate the response size.
+- Neither the crash nor the caps are visible to a reader of the wire shape.
+  `validationDetailsContract` is unchanged, so nothing in the contract's types tells a
+  second implementer that the accumulator has a required shape. `design/stubs/` and this
+  ADR are the only carriers.
 
 ### Follow-ups this creates
 

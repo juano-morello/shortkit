@@ -175,6 +175,34 @@ suite is the wrong home for them — the same reasoning that exempted AC-5 and A
   at runtime and nests a full typecheck inside a 576 ms suite. It belongs in CI: a
   `contract-drift` step under TASK-002's `quality` job asserting non-zero exit **and**
   diagnostics naming a path under `apps/web/`. Recorded here rather than left as a gap.
+
+  **Revised 2026-08-05 (F-091). The check runs two mutations, not one.** TASK-007 added
+  `isZodError`, `toValidationDetails` and `FORM_ERROR_KEY` to
+  `packages/contracts/src/errors.ts`, and only `apps/api` consumes them. Verified:
+  `apps/web`'s only `@shortkit/contracts` import anywhere is `ERROR_CODE_STATUS`, in
+  `app/not-found.tsx` and its spec. So an incompatible change confined to those three
+  exports fails `apps/api`'s typecheck and never reaches `apps/web`. A check built from
+  the `ERROR_CODES`-rename mutation alone would report AC-14 covered while that class of
+  change is caught by no gate.
+
+  What the consumer set belongs to is the **export**, not the package, so the assertion is
+  "diagnostics name a path in every workspace that consumes the mutated export":
+
+  | Mutation | Consumer | Diagnostics must name |
+  |---|---|---|
+  | rename an `ERROR_CODES` member and its `ERROR_CODE_STATUS` key together | `apps/web` | a path under `apps/web/` |
+  | rename `FORM_ERROR_KEY` and its use inside `errors.ts` together | `apps/api` | a path under `apps/api/` |
+
+  Both mutations keep `packages/contracts` internally consistent on purpose. That is what
+  stops `pnpm -r typecheck` aborting on contracts itself and never compiling a dependent,
+  which is the weakness the original entry identified.
+
+  **AC-14's literal clause covers only the first row.** An incompatible change to an
+  API-only export is caught at build time, but not "because `apps/web` no longer
+  compiles". The second row is a wider surface than the AC asserts, recorded here so the
+  gap is closed by a decision rather than by nobody noticing. If TASK-002 ships only the
+  first row, the API-only exports are an unenforced surface and this entry is the record
+  that they are.
 - **Upstash in the PR gate.** ADR-0018 uses a local `redis:7-alpine` so the gated number
   measures application overhead rather than network variance.
 - **Browser-level checks.** ADR-0001 cites them for async React Server Component

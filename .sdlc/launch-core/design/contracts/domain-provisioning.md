@@ -161,12 +161,47 @@ export const domainContract = z.object({
 
 | Condition | Status | Code |
 |---|---|---|
-| hostname **verified** on any tenant | 409 | `hostname_already_claimed` |
+| hostname held by any tenant in `verified`, `provisioning` or `active` | 409 | `hostname_already_claimed` |
+| hostname held by any tenant in `pending_verification` or `verification_failed` | the normal create response | none; the claim is created and coexists |
 | domain of another tenant, by id | 404 | `not_found` (AC-69) |
 | malformed or reserved hostname | 400 | `validation_failed` |
 
 `hostname_already_claimed` **never discloses which tenant holds it** (AC-68). The
 message is fixed: `"That hostname is already in use."`
+
+### What the 409 is allowed to disclose
+
+Added 2026-08-05 (F-097). `POST /api/domains` is unauthenticated as far as the target
+hostname is concerned: any user with a free workspace can post candidate hostnames and
+read the status. So the 409 is an existence oracle, and the rule is that it may only
+answer for a state whose existence is **already public without this endpoint**.
+
+The first two rows above are that rule. The 409 states are exactly the predicate of
+`domains_hostname_owned_unique`, and reaching any of them requires a `CNAME` from the
+hostname's own zone to `<FLY_APP_NAME>.fly.dev`, which is a public DNS record; `active`
+additionally puts the hostname in a Certificate Transparency log. A DNS query for the
+candidate hostname answers the same question, without an account and without a rate
+limit. The 409 therefore discloses nothing the attacker could not read more cheaply.
+
+`pending_verification` and `verification_failed` are the opposite case. Nothing about
+those rows is publicly observable, so a 409 on them would be a genuine cross-tenant
+oracle over hostnames nobody has proved control of. The F-010 revision below already
+requires those claims to coexist, which is what keeps this true; the row above states it
+as an error-surface rule so a TASK-040 implementer meets it where the status codes are.
+
+**This is the disclosure the product accepts, not an oversight.** AC-68 requires the
+rejection, so the bit cannot be removed without changing the AC. What is pinned here is
+that the bit is all of it: no tenant id, no workspace name, no timestamp, no part of the
+conflicting row, and no `details` on the envelope (`error-envelope.md` invariant 10, now
+enforced at the filter by ADR-0026). The enumeration rate is bounded by the write rate
+limit in `rate-limit.md`, which is the same bound the F-010 squatting analysis used.
+
+The security auditor's suggested alternative, answering 409 only after the caller has
+proved control of the hostname by DNS, was not adopted: it contradicts AC-68's literal
+text, which asserts a rejection at the point tenant A adds a hostname tenant B has
+verified. Changing an AC is Juano's call, not this contract's. The alternative is worth
+raising if AC-68 is ever reopened, and the fact that it is worth raising is why the
+argument above is written out rather than assumed.
 
 ## Uniqueness: first to *verify* wins
 

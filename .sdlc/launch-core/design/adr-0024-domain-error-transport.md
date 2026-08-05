@@ -142,6 +142,13 @@ a trait check behind `Symbol.hasInstance`.
 - `details` is typed `unknown` on the class, so nothing stops a TASK attaching a shape
   the contract never named. The filter forwards it verbatim. Only review catches that.
 
+  **Reversed 2026-08-05 by ADR-0026 (F-096).** The forwarding half no longer holds: the
+  filter validates `details` against `validationDetailsContract` for `validation_failed`
+  and drops it for every other code. The first sentence still holds. `details` is still
+  typed `unknown` on the class and a throw site can still attach anything, so the mistake
+  is still possible to make. It now costs the caller a missing `details` and the log a
+  warn line, instead of shipping another tenant's fields.
+
 ### Follow-ups this creates
 
 - TASK-007 materialises `domain-error.ts`, writes the filter, registers it as

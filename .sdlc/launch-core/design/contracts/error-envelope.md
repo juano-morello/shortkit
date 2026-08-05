@@ -4,7 +4,7 @@
 - **Normative form:** `packages/contracts/src/errors.ts` (the wire shape and the code list) and `apps/api/src/common/errors/domain-error.ts` (how a throw carries a code). Stubs at the matching paths under `design/stubs/`.
 - **Produced by:** TASK-007.
 - **Consumed by:** TASK-008, 010, 011, 012, 014, 017, 018, 021, 024, 025, 040, 045, 049, 051, 052, 053, 054.
-- **ADRs:** ADR-0005, ADR-0013, ADR-0024, ADR-0025.
+- **ADRs:** ADR-0005, ADR-0013, ADR-0024, ADR-0025, ADR-0026.
 
 ## Normative types
 
@@ -59,6 +59,17 @@ export const validationDetailsContract = z.object({
 export type ValidationDetails = z.infer<typeof validationDetailsContract>;
 
 /**
+ * Caps on one flatten (F-095). At most 100 issues are read, at most 10 messages land
+ * under one key, and if anything was dropped `VALIDATION_TRUNCATED_MESSAGE` is appended
+ * under `FORM_ERROR_KEY`. zod reports one issue per failing array element, so an
+ * uncapped flatten turns a 100 KB body into a multi-megabyte response built inside the
+ * exception filter.
+ */
+export declare const MAX_VALIDATION_ISSUES = 100;
+export declare const MAX_MESSAGES_PER_FIELD = 10;
+export declare const VALIDATION_TRUNCATED_MESSAGE = 'Some errors were omitted.';
+
+/**
  * The status table below, as data. The one source of a code's status: the filter reads
  * it, `DomainError.status` derives from it, and nothing chooses a status any other way.
  */
@@ -70,6 +81,13 @@ export declare function isErrorEnvelope(value: unknown): value is ErrorEnvelope;
  * ADR-0025. Every schema in the system is declared in this package, so this package
  * recognises and flattens its own errors. The API filter calls these; it does not
  * import zod, and it does not hand-roll the flatten.
+ *
+ * `toValidationDetails` accumulates into a `Map` and drains it through
+ * `Object.fromEntries`. That is required, not stylistic: `issue.path[0]` is
+ * caller-controlled, and an object-literal accumulator read with `acc[key] ?? []` returns
+ * an inherited `Object.prototype` member for a key of `constructor` or `toString` and
+ * throws inside the filter (F-086, F-087; reasoning in ADR-0025). The body is normative
+ * in `design/stubs/packages/contracts/src/errors.ts`.
  */
 export declare function isZodError(value: unknown): value is z.ZodError;
 export declare function toValidationDetails(error: z.ZodError): ValidationDetails;
@@ -188,12 +206,42 @@ filter imports zod nowhere, value or type, so TASK-007 needs no entry in
 
 | Status | Code | Body detail |
 |---|---|---|
-| 404 | `not_found` | no route matched |
-| 400 | `validation_failed` | `details.fieldErrors` = `{ _form: [<the exception's message>] }`, from a malformed JSON body |
+| 404 | `not_found` | no route matched; message `NOT_FOUND_MESSAGE` |
+| 400 | `validation_failed` | message `VALIDATION_FAILED_MESSAGE`; `details.fieldErrors` = `{ _form: [FRAMEWORK_BAD_REQUEST_FORM_MESSAGE] }` |
 | any other | `internal_error` | 500, and the original status is logged |
 
-The message for a 400 comes from the `HttpException`'s own response, which the framework
-or an implementer wrote. Never from an arbitrary `Error.message`.
+**Amended 2026-08-05 (F-094, ADR-0026). The `HttpException`'s own message never reaches
+the body.** The previous version of this row put it under `_form`. Nest maps a
+body-parser `SyntaxError` to `new BadRequestException(err.message)`, and that message
+quotes the input: `JSON.parse('{"password":"hunter2","token":"eyJhbGciOi","x":}')` gives
+`Unexpected token '}', ..."ciOi","x":}" is not valid JSON` on Node 24.19. The same arm
+receives express's `URIError`, whose message router 2.2.0 rewrites to
+`Failed to decode param '<value>'`. Both put raw request bytes in an error body, against
+invariant 8, from an unauthenticated request. The arm now answers with a fixed string,
+the same treatment the 404 arm gets and for the same reason. The original message goes to
+the log through the same helper branch 4 uses.
+
+### Message constants
+
+Normative values (F-098). Pinning them stops a second implementer inventing a third
+string; it is not a compatibility promise, and invariant 3 still forbids a caller
+branching on any of them.
+
+```ts
+// apps/api/src/common/errors/exception-filter.ts
+const VALIDATION_FAILED_MESSAGE = 'The request could not be validated.';
+const NOT_FOUND_MESSAGE = 'The requested resource was not found.';
+const FRAMEWORK_BAD_REQUEST_FORM_MESSAGE = 'The request could not be parsed.';
+
+// apps/api/src/common/errors/domain-error.ts
+export const INTERNAL_ERROR_MESSAGE = 'The request could not be completed.';
+```
+
+`NOT_FOUND_MESSAGE` replaces the framework's `Cannot ${method} ${url}`, which reflects
+the request URL into a JSON body on every unmatched route.
+`FRAMEWORK_BAD_REQUEST_FORM_MESSAGE` covers both producers on the 400 arm, a malformed
+JSON body and a bad percent-encoding in a path segment, which is why it says "request"
+rather than "body". A `DomainError` supplies its own message and none of these apply.
 
 **A 413 answers 500 today.** `ERROR_CODES` has no code for a body over Express's default
 limit, and `ERROR_CODE_STATUS` allows a code exactly one status, so there is nothing to
@@ -201,6 +249,59 @@ map it to. No `/api` route in launch-core documents a body size limit, and the 3
 in `rate-limit.md` is on `/api/auth/*`, which is outside this envelope by invariant 1.
 When a route needs to reject on size, append `payload_too_large` to `ERROR_CODES` with a
 413 row, in the same commit as the route.
+
+### `details` is narrowed before the body is written
+
+Added 2026-08-05 (F-096, ADR-0026). This reverses ADR-0024's accepted cost, which had the
+filter forwarding `details` verbatim for every code.
+
+```ts
+// apps/api/src/common/errors/error-envelope.ts
+export function narrowEnvelope(envelope: ErrorEnvelope): ErrorEnvelope;
+```
+
+Reference body. This exact text was typechecked against a program configured like
+`apps/api` (bundler resolution, `paths` to the contracts source, no `zod` in
+`apps/api/package.json`), so importing the schema does not breach ADR-0025: the filter
+imports a schema object from `@shortkit/contracts`, not zod.
+
+```ts
+export function narrowEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
+  const { code, message, details } = envelope;
+
+  if (details === undefined) return envelope;
+
+  if (code === 'validation_failed') {
+    const parsed = validationDetailsContract.safeParse(details);
+
+    if (parsed.success) return { code, message, details: parsed.data };
+  }
+
+  return { code, message };
+}
+```
+
+| `code` | `details` | Result |
+|---|---|---|
+| any | absent | envelope unchanged |
+| `validation_failed` | passes `validationDetailsContract` | `details` replaced by the **parse output**, not the input |
+| `validation_failed` | fails `validationDetailsContract` | `details` dropped |
+| any other code | present | `details` dropped |
+
+Using the parse output rather than the input is the point of the rule: `z.object` strips
+unknown keys, so a sibling attached beside `fieldErrors` does not survive (verified
+against zod 4.4.3). Forwarding the input on a successful parse would let
+`{ fieldErrors: {...}, conflictingRow: {...} }` through.
+
+The filter applies `narrowEnvelope` **once, to the body it is about to write**, so branch
+1's `toEnvelope()` output passes through it along with branches 2 to 4. When `details` was
+present and the returned envelope has none, the filter logs at `warn` with the `code`, and
+**never the dropped value** — that value is the one suspected of carrying another tenant's
+data, and a log is not a safe place for it (GC-9).
+
+A code that needs a `details` shape amends this contract and `narrowEnvelope` in the same
+commit as its throw site. Attaching an unnamed shape and hoping now produces a body
+without `details`.
 
 ### Two more cases the filter has to answer
 
@@ -262,6 +363,33 @@ TASK-007's spec covers the four branches; nobody else re-covers them.
 9. A 500 the caller did not cause carries `INTERNAL_ERROR_MESSAGE` and no `details`.
    Nothing of the underlying failure reaches the body. Debugging one means finding its
    `request_id` in the logs.
+10. **A 409 on a uniqueness conflict discloses one bit and nothing else.** Added
+    2026-08-05 (F-097). The bit is "this value is taken". Never which tenant holds it,
+    never which workspace, never when it was claimed, never any part of the conflicting
+    row. The message is fixed per code and `details` is absent, which the narrowing above
+    now enforces at the filter rather than at the throw site.
+
+    A uniqueness code may only be returned where **that bit is already observable without
+    the endpoint**. Each of the two in `ERROR_CODES` today:
+
+    - `hostname_already_claimed` is returned only when the conflicting row is in
+      `verified`, `provisioning` or `active`, which is exactly the predicate of
+      `domains_hostname_owned_unique`. Every one of those states requires a public
+      `CNAME` to `<FLY_APP_NAME>.fly.dev` in the hostname's own zone
+      (`domain-provisioning.md`), and `active` additionally puts the hostname in a
+      Certificate Transparency log. A DNS query answers the same question, cheaper and
+      unauthenticated. Returning 409 for a row in `pending_verification` or
+      `verification_failed` **is** a disclosure, because nothing about those rows is
+      public, and it is forbidden. See `domain-provisioning.md`.
+    - `slug_taken` is scoped `(domain_id, slug)` (GC-6). On a shared system domain the
+      namespace is already enumerable by requesting the short URL, so the 409 adds
+      nothing for a link that resolves. Residual, accepted: a slug held by an expired or
+      disabled link answers 404 at the redirect surface and 409 here, so the pair
+      discloses that some tenant holds a non-serving link on a shared domain. One bit, no
+      identity, no way to attribute it.
+
+    Any new uniqueness code justifies itself against this invariant in the ADR that adds
+    it. "It is only a 409" is not the justification.
 
 ## What the implementer must guarantee
 
@@ -275,6 +403,9 @@ TASK-007's spec covers the four branches; nobody else re-covers them.
   schema-level `.refine()` failure would answer 400 with an empty `fieldErrors`.
 - `err.headers` is written to the response before the body. That is how a 429 gets its
   `Retry-After` (invariant 7) without the guard reaching for the response object.
+- Every body the filter writes goes through `narrowEnvelope` first, and no message from
+  an `HttpException` reaches a body. The filter emits only strings declared in its own
+  source and shapes validated against a schema in `packages/contracts` (ADR-0026).
 - A code's status comes from `ERROR_CODE_STATUS` at every point. No call site, decorator
   or filter branch picks one.
 - Adding a code means appending to `ERROR_CODES`, adding a row to `ERROR_CODE_STATUS`,
