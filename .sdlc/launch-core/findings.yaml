@@ -844,6 +844,8 @@
     in the bundle, proving contracts was inlined as JavaScript rather than required as source.
     The ERR_UNKNOWN_FILE_EXTENSION risk on the engines floor is therefore closed, and no compiler
     output remains in packages/contracts/src.
+  reaudit_r2: >-
+    ADDRESSED by sdlc-reviewer r2. It confirmed the artifact independently: _ts_decorate appears 4x and __decorateClass 0x in dist/main.js, i.e. the swc helper not esbuild's, so tsup's swc path really ran and emitDecoratorMetadata survives the build. It called that the single highest risk in moving off tsc and judged it discharged. The rootDir scatter failure is now structurally impossible (tsup has one outDir).
 
 - id: F-043
   phase: test
@@ -912,6 +914,8 @@
     guard that throws on a spec file the glob would miss. The named failure case
     (rls.int.spec.ts, dot instead of hyphen) now exits 1 with a named error instead of silently
     matching nothing, while the genuine zero-suite case still exits 0.
+  reaudit_r2: >-
+    ADDRESSED in-repo, with one clause of the required change landing NOWHERE. The reviewer confirmed the glob widening and the assertEveryIntegrationSpecRuns guard are stronger than it asked. But its second clause - name the passWithNoTests removal as an obligation on TASK-005 and have CI assert a non-zero test count - reached no TASK file. TASK-002 was amended TWICE in this diff without picking it up. Orchestrator defect: I recorded F-044 fixed on the code half alone. Tracked as F-064.
 
 - id: F-045
   phase: test
@@ -951,6 +955,8 @@
     rather than resolving one way in the bundler and another in tsc. design/stubs needed no
     relaying. sideEffects false was added beyond the finding, with its own cost recorded: nothing
     enforces it, so contracts must stay declaration-only.
+  reaudit_r2: >-
+    ADDRESSED by sdlc-reviewer r2. All three places agree, byte-identical single-key paths blocks in both tsconfigs. It singled out ADR-0005's amendment as unusually good for correcting its own prior false claim rather than papering over it.
 
 - id: F-046
   phase: test
@@ -989,6 +995,8 @@
     subpath, gives typecheck exit 2 TS2307 under node10 and exit 0 under Bundler. Reading exports
     maps is the property F-046 was about. Bundler is also the semantically correct mode now that
     Juano ruled apps/api is built by tsup, which is a bundler.
+  reaudit_r2: >-
+    ADDRESSED. sdlc-reviewer WITHDREW node16/nodenext and accepted Bundler. Asked to name a concrete residual gap, it gave one: Bundler does not enforce Node ESM/CJS interop, so an ESM-only dep can typecheck while dist/main.js emits require(). But F-052 raised the floor to Node 24 in the same round, and Node 24 supports require() of ESM, so the residual narrows to an ESM-only dep containing top-level await - ERR_REQUIRE_ASYNC_MODULE, rare and loud at boot, unlike the node10 failure whose danger was silence.
 
 - id: F-047
   phase: test
@@ -1017,6 +1025,8 @@
     Fixed in round 1 via `corepack use pnpm@11.20.0`. VERIFIED: packageManager reads
     pnpm@11.20.0+sha512.9a6f330a..., and pnpm install --frozen-lockfile exits 0 from a clean
     install. The one unverified fetch in a 470-package sha512 tree is closed.
+  reaudit_r2: >-
+    PARTIALLY ADDRESSED. sdlc-security-auditor VERIFIED THE HASH AGAINST THE NPM REGISTRY - it fetched pnpm@11.20.0 metadata and converted dist.integrity from base64 to hex, byte-identical to the packageManager value. The hash is real. The second half of its round-1 required_change was dropped: no CI setup step resolves pnpm from packageManager, so the hash is decorative. Orchestrator confirmed zero hits for packageManager or corepack across tasks/ and design/. Tracked as F-064.
 
 - id: F-048
   phase: test
@@ -1047,6 +1057,8 @@
     Fixed in round 1. VERIFIED present in .gitignore: .npmrc, *.pem, *.key, id_rsa*, .envrc, with
     the !.env.example negation preserved. Compiler-output patterns added too, covering the stray
     packages/contracts/src/*.js that F-042's failed build produced.
+  reaudit_r2: >-
+    ADDRESSED. Every pattern verified present with !.env.example preserved. The auditor endorsed the WHOLESALE .npmrc ignore on a ground the implementer did not give - a tracked .npmrc is a file CI tooling APPENDS to (actions/setup-node with registry-url writes _authToken into it), and git ignores files not lines, so the committed-settings-plus-ignored-credential-lines shape is not expressible. But it found the engine-strict tradeoff was NOT forced: pnpm reads engineStrict from pnpm-workspace.yaml, which is tracked. sdlc-reviewer reached the opposite conclusion on .npmrc. Tracked as F-062.
 
 - id: F-049
   phase: test
@@ -1080,6 +1092,8 @@
     moderate` and adds a weekly `dependencies` job running a full-tree moderate audit on schedule
     and workflow_dispatch only, gating nothing so a failed scheduled run is the notification.
     Resolved jointly with F-055 - same paragraph, same reasoning.
+  reaudit_r2: >-
+    ADDRESSED. quality now runs pnpm audit --prod --audit-level moderate and a weekly dependencies job runs a full-tree moderate audit, gating nothing.
 
 - id: F-050
   phase: test
@@ -1116,6 +1130,8 @@
     against that exact release. TASK-009 acceptance is now [AC-16, AC-20, AC-21, AC-112]. This is
     the gate that makes F-040's fix hold - without it sdlc-product-auditor verifies ACs verbatim
     and never checks the pin.
+  reaudit_r2: >-
+    ADDRESSED. The security auditor judged AC-112 closes the gap it named: it names the file, the field, an enumerated character set and the report obligation, so it is verbatim-checkable on both limbs.
 
 - id: F-051
   phase: test
@@ -1147,6 +1163,8 @@
     bootstrap().catch() logs through the shared error envelope and exits 1 rather than surfacing a
     bare unhandled rejection. ORCHESTRATOR VERIFIED the predicate across PORT="" -> 3001, PORT=0
     -> 3001, PORT=70000 -> 3001, PORT=abc -> 3001, PORT=8080 -> 8080.
+  reaudit_r2: >-
+    ADDRESSED by both auditors. sdlc-reviewer constructed its own cases: undefined, "", "   ", "abc", "0", "65536" all fall back to 3001 and "3000" passes. It noted "0x1f" -> 31 and "3e3" -> 3000 are Number() being permissive rather than a defect. The bootstrap handler exists; its EXIT PATH has a separate defect, F-059.
 
 - id: F-052
   phase: test
@@ -1179,6 +1197,8 @@
     Defensible - Node 24 is active LTS and no deploy has happened yet, TASK-003 and TASK-042 own
     the images - but it is a decision, not a cleanup. engine-strict was skipped because .npmrc is
     now gitignored by F-048.
+  reaudit_r2: >-
+    ADDRESSED, direction endorsed by both auditors. sdlc-reviewer added a reason neither had: @types/node@22.x would make the compiler BLIND to APIs the runtime has, so implementers would work around it with casts - raising the floor makes the types honest in the direction that produces correct code. Dropping Node 22 costs nothing verifiable: no .nvmrc, no Dockerfile, no CI workflow, and no dependency constrains to Node 22 (strictest new engines is sucrase at >=16).
 
 - id: F-053
   phase: test
@@ -1361,3 +1381,256 @@
   escalated_to: juano
   resolved_by: null
   resolved_round: null
+
+# TASK-001 scoped re-review, round 2. sdlc-reviewer: APPROVED, 7/7 addressed, 6 new minor.
+# sdlc-security-auditor: changes-requested on the F-047 residual only, 7 minor + 1 nit new.
+# No blocker, no major from either. Overlapping items deduped; the two auditors' disagreement
+# on .npmrc is preserved rather than resolved by the orchestrator.
+
+- id: F-058
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: implementation
+  file: apps/api/src/common/error-envelope.ts
+  line: 1
+  summary: >-
+    The new module sits outside TASK-007's paths (apps/api/src/common/errors/**) even though its
+    own docblock names TASK-007's exception filter as its consumer.
+  failure_scenario: >-
+    TASK-007's implementer writes apps/api/src/common/errors/http-exception.filter.ts and needs
+    the code-to-status lookup. error-envelope.ts is one directory above its whitelist, so it can
+    import the helper but cannot move, extend or correct it. Outcomes are all bad: re-implement
+    ERROR_CODE_STATUS[code] inside errors/, the exact duplication the file's own comment forbids;
+    request an out-of-path edit, costing a rework round on a wave-1 TASK; or leave the error-shape
+    logic split across two directories with the seam owned by nobody.
+  required_change: >-
+    Move to apps/api/src/common/errors/error-envelope.ts, inside TASK-007's existing paths,
+    updating only the main.ts import. One git mv now versus a rework round later.
+  owner_slot: sdlc-implementer-backend
+  status: open
+
+- id: F-059
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/api/src/main.ts
+  line: 56
+  summary: >-
+    The bootstrap catch sets process.exitCode = 1 and never closes the Nest app, so the process
+    exits only if the event loop happens to be empty. The security auditor raised the same site
+    for a different reason (raw error.stack outside ADR-0022 redaction); deduped here.
+  failure_scenario: >-
+    Works today because AppModule holds no handles. It breaks at TASK-005: DbModule opens a pg
+    Pool during NestFactory.create, so if app.listen then fails the pool keeps the event loop
+    alive indefinitely. exitCode is recorded but never delivered - the container runs forever,
+    never listening and never exiting. On Fly.io the platform sees a live process, so the restart
+    path that would recover a crashed boot never triggers: the API is down and looks up. Same
+    shape for Redis at TASK-051 and any provider with a timer.
+  required_change: >-
+    Hold the app instance outside the try so the catch can await app?.close(), then call
+    process.exit(1) after the log flushes rather than relying on the loop draining. Route the
+    stack through ADR-0022's redaction, or log a redacted summary until TASK-003 lands pino.
+  owner_slot: sdlc-implementer-backend
+  status: open
+
+- id: F-060
+  phase: test
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: scope
+  file: apps/api/src/main.ts
+  line: 47
+  summary: >-
+    The comment "TASK-003 swaps console for the pino logger" names a TASK that cannot write
+    main.ts. The contract logging-and-headers.md has the same defect independently.
+  failure_scenario: >-
+    TASK-003's paths are fly.toml, Dockerfile, infra/**, apps/api/src/health/** and app.module.ts.
+    main.ts is not among them; only TASK-009 lists it. But logging-and-headers.md gives its
+    Normative form as "apps/api/src/observability/logger.ts and apps/api/src/main.ts" and its
+    Consumed-by as "every API TASK. Nothing may opt out." TASK-003's implementer reads the
+    comment, finds the file out of path, and either commits an ownership violation or leaves it.
+    The API then deploys with a boot-failure log line carrying no level, service, env, timestamp
+    or redaction until TASK-009's wave at the earliest. SEVENTH instance of the
+    artifact-assigns-work-a-TASK-cannot-do class.
+  required_change: >-
+    Add apps/api/src/main.ts to TASK-003's paths, which logging-and-headers.md already implies, or
+    change the comment to name the TASK that owns main.ts. The contract half routes to
+    sdlc-architect; the paths half is Juano's.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+
+- id: F-061
+  phase: test
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/api/tsup.config.ts
+  line: 1
+  summary: >-
+    The production bundle's decorator-metadata transform is asserted by nothing.
+    decorator-metadata.spec.ts covers the vitest/unplugin-swc transform, now a different code path
+    from the build.
+  failure_scenario: >-
+    tsup declares @swc/core as an OPTIONAL peerDependency (auditor verified
+    peerDependenciesMeta."@swc/core".optional = true). If it is absent, or the
+    emitDecoratorMetadata detection changes across a tsup upgrade, tsup warns and falls back to
+    esbuild, which does not emit design:paramtypes - and pnpm build still exits 0. Nothing
+    notices: the spec runs under vitest's own unplugin-swc pipeline and stays green, typecheck is
+    unaffected, and no gate executes dist/main.js. TASK-003 then adds a HealthController with an
+    injected provider, CI is fully green, and the deployed container crash-loops on "Nest can't
+    resolve dependencies". ADR-0001 accepted the swc config precisely because this failure is
+    silent; the fix moved the build onto a second instance of it carrying no assertion.
+  required_change: >-
+    Minimum: name the @swc/core coupling in tsup.config.ts so a dependency cleanup cannot silently
+    remove it. Better: a TASK-002 CI step that runs the built artifact to a successful listen, so
+    a bundle Nest cannot boot fails the pipeline rather than the deploy.
+  owner_slot: sdlc-implementer-backend
+  status: open
+
+- id: F-062
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer + sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: implementation
+  file: .gitignore
+  line: 27
+  summary: >-
+    THE TWO AUDITORS DISAGREE and the disagreement is preserved rather than resolved here.
+    sdlc-reviewer says the repo-wide .npmrc ignore forecloses committed pnpm configuration.
+    sdlc-security-auditor says keep it. Both agree the engine-strict tradeoff was not forced.
+  failure_scenario: >-
+    Reviewer's case: a project .npmrc is normal committed configuration and secrets belong in
+    ~/.npmrc or env interpolation. An implementer writes engine-strict=true, runs git add -A, and
+    git silently skips it - installs are engine-strict locally but not on a fresh clone or in CI,
+    so the team believes a Node-version guard exists when it does not. Security's counter:
+    actions/setup-node with registry-url WRITES _authToken into the project .npmrc, and git
+    ignores files rather than lines, so the committed-settings-plus-ignored-credentials shape is
+    not expressible. Both note the resolution: pnpm reads engineStrict from pnpm-workspace.yaml,
+    which is tracked and already holds allowBuilds.
+  required_change: >-
+    Set engineStrict in pnpm-workspace.yaml, which satisfies both auditors and needs no .gitignore
+    change. Then decide separately whether the .npmrc ignore stays; the security auditor's
+    CI-append argument is the stronger one and nothing else currently needs the file.
+  owner_slot: sdlc-implementer-backend
+  status: open
+
+- id: F-063
+  phase: test
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: implementation
+  file: apps/api/tsconfig.json
+  line: 17
+  summary: >-
+    tsup.config.ts is not in the include list, so the file that now defines how the API is built is
+    the one file no gate typechecks - while both vitest configs beside it are listed.
+  failure_scenario: >-
+    tsup loads its config through bundle-require/esbuild, which transpiles without typechecking.
+    Someone edits noExternal to a bare string or misspells the key; tsc would flag it but never
+    sees the file. The contracts package goes external, dist/main.js gets
+    require("@shortkit/contracts"), that resolves through the exports map to ./src/index.ts, and
+    Node 24 type-strips it - so it appears to work, pnpm build exits 0, and F-042 has silently
+    returned, latent until packages/contracts uses one non-erasable construct.
+  required_change: >-
+    Add "tsup.config.ts" to apps/api/tsconfig.json's include, matching its two vitest siblings.
+  owner_slot: sdlc-implementer-backend
+  status: open
+
+- id: F-064
+  phase: test
+  task: TASK-002
+  source: sdlc-security-auditor + sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-002.md
+  line: 1
+  summary: >-
+    Two round-1 required_changes had a TASK-side clause that reached no TASK file: F-047's CI setup
+    step resolving pnpm from packageManager, and F-044's obligation to remove passWithNoTests and
+    assert a non-zero integration test count.
+  failure_scenario: >-
+    Orchestrator confirmed zero hits for packageManager, corepack or passWithNoTests across tasks/
+    and design/. TASK-002 was amended TWICE in this diff (F-039 scope, F-055 paths) without picking
+    either up. Consequences: the round produced a registry-verified integrity hash with no
+    mechanism that checks it, which reads as coverage on every future review; and
+    pnpm test:integration still exits 0 with zero tests inside TASK-002's mandatory integration job,
+    with the flag having no removal owner. The security auditor notes this is the third time in the
+    initiative - F-040, F-050, now this - that an obligation stated only in a report failed to reach
+    a TASK file. This one is the ORCHESTRATOR'S defect: I recorded F-044 and F-047 fixed on their
+    code halves alone.
+  required_change: >-
+    TASK-002: a setup step resolving pnpm from packageManager rather than hardcoding a bare version,
+    and an integration job asserting a non-zero test count. TASK-005: named obligation to remove
+    passWithNoTests once real suites exist.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+
+- id: F-065
+  phase: test
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: security
+  file: pnpm-lock.yaml
+  line: 1
+  summary: >-
+    esbuild@0.27.7 entered with tsup and carries GHSA-g7r4-m6w7-qqqr. Unreachable, unfixable and
+    unreportable at once - the first live instance of the band ADR-0018 knowingly left uncovered.
+  failure_scenario: >-
+    Not exploitable here: the advisory needs `esbuild serve` on Windows and tsup never invokes it.
+    But tsup's ^0.27.0 range cannot reach the 0.28.1 fix, Dependabot cannot move a non-direct
+    dependency, and both audit jobs at moderate exit 0 on a low-rated advisory. So a known
+    vulnerable package sits in the tree with no mechanism that would surface or move it.
+    Orchestrator confirmed both esbuild@0.27.7 and esbuild@0.28.1 are present in the lockfile.
+  required_change: >-
+    No action today - document as a known accepted advisory so a future audit does not rediscover
+    it as new. If the mechanism gap matters more than this instance, that is an ADR-0018 question
+    about the low band.
+  owner_slot: null
+  status: open
+  note: deferred-observation
+
+- id: F-066
+  phase: test
+  task: TASK-001
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: implementation
+  file: apps/api/tsup.config.ts
+  line: 1
+  summary: >-
+    Three smaller items bundled: the tsup config comment misdescribes what is inlined; sourcemap
+    ships full source into the deployed image; sideEffects false is unenforced for the twelve
+    commented-out re-exports later TASKs will uncomment.
+  failure_scenario: >-
+    main.js.map carries sourcesContent for all 82 sources, roughly 995 KB, so the deployed image
+    contains the full readable source. Deliberate and useful, but it should be a decision the
+    deploy TASK makes knowingly rather than inherits. sideEffects false is accurate today because
+    contracts has no import-time statements, but nothing enforces it: a contract module that ever
+    runs code at import time gets silently dropped from the web bundle. The security auditor also
+    notes the repo-root pnpm audit --prod still sees zod through the workspace link so the CI gate
+    holds, but image-level scanners will not see inlined dependencies at all.
+  required_change: >-
+    Correct the config comment. Hand the sourcemap size and the image-scanner blind spot to
+    TASK-003/TASK-042 as deploy decisions. For sideEffects, a note in TASK-007's contracts block
+    that contracts stay declaration-only.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  note: deferred-observation
