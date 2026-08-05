@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsup",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
@@ -22,6 +22,7 @@
     "@nestjs/testing": "11.1.28",
     "@swc/core": "1.15.46",
     "@types/node": "24.13.3",
+    "tsup": "8.5.1",
     "typescript": "5.9.3",
     "unplugin-swc": "1.5.10",
     "vitest": "3.2.7"

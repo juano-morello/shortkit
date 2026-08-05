@@ -1,15 +1,19 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    // tsup bundles this workspace, so bundler resolution is what actually runs at
+    // build time. It also reads package `exports` maps, which node10 ignored — a
+    // dependency publishing types only through an exports subpath resolved to
+    // TS2307 before. node16/nodenext would demand explicit `.js` extensions in
+    // `packages/contracts`, which Turbopack then fails to resolve back to `.ts`.
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
     "types": ["node"],
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "noEmit": true,
     "paths": {
-      "@shortkit/contracts": ["../../packages/contracts/src/index.ts"],
-      "@shortkit/contracts/*": ["../../packages/contracts/src/*/index.ts"]
+      "@shortkit/contracts": ["../../packages/contracts/src/index.ts"]
     }
   },
   "include": [

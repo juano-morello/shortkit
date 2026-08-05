@@ -28,8 +28,9 @@ Three rules shape the codebase:
 
 ## Requirements
 
-- Node 22.12 or newer
-- pnpm 11.20.0, pinned in `packageManager`
+- Node 24.13 or newer. `@types/node` tracks the same line, so the API surface the
+  compiler knows is the one the runtime has
+- pnpm 11.20.0, pinned in `packageManager` with the tarball hash Corepack verifies
 
 ## Commands
 
@@ -41,8 +42,13 @@ Run these from the repository root.
 | `pnpm lint` | ESLint across all three workspaces |
 | `pnpm typecheck` | TypeScript with no emit, per workspace |
 | `pnpm test` | Vitest across all three workspaces, with no database and no network |
-| `pnpm build` | Compiles the API to `dist/` and builds the Next.js app |
+| `pnpm build` | Bundles the API to `apps/api/dist/` with tsup and builds the Next.js app |
 | `pnpm test:integration` | API suites that need a live Postgres |
+
+`pnpm build` bundles the API with tsup rather than emitting file by file.
+`packages/contracts` ships TypeScript source and has no build step (ADR-0005), so
+the bundler inlines it; a file-by-file emit would leave the API requiring a `.ts`
+file at runtime. Types are checked by `pnpm typecheck`, not by the build.
 
 `pnpm test` and `pnpm test:integration` are separate on purpose. The first runs
 anywhere, on a clone with nothing installed but the workspace. The second needs a

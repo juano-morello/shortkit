@@ -10,9 +10,27 @@ build/
 coverage/
 *.tsbuildinfo
 
+# Compiler output never belongs beside source. A build misconfigured with a
+# rootDir that does not cover the workspace emits .js next to the .ts it came
+# from, and `git add -A` would commit it.
+apps/*/src/**/*.js
+apps/*/src/**/*.js.map
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+
+# Credentials. This repository is public (ADR-0018), so anything secret that
+# lands here is rotated, not deleted.
 .env
 .env.*
 !.env.example
+.envrc
+.npmrc
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
 
 .DS_Store
 *.log
