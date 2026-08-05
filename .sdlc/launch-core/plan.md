@@ -30,7 +30,7 @@ during Implement. Values are copied verbatim from `refinement.md` and
 | GC-7 | "One backend deployable and one frontend deployable." Next.js + NestJS only. "No Next.js backend, no third service." | Constraints |
 | GC-8 | "No unresolvable request returns 5xx to a visitor; it returns the branded 404." | SC-7 |
 | GC-9 | Observability: structured logs via pino; no PII in log bodies; click events store `ip_hash`, never raw IP. | config |
-| GC-10 | Commits: conventional, branch prefix `sdlc/`, subject carries the TASK id — `feat(scope): subject [TASK-001]`. | config |
+| GC-10 | Commits: conventional, branch prefix **`feat/`** (renamed from `sdlc/` on 2026-08-04), subject carries the TASK id — `feat(scope): subject [TASK-001]`. | config |
 | GC-11 | "All feature code comes from implementer subagents; the main loop does not write it." | Constraints |
 | GC-12 | Human-facing prose (README, DNS-error copy, 404 copy, email bodies) gets a `stop-slop` pass. Machine-facing artifacts do not. | config, CLAUDE.md |
 | GC-13 | `docs.required: [README]` — README stays current. Its sole producer is TASK-001. | config |
