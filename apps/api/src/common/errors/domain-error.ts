@@ -33,12 +33,6 @@ import { ERROR_CODE_STATUS } from '@shortkit/contracts';
 import type { ErrorCode, ErrorEnvelope } from '@shortkit/contracts';
 
 /**
- * Referenced by this no-op `void` until `status` below is implemented (TASK-007),
- * so the import does not trip noUnusedLocals in the meantime.
- */
-void ERROR_CODE_STATUS;
-
-/**
  * Registered rather than local, so the check survives a second copy of this module in
  * one process: a vitest workspace running two projects, or a bundled build loaded beside
  * source. `instanceof` alone would silently stop matching there, and the symptom is
@@ -76,11 +70,16 @@ export class DomainError extends Error {
    * invariant 2), and a status argument here is how a call site would break that.
    */
   get status(): number {
-    throw new Error('not implemented');
+    return ERROR_CODE_STATUS[this.code];
   }
 
   toEnvelope(): ErrorEnvelope {
-    throw new Error('not implemented');
+    // No `details` key at all when there is none, rather than an explicit `undefined`:
+    // the envelope is serialised straight to the body, and `details` is present only
+    // where the contract names a shape for it (error-envelope.md invariant 4).
+    return this.details === undefined
+      ? { code: this.code, message: this.message }
+      : { code: this.code, message: this.message, details: this.details };
   }
 }
 
@@ -88,8 +87,14 @@ export class DomainError extends Error {
  * What the filter calls. Tests call it too, so no test needs to reach into the filter
  * to assert that an error maps to a code.
  */
-export function isDomainError(_value: unknown): _value is DomainError {
-  throw new Error('not implemented');
+export function isDomainError(value: unknown): value is DomainError {
+  // `throw null` is legal and the filter answers for every throwable in the process,
+  // so the marker is read only after the value is known to be indexable.
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Record<PropertyKey, unknown>)[DOMAIN_ERROR_MARKER] === true
+  );
 }
 
 /**
