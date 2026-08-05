@@ -8,7 +8,7 @@ owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
 paths: ["packages/contracts/**", "apps/api/src/common/errors/**", "apps/api/src/app.module.ts"]
 contracts: [design/contracts/error-envelope.md, design/contracts/slug.md]
-test_files: ["apps/api/src/common/errors/exception-filter.spec.ts"]
+test_files: ["apps/api/src/common/errors/exception-filter.spec.ts", "apps/api/src/common/errors/domain-error.spec.ts"]
 acceptance: [AC-13, AC-14]
 rework_count: 0
 ---

@@ -79,3 +79,14 @@ Three files were added to `paths`, each because this TASK was already obliged to
 **Ownership note.** If a wave-1 sibling also gains `apps/api/package.json`, this wave stops
 being parallel-safe on that one file and needs worktree isolation. Check the wave table before
 dispatch rather than assuming.
+
+## ⚠ drizzle-kit added 2026-08-05 (F-080, found by sdlc-architect)
+
+**`apps/api/package.json` must gain `drizzle-kit` 0.31.10 as well as `pg` and `@types/pg`.**
+Do not add `pg` and stop. ADR-0004 gives you a `db:generate` script, and VERIFIED today
+`drizzle-kit` is unresolvable and appears in no manifest in the repo — so that script has no
+binary behind it and the migration half of this TASK cannot run at all.
+
+`drizzle-kit` is a devDependency; `pg` is a runtime dependency. Both are pinned exactly, no
+caret and no tilde, per ADR-0018. F-069 is the record of what an unreviewed pin looks like:
+say in your report why you chose each version.

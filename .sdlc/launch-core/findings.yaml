@@ -1739,7 +1739,16 @@
     inherit the same slip, and confirm no other stub exports something its comment calls
     module-private.
   owner_slot: sdlc-architect
-  status: open
+  status: fixed
+  resolved_by: sdlc-architect
+  ruling: >-
+    FIXED at source. The stub now reads `const tenantStorage` with no export, and the comment
+    block spells out the GC-5 bypass an exported AsyncLocalStorage would allow - any module
+    calling tenantStorage.run() with a tenant id and a connection of its own choosing, reaching
+    around withTenantTransaction. ORCHESTRATOR VERIFIED lines 70-82 of the stub: the export
+    keyword is gone and `void tenantStorage` keeps noUnusedLocals quiet until the helper uses
+    it. The architect grepped every remaining stub for the same slip and found no other symbol
+    exported against a comment calling it module-private.
 
 - id: F-068
   phase: test
@@ -1765,7 +1774,19 @@
     genuinely owns the role enums, the contracts entry-point rule in TASK-007 needs to say
     so, since every symbol reaches consumers through src/index.ts.
   owner_slot: sdlc-architect
-  status: open
+  status: fixed
+  resolved_by: sdlc-architect
+  ruling: >-
+    FIXED, and the ownership question answered against the header rather than against the
+    README. TASK-007 produces roles.ts; TASK-016 cannot, because its paths are
+    apps/api/src/db/schema/** and apps/api/drizzle/** which never reach packages/contracts/**,
+    and it runs three waves after the first consumer. Corrected in four places including a
+    struck-through dated amendment on ADR-0023 rather than a silent rewrite of its follow-up
+    list. ORCHESTRATOR VERIFIED the stub header now reads "Produced by: TASK-007. Consumed by
+    TASK-016, TASK-017, TASK-019" and the stubs README table names roles.ts explicitly. The two
+    TASK-016 edits the architect correctly refused to make were applied by the orchestrator:
+    its Produces block no longer claims the role types and its Approach no longer quotes an
+    enum set that Amendment A-8 had already superseded.
 
 - id: F-069
   phase: test
@@ -1789,7 +1810,17 @@
     Record the pin in ADR-0004 so it is a decision rather than an accident, or confirm the
     version against what ADR-0004's migration approach assumes.
   owner_slot: sdlc-architect
-  status: open
+  status: fixed
+  resolved_by: sdlc-architect
+  ruling: >-
+    FIXED. The drizzle-orm 0.45.2 pin is recorded in ADR-0004 as a decision, verified against
+    the registry as the current `latest`, with the 1.0 release-candidate line explicitly
+    declined rather than silently ignored. The architect found something adjacent that no
+    finding covered and that matters more than the pin: drizzle-kit is not installed at all, so
+    ADR-0004's db:generate script has no binary behind it. ORCHESTRATOR VERIFIED - require.resolve
+    fails MODULE_NOT_FOUND and drizzle-kit appears in no manifest in the repo. Filed as F-080 and
+    carried into TASK-005 as an explicit obligation, because an implementer adding pg and stopping
+    would leave the migration half of that TASK unable to run.
   note: deferred-observation
 
 # Wave-1 red tests, TASK-007 (STORY-004). Raised by sdlc-test-architect while writing the
@@ -1855,7 +1886,22 @@
     of the boundary that declares it. Needs a design ruling, since it adds surface to the
     contracts package.
   owner_slot: sdlc-architect
-  status: open
+  status: fixed
+  resolved_by: sdlc-architect
+  ruling: >-
+    ACCEPTED in ADR-0025 - isZodError, toValidationDetails and FORM_ERROR_KEY are exported from
+    packages/contracts/src/errors.ts, which TASK-007 already owns. **TASK-007 therefore does NOT
+    need apps/api/package.json**, which answers the half of F-075's ruling that was deliberately
+    held pending this decision, and means WAVE 1 REMAINS PARALLEL-SAFE: TASK-005 stays the only
+    holder of that manifest and no worktree isolation is needed.
+    The architect accepted the remedy while CORRECTING THE FINDING'S PREMISE rather than taking
+    it as given. The finding argued from identity - that a duck-type check would break and that
+    instanceof needs one copy of zod. That is false for zod 4: ZodError carries its own
+    Symbol.hasInstance, so instanceof is a trait check that survives a second copy.
+    ORCHESTRATOR VERIFIED against the installed zod 4.4.3 - the own-property symbol is present.
+    The real argument is ownership, and the ADR makes it on those terms. It also found that
+    err.flatten(), which the contract previously mandated, silently drops root-level .refine()
+    failures; toValidationDetails puts them under a _form key.
 
 - id: F-072
   phase: test
@@ -1879,7 +1925,22 @@
     class of decision Design exists to fix once rather than have an implementer settle by
     accident.
   owner_slot: sdlc-architect
-  status: open
+  status: fixed
+  resolved_by: sdlc-architect
+  ruling: >-
+    FIXED by ADR-0024 plus four new normative sections in error-envelope.md. A DomainError class
+    in apps/api/src/common/errors/domain-error.ts carries the code, derives status from
+    ERROR_CODE_STATUS rather than taking it as an argument, and is recognised by a REGISTERED
+    SYMBOL (Symbol.for) instead of instanceof - because apps/api is one bundle today but not
+    always: TASK-056's isolation suite and the integration config load the same sources under a
+    second vitest project, where a class identity check silently stops matching. Subclasses live
+    in the throwing feature's own directory, so none of the fourteen TASKs that throw a coded
+    error edits a shared file and no wave conflict is created. Anything without a code answers
+    500 with a fixed message and nothing of the original in the body.
+    Two gaps the finding did not name were closed with it: a headers field, because rate-limit.md
+    invariant 7 requires Retry-After and no mechanism carried a header; and the HttpException
+    branch. Tests assert on the constructed error and on one HTTP round trip, never on the
+    filter's internals.
 
 - id: F-073
   phase: test
@@ -2151,3 +2212,112 @@
     The test architect's gate-job recommendation - needs: [quality, integration] as the
     required check, so Actions rejects a workflow naming a missing job - was carried into
     TASK-002 as a recommendation beyond the AC, not silently dropped.
+
+# Surfaced by sdlc-architect while resolving F-067..F-072, none covered by an existing finding.
+# Filed rather than left in work/design-return-test-r1.md, because an obligation living only in
+# a report is the failure F-064 named and this initiative has now hit three times.
+
+- id: F-080
+  phase: test
+  task: TASK-005
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: implementation
+  file: apps/api/package.json
+  line: 1
+  summary: >-
+    drizzle-kit is not installed anywhere in the repo, so ADR-0004's db:generate script has no
+    binary behind it and the migration half of TASK-005 cannot run.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED - require.resolve('drizzle-kit') fails MODULE_NOT_FOUND and grep finds
+    drizzle-kit in no manifest, root or workspace. Found while recording the drizzle-orm pin for
+    F-069, and it matters more than the pin did. The likely failure is quiet: F-075's ruling grants
+    TASK-005 its manifest for pg and @types/pg, an implementer adds exactly those two, and
+    db:generate then fails at the first migration with a missing-binary error that reads as an
+    environment problem rather than a missing dependency.
+  required_change: >-
+    Add drizzle-kit 0.31.10 as a devDependency of apps/api alongside pg and @types/pg, pinned
+    exactly per ADR-0018. APPLIED as an explicit obligation block in TASK-005 so the implementer
+    cannot add pg and stop.
+  owner_slot: sdlc-implementer-backend
+  status: open
+
+- id: F-081
+  phase: test
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0005-contract-distribution.md
+  line: 1
+  summary: >-
+    The ZodValidationPipe is named by ADR-0005 and owned by no TASK, though it is the producer of
+    most validation_failed responses.
+  failure_scenario: >-
+    Deferred deliberately by the architect rather than settled early, and recorded here so the
+    deferral is tracked. Whoever gets it needs a way to name a zod schema type inside apps/api:
+    either take apps/api/package.json under F-075's rule and depend on zod, or export a
+    ContractSchema<T> alias from contracts. ADR-0025 narrows its own scope so either choice stays
+    legal. Left unowned, the first TASK writing a route with a request body invents it, which is
+    the same accident F-072 was filed to prevent one layer down.
+  required_change: >-
+    Assign an owner before wave 5. The trigger is the first TASK writing a route with a request
+    body - TASK-014 or TASK-025.
+  owner_slot: null
+  status: open
+  note: deferred-observation
+
+- id: F-082
+  phase: test
+  task: TASK-007
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/contracts/error-envelope.md
+  line: 1
+  summary: >-
+    ERROR_CODES has no code for a request body over Express's default limit, so a 413 answers 500,
+    and it is unverified whether an Express body-parser 413 reaches the Nest exception filter at all.
+  failure_scenario: >-
+    The architect stated plainly that it could not verify this: middleware errors do not always pass
+    through global filters. It does not change ADR-0024's branch 3, which answers 500 for a 413
+    either way. But if the 413 never reaches the filter, then error-envelope.md invariant 1 - every
+    rejected request answers in the envelope - is already false for that one case, and TASK-007's
+    implementer is the first person positioned to find out.
+  required_change: >-
+    TASK-007's implementer should establish whether a body-parser 413 reaches the filter and record
+    the answer. If it does not, invariant 1 needs an explicit stated exception rather than a silent
+    one. A 413 code is otherwise deferred: one appended code, one ERROR_CODE_STATUS row and one
+    status-table row, in the commit that adds the first route documenting a body size limit.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  note: deferred-observation
+
+- id: F-083
+  phase: test
+  source: orchestrator
+  round: 1
+  severity: minor
+  kind: process
+  file: .sdlc/launch-core/state.yaml
+  line: 1
+  summary: >-
+    The orchestrator ran `git add -A .sdlc/` while sdlc-architect was mid-run, sweeping eight of its
+    in-progress design files into commit c0cd350, whose subject was about minting ACs.
+  failure_scenario: >-
+    Found and reported by the architect, not by me, which is the part worth recording. Nothing was
+    lost and the content was correct, but eight design files were attributed to an unrelated subject,
+    which breaks invariant 6's commit-to-TASK traceability and would have made the F-067/F-068/F-069
+    changes unfindable by anyone reading history. I had written a ledger entry that same session
+    saying I was holding design/test-strategy.md to avoid colliding with the running agent, and then
+    committed with -A anyway. The stated caution and the action did not match.
+  required_change: >-
+    FIXED - c0cd350 was the unpushed tip, so it was reset --soft and re-committed as a93e75f with
+    only the story, task and ledger files; the design work committed separately under its own
+    subject. Standing rule for the workflow: never `git add -A` while a subagent is running. Stage
+    explicit paths, or commit only after the agent returns. Retro item.
+  owner_slot: null
+  status: fixed
+  resolved_by: orchestrator
