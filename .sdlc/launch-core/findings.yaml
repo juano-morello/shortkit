@@ -1897,3 +1897,141 @@
     caught there - but only for codes the tests exercise.
   owner_slot: sdlc-test-architect
   status: open
+
+# Wave-1 red tests, TASK-005 (STORY-003). Raised by the orchestrator while verifying the
+# test architect's red run. F-074, F-075 and F-076 are the same shape as F-070/F-071: the
+# TASK cannot write a file its own Produces block obliges it to write. Instances nine, ten
+# and eleven of the artifact-assigns-work-a-TASK-cannot-do class.
+
+- id: F-074
+  phase: test
+  task: TASK-005
+  source: orchestrator
+  round: 0
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-005.md
+  line: 9
+  summary: >-
+    TASK-005 Produces "withTenantTransaction(tenantId, fn)" and all four of its ACs assert that
+    helper's behaviour, but withTenantTransaction lives in apps/api/src/tenancy/tenant-context.ts
+    and TASK-005's paths reach only apps/api/src/db/**. The apps/api/src/tenancy/** glob belongs
+    to TASK-011, which is wave 3.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED all four legs. (1) grep places withTenantTransaction at
+    apps/api/src/tenancy/tenant-context.ts:96, and the red run's stack names
+    src/tenancy/tenant-context.ts:101 as the throw site for five of the six tests. (2) TASK-005's
+    paths list contains no tenancy glob. (3) apps/api/src/tenancy/** appears in exactly one TASK's
+    paths - TASK-011, wave 3. (4) The stub's own header already resolves the ownership question
+    the other way: "Produced by: TASK-005 (withTenantTransaction, tenantDb), TASK-011
+    (interceptor, RequestContext)", and TASK-011 Consumes withTenantTransaction from TASK-005 and
+    depends_on it. So every artifact except the paths list agrees TASK-005 writes this function.
+    Left unfixed, TASK-005's implementer cannot turn five of its six tests green without writing
+    outside its whitelist, and AC-8, AC-9 and AC-11 cannot be satisfied at all.
+  required_change: >-
+    Add apps/api/src/tenancy/tenant-context.ts (or apps/api/src/tenancy/**) to TASK-005's paths.
+    Wave 1 stays parallel-safe either way - VERIFIED that no other wave-1 TASK (002, 004, 007)
+    names a tenancy path. It does create a two-TASK-one-file overlap with TASK-011, which is the
+    same shape as TASK-009/TASK-058 on auth.config.ts and is sequenced by TASK-011's existing
+    depends_on: [TASK-009, TASK-005]. If the narrower file-level glob is chosen, TASK-011 keeps
+    the interceptor and RequestContext as the stub header already says.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+
+- id: F-075
+  phase: test
+  task: TASK-005
+  source: orchestrator
+  round: 0
+  severity: major
+  kind: scope
+  file: apps/api/package.json
+  line: 1
+  summary: >-
+    TASK-005 cannot reach a database without the pg driver, which ADR-0002 names and
+    drizzle-orm/node-postgres requires, but pg is not a dependency of apps/api and
+    apps/api/package.json is outside TASK-005's paths.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED that require.resolve('pg') from apps/api fails MODULE_NOT_FOUND, that
+    apps/api's dependencies list contains drizzle-orm 0.45.2 but no pg and no @types/pg, and that
+    no TASK's paths contain apps/api/package.json - TASK-001 owned it via apps/api/** and is done.
+    This is why the red fixture reaches Postgres by spawning psql rather than importing pg: a
+    fixture importing an unresolvable module would have failed all six tests on module resolution,
+    which is the failure mode the Test phase forbids and which looks identical whether the tests
+    are right or empty. Identical in shape to F-071, where TASK-007 needs zod in the same manifest.
+    Both wave-1 backend TASKs are blocked on the same unowned file.
+  required_change: >-
+    Rule on who adds a runtime dependency to apps/api/package.json now that TASK-001 is done, and
+    apply it to pg/@types/pg here and to F-071's zod question together. Widening each consuming
+    TASK's paths to its own manifest is one answer; a named owner for manifests is another. A
+    general ruling is worth more than two one-off widenings, since every later backend TASK that
+    adds a dependency hits this same wall.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+
+- id: F-076
+  phase: test
+  task: TASK-005
+  source: orchestrator
+  round: 0
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-005.md
+  line: 9
+  summary: >-
+    TASK-005's own "⚠ Obligation added 2026-08-04 (F-064, ruled by Juano)" block orders it to
+    remove passWithNoTests from apps/api/vitest.integration.config.ts, a file its paths exclude.
+    The TASK contradicts itself inside one file.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED that TASK-005 is the only TASK naming vitest.integration.config.ts
+    anywhere, and that its paths list does not reach it. While passWithNoTests stands, an
+    integration run matching zero files is indistinguishable from one that passed - which is the
+    whole reason F-064 was filed and ruled. The obligation would present to the implementer as a
+    file outside its whitelist, and the likeliest outcome is that it silently declines and the
+    flag survives into CI, where TASK-002's integration job is the thing meant to catch it.
+  required_change: >-
+    Add apps/api/vitest.integration.config.ts to TASK-005's paths.
+  owner_slot: null
+  status: fixed
+  resolved_by: orchestrator
+  ruling: >-
+    APPLIED BY THE ORCHESTRATOR as the mechanical consequence of a ruling Juano already made,
+    the same class as F-053 and the F-055 paths widening. Juano ruled the obligation onto
+    TASK-005 when he ruled F-064; a paths list that excludes the file the ruling names is a
+    transcription gap, not a new decision. Recorded rather than folded silently into F-074's
+    escalation, because the other two path defects in this batch are genuine decisions and this
+    one is not. Verified after applying: the file appears in TASK-005's paths and nowhere else.
+
+- id: F-077
+  phase: test
+  task: TASK-005
+  source: sdlc-test-architect
+  round: 0
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/support/psql.ts
+  line: 1
+  summary: >-
+    The integration fixture reaches Postgres by spawning psql - through docker run when no local
+    psql exists - because pg is not installed (F-075). It must become a pg.Client once pg lands,
+    but apps/api/test/** is the test architect's territory, not the implementer's, and the
+    obligation currently exists only in a hand-off report.
+  failure_scenario: >-
+    The test architect flagged this itself as the one thing in the hand-off it was not happy with.
+    ORCHESTRATOR CONFIRMED the cost is real: each of the six tests spends roughly 800ms on process
+    spawn, and this fixture is the foundation every later integration TASK builds on - TASK-006 and
+    TASK-056 both write apps/api/test/isolation/**. Left as it is, a docker-run shell-out becomes
+    the permanent substrate of the isolation suite. The routing problem is the sharper half: this
+    is a test file, so rule 0 sends it to sdlc-test-architect, but TASK-005's implementer is what
+    makes it fixable by adding pg. An obligation recorded only in work/TASK-005-red-tests-report.md
+    is exactly the failure F-064 named - the third time an obligation stated only in a report did
+    not reach a TASK file, per the security auditor's count.
+  required_change: >-
+    Once F-075 is ruled and pg is a dependency, dispatch sdlc-test-architect to replace the two
+    exported functions in psql.ts with a pg.Client and delete the process spawning. Nothing outside
+    that file knows how the SQL is sent, so the change is contained. Record the obligation in a
+    TASK file rather than leaving it in the report.
+  owner_slot: sdlc-test-architect
+  status: open

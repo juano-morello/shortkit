@@ -3,12 +3,12 @@ id: TASK-005
 story: STORY-003
 epic: EPIC-001
 title: Database connection, migrations, and the tenant-context transaction helper
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml"]
+paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts"]
 contracts: [design/contracts/rls-policy-template.md, design/contracts/tenant-context.md]
-test_files: []
+test_files: ["apps/api/test/tenancy/tenant-context.int-spec.ts"]
 acceptance: [AC-8, AC-9, AC-10, AC-11]
 rework_count: 0
 ---

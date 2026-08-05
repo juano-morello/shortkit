@@ -3,12 +3,12 @@ id: TASK-007
 story: STORY-004
 epic: EPIC-001
 title: Shared contracts package foundation and error envelope
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
 paths: ["packages/contracts/**", "apps/api/src/common/errors/**"]
 contracts: [design/contracts/error-envelope.md, design/contracts/slug.md]
-test_files: []
+test_files: ["apps/api/src/common/errors/exception-filter.spec.ts"]
 acceptance: [AC-13, AC-14]
 rework_count: 0
 ---
