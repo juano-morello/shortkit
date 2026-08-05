@@ -21,7 +21,7 @@ tasks:
   TASK-002: { status: tests-red, test_exempt: true, acceptance: [AC-5, AC-114] }
   TASK-004: { status: tests-red, test_exempt: true, acceptance: [AC-7, AC-113] }
   TASK-005: { status: tests-red, acceptance: [AC-8, AC-9, AC-10, AC-11], test_files: ["apps/api/test/tenancy/tenant-context.int-spec.ts"], red_count: 6 }
-  TASK-007: { status: tests-red, acceptance: [AC-13, AC-14], test_files: ["apps/api/src/common/errors/exception-filter.spec.ts", "apps/api/src/common/errors/domain-error.spec.ts"], red_count: 30 }
+  TASK-007: { status: in-progress, base: 453640c, acceptance: [AC-13, AC-14], test_files: ["apps/api/src/common/errors/exception-filter.spec.ts", "apps/api/src/common/errors/domain-error.spec.ts"], red_count: 30 }
 escalations: []
 
 log:
