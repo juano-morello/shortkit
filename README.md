@@ -29,7 +29,8 @@ Three rules shape the codebase:
 ## Requirements
 
 - Node 24.13 or newer. `@types/node` tracks the same line, so the API surface the
-  compiler knows is the one the runtime has
+  compiler knows is the one the runtime has. `engineStrict` in `pnpm-workspace.yaml`
+  makes the floor a hard failure: an older Node fails the install instead of warning
 - pnpm 11.20.0, pinned in `packageManager` with the tarball hash Corepack verifies
 
 ## Commands
