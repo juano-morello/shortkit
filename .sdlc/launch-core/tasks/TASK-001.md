@@ -6,7 +6,7 @@ title: pnpm monorepo bootstrap and quality gates
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: []
-paths: ["package.json", "pnpm-workspace.yaml", "tsconfig*.json", ".editorconfig", "lint config", "apps/api/**", "apps/web/**", "packages/contracts/**", ".gitignore", "README.md"]
+paths: ["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "tsconfig*.json", "vitest.config.ts", ".editorconfig", ".gitattributes", "eslint.config.mjs", "apps/api/**", "apps/web/**", "packages/contracts/**", ".gitignore", "README.md"]
 contracts: []
 test_files: []
 test_exempt: true

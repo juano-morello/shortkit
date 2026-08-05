@@ -9,7 +9,7 @@ depends_on: [TASK-005, TASK-007]
 paths: ["apps/api/src/auth/**", "apps/api/src/main.ts", "packages/contracts/src/auth/**", "apps/api/src/app.module.ts"]
 contracts: [design/contracts/auth-tokens.md, design/contracts/rate-limit.md, design/contracts/tenant-context.md]
 test_files: []
-acceptance: [AC-16, AC-20, AC-21]
+acceptance: [AC-16, AC-20, AC-21, AC-112]
 rework_count: 0
 ---
 

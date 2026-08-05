@@ -24,6 +24,7 @@ As an agency operator, I sign up with my work email, verify it, and log in, so t
 - [ ] AC-109 **(added 2026-08-04, Design F-025)**: Given those same six attempts with the address case-varied and whitespace-padded, when the sixth is submitted, then it is still rejected with 429 — the key normalises case and whitespace and nothing else.
 - [ ] AC-110 **(added 2026-08-04, Design F-025)**: Given a different email address submitted from those same six IPs, when it is submitted, then it succeeds — the bucket is keyed on the address, not on the set of IPs.
 - [ ] AC-111 **(added 2026-08-04, Design F-024)**: Given a request to `/api/auth/*` whose body exceeds the configured cap, when it is submitted, then it is rejected without the body having been parsed.
+- [ ] AC-112 **(added 2026-08-04, Test F-050)**: Given `apps/api/package.json`, when its `better-auth` specifier is read, then it is an exact version carrying no range character (`^`, `~`, `>`, `<`, `*` or `x`); and given TASK-009's report, then it records the four Better Auth facts of ADR-0018 verified against that exact release.
 
 AC-108 exists to convert an unverified framework assumption into a checked one:
 if Better Auth's `ctx.path` is not base-path-relative, the hook's predicate never
@@ -48,3 +49,11 @@ and `sdlc-product-auditor` verifies against them verbatim.
 - [ ] Docs updated (README / API / ADR consequences)
 - [ ] Observability in place per config
 - [ ] Traceable: commits reference TASK ids
+
+**AC-112 added 2026-08-04 (F-050, ruled by Juano).** F-040 moved the `better-auth`
+exact pin and its four-fact re-verification from TASK-001 to TASK-009, but left the
+obligation as prose in TASK-009's Approach. `sdlc-product-auditor` verifies ACs verbatim,
+so nothing would have checked it: an implementer could write `"better-auth": "^1.x"`,
+every AC would pass, and a transitive bump could weaken auth with no code change while
+the four facts went unchecked. This AC is the gate that makes F-040's fix hold. STORY-005
+now has 11 ACs.
