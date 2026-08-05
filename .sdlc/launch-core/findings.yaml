@@ -2100,8 +2100,17 @@
     sdlc-product-auditor instruction, but an AC is what F-050 established as the mechanism that
     actually holds.
   owner_slot: null
-  status: escalated
-  escalated_to: juano
+  status: fixed
+  resolved_by: juano
+  ruling: >-
+    RULED 2026-08-05. AC-113 MINTED on STORY-002, per the F-050 precedent Juano set when he
+    minted AC-112 for this exact shape: an obligation with no acceptance criterion is one
+    sdlc-product-auditor never checks, because it verifies ACs verbatim. AC-113 requires that
+    the values of BFF_PROXY_SECRET and API_BASE_URL be absent from the built client bundle
+    under .next/static/**, failing CI if either appears. The auditor-instruction alternative
+    was offered and declined - an obligation living outside a TASK or AC file is the failure
+    F-064 named three times over. Ids appended, nothing renumbered; STORY-002 goes 3 ACs -> 5.
+    TASK-004 acceptance is now [AC-7, AC-113].
 
 - id: F-079
   phase: test
@@ -2131,5 +2140,14 @@
     required check - GitHub Actions rejects a workflow whose needs names a job that does not
     exist, which converts F-039's silent-green failure mode into a hard configuration error.
   owner_slot: null
-  status: escalated
-  escalated_to: juano
+  status: fixed
+  resolved_by: juano
+  ruling: >-
+    RULED 2026-08-05. AC-114 MINTED on STORY-002, requiring the integration job to assert it
+    collected at least one test file and at least one test and to fail the workflow if it
+    collected none. Widening AC-5 a second time was offered and declined in favour of a
+    separate id: AC-5 already absorbed the F-039 widening and a third distinct clause would
+    make it hard to verify as a single statement. TASK-002 acceptance is now [AC-5, AC-114].
+    The test architect's gate-job recommendation - needs: [quality, integration] as the
+    required check, so Actions rejects a workflow naming a missing job - was carried into
+    TASK-002 as a recommendation beyond the AC, not silently dropped.

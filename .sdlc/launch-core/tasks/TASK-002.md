@@ -3,13 +3,23 @@ id: TASK-002
 story: STORY-002
 epic: EPIC-001
 title: CI pipeline running the quality gates
-status: todo
+status: tests-red
+test_exempt: true
+test_exempt_reason: >-
+  AC-5's intent clause is GitHub Actions runner semantics, not a property of any importable
+  value, and the only in-process assertion available is an open-ended negative: a test
+  enumerating continue-on-error, `|| true` and `set +e` passes a workflow that uses the fourth
+  evasion. Nothing hosts such a test today (verified: no vitest project collects a file under
+  tools/, and `vitest run <path>` reports no test files) and no YAML parser resolves in any
+  workspace (verified MODULE_NOT_FOUND for both js-yaml and yaml), leaving regex-over-YAML,
+  which writing-good-tests.md names as a warning sign. Ruled by Juano 2026-08-05. AC-5 and
+  AC-114 are verified by the workflow running in CI and by sdlc-product-auditor reading it.
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
 paths: [".github/**"]
 contracts: []
 test_files: []
-acceptance: [AC-5]
+acceptance: [AC-5, AC-114]
 rework_count: 0
 ---
 
@@ -73,3 +83,18 @@ Postgres service container spins up and zero assertions run. TASK-001 added a gu
 catches a *near-miss* filename, but not the case where the glob legitimately matches
 nothing. Without this assertion SC-1 can read as proven by a suite no pipeline invokes,
 which is the failure F-039 exists to prevent.
+
+## ⚠ AC-114 added 2026-08-05 (F-079, ruled by Juano)
+
+**AC-114: the `integration` job must assert it collected at least one test file and at least
+one test, and fail the workflow if it collected none.** This is obligation 2 of the F-064
+block above, which until now existed only in this TASK file. AC-5's only occurrence of
+"non-zero" is about a command's exit code, so AC-5 as written was satisfied by an
+`integration` job that stands up `postgres:17-alpine` and runs zero assertions —
+the failure F-039 exists to prevent, re-entering through the acceptance criteria.
+
+**Also recommended, and worth taking beyond the AC.** Declare a `gate` job with
+`needs: [quality, integration]` and make *that* the branch's required check. GitHub Actions
+rejects a workflow whose `needs` names a job that does not exist, so a job silently dropped
+or renamed becomes a hard configuration error instead of a green pipeline that ran nothing.
+Raised by `sdlc-test-architect` while establishing AC-5's exemption.
