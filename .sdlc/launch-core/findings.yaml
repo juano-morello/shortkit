@@ -2472,8 +2472,18 @@
   required_change: >-
     Build the accumulator with Object.create(null) or a Map and read with Object.hasOwn. Two extra
     properties must hold afterwards: the result still passes validationDetailsContract and still
-    serialises through res.json, and a first segment of __proto__ produces an own, JSON-visible key
-    rather than silently setting a prototype. Paired with F-087 (the same defect in the approved
+    serialises through res.json, AMENDED 2026-08-05 by sdlc-test-architect and VERIFIED by the
+    orchestrator against installed zod 4.4.3: the reviewer's __proto__ clause is UNREACHABLE through
+    real zod - z.record over a body containing __proto__, constructor and toString emits issues for
+    constructor and toString and NONE for __proto__, and z.object({'__proto__': z.string()}) parses
+    {"__proto__": 3} as a success. Asserting it needs a hand-rolled issue array, which tests the
+    author's idea of zod rather than zod. constructor and toString are the tested surface; __proto__ is
+    defensive-with-no-test, and a null-prototype or drained-Map accumulator makes it correct by
+    construction anyway. A RAW MAP IS NOT AN OPTION - verified that it fails validationDetailsContract
+    AND that JSON.stringify turns it into {"fieldErrors":{}}, an empty object with no exception and no
+    signal, on the validation path all fourteen consuming TASKs use. sdlc-reviewer wrote "a Map DRAINED
+    at the end" and was precise; sdlc-security-auditor's SEC-3 wrote "or a Map" without the drain, and
+    that phrasing is the one that ships an empty body. Paired with F-087 (the same defect in the approved
     design stub) and F-088 (no direct test). Fixing only this one leaves the stub to restore it.
   owner_slot: sdlc-implementer-backend
   status: open
@@ -2605,9 +2615,17 @@
     the TASK that does own it. A code comment is not an owner. Both auditors agree the CHOICE of Nest
     Logger for now is correct and should not be reworked; the defect is the dangling hand-off.
   owner_slot: null
-  status: escalated
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    RULED by Juano 2026-08-05 - WIDEN TASK-003's PATHS, the F-060 precedent. TASK-003 gained
+    apps/api/src/common/errors/** plus a dated block making the pino swap explicitly its work, with
+    the reason it is not cosmetic: REDACT_PATHS is the sole GC-9 mechanism and this filter is the only
+    place in the API writing an arbitrary error's message and stack. The mint-a-new-logging-TASK and
+    accept-the-gap alternatives were offered and declined; the second would have amended an accepted
+    constraint rather than scheduled work. The block also hands TASK-003 the F-093 policy question and
+    records that TASK-003 and TASK-007 now share common/errors/**, sequenced by wave rather than luck.
+    Both auditors agreed the CHOICE of Nest Logger for now is correct and is not reworked.
+  status: fixed
+  resolved_by: orchestrator
 
 - id: F-091
   phase: implement
@@ -2891,9 +2909,17 @@
     is to leave both and carry an explicit override into the TASK-005 dispatch and every audit prompt,
     which means an attention lens that is knowingly wrong.
   owner_slot: null
-  status: escalated
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    RULED by Juano 2026-08-05 - AMEND BOTH plan.md and refinement.md to name set_config, each with a
+    dated note citing F-007. The amend-plan.md-only and leave-both-and-override-at-dispatch alternatives
+    were offered and declined; the second would have knowingly added a thirteenth
+    artifact-contradicts-artifact instance to an initiative that has filed twelve. APPLIED AND VERIFIED:
+    plan.md:28 and refinement.md:170 now read SELECT set_config('app.tenant_id', $1, true), and grep
+    confirms the only surviving SET LOCAL text in either file sits inside the correction notes
+    explaining why it was wrong. The constraint is unchanged; only the SQL expressing it is. TASK-005 is
+    unblocked.
+  status: fixed
+  resolved_by: orchestrator
 
 - id: F-100
   phase: implement
@@ -2922,5 +2948,74 @@
     to sdlc-test-architect.
   owner_slot: sdlc-test-architect
   status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-101
+  phase: implement
+  task: TASK-007
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/src/common/errors/exception-filter.spec.ts
+  line: 325
+  summary: >-
+    The two stage-1 agents produced directly contradictory outputs. The new test asserts fieldErrors
+    equals { _form: [MALFORMED_BODY_MESSAGE] }, freezing the framework-message pass-through that
+    F-094's contract amendment removes in the same round.
+  failure_scenario: >-
+    Found by sdlc-architect while checking the rest of the spec against its own amendment, and
+    ORCHESTRATOR VERIFIED BOTH SIDES - exception-filter.spec.ts:325 asserts the framework's own message
+    reaches _form, and error-envelope.md:210 now specifies { _form: [FRAMEWORK_BAD_REQUEST_FORM_MESSAGE] }
+    under an amendment block stating the HttpException's message never reaches the body. The stage-2
+    implementer cannot satisfy both; whichever it picks, the other is a failing gate or a contract
+    violation. ROOT CAUSE IS THE ORCHESTRATOR'S, not either agent's - both did exactly their brief. I
+    dispatched them concurrently on the reasoning that their FILE territories were disjoint, test files
+    versus design/**, having argued three ledger entries earlier that disjoint paths prevent file
+    conflicts but do not make work parallel-safe. I applied that reasoning to the wave and failed to
+    apply it to two agents whose semantics met on the same contract row.
+  required_change: >-
+    Update the test to assert the fixed FRAMEWORK_BAD_REQUEST_FORM_MESSAGE rather than the framework's
+    own message, and confirm it still FAILS against the current implementation so it stays a real red
+    for stage 2 rather than becoming a test of nothing. Routing rule 0 - a test file belongs to
+    sdlc-test-architect, resumed via SendMessage since this is round 1 of 5 and its context is intact.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-102
+  phase: implement
+  task: TASK-040
+  story: STORY-014
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: contract
+  file: .sdlc/launch-core/stories/STORY-014.md
+  line: 19
+  summary: >-
+    F-097's suggested remedy - answer 409 only after the caller proves control of the hostname via DNS -
+    contradicts AC-68, which requires tenant A's request for a hostname tenant B already verified to be
+    rejected with a stable error code.
+  failure_scenario: >-
+    The architect declined to adopt the remedy and correctly did not touch the AC, escalating instead.
+    ORCHESTRATOR VERIFIED AC-68 reads "when tenant A attempts to add the same hostname, then the request
+    is rejected with a stable error code and no second domain row is created", so deferring rejection
+    until after DNS proof would leave AC-68 unsatisfiable as written. The architect also contests
+    F-097's framing: every 409 state requires a public CNAME to the Fly app, so DNS already answers the
+    same question more cheaply, making the 409 a disclosure of one bit about an already-public state
+    rather than the tenant-enumeration primitive SC-1 exists to prevent. It implemented that narrower
+    reading as error-envelope.md invariant 10 plus domain-provisioning.md, and forbade a 409 on
+    pending_verification - which also preserves F-010's squatting fix, since a pending claim that
+    answered 409 would reintroduce exactly the squat F-010 removed.
+  required_change: >-
+    Juano's call under routing rule 0 - AC-68 is an approved artifact and amending it may reopen the
+    Plan gate. The question is whether the architect's narrower rule is accepted as satisfying F-097, or
+    whether AC-68 changes to require the DNS-proof ordering the security auditor suggested. TASK-040 is
+    wave 9, so this is not urgent, but it must be settled before that dispatch.
+  owner_slot: null
+  status: escalated
   resolved_by: null
   resolved_round: null
