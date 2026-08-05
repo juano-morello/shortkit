@@ -1,7 +1,7 @@
 slug: launch-core
 title: Launchable core — tenancy, links, redirect, custom domains
 type: feature
-phase: test
+phase: implement
 created: 2026-08-03
 updated: 2026-08-03
 
@@ -9,7 +9,10 @@ gates:
   refine:    { status: approved, approved_at: 2026-08-03 }
   plan:      { status: approved, approved_at: 2026-08-03 }
   design:    { status: approved, approved_at: 2026-08-04 }
-  test:      { status: pending, approved_at: null }
+  # Test runs PER WAVE (ruled 2026-08-04), so this gate is approved wave by wave
+  # rather than once for the initiative. TASK-003 onward each get their own red
+  # step and their own approval before the wave implements.
+  test:      { status: approved, approved_at: 2026-08-05, scope: "wave 1 only — TASK-002, TASK-004, TASK-005, TASK-007" }
   implement: { status: pending, approved_at: null }
   ship:      { status: pending, approved_at: null }
 
@@ -263,3 +266,7 @@ log:
   - "2026-08-05 test: INTEGRATION RED RE-VERIFIED LIVE for the gate rather than carried from this morning's run. Stood up a fresh postgres:17-alpine on 55434, created shortkit_app and shortkit_migrator both NOBYPASSRLS (rolsuper f, rolbypassrls f confirmed by query), ran pnpm test:integration: 6 failed, every one 'not implemented' thrown by production tenantScopedPolicies at src/db/rls.ts:23 via createRlsFixture. Container removed, working tree clean."
   - "2026-08-05 test: UNIT RED FAILURE REASONS ENUMERATED, not asserted. 30 failures across 26 error blocks — vitest groups tests sharing one error, which is where the 26-vs-30 gap comes from, verified by counting FAIL headers (30) against error lines (26) with the 4 grouped duplicates identified. Every block is AssertionError (17) or Error: not implemented (9). ZERO import, syntax, type, reference or module-resolution errors, which is what phases/test.md step 3 requires."
   - "2026-08-05 test: WAVE-1 TEST GATE PRESENTED to Juano. Gate is per-wave per the phase-structure decision of 2026-08-04, so this approves wave 1 only and TASK-002..058 keep their own red step wave by wave."
+  - "2026-08-05 test: WAVE-1 TEST GATE APPROVED by Juano. gates.test carries scope: 'wave 1 only' rather than a bare approved, because one initiative-level gate field cannot honestly represent a per-wave gate and a later resume would read a bare approved as covering TASK-003..058. Phase advanced to implement."
+  - "2026-08-05 implement: PRE-FLIGHT CONFLICT SCAN run per implement.md step 4, batched rather than interrupting per discovery. Wave-1 path disjointness RE-DERIVED from the four TASK frontmatters rather than taken from the ledger: .github/** | apps/web/**+vercel.json | apps/api/src/db/**+drizzle/**+tenancy/tenant-context.ts+vitest.integration.config.ts+apps/api/package.json+docker-compose.test.yml | packages/contracts/**+apps/api/src/common/errors/**+app.module.ts. Provably disjoint, confirmed pairwise. Parallel-safe stands."
+  - "2026-08-05 implement: 2 CONFLICTS FOUND, both filed and escalated. F-084 — AC-113 obliges TASK-004 to fail CI on a leaked server-only value while TASK-004's paths cannot reach .github/**; grep confirms no occurrence of .next/static in .github or TASK-002 either, so both halves of the check are unowned. F-085 — pnpm-lock.yaml appears in exactly ONE paths list across all 58 TASKs, TASK-001's, and TASK-001 is done; TASK-005 must add pg, @types/pg and drizzle-kit, and CI installs --frozen-lockfile per TASK-002 line 65, so a manifest change without its lockfile fails install for every later TASK."
+  - "2026-08-05 implement: F-084 is instance TWELVE of the artifact-assigns-work-a-TASK-cannot-do class and it arrived through a NEW door — the previous eleven came from ADR follow-ups and Produces blocks, this one from an AC minted five hours earlier to close a different instance of the same class. F-078's fix reproduced the defect it was fixing. That is the Retro item, not the individual finding."

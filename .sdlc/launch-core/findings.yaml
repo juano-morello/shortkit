@@ -2321,3 +2321,68 @@
   owner_slot: null
   status: fixed
   resolved_by: orchestrator
+
+- id: F-084
+  phase: implement
+  task: TASK-004
+  story: STORY-002
+  source: orchestrator
+  round: 1
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-004.md
+  line: 21
+  summary: >-
+    AC-113 obliges TASK-004 to fail CI when a server-only value appears in the built client bundle,
+    but TASK-004's paths are apps/web/** and vercel.json, and every CI workflow lives under
+    .github/**, which belongs to TASK-002. TASK-004 cannot write the check its own AC requires.
+  failure_scenario: >-
+    Found by the Implement pre-flight conflict scan, before dispatch. Verified three ways - AC-113's
+    text in STORY-002:19 says "fails the CI workflow", TASK-004's paths frontmatter contains no
+    .github entry, and grep finds no occurrence of `.next/static` anywhere in .github or in
+    TASK-002. The implementer meets this as "I need to edit a file outside my paths", which is the
+    exact shape of F-070 and F-071. If it instead writes a script under apps/web/scripts/ and stops,
+    the AC still fails - nothing invokes it, because the workflow that would is TASK-002's file and
+    TASK-002's Produces block never mentions the check. Either way one half of AC-113 is unowned,
+    and a build inlining BFF_PROXY_SECRET into the client bundle ships green.
+  required_change: >-
+    Juano's call, per routing rule 0 - both candidate homes are approved artifacts. Options
+    presented at the pre-flight scan.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-085
+  phase: implement
+  task: TASK-005
+  story: STORY-003
+  source: orchestrator
+  round: 1
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-005.md
+  line: 10
+  summary: >-
+    No live TASK owns pnpm-lock.yaml. It appears in exactly one paths list in the whole plan,
+    TASK-001's, and TASK-001 is done. Every TASK that adds a dependency under Juano's F-075 rule
+    must change the root lockfile it does not own.
+  failure_scenario: >-
+    Bites TASK-005 immediately - it is obliged to add pg and @types/pg (F-075 ruling) and drizzle-kit
+    (F-080), all in apps/api/package.json, which it does own. Installing any of them rewrites
+    pnpm-lock.yaml at the repo root. Verified by grep across all 58 TASK files - pnpm-lock.yaml
+    occurs in TASK-001's paths and nowhere else, and the only other manifest holders, TASK-005 and
+    TASK-035, list a package.json without the lockfile. The consequence is not cosmetic - TASK-002
+    line 65 records that every CI job installs with a frozen lockfile, so a manifest change committed
+    without its lockfile makes CI fail hard on install for every later TASK, not just this one.
+    F-075's ruling settled manifest ownership and the lockfile was not considered.
+  required_change: >-
+    Juano's call, per routing rule 0. The narrow reading of F-075 is that a workspace manifest and
+    the lockfile that resolves it are one unit, which would make this a transcription gap of the
+    F-053 and F-076 class rather than a decision. Recorded as escalated rather than self-applied
+    because F-075's text says "workspace manifest" and pnpm-lock.yaml is a repo-root artifact shared
+    by all three workspaces, so reading it in is an extension rather than a transcription.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
