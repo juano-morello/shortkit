@@ -59,11 +59,17 @@ export const validationDetailsContract = z.object({
 export type ValidationDetails = z.infer<typeof validationDetailsContract>;
 
 /**
- * Caps on one flatten (F-095). At most 100 issues are read, at most 10 messages land
- * under one key, and if anything was dropped `VALIDATION_TRUNCATED_MESSAGE` is appended
- * under `FORM_ERROR_KEY`. zod reports one issue per failing array element, so an
+ * Caps on one flatten (F-095). At most 100 issues are read, at most 10 issue messages
+ * land under one key, and if anything was dropped `VALIDATION_TRUNCATED_MESSAGE` is
+ * appended under `FORM_ERROR_KEY`. zod reports one issue per failing array element, so an
  * uncapped flatten turns a 100 KB body into a multi-megabyte response built inside the
  * exception filter.
+ *
+ * The notice sits OUTSIDE the per-key cap, so `_form` holds 11 entries when the dropped
+ * issues were its own. Intended, and clarified 2026-08-05 because the wording read both
+ * ways: the notice is a fixed string this package wrote, not an issue message derived
+ * from the request, and dropping a real error to make room for a notice saying errors
+ * were dropped serves nobody. The ceiling on one response is 101 messages for any input.
  */
 export declare const MAX_VALIDATION_ISSUES = 100;
 export declare const MAX_MESSAGES_PER_FIELD = 10;
@@ -189,10 +195,14 @@ Normative. TASK-007 implements exactly this.
 | 3 | `err instanceof HttpException` | see below | by status |
 | 4 | anything else | 500 | `{ code: 'internal_error', message: INTERNAL_ERROR_MESSAGE }`, no `details` |
 
-Branch 4 puts nothing from the original error in the body. Its name, message and stack
-go to the log at `error` with the `request_id` (`logging-and-headers.md`). That default
-is the safe one on purpose: a Postgres error naming a connection string, a Redis timeout
-naming an internal host and an assertion quoting a row all land here.
+Branch 4 puts nothing from the original error in the body. That default is the safe one
+on purpose: a Postgres error naming a connection string, a Redis timeout naming an
+internal host and an assertion quoting a row all land here.
+
+The log gets the error's name and its message, at `error` level. Not the stack, and not
+yet the `request_id`. Amended 2026-08-05 (F-093, F-106): this paragraph required "name,
+message and stack" and the filter stopped logging a stack. Read "What the 500 log line
+carries, and who owns changing it" below before you touch that call.
 
 `isZodError` and `toValidationDetails` come from `@shortkit/contracts` (ADR-0025). The
 filter imports zod nowhere, value or type, so TASK-007 needs no entry in
@@ -220,6 +230,48 @@ receives express's `URIError`, whose message router 2.2.0 rewrites to
 invariant 8, from an unauthenticated request. The arm now answers with a fixed string,
 the same treatment the 404 arm gets and for the same reason. The original message goes to
 the log through the same helper branch 4 uses.
+
+### What the 500 log line carries, and who owns changing it
+
+Amended 2026-08-05 (F-093, F-106). Read this before writing anything into the filter's
+log call. Two places in this contract asked for the stack until today, and the filter has
+not logged one since F-093.
+
+**What ships today.** One string through Nest's `Logger` at `error`:
+`${context}: ${name}: ${message}`. No frames. No `request_id`. Invariant 9 below ends
+"debugging one means finding its `request_id` in the logs", and that sentence is false
+until TASK-003 lands, because the field is not on the line.
+
+**Why the frames came out.** `main.ts` already carried F-064's ruling that a stack is the
+one field on a log line that path-based redaction cannot reach. The filter said the
+opposite in the same repo, so F-093 made the filter match. That bought agreement between
+two files. It did not reduce exposure, and nobody should read this contract as claiming
+it did.
+
+**TASK-003 owns the permanent answer for both files**, in the commit that moves this line
+onto pino (`tasks/TASK-003.md`, F-090 ruling; F-108 is on the same line). Three facts it
+needs:
+
+- `err.stack` starts with `${err.name}: ${err.message}` and the frames follow (verified on
+  Node 24.19). The line already carries everything the stack's first line carries, so
+  F-093 dropped the frames and nothing else.
+- The frames name files and functions in our own source and in `node_modules`. No request
+  data, no PII, no credential. The **message** is the field that carries those: a
+  URL-style Postgres DSN in a connection failure, an internal host in a Redis timeout, a
+  fragment of the request body on the framework-400 arm (F-108).
+- `REDACT_PATHS` is a list of paths and no path reaches inside a string, so pino redacts
+  neither field by content. What pino changes is that each becomes a named field on the
+  record instead of text concatenated into one, which is what makes truncating or
+  redacting either of them possible at all.
+
+On that reading, `sdlc-security-auditor` recommends the inverse of the interim: log the
+frames in their own field and treat the message as the risky one. The reasoning holds and
+the contract records it so TASK-003 decides rather than inherits. TASK-003 is free to
+reject it, and if it does, the reason belongs in its ADR or in this section.
+
+**What this section does not say is that the stack goes to the log.** Restoring
+`exception.stack` because a contract line asked for it undoes F-093 in the one file F-093
+was filed about, and no test in the suite asserts a log field.
 
 ### Message constants
 
@@ -269,7 +321,7 @@ imports a schema object from `@shortkit/contracts`, not zod.
 export function narrowEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
   const { code, message, details } = envelope;
 
-  if (details === undefined) return envelope;
+  if (details === undefined) return { code, message };
 
   if (code === 'validation_failed') {
     const parsed = validationDetailsContract.safeParse(details);
@@ -283,7 +335,7 @@ export function narrowEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
 
 | `code` | `details` | Result |
 |---|---|---|
-| any | absent | envelope unchanged |
+| any | absent | `{ code, message }`, rebuilt; any other top-level key is dropped |
 | `validation_failed` | passes `validationDetailsContract` | `details` replaced by the **parse output**, not the input |
 | `validation_failed` | fails `validationDetailsContract` | `details` dropped |
 | any other code | present | `details` dropped |
@@ -292,6 +344,17 @@ Using the parse output rather than the input is the point of the rule: `z.object
 unknown keys, so a sibling attached beside `fieldErrors` does not survive (verified
 against zod 4.4.3). Forwarding the input on a successful parse would let
 `{ fieldErrors: {...}, conflictingRow: {...} }` through.
+
+**Every row rebuilds the envelope from `code` and `message`, the first row included.**
+Amended 2026-08-05 (F-107): the `details === undefined` row returned the caller's object
+by reference, so a top-level sibling key reached the wire unnarrowed, which is the leak
+this rule closes for `details` one level down. TypeScript does not stop the producer.
+`override toEnvelope(): ErrorEnvelope { return { ...conflictingRow, code, message }; }`
+compiles clean under `--strict`, because excess property checking does not apply to
+properties arriving from a spread; the same object written as a direct literal errors
+TS2353 (verified on TypeScript 5.9.3). The rebuild costs one object allocation on the
+path every non-validation error takes, and it makes the function's guarantee whole: what
+comes out has three keys at most, whatever went in.
 
 The filter applies `narrowEnvelope` **once, to the body it is about to write**, so branch
 1's `toEnvelope()` output passes through it along with branches 2 to 4. When `details` was
@@ -395,7 +458,11 @@ TASK-007's spec covers the four branches; nobody else re-covers them.
 
 - The exception filter is registered as `APP_FILTER` in `AppModule` and catches every
   thrown error, including non-`HttpException` throwables, which become 500
-  `internal_error` with `INTERNAL_ERROR_MESSAGE` and the stack in the log only.
+  `internal_error` carrying `INTERNAL_ERROR_MESSAGE` and nothing of the original error.
+  The original goes to the log, as its name and message and **not** its stack. Amended
+  2026-08-05 (F-106): this bullet asked for the stack. See "What the 500 log line
+  carries, and who owns changing it" above, which is the only place this contract states
+  that policy and names its owner.
 - The four branches run in the order above, and `DomainError` is tested first.
 - A `ZodError` becomes 400 `validation_failed` with `details` from
   `toValidationDetails(err)`. Do not call `err.flatten()`: it drops every issue with an

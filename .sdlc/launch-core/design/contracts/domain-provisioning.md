@@ -196,6 +196,24 @@ conflicting row, and no `details` on the envelope (`error-envelope.md` invariant
 enforced at the filter by ADR-0026). The enumeration rate is bounded by the write rate
 limit in `rate-limit.md`, which is the same bound the F-010 squatting analysis used.
 
+**Residual, accepted: the DNS equivalence is checked at verification time, not at 409
+time.** Added 2026-08-05 (`sdlc-security-auditor`, round 2 on F-097). A row that reached
+`verified` or `provisioning` and whose owner then removed the `CNAME` keeps answering 409
+after the public evidence is gone, so for that window the endpoint answers a question DNS
+no longer does. The window is short by construction: `verified` is transient, and
+invariant 1 moves a row out of `provisioning` within 15 minutes, to `active` or to
+`certificate_failed`, and `certificate_failed` is not a 409 state. The one case where the
+bound is not hard is a `fly_quota:` backoff, which holds a row in `provisioning` past the
+window. `active` needs no window at all: its hostname is in a Certificate Transparency
+log whatever happens to the zone afterwards.
+
+Re-checking DNS on each conflict would close this. It buys a bit that was public minutes
+earlier, and it costs a network call and a failure mode on a write path, so it is not
+worth it. What would force it: a state that answers 409 with no bounded lifetime, or a
+decision to leave stale `verified` rows in place rather than expiring them. If F-102
+reopens AC-68 and the DNS-proof ordering is adopted, this residual disappears along with
+the rule that creates it.
+
 The security auditor's suggested alternative, answering 409 only after the caller has
 proved control of the hostname by DNS, was not adopted: it contradicts AC-68's literal
 text, which asserts a rejection at the point tenant A adds a hostname tenant B has

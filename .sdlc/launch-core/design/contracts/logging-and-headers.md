@@ -82,6 +82,20 @@ not-yet-sent header is free, and appending later would have no owner. The
 `BFF_PROXY_SECRET` value is never logged on the Vercel side either
 (`web-api-client.md`).
 
+### The exception filter's error line
+
+Added 2026-08-05 (F-106). `apps/api/src/common/errors/exception-filter.ts` is the only
+place in the API that writes an arbitrary error into a log line, and TASK-003 owns that
+file as of the F-090 ruling. Today it logs the error's name and message as one
+concatenated string through Nest's `Logger`, with no stack and no `request_id`.
+
+**Before moving that line onto pino, read `error-envelope.md`, "What the 500 log line
+carries, and who owns changing it".** It states what the filter does now, why the stack
+came out, and the argument for putting the frames back and treating the message as the
+risky field instead. The decision is TASK-003's, and until it lands this line sits
+outside the pipeline this contract says nothing may opt out of. `REDACT_PATHS` cannot
+help either way: it matches paths, and neither a message nor a stack has one.
+
 ## CORS
 
 **Disabled. `app.enableCors()` is never called.**

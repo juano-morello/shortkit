@@ -70,10 +70,16 @@ into features.
 
 **An error with no code is a 500 with a fixed body.** Any throwable that is not a
 `DomainError`, a `ZodError` or an `HttpException` becomes `internal_error` carrying
-`INTERNAL_ERROR_MESSAGE` and no `details`. Its name, message and stack go to the log
-with the `request_id`. Nothing of the original reaches the client, so a Postgres driver
-error naming a connection string, a Redis timeout naming an internal host, and an
-assertion quoting a row cannot leak (GC-9, invariant 8).
+`INTERNAL_ERROR_MESSAGE` and no `details`. Its name and message go to the log. Nothing of
+the original reaches the client, so a Postgres driver error naming a connection string, a
+Redis timeout naming an internal host, and an assertion quoting a row cannot leak (GC-9,
+invariant 8).
+
+**Amended 2026-08-05 (F-093, F-106).** This sentence read "Its name, message and stack go
+to the log with the `request_id`". The filter logs no stack and carries no `request_id`
+today; the current policy, the reasoning behind it and the TASK that owns changing it are
+in `error-envelope.md` under "What the 500 log line carries, and who owns changing it".
+The body half of this decision, which is what the ADR is about, is unchanged.
 
 **Constructing a `DomainError` promises the message is safe to show a stranger.** No
 connection string, no token, no other tenant's id, no internal identifier. That promise
@@ -156,7 +162,12 @@ a trait check behind `Symbol.hasInstance`.
 - Each of TASK-010, 011, 014, 017, 018, 021, 024, 025, 040, 045, 049, 051, 053, 054
   throws `DomainError` or a subclass. None of them defines a code mapping.
 - TASK-003's logger gets the 500 branch's log line: `request_id`, error name, message,
-  stack. The redaction paths in `logging-and-headers.md` already cover the fields.
+  and whatever it decides about the stack. **Amended 2026-08-05 (F-093, F-106):** this
+  bullet read "`request_id`, error name, message, stack", and the filter has not logged a
+  stack since F-093. The policy and its owner are in `error-envelope.md`, under "What the
+  500 log line carries, and who owns changing it". The claim that "the redaction paths in
+  `logging-and-headers.md` already cover the fields" was wrong when written and is struck:
+  redaction is path-based and no path reaches inside a message or a stack string.
 - TASK-056 has a grep worth adding: an `HttpException` subclass thrown from application
   code under `src/` outside `common/errors` means a status was picked without a code.
 - Nothing owns a `ZodValidationPipe` yet, and it is the producer of every

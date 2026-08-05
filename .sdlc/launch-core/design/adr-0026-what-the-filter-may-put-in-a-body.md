@@ -59,7 +59,12 @@ malformed JSON body and a bad percent-encoding in a path segment.
 export function narrowEnvelope(envelope: ErrorEnvelope): ErrorEnvelope;
 ```
 
-- `details === undefined`: unchanged.
+- `details === undefined`: the envelope is rebuilt as `{ code, message }`. Corrected
+  2026-08-05 (F-107); this row returned the caller's object by reference, which shipped
+  any top-level sibling key on it unnarrowed. A `toEnvelope()` override written as
+  `return { ...conflictingRow, code, message }` compiles clean under `--strict`, because
+  excess property checking does not apply to properties arriving from a spread, so the
+  type system does not catch what this row let through.
 - `code === 'validation_failed'`: `validationDetailsContract.safeParse(details)`. On
   success the envelope carries `parsed.data`, which is the parse output, not the input.
   `z.object` strips unknown keys, so a sibling key attached beside `fieldErrors` does not
@@ -146,12 +151,25 @@ where ADR-0024 put it, on the throw site, and nothing here validates it. See Con
 - **One more thing to keep in step.** Adding a code with a `details` shape now means
   editing `error-envelope.md`, the contract's schema, and `narrowEnvelope`. Forgetting the
   third means the shape is dropped at runtime while every type checks.
+- **`narrowEnvelope` is an allowlist of three keys, so a fourth field added to
+  `errorEnvelopeContract` is silently dropped until someone adds it there.** Added
+  2026-08-05 with the F-107 correction, which is what makes the rebuild total. The
+  alternative, copying unknown keys through, is the leak. The cost lands on whoever
+  widens the envelope, and the symptom is a field that validates, typechecks and never
+  arrives.
+- **Nothing may rely on `narrowEnvelope` returning its input.** It now allocates on every
+  path. The filter's drop-warn compares whether `details` was present before and after,
+  not object identity, and any future check has to do the same.
 
 ### Follow-ups this creates
 
 - TASK-007's implementer, in this fix round: `FRAMEWORK_BAD_REQUEST_FORM_MESSAGE` on the
   400 arm, `narrowEnvelope` in `error-envelope.ts`, and the filter applying it once
   before writing.
+- TASK-007's implementer, in fix round 2: `narrowEnvelope`'s early return becomes
+  `if (details === undefined) return { code, message };` (F-107). One line in
+  `apps/api/src/common/errors/error-envelope.ts`, and the function's docblock, whose
+  "the envelope is returned untouched" bullet says the old behaviour.
 - `apps/api/src/common/errors/exception-filter.spec.ts` asserts the framework-400 arm's
   `_form` value, and it asserts the old pass-through. That test has to change with this
   decision. It belongs to `sdlc-test-architect`, not to the implementer.
