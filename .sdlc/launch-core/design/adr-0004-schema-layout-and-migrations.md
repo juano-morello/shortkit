@@ -81,6 +81,41 @@ that every table in `tenantScopedTables()` has all four statements present in
 command runs `pnpm --filter @shortkit/api db:migrate` as `shortkit_migrator`. It is
 not run from application boot, so N machines starting concurrently cannot race.
 
+### Pinned versions. Recorded 2026-08-05 (F-069)
+
+This ADR named neither package. TASK-001's implementer picked `drizzle-orm` 0.45.2 while
+transcribing a manifest, which left the data-access library for the whole initiative
+chosen with no design input. The pin is right, and here is the check that says so.
+
+```
+drizzle-orm  0.45.2   dependency of apps/api
+drizzle-kit  0.31.10  devDependency of apps/api
+```
+
+Both are the newest published stable release: I read `latest` from the npm registry on
+2026-08-05 and got 0.45.2 and 0.31.10. Exact versions, no range, per ADR-0018.
+
+**The 1.0.0 line is not adopted.** Both packages publish a long `1.0.0-beta.*` and
+`1.0.0-rc.*` series alongside the stable tags, and `rc.4` is the furthest along. The
+0.4x/0.31 pair is what the four things this ADR depends on were designed against:
+`dialect: 'postgresql'` in `drizzle.config.ts`, a `schema` glob rather than a file, the
+`_journal.json` plus per-migration snapshot format the rebase procedure deletes and
+regenerates, and `drizzle-orm/node-postgres` as the driver ADR-0002 assumes. A 1.0
+release changes the migration metadata format, and finding that out during a wave-4
+rebase costs more than any 1.0 feature is worth here. Revisit after launch-core ships,
+in its own ADR, with the migration set regenerated from scratch against an empty
+database.
+
+**`drizzle-kit` is not installed today.** `apps/api/package.json` carries `drizzle-orm`
+and no `drizzle-kit`, so `db:generate`, `db:migrate` and the rebase procedure above have
+no binary behind them. TASK-005 needs it added, which runs into the same unowned
+manifest as F-075 (`pg`) and F-071 (`zod`). The version is settled here; who writes the
+line into the manifest is not, and F-075 is escalated.
+
+`drizzle-kit`'s major and minor track `drizzle-orm`'s snapshot format rather than its
+own semver, so the two move together. Upgrade both in one commit, regenerate the
+migration set against an empty database, and run the integration job before merging.
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not |
@@ -118,7 +153,8 @@ not run from application boot, so N machines starting concurrently cannot race.
 
 - TASK-001 writes `.gitattributes` with the two `-merge` entries.
 - TASK-005 writes `drizzle.config.ts`, the barrel, `db:generate`, `db:migrate`,
-  `db:check-policies`, and `docs/architecture/migrations.md`.
+  `db:check-policies`, and `docs/architecture/migrations.md`. It also needs
+  `drizzle-kit` 0.31.10 in `apps/api`'s devDependencies, which nothing has added yet.
 - TASK-003 adds the release command to `fly.toml`.
 - Waves 4 and 7: the second TASK to merge rebases. The orchestrator picks which one
   before dispatching, so neither implementer decides mid-merge.

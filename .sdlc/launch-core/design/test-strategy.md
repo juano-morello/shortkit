@@ -62,7 +62,7 @@ vitest test.
 | Story | ACs | Layer | Fixture dependency |
 |---|---|---|---|
 | STORY-001 Monorepo scaffold | 5 | unit | — (see *Sequencing constraint*) |
-| STORY-002 Deployable skeleton + CI | 3 | unit + manual | deploy verification is manual |
+| STORY-002 Deployable skeleton + CI | 5 | **exempt + CI** | no vitest tests; see *Deliberately not automated* |
 | STORY-003 Tenant-scoped persistence | 5 | **integration** | two-tenant, non-`BYPASSRLS` role |
 | STORY-004 Contracts + error surface | 3 | unit + **build** | — (AC-14 is a build property, see below) |
 | STORY-005 Signup, login, verification | 10 | unit + integration | fake mail sender, live DB for user rows |
@@ -133,6 +133,37 @@ Each of these carries a reason.
   fake sender and assert the message was handed over, not that it arrived.
 - **Deployment itself.** TASK-003 and TASK-004 produce deployed URLs. Hit those URLs to
   confirm Fly and Vercel served them. No test in the suite covers it.
+- **AC-7 as a vitest test (TASK-004 `test_exempt`).** Ruled by Juano 2026-08-05. The entry
+  above anticipated this, but the decisive reason is sharper than "deployment is hard":
+  **there is no red step available.** The tempting in-process proxy — render `app/page.tsx`,
+  assert HTML — *passes today*, because TASK-001 already shipped `page.tsx` and `layout.tsx`.
+  A test that cannot go red proves nothing, which is the standard the bootstrap ruling already
+  applied. It would also report green through a 404 from a wrong monorepo root directory, a
+  500 from missing build-time env, or a 401 from Vercel deployment protection, which is on by
+  default. Verified by `sdlc-product-auditor` hitting the deployed URL.
+- **AC-5 as a vitest test (TASK-002 `test_exempt`).** Ruled by Juano 2026-08-05, and **not**
+  covered by the deployment entry above — CI is not deployment. This is AC-14's reason: the
+  clause carrying the AC's intent, "concludes `failure` if any one of them exits non-zero", is
+  GitHub Actions runner semantics rather than a property of any importable value, and the only
+  in-process assertion available is an open-ended negative. A test enumerating
+  `continue-on-error`, `|| true` and `set +e` passes a workflow that uses the fourth evasion.
+  Two supporting facts were verified rather than assumed: nothing hosts such a test today (no
+  vitest project collects a file under `tools/`, and `vitest run <path>` reports no test files),
+  and **no YAML parser resolves in any workspace** (`MODULE_NOT_FOUND` for both `js-yaml` and
+  `yaml`), which leaves regex-over-YAML — named as a warning sign in `writing-good-tests.md`.
+  `sdlc-test-architect` called clauses 1 and 2 parse-assertable and the overall call close;
+  F-039 is exactly the missing-job defect, so this is not a comfortable exemption.
+  **What verifies it instead:** the workflow running in CI, plus `sdlc-product-auditor` reading
+  it against AC-5 and AC-114. TASK-002 also carries a recommendation to declare a `gate` job
+  with `needs: [quality, integration]` as the branch's required check — Actions rejects a
+  workflow whose `needs` names a job that does not exist, which converts a silently dropped or
+  renamed job from a green pipeline into a hard configuration error.
+
+**AC-113 and AC-114 (minted 2026-08-05) are CI-level assertions, not vitest tests**, and that
+is deliberate. AC-113 searches a production build's `.next/static/**` for the values of
+`BFF_PROXY_SECRET` and `API_BASE_URL`; AC-114 asserts the `integration` job collected at least
+one test file and at least one test. Both are properties of a build or a pipeline run, so the
+suite is the wrong home for them — the same reasoning that exempted AC-5 and AC-14.
 - **Async React Server Components.** ADR-0001 records that vitest cannot render them.
   Coverage comes from testing their data functions directly.
 - **AC-14 as a vitest test.** AC-14 asserts that an incompatible contract change breaks

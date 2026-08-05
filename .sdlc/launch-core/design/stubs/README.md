@@ -11,7 +11,7 @@ them. Treat the shapes as normative and the syntax as unverified.
 
 | Stub root | Materialised by | Notes |
 |---|---|---|
-| `packages/contracts/src/**` | **TASK-001** scaffolds the workspace, **TASK-007** materialises and completes | TASK-001 needs at least `errors.ts` and `index.ts` present to satisfy AC-4's cross-workspace import |
+| `packages/contracts/src/**` | **TASK-001** scaffolds the workspace, **TASK-007** materialises and completes | TASK-001 needs at least `errors.ts` and `index.ts` present to satisfy AC-4's cross-workspace import. **Every file here, `roles.ts` included** (F-068) |
 | `apps/api/src/**` | the producing TASK named in each file's header | |
 | `apps/web/src/**` | TASK-008, TASK-012 | |
 | `apps/api/test/**` | TASK-006, TASK-056 | |
@@ -39,7 +39,8 @@ The ones most likely to be "simplified" back into defects:
 
 | File | Rule |
 |---|---|
-| `apps/api/src/tenancy/tenant-context.ts` | `set_config`, never `SET LOCAL`. `SET` takes no bind parameter (F-007) |
+| `apps/api/src/tenancy/tenant-context.ts` | `set_config`, never `SET LOCAL`. `SET` takes no bind parameter (F-007). `tenantStorage` stays module-private: exporting it is a way to hold a tenant context that never set `app.tenant_id` (F-067) |
+| `apps/api/src/common/errors/domain-error.ts` | The code travels on the error. Anything else is 500 `internal_error` with a fixed message, on purpose (ADR-0024) |
 | `apps/api/src/invitations/tokens/capability-token.ts` | verify the digest before any statement acts on the tenant (F-001) |
 | `apps/api/src/gdpr/tenant-scoped-tables.ts` | three transactions, and assert the census is non-empty (F-002) |
 | `apps/api/src/redirect/db/redirect-read.ts` | `AND state = 'active'` is part of the query shape (F-003) |

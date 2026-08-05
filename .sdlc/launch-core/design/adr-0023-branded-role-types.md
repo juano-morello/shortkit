@@ -147,8 +147,16 @@ implementation touches every guard, every repository, every contract and every t
 
 ### Follow-ups this creates
 
-- TASK-016 defines the branded types, the constants, both cast functions, and the rank
-  tables keyed by the value types.
+- ~~TASK-016 defines the branded types, the constants, both cast functions, and the rank
+  tables keyed by the value types.~~ **Amended 2026-08-05 (F-068): TASK-007 defines
+  them, in `packages/contracts/src/roles.ts`.** TASK-016's paths are
+  `apps/api/src/db/schema/**` and `apps/api/drizzle/**`, so it cannot write the
+  contracts package, and it runs in wave 4 while TASK-011 and TASK-017 import
+  `TenantRole` and `WorkspaceRole` in waves 3 and 4. The bullet below already asks
+  TASK-007 for the type-level test that pins the brand, which it could not write
+  against types that did not exist yet. TASK-016 consumes: Drizzle columns are typed
+  `TenantRoleValue` and `WorkspaceRoleValue`, and the membership repository brands rows
+  through `asTenantRole` and `asWorkspaceRole`.
 - **TASK-007 ships a type-level test pinning the brand**, since nothing else proves the
   mechanism still works after a TypeScript upgrade or a refactor of `Branded`:
 

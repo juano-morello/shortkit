@@ -84,3 +84,54 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
 export function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
   return errorEnvelopeContract.safeParse(value).success;
 }
+
+/**
+ * ============================================================================
+ * ZOD'S IDENTITY STAYS ON THIS SIDE OF THE BOUNDARY (ADR-0025).
+ * ============================================================================
+ *
+ * Every zod schema in the system is declared in THIS package (ADR-0005), so this is
+ * where a ZodError is recognised and flattened, next to the ValidationDetails shape the
+ * flatten produces. The API filter calls these; it imports zod nowhere and does not
+ * duck-type the error. A check on `issues` plus `name` stops matching the day zod
+ * changes its internals, and the failure is silent: every malformed request body starts
+ * answering 500 instead of 400.
+ *
+ * Declaration-only, so `sideEffects: false` still holds.
+ */
+export function isZodError(value: unknown): value is z.ZodError {
+  return value instanceof z.ZodError;
+}
+
+/**
+ * The key an issue with an empty path lands under, so a schema-level `.refine()`
+ * failure reaches the user instead of vanishing.
+ *
+ * NO REQUEST CONTRACT MAY DECLARE A FIELD WITH THIS NAME. zod's own `flattenError`
+ * drops root issues into a separate `formErrors` array that `ValidationDetails` has no
+ * room for, and dropping them renders a form that reports nothing while refusing to
+ * submit.
+ */
+export const FORM_ERROR_KEY = '_form';
+
+/**
+ * ZodError -> the `details` of a `validation_failed` envelope.
+ *
+ * Keyed by the FIRST path segment, so `body.name` and `body.name.first` share the key
+ * `name`. That matches zod's own flatten and the flat field map a form renders.
+ * `issue.message` is zod's text; it names the field and the constraint and carries
+ * nothing from the request value.
+ */
+export function toValidationDetails(error: z.ZodError): ValidationDetails {
+  const fieldErrors: Record<string, string[]> = {};
+
+  for (const issue of error.issues) {
+    const key = issue.path.length === 0 ? FORM_ERROR_KEY : String(issue.path[0]);
+    const messages = fieldErrors[key] ?? [];
+
+    messages.push(issue.message);
+    fieldErrors[key] = messages;
+  }
+
+  return { fieldErrors };
+}

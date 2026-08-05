@@ -1,8 +1,8 @@
 # Contract: roles, ranking, and the authorization surface
 
 - **Boundary:** every authenticated write and every workspace-scoped read.
-- **Normative form:** `apps/api/src/common/authorization/roles.ts` (stub: `design/stubs/apps/api/src/common/authorization/roles.ts`).
-- **Produced by:** TASK-016 (roles, `roleRank`), TASK-017 (guard, decorators, authorizer).
+- **Normative form:** `packages/contracts/src/roles.ts` (role values, brands, ranks) and `apps/api/src/common/authorization/roles.ts` (enforcement) — stubs at the matching paths under `design/stubs/`.
+- **Produced by:** TASK-007 (role values, branded types, constants, casts, rank tables), TASK-017 (guard, decorators, authorizer). TASK-016 consumes both and defines no role type of its own; corrected 2026-08-05 (F-068).
 - **Consumed by:** TASK-014, 018, 021, 025, 040, 045, 049, 051, 053, 054, 056.
 - **ADRs:** ADR-0015. Role set fixed by Amendment A-1.
 

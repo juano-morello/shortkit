@@ -1,7 +1,18 @@
 /**
  * Contract: design/contracts/workspace-authorization.md
  * ADR: adr-0015-user-tenant-cardinality.md, adr-0023-branded-role-types.md
- * Produced by: TASK-016
+ * Produced by: TASK-007. Consumed by TASK-016, TASK-017, TASK-019.
+ *
+ * The header read TASK-016 until 2026-08-05 (F-068), and TASK-016 cannot write this
+ * file: its paths are apps/api/src/db/schema/** and apps/api/drizzle/**. It is also
+ * three waves too late. TASK-011's auth claims and TASK-017's guard both import
+ * TenantRole and WorkspaceRole from @shortkit/contracts in waves 3 and 4, and
+ * ADR-0023 asks TASK-007 for the type-level test that pins the brand. Every role type
+ * in this file therefore lands whole in wave 1, with TASK-007.
+ *
+ * TASK-016 CONSUMES it: the Drizzle columns are typed TenantRoleValue and
+ * WorkspaceRoleValue, and the membership repository brands rows through asTenantRole
+ * and asWorkspaceRole on the way out. It defines no role type of its own.
  *
  * Role sets are FIXED by refinement amendments. Not open for reinterpretation.
  *   WORKSPACE_ROLES  Amendment A-1, unchanged.

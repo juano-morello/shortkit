@@ -63,8 +63,23 @@ export class TenantContextMismatchError extends Error {
   }
 }
 
-/** Module-private. Never exported. */
-export const tenantStorage = new AsyncLocalStorage<TenantContext>();
+/**
+ * ============================================================================
+ * MODULE-PRIVATE. NEVER EXPORTED. This is the GC-5 seam.
+ * ============================================================================
+ *
+ * An exported AsyncLocalStorage is an escape hatch: any module could call
+ * `tenantStorage.run({ tenantId, db }, fn)` with a tenant id and a connection of its
+ * choosing and get an ambient context that never passed through withTenantTransaction,
+ * so `app.tenant_id` was never set and every RLS policy in the transaction evaluates
+ * against an unset flag. Every other module reaches the context through
+ * withTenantTransaction, tenantDb and currentTenantId below, and through nothing else.
+ *
+ * Referenced by the no-op `void` until those functions are implemented (TASK-005), so
+ * the declaration does not trip noUnusedLocals in the meantime.
+ */
+const tenantStorage = new AsyncLocalStorage<TenantContext>();
+void tenantStorage;
 
 /**
  * Opens a transaction, sets app.tenant_id via set_config, runs `fn` inside it.
