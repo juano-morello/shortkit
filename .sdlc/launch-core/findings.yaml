@@ -3116,3 +3116,39 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-106
+  phase: implement
+  task: TASK-007
+  source: sdlc-reviewer
+  round: 2
+  severity: major
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/error-envelope.md
+  line: 192
+  summary: >-
+    The F-093 fix removed the stack from the filter's log line, but the normative contract still
+    states twice that it goes to the log - at :192 and again at :398 under "What the implementer
+    must guarantee". The architect amended this same file in this same round and touched neither.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED BOTH LINES AND THE PATH THAT MAKES THEM DANGEROUS. error-envelope.md:192
+    reads "Its name, message and stack go to the log at error with the request_id" and :398 reads
+    "...INTERNAL_ERROR_MESSAGE and the stack in the log only". TASK-003's paths gained
+    apps/api/src/common/errors/** IN THIS SAME ROUND under the F-090 ruling, and its brief says the
+    pino swap in exception-filter.ts is now its work - grep confirms five references. So TASK-003's
+    implementer writes the pino serialiser, reads the normative contract for what the 500 line must
+    carry, finds the stack named twice, and restores exception.stack - reintroducing precisely what
+    F-093 removed, in the one file F-093 was filed about. No test can catch it: the suite asserts
+    bodies, not log fields. The only artifacts recording the opposite are a code comment in the file
+    being rewritten and a ledger entry. F-093 asked to "make the two files agree and record which
+    way"; the way was recorded in the two least durable places while the normative source kept
+    saying the reverse.
+  required_change: >-
+    State in error-envelope.md what the filter does today and who owns changing it - name and
+    message reach the log, the stack does not, TASK-003's pino error serialiser is the permanent
+    answer - at both :192 and :398. Bundle with F-105, which is the same contradiction one file over
+    and one level down. Routing rule 0 - design/** belongs to sdlc-architect.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
