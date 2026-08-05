@@ -56,10 +56,23 @@ const VALIDATION_MESSAGE = 'That short code cannot be used.';
 const RETRY_AFTER = '30';
 
 /**
- * What the framework writes on a body it could not parse. Branch 3's 400 arm forwards
- * this text, and only this text — never an arbitrary `Error.message`.
+ * What Nest actually puts on a `BadRequestException` for a malformed JSON body: Node's
+ * own `JSON.parse` message, which quotes the bytes it choked on. This is the exact shape
+ * reproduced under F-094 for a body of
+ * `{"password":"hunter2","token":"eyJhbGciOi","x":}` on Node 24.19.
  */
-const MALFORMED_BODY_MESSAGE = 'Unexpected token } in JSON at position 17';
+const MALFORMED_BODY_MESSAGE = `Unexpected token '}', ..."ciOi","x":}" is not valid JSON`;
+
+/** The fragment of the caller's own bearer token the message above carries. */
+const REFLECTED_TOKEN_FRAGMENT = 'ciOi';
+
+/**
+ * What the body says instead, per `error-envelope.md`'s message constants
+ * (F-094, F-098, ADR-0026). Hand-read off the contract rather than imported: the filter
+ * does not export it, and a test that read the value from the code under test would
+ * accept any value the code chose.
+ */
+const FRAMEWORK_BAD_REQUEST_FORM_MESSAGE = 'The request could not be parsed.';
 
 /**
  * A framework status no code maps to. `error-envelope.md` names 413 specifically: a body
@@ -317,12 +330,25 @@ describe('the API exception filter', () => {
     expect(expectEnvelope(probed).code).toBe('validation_failed');
   });
 
-  it("AC-13: forwards a framework 400's own message under the _form key", async () => {
+  /**
+   * Amended for F-101. This asserted the pass-through of the exception's own message
+   * until F-094 removed it from the contract in the same fix round: Nest builds that
+   * message from the raw request bytes, so forwarding it reflects a fragment of the
+   * caller's body — a token among them — into an error body (ADR-0026).
+   */
+  it("AC-13: replaces a framework 400's own message with the fixed one under _form", async () => {
     const probed = await probe('http-exception-bad-request');
     const envelope = expectEnvelope(probed);
     const details = validationDetailsContract.parse(envelope.details);
 
-    expect(details.fieldErrors).toEqual({ _form: [MALFORMED_BODY_MESSAGE] });
+    expect(details.fieldErrors).toEqual({ _form: [FRAMEWORK_BAD_REQUEST_FORM_MESSAGE] });
+  });
+
+  it('AC-13: keeps the request bytes a framework 400 quotes out of the response body', async () => {
+    const probed = await probe('http-exception-bad-request');
+    expectEnvelope(probed);
+
+    expect(probed.raw).not.toContain(REFLECTED_TOKEN_FRAGMENT);
   });
 
   it('AC-13: answers 500 internal_error for a framework exception with an unmapped status', async () => {
