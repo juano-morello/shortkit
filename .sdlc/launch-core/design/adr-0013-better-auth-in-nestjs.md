@@ -287,7 +287,7 @@ appends, so the protection is in place when the second appender arrives.
   symptom is `undefined` rather than an error.
 - The `/api/auth/*` mount sits outside the Nest module graph, so AC-55's test cannot
   see it and no Nest guard, interceptor or filter applies to it. Better Auth's own
-  error responses do not match `ErrorEnvelope`. TASK-009 has to map them at the web
+  error responses do not match `ErrorEnvelope`. TASK-008 has to map them at the web
   client boundary, and the contract records the exception.
 - A 5-minute token means the web app refreshes roughly twelve times an hour per active
   session. ADR-0014 owns that traffic.

@@ -1316,6 +1316,48 @@
     Same defect class as F-054 - the architect found this one while fixing that one, and
     correctly did not edit it because it was outside its four-finding brief.
   owner_slot: sdlc-architect
-  status: open
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    Fixed in round 1. Line 290 now names TASK-008; the mechanism claim around it - that the
+    /api/auth/* mount sits outside the Nest module graph so no Nest filter applies and Better
+    Auth's error bodies do not match ErrorEnvelope - is untouched, because it is correct and
+    load-bearing. ORCHESTRATOR VERIFIED the line reads TASK-008. The architect then re-checked
+    all 13 remaining TASK-009 occurrences in the file against the current split and found one
+    more that does not survive it, filed as F-057.
+
+- id: F-057
+  phase: test
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/design/adr-0013-better-auth-in-nestjs.md
+  line: 308
+  summary: >-
+    ADR-0013 assigns TASK-009 "an e2e test asserting POST /api/auth/sign-up/email receives a
+    parsed body". That test needs a live server, so design/test-strategy.md puts it in the
+    integration layer under apps/api/test/**/*.int-spec.ts - and TASK-009's paths contain no
+    apps/api/test/** at all.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED both paths lists. TASK-009 is apps/api/src/auth/**,
+    apps/api/src/main.ts, packages/contracts/src/auth/** and apps/api/src/app.module.ts - no
+    test directory. TASK-058 is the one holding apps/api/test/auth/**, exactly where the file
+    would land. TASK-009's own Approach never mentions this test either; it claims only the
+    rateLimit.enabled unit test. So the ADR is the only place the obligation exists and it
+    points at a TASK that cannot discharge it. The parsed-body assertion is the acceptance
+    signal for TASK-009's own mount, so if it silently migrates to TASK-058 the mount ships one
+    wave unverified - which is the actual cost, not the file placement.
+  required_change: >-
+    Two candidate resolutions, and the choice has a wave-ordering consequence rather than being
+    mechanical. (a) Add apps/api/test/auth/** to TASK-009's paths and keep the test with the
+    mount it verifies, which means TASK-009 and TASK-058 share that directory as they already
+    share auth.config.ts. (b) Move the test to TASK-058 and accept that TASK-009's mount ships
+    one wave without its acceptance signal. The architect declined to choose, correctly - this
+    is an ownership call, and reassigning it silently would hide the one-wave gap.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
   resolved_by: null
   resolved_round: null
