@@ -19,9 +19,30 @@ depends_on: [TASK-001]
 paths: [".github/**"]
 contracts: []
 test_files: []
-acceptance: [AC-5, AC-114]
+acceptance: [AC-5, AC-114, AC-113]
 rework_count: 0
 ---
+
+## ⚠ AC-113 half added 2026-08-05 (F-084, ruled by Juano)
+
+**This TASK owns the invocation, not the check.** TASK-004 writes
+`apps/web/scripts/assert-no-inlined-secrets.mjs` and exposes it as the `assert:no-secrets`
+package script. The workflow this TASK produces must build `apps/web` and then run that
+script, so a build inlining a server-only value fails the pipeline:
+
+```yaml
+- run: pnpm --filter @shortkit/web build
+- run: pnpm --filter @shortkit/web assert:no-secrets
+```
+
+**Why AC-113 is on both TASKs' acceptance lists.** AC-113 is one criterion whose two halves
+sit in two different paths lists — the check itself under `apps/web/**`, the thing that fails
+CI under `.github/**`. Left on TASK-004 alone, `sdlc-product-auditor` auditing this TASK has no
+criterion requiring the invocation step and would be right to file it as scope nobody asked
+for; auditing TASK-004 it would find AC-113 unmet, because a script nothing runs fails no
+pipeline. Each TASK's amendment block names the half it discharges, and the auditor checks
+that half. F-084 exists because AC-113 was minted against a single TASK that could only
+deliver one half of it.
 
 ## Intent
 

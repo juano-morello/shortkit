@@ -6,7 +6,7 @@ title: Load-test harness for the cache-hit path
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-030]
-paths: ["infra/loadtest/**", "package.json"]
+paths: ["infra/loadtest/**", "package.json", "pnpm-lock.yaml"]
 contracts: [design/contracts/loadtest-result.md]
 test_files: []
 acceptance: [AC-61]

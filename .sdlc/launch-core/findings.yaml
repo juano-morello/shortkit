@@ -2349,8 +2349,23 @@
     Juano's call, per routing rule 0 - both candidate homes are approved artifacts. Options
     presented at the pre-flight scan.
   owner_slot: null
-  status: escalated
-  resolved_by: null
+  status: fixed
+  ruling: >-
+    RULED by Juano 2026-08-05 - SPLIT. TASK-004 owns the check (apps/web/scripts/assert-no-inlined-secrets.mjs
+    plus an assert:no-secrets package script, both already inside its paths); TASK-002 owns the invocation
+    (a workflow step that builds apps/web and runs that script). The move-AC-113-wholly-to-TASK-002 and
+    widen-TASK-004-into-a-workflow-file alternatives were offered and declined. Reason for the split - the
+    list of server-only variables stays next to where TASK-004 registers them, so a third such variable
+    updates one file rather than a workflow in another TASK's territory.
+  ruling_consequence: >-
+    AC-113 now appears in BOTH TASKs' acceptance lists, applied by the orchestrator as the mechanical
+    consequence. Without it sdlc-product-auditor auditing TASK-002 has no criterion requiring the
+    invocation step and would correctly file it as kind: scope, while auditing TASK-004 it would find
+    AC-113 unmet because a script nothing runs fails no pipeline. Each TASK's amendment block names the
+    half it discharges. TASK-004 additionally carries an instruction to verify the script exits non-zero
+    with a value deliberately inlined - a check that never fires and a check that cannot fire look
+    identical on a clean build.
+  resolved_by: orchestrator
   resolved_round: null
 
 - id: F-085
@@ -2383,6 +2398,21 @@
     because F-075's text says "workspace manifest" and pnpm-lock.yaml is a repo-root artifact shared
     by all three workspaces, so reading it in is an extension rather than a transcription.
   owner_slot: null
-  status: escalated
-  resolved_by: null
+  status: fixed
+  ruling: >-
+    RULED by Juano 2026-08-05 - THE LOCKFILE FOLLOWS THE MANIFEST. F-075's "the consuming TASK owns its own
+    workspace manifest" is read as covering pnpm-lock.yaml, so a dependency, its manifest entry and its
+    lockfile resolution land in one commit that installs cleanly and passes one review. The
+    widen-TASK-005-only and orchestrator-regenerates alternatives were declined, the second on the same
+    grounds Juano declined it when ruling F-075 - it puts part of a dependency change outside review and
+    outside the TDD loop.
+  ruling_consequence: >-
+    Applied by the orchestrator to BOTH live manifest holders, not only the one that surfaced it -
+    TASK-005 (wave 1) and TASK-035 (wave 10') each gained pnpm-lock.yaml. Applying it to TASK-005 alone
+    would have left the identical escalation waiting in wave 10'. Standing rule recorded in TASK-005:
+    regenerate by running the install, never hand-edit, and where a later wave holds two manifest owners
+    that wave needs worktree isolation with the lockfile resolved by re-running the install on the merged
+    manifests rather than by merging lockfile hunks. Wave 1 is unaffected - TASK-005 is the sole holder,
+    so it stays parallel-safe.
+  resolved_by: orchestrator
   resolved_round: null

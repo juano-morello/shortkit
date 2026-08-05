@@ -52,6 +52,31 @@ Deployed web base URL; root layout at `apps/web/app/layout.tsx`; environment var
 `.next/static/**` for the values of `BFF_PROXY_SECRET` and `API_BASE_URL` and fails CI if
 either is present.
 
+### ⚠ Split 2026-08-05 (F-084, ruled by Juano) — this TASK owns the check, not the invocation
+
+The pre-flight conflict scan found that AC-113 as minted was undeliverable by this TASK alone:
+it says "fails the CI workflow", and every workflow lives under `.github/**`, which is
+TASK-002's paths list. Ruled as a split.
+
+**This TASK produces:**
+
+- `apps/web/scripts/assert-no-inlined-secrets.mjs` — reads `BFF_PROXY_SECRET` and
+  `API_BASE_URL` from the environment, searches `.next/static/**` for their **values**, and
+  exits non-zero naming the file and the variable if either appears. It searches for values
+  rather than variable names, because the `NEXT_PUBLIC_` inlining this guards against
+  substitutes the value and leaves no name behind.
+- an `assert:no-secrets` script in `apps/web/package.json` that invokes it.
+
+**TASK-002 produces the workflow steps that build `apps/web` and run it.** Neither half fails
+CI on its own. The variable list lives here, next to where this TASK registers the variables,
+so a third server-only variable added later updates one file rather than a workflow in another
+TASK's territory.
+
+A guard on this TASK's own work: the script must exit non-zero when a secret **is** present.
+Verify that directly by building once with the value deliberately inlined, rather than
+reasoning it from a clean build that finds nothing — a check that never fires and a check that
+cannot fire are indistinguishable from a green run.
+
 The Design-round-5 amendment in this TASK's Produces block already forbids the
 `NEXT_PUBLIC_` prefix on both variables, and `design/contracts/web-api-client.md` calls
 `BFF_PROXY_SECRET` required and server-only — but STORY-002 contained no AC mentioning

@@ -6,7 +6,7 @@ title: Database connection, migrations, and the tenant-context transaction helpe
 status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts", "apps/api/src/tenancy/tenant-context.ts", "apps/api/package.json"]
+paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts", "apps/api/src/tenancy/tenant-context.ts", "apps/api/package.json", "pnpm-lock.yaml"]
 contracts: [design/contracts/rls-policy-template.md, design/contracts/tenant-context.md]
 test_files: ["apps/api/test/tenancy/tenant-context.int-spec.ts"]
 acceptance: [AC-8, AC-9, AC-10, AC-11]
@@ -90,3 +90,20 @@ binary behind it and the migration half of this TASK cannot run at all.
 `drizzle-kit` is a devDependency; `pg` is a runtime dependency. Both are pinned exactly, no
 caret and no tilde, per ADR-0018. F-069 is the record of what an unreviewed pin looks like:
 say in your report why you chose each version.
+
+## ⚠ pnpm-lock.yaml added 2026-08-05 (F-085, ruled by Juano)
+
+**The lockfile moves with the manifest.** Juano's F-075 ruling — the consuming TASK owns its
+own workspace manifest — reads as covering `pnpm-lock.yaml` too, and this TASK's paths now
+include it. Commit the manifest change and the regenerated lockfile **together**, in the same
+commit as the code that needs them.
+
+The pre-flight scan found that `pnpm-lock.yaml` appeared in exactly one paths list across all
+58 TASKs, TASK-001's, and TASK-001 is done — so nobody owned it. That is not cosmetic here.
+Every CI job installs with `--frozen-lockfile` (TASK-002), so a `package.json` gaining `pg`,
+`@types/pg` and `drizzle-kit` without its regenerated lockfile fails install for every TASK
+after this one, not just this one.
+
+Regenerate it by running the install, never by hand-editing. If a later wave puts two manifest
+holders in one wave, that wave needs worktree isolation and the lockfile is resolved by
+re-running the install on the merged manifests — never by merging lockfile hunks.
