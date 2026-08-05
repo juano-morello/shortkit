@@ -1,7 +1,15 @@
 /**
  * SQL access for the integration suite's fixtures, without a Node driver.
  *
- * ⚠ TASK-005 MUST REPLACE THIS FILE.
+ * ⚠ THIS FILE IS sdlc-test-architect'S TO REPLACE — NOT TASK-005'S.
+ *
+ * `apps/api/test/support/**` appears in no TASK's paths and belongs to
+ * sdlc-test-architect under routing rule 0, so no implementer may edit it. TASK-005's
+ * obligation towards this file is the dependency alone: it adds `pg` to
+ * `apps/api/package.json`, because `drizzle-orm/node-postgres` requires it. Once that
+ * has landed, sdlc-test-architect swaps the `psql` spawn below for a `pg.Client` and
+ * deletes the process spawning; nothing outside this file knows how the SQL is sent
+ * (F-077, F-100).
  *
  * The suite needs three things the production API deliberately does not expose:
  * DDL as the migrator role, seeding, and a read on the runtime role that is NOT
@@ -9,12 +17,10 @@
  * exports an unscoped client — that is the point of ADR-0002 — so the fixture
  * needs its own connection.
  *
- * `pg` is not a dependency of `apps/api` at the time these tests were written
- * (TASK-005 adds it, because `drizzle-orm/node-postgres` requires it). Importing
- * it here would make every test in the file fail on module resolution, which
- * proves nothing. So the fixture shells out to `psql` instead. Once `pg` is
- * installed, replace the two exported functions with a `pg.Client` and delete the
- * process spawning; nothing outside this file knows how the SQL is sent.
+ * `pg` is not a dependency of `apps/api` at the time these tests were written.
+ * Importing it here would make every test in the file fail on module resolution,
+ * which proves nothing. So the fixture shells out to `psql` instead, and the two
+ * exported functions become a `pg.Client` in the swap described above.
  *
  * Resolution order for the client binary:
  *   1. `psql` on PATH.

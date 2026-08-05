@@ -17,14 +17,19 @@
  *    never depends on the `WITH CHECK` clause that AC-9 is asserting. A broken
  *    template fails a test, not the setup.
  *
- * ⚠ TASK-005 owes this fixture two things it currently fakes:
- *   - `tenants` is created here as raw DDL. Replace it with the real migration
- *     (and its own four policies, per rls-policy-template.md) once the migration
- *     runner exists; this fixture creates it unprotected because AC-8..AC-11 are
- *     asserted against the tenant-scoped table below, not against `tenants`.
- *   - `docker-compose.test.yml` must stand up a database that already holds the
- *     `shortkit_migrator` and `shortkit_app` roles from rls-policy-template.md,
- *     and export `DATABASE_URL` / `DATABASE_MIGRATION_URL` for them.
+ * ⚠ Two things this fixture currently fakes. THE EDITS BELOW ARE
+ * sdlc-test-architect'S — `apps/api/test/support/**` is in no TASK's paths and
+ * belongs to it under routing rule 0. What TASK-005 owes is the two artifacts the
+ * edits depend on, and nothing inside this file (F-077, F-100):
+ *   - `tenants` is created here as raw DDL. sdlc-test-architect replaces it with the
+ *     real migration (and its own four policies, per rls-policy-template.md) once
+ *     TASK-005's migration runner exists; this fixture creates it unprotected because
+ *     AC-8..AC-11 are asserted against the tenant-scoped table below, not against
+ *     `tenants`.
+ *   - TASK-005 produces `docker-compose.test.yml`, which must stand up a database
+ *     that already holds the `shortkit_migrator` and `shortkit_app` roles from
+ *     rls-policy-template.md, and export `DATABASE_URL` / `DATABASE_MIGRATION_URL`
+ *     for them. This fixture reads those two variables and nothing else.
  */
 import { TENANT_ID_COLUMN_SQL, tenantScopedPolicies } from '../../src/db/rls';
 

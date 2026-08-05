@@ -1,4 +1,10 @@
-import { Controller, Get, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  HttpException,
+  NotFoundException,
+} from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import {
@@ -50,6 +56,19 @@ const VALIDATION_MESSAGE = 'That short code cannot be used.';
 const RETRY_AFTER = '30';
 
 /**
+ * What the framework writes on a body it could not parse. Branch 3's 400 arm forwards
+ * this text, and only this text — never an arbitrary `Error.message`.
+ */
+const MALFORMED_BODY_MESSAGE = 'Unexpected token } in JSON at position 17';
+
+/**
+ * A framework status no code maps to. `error-envelope.md` names 413 specifically: a body
+ * over Express's default limit has no row in `ERROR_CODES`, so it answers 500 until one
+ * is appended.
+ */
+const UNMAPPED_FRAMEWORK_STATUS = 413;
+
+/**
  * Route, code and status, with the status hand-read off `error-envelope.md`'s table
  * rather than looked up in `ERROR_CODE_STATUS`. Two codes with two different statuses,
  * neither of which the framework produces on its own, so a filter answering a constant
@@ -95,6 +114,27 @@ class ErrorProbeController {
   @Get('http-exception')
   httpException(): never {
     throw new NotFoundException();
+  }
+
+  /**
+   * Branch 3's 400 arm. A malformed JSON body reaches the filter as a
+   * `BadRequestException` carrying the parser's own text.
+   */
+  @Get('http-exception-bad-request')
+  httpExceptionBadRequest(): never {
+    throw new BadRequestException(MALFORMED_BODY_MESSAGE);
+  }
+
+  /**
+   * Branch 3's fallback arm: a framework status no code maps to. The message stands in
+   * for the class of text invariant 8 forbids in a body.
+   */
+  @Get('http-exception-unmapped-status')
+  httpExceptionUnmappedStatus(): never {
+    throw new HttpException(
+      `upstream ${LEAKED_SECRET} rejected the body`,
+      UNMAPPED_FRAMEWORK_STATUS,
+    );
   }
 
   /** What a validation pipe throws on a malformed request body. */
@@ -268,6 +308,35 @@ describe('the API exception filter', () => {
     const envelope = expectEnvelope(probed);
 
     expect(envelope.details).toBeUndefined();
+  });
+
+  it('AC-13: answers 400 validation_failed for a framework exception carrying a 400', async () => {
+    const probed = await probe('http-exception-bad-request');
+
+    expect(probed.status).toBe(400);
+    expect(expectEnvelope(probed).code).toBe('validation_failed');
+  });
+
+  it("AC-13: forwards a framework 400's own message under the _form key", async () => {
+    const probed = await probe('http-exception-bad-request');
+    const envelope = expectEnvelope(probed);
+    const details = validationDetailsContract.parse(envelope.details);
+
+    expect(details.fieldErrors).toEqual({ _form: [MALFORMED_BODY_MESSAGE] });
+  });
+
+  it('AC-13: answers 500 internal_error for a framework exception with an unmapped status', async () => {
+    const probed = await probe('http-exception-unmapped-status');
+
+    expect(probed.status).toBe(500);
+    expect(expectEnvelope(probed).code).toBe('internal_error');
+  });
+
+  it("AC-13: keeps an unmapped framework exception's message out of the response body", async () => {
+    const probed = await probe('http-exception-unmapped-status');
+    expectEnvelope(probed);
+
+    expect(probed.raw).not.toContain(LEAKED_SECRET);
   });
 
   it('AC-13: answers 400 validation_failed for a ZodError', async () => {
