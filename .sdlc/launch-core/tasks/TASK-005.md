@@ -6,7 +6,7 @@ title: Database connection, migrations, and the tenant-context transaction helpe
 status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts"]
+paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts", "apps/api/src/tenancy/tenant-context.ts", "apps/api/package.json"]
 contracts: [design/contracts/rls-policy-template.md, design/contracts/tenant-context.md]
 test_files: ["apps/api/test/tenancy/tenant-context.int-spec.ts"]
 acceptance: [AC-8, AC-9, AC-10, AC-11]
@@ -52,3 +52,30 @@ as the suppliers of real suites. It must not survive past the first real `.int-s
 While it stands, an integration run that matches nothing is indistinguishable from one that
 passed. You produce `docker-compose.test.yml` and the migration runner, so you are the
 first TASK that can write an integration test at all.
+
+## ⚠ Paths widened 2026-08-05 (F-074, F-075, F-076 — ruled by Juano)
+
+Three files were added to `paths`, each because this TASK was already obliged to write it.
+
+- **`apps/api/src/tenancy/tenant-context.ts`** (F-074). `withTenantTransaction` lives here,
+  not under `apps/api/src/db/**`, and all four of this TASK's ACs assert its behaviour.
+  The stub's own header already splits the file — *"Produced by: TASK-005
+  (withTenantTransaction, tenantDb), TASK-011 (interceptor, RequestContext)"* — so only the
+  paths list disagreed. **Juano ruled the narrow file glob, not `apps/api/src/tenancy/**`.**
+  TASK-011 keeps the directory for the interceptor and `RequestContext`. You write this one
+  file and nothing else under `tenancy/`. Two TASKs holding one file is the same shape as
+  TASK-009 and TASK-058 on `auth.config.ts`, sequenced by TASK-011's `depends_on`.
+
+- **`apps/api/package.json`** (F-075). `pg` and `@types/pg` are unresolvable from `apps/api`
+  today — verified `MODULE_NOT_FOUND` — though ADR-0002 names `pg` as the driver and
+  `drizzle-orm/node-postgres` requires it. Juano ruled that **the consuming TASK owns its own
+  workspace manifest**, so the dependency lands in the same commit as the code that needs it.
+  ADR-0018 makes exact pinning the stance: no caret, no tilde. F-069 is what an unreviewed
+  pin looks like — say in your report why you chose the version you chose.
+
+- **`apps/api/vitest.integration.config.ts`** (F-076). See the F-064 obligation block above;
+  the paths list simply never picked up the file that ruling named.
+
+**Ownership note.** If a wave-1 sibling also gains `apps/api/package.json`, this wave stops
+being parallel-safe on that one file and needs worktree isolation. Check the wave table before
+dispatch rather than assuming.

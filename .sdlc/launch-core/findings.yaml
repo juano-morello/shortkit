@@ -1819,8 +1819,15 @@
     Add apps/api/src/app.module.ts to TASK-007's paths. It is already a declared structural
     serialisation point in plan.md's wave table, shared by every TASK registering a Nest module.
   owner_slot: null
-  status: escalated
-  escalated_to: juano
+  status: fixed
+  resolved_by: juano
+  ruling: >-
+    RULED 2026-08-05. APPROVED, narrow glob. apps/api/src/app.module.ts added to TASK-007's
+    paths - the single file, not a directory. Juano was offered the whole-directory and
+    re-cut-the-boundaries alternatives and took the narrow one. VERIFIED before applying that
+    no other wave-1 TASK (002, 004, 005) names app.module.ts, so wave 1 remains parallel-safe;
+    later waves already merge this file deliberately per plan.md's wave table. Recorded in
+    TASK-007 under a dated amendment block.
 
 - id: F-071
   phase: test
@@ -1936,8 +1943,16 @@
     depends_on: [TASK-009, TASK-005]. If the narrower file-level glob is chosen, TASK-011 keeps
     the interceptor and RequestContext as the stub header already says.
   owner_slot: null
-  status: escalated
-  escalated_to: juano
+  status: fixed
+  resolved_by: juano
+  ruling: >-
+    RULED 2026-08-05. APPROVED, narrow glob - apps/api/src/tenancy/tenant-context.ts as a single
+    file rather than apps/api/src/tenancy/**. TASK-011 keeps the directory for the interceptor and
+    RequestContext, which is exactly how the stub header already splits the file, so TASK-005 may
+    write this one file and nothing else under tenancy/. The two-TASKs-one-file overlap is the same
+    shape as TASK-009/TASK-058 on auth.config.ts and is sequenced by TASK-011's existing
+    depends_on: [TASK-009, TASK-005]. VERIFIED that no other wave-1 TASK names a tenancy path, so
+    wave 1 stays parallel-safe.
 
 - id: F-075
   phase: test
@@ -1968,8 +1983,20 @@
     general ruling is worth more than two one-off widenings, since every later backend TASK that
     adds a dependency hits this same wall.
   owner_slot: null
-  status: escalated
-  escalated_to: juano
+  status: fixed
+  resolved_by: juano
+  ruling: >-
+    RULED 2026-08-05 as a GENERAL rule, not a one-off widening: THE CONSUMING TASK OWNS ITS OWN
+    WORKSPACE MANIFEST. Each TASK needing a dependency gains that manifest in paths, so the
+    dependency lands in the same commit as the code requiring it and passes through the same review.
+    The alternatives - a single named manifest owner, and orchestrator-applied manifest edits - were
+    both offered and rejected; the second would put dependency choice outside review and the TDD
+    loop, which F-069 already shows the cost of. APPLIED HERE: TASK-005 paths += apps/api/package.json
+    for pg and @types/pg, pinned exactly per ADR-0018. NOT YET APPLIED to TASK-007: whether it needs
+    the manifest at all depends on F-071's ruling, since the contracts-side answer would keep zod out
+    of apps/api entirely. CONSEQUENCE Juano flagged in taking the ruling, carried into TASK-005 and
+    to be checked before dispatch: if two wave-1 TASKs both hold apps/api/package.json, wave 1 stops
+    being parallel-safe on that file and needs worktree isolation.
 
 - id: F-076
   phase: test
