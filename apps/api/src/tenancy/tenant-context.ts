@@ -4,8 +4,11 @@
  * Produced by: TASK-005 (withTenantTransaction, tenantDb), TASK-011 (interceptor, RequestContext)
  *
  * GC-5 lives here. Every tenant-scoped read or write runs inside a transaction that
- * has set `app.tenant_id`. THIS IS THE ONLY FILE THAT MAY CONTAIN THE STRING
- * `app.tenant_id` outside tests. The isolation suite asserts that by grep.
+ * has set `app.tenant_id`. THIS IS THE ONLY FILE THAT MAY SET IT outside tests, and
+ * the isolation suite asserts that by grep. The literal name is TENANT_ID_SETTING in
+ * ../db/rls.ts, imported below, because the policies that READ the flag live there:
+ * ADR-0003's grep then finds the string in exactly one non-test source file, and the
+ * statement that sets it cannot drift from the policies that depend on it.
  *
  * SQL issued (F-007, 2026-08-04):
  *   BEGIN;
@@ -18,8 +21,12 @@
  * NO CONTEXT FLAG IS EVER SET BY CONCATENATION.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { Logger } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type { TenantRole, WorkspaceRole } from '@shortkit/contracts';
+import { databaseTransaction } from '../db/client';
+import { TENANT_ID_SETTING } from '../db/rls';
 import type * as schema from '../db/schema';
 
 declare const tenantScopedBrand: unique symbol;
@@ -69,14 +76,29 @@ export class TenantContextMismatchError extends Error {
 }
 
 /**
+ * The context as this module holds it. `afterCommit` is mutable and internal: a
+ * nested call reuses the outer transaction, so its hook has to wait for the outer
+ * COMMIT rather than run at the end of its own frame, where nothing has committed
+ * yet (contract invariants 5 and 6 together). TenantContext, which is what callers
+ * see, stays exactly as the contract declares it.
+ */
+interface ActiveTenantContext extends TenantContext {
+  readonly afterCommit: AfterCommitHook[];
+}
+
+type AfterCommitHook = () => Promise<void> | void;
+
+/**
  * Module-private. Never exported: every other module reaches it only through
  * withTenantTransaction, tenantDb and currentTenantId below.
- *
- * Referenced by this no-op `void` until those functions are implemented (TASK-005),
- * so the declaration does not trip noUnusedLocals in the meantime.
  */
-const tenantStorage = new AsyncLocalStorage<TenantContext>();
-void tenantStorage;
+const tenantStorage = new AsyncLocalStorage<ActiveTenantContext>();
+
+// TASK-003 replaces this with the pino logger.
+const logger = new Logger('TenantTransaction');
+
+/** design/contracts/tenant-context.md, TenantTransactionOptions.statementTimeoutMs. */
+const DEFAULT_STATEMENT_TIMEOUT_MS = 5000;
 
 /**
  * Opens a transaction, sets app.tenant_id via set_config, runs `fn` inside it.
@@ -94,11 +116,59 @@ void tenantStorage;
  * Anything else is a defect.
  */
 export async function withTenantTransaction<T>(
-  _tenantId: string,
-  _fn: (db: TenantDb) => Promise<T>,
-  _options?: TenantTransactionOptions,
+  tenantId: string,
+  fn: (db: TenantDb) => Promise<T>,
+  options?: TenantTransactionOptions,
 ): Promise<T> {
-  throw new Error('not implemented');
+  const scopedTo = assertUuid(tenantId);
+  const active = tenantStorage.getStore();
+
+  if (active !== undefined) {
+    if (active.tenantId !== scopedTo) {
+      throw new TenantContextMismatchError(active.tenantId, scopedTo);
+    }
+
+    // Reuses the outer transaction and opens no savepoint. A savepoint here would
+    // let an inner failure be swallowed while the outer transaction still commits,
+    // which is the opposite of AC-11.
+    if (options?.afterCommit !== undefined) {
+      active.afterCommit.push(options.afterCommit);
+    }
+
+    return fn(active.db);
+  }
+
+  const afterCommit: AfterCommitHook[] =
+    options?.afterCommit === undefined ? [] : [options.afterCommit];
+
+  const result = await databaseTransaction(async (tx) => {
+    const db = tx as TenantDb;
+
+    // Both values are bound, never interpolated. `set_config` is the parameterised
+    // form of SET LOCAL, which accepts no bind parameter at all (F-007).
+    await tx.execute(
+      sql`select set_config('statement_timeout', ${String(options?.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS)}, true)`,
+    );
+    await tx.execute(sql`select set_config(${TENANT_ID_SETTING}, ${scopedTo}, true)`);
+
+    return tenantStorage.run({ tenantId: scopedTo, db, afterCommit }, () => fn(db));
+  });
+
+  // Only reached once COMMIT has returned: a throw inside `fn` rolls the transaction
+  // back and rethrows before this line, so no hook runs for work that was undone.
+  for (const hook of afterCommit) {
+    try {
+      await hook();
+    } catch (error) {
+      // The transaction is already committed and the caller's result is already
+      // decided, so this is reported and not propagated (contract invariant 6).
+      logger.error(
+        `afterCommit hook failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+      );
+    }
+  }
+
+  return result;
 }
 
 export class InvalidTenantIdError extends Error {
@@ -108,18 +178,40 @@ export class InvalidTenantIdError extends Error {
   }
 }
 
+/**
+ * Any of the eight uuid versions, since the three sanctioned sources are
+ * crypto.randomUUID (v4), a `tid` JWT claim and a capability token's routing prefix,
+ * and the last two carry whatever a future signup wrote. Shape is the whole point:
+ * a value that is not a uuid must not reach set_config, whatever it looks like.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Throws InvalidTenantIdError. Called before every set_config of a tenant id. */
-export function assertUuid(_value: string): string {
-  throw new Error('not implemented');
+export function assertUuid(value: string): string {
+  if (!UUID.test(value)) {
+    throw new InvalidTenantIdError(value);
+  }
+
+  return value;
 }
 
 /** Reads the ambient context. Throws when none is active. Never returns an unscoped client. */
 export function tenantDb(): TenantDb {
-  throw new Error('not implemented');
+  return activeContext().db;
 }
 
 export function currentTenantId(): string {
-  throw new Error('not implemented');
+  return activeContext().tenantId;
+}
+
+function activeContext(): ActiveTenantContext {
+  const active = tenantStorage.getStore();
+
+  if (active === undefined) {
+    throw new TenantContextMissingError();
+  }
+
+  return active;
 }
 
 /** Populated by AuthGuard from JWT claims only. NO DATABASE READ. */

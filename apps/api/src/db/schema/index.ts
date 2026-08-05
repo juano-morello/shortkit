@@ -5,6 +5,7 @@
  * reads a glob against this directory directly and does not import this file; this
  * barrel is for application code and `tenantScopedTables()`.
  *
- * No table file exists yet. The first schema TASK adds both the table file and its
- * `export * from './<table>';` line here.
+ * A schema TASK adds both the table file and its `export * from './<table>';` line
+ * here, alphabetically.
  */
+export * from './tenants';

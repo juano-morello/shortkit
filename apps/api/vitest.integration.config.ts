@@ -9,9 +9,10 @@ import { defineConfig } from 'vitest/config';
  * `pnpm test:integration`, never by `pnpm test`. Keeping it on its own command is
  * what lets `pnpm test` pass from a clean clone with no Docker and no network.
  *
- * `passWithNoTests` holds because the suites arrive later: TASK-005 brings the
- * database and `docker-compose.test.yml`, TASK-056 brings the isolation suite.
- * Until then the command has to exit 0 rather than report a broken runner.
+ * `passWithNoTests` was set by TASK-001 so the command would exit 0 before any
+ * suite existed, and removed by TASK-005 (F-064) with the first real `.int-spec.ts`.
+ * A run that matches nothing is now a failure: while the flag stood, an integration
+ * run matching no files was indistinguishable from one that passed.
  */
 const INTEGRATION_SPEC = '**/*.int-spec.ts';
 
@@ -19,10 +20,9 @@ const NAMED_LIKE_AN_INTEGRATION_SPEC = /\.int[-.]spec\.ts$/;
 const MATCHED_BY_INCLUDE = /\.int-spec\.ts$/;
 
 /**
- * `passWithNoTests` turns a glob that matches nothing into a green run, so a
- * suite filed under a name the glob misses reports as passing with zero
- * assertions executed. A file named like an integration spec but outside the
- * pattern fails the command loudly instead of disappearing from it.
+ * A suite filed under a name the glob misses would otherwise report nothing at
+ * all. A file named like an integration spec but outside the pattern fails the
+ * command loudly instead of disappearing from it.
  */
 function assertEveryIntegrationSpecRuns(): void {
   const workspace = fileURLToPath(new URL('.', import.meta.url));
@@ -50,7 +50,6 @@ export default defineConfig({
     environment: 'node',
     include: [INTEGRATION_SPEC],
     setupFiles: ['./vitest.setup.ts'],
-    passWithNoTests: true,
   },
   plugins: [swc.vite({ module: { type: 'es6' } })],
 });

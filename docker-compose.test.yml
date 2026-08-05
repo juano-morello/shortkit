@@ -1,0 +1,77 @@
+# The Postgres `pnpm test:integration` runs against locally.
+#
+# Contract: design/contracts/rls-policy-template.md (roles, grants, env vars)
+# ADR: adr-0001-test-framework.md, adr-0003-rls-policy-template-and-roles.md
+# Produced by: TASK-005 (F-038)
+#
+#   docker compose -f docker-compose.test.yml up -d --wait
+#   export DATABASE_URL='postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test'
+#   export DATABASE_MIGRATION_URL='postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test'
+#   pnpm test:integration
+#   docker compose -f docker-compose.test.yml down -v
+#
+# The CI equivalent is a `services:` container in the `integration` job and belongs
+# to TASK-002 (F-039), not here.
+#
+# 55433 rather than 5432 so a Postgres already running on the developer's machine
+# is neither shadowed nor connected to by accident: a test suite that silently
+# reaches a real database drops and recreates `tenants`.
+#
+# The credentials below are fixtures. They exist in a file that only ever points at
+# a throwaway container, and the suite refuses to run against a role that could
+# bypass RLS, so there is nothing here to protect.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      # The bootstrap superuser. Neither DSN above uses it: every statement the
+      # suite issues comes from one of the two NOBYPASSRLS roles, because a
+      # superuser is exempt from every policy and would make AC-8..AC-11 vacuous.
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - '127.0.0.1:55433:5432'
+    # tmpfs, not a volume: the suite drops and recreates its fixture per test and
+    # nothing here is worth keeping between runs. `down` leaves no disk behind.
+    tmpfs:
+      - /var/lib/postgresql/data
+    configs:
+      - source: shortkit_roles_sql
+        target: /docker-entrypoint-initdb.d/10-roles.sql
+    healthcheck:
+      # `-U shortkit_app -d shortkit_test` rather than the superuser, so the
+      # container only reports healthy once the init script below has run.
+      test: ['CMD-SHELL', 'pg_isready -U shortkit_app -d shortkit_test']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+configs:
+  # Inline rather than a mounted file: F-038 assigns TASK-005 `docker-compose.test.yml`
+  # and nothing beside it, and the roles are only meaningful together with the
+  # service that runs them.
+  shortkit_roles_sql:
+    content: |
+      -- design/contracts/rls-policy-template.md "Roles", verbatim but for the
+      -- literal passwords, which psql cannot take as :'variables' here.
+      --
+      -- NOBYPASSRLS on BOTH roles. It is the default, and it is written out because
+      -- a role that can bypass RLS turns every isolation assertion in the suite into
+      -- a tautology; test/support/rls-fixture.ts re-checks it before each run.
+      CREATE ROLE shortkit_migrator LOGIN PASSWORD 'migrator' NOBYPASSRLS;
+      CREATE ROLE shortkit_app      LOGIN PASSWORD 'app'      NOBYPASSRLS;
+
+      -- The migrator owns the database, so it owns schema `public` through
+      -- pg_database_owner and can run DDL without any further grant. The app role
+      -- owns nothing (ADR-0003).
+      CREATE DATABASE shortkit_test OWNER shortkit_migrator;
+
+      \connect shortkit_test
+
+      GRANT USAGE ON SCHEMA public TO shortkit_app;
+      ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
+      ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+        GRANT USAGE, SELECT ON SEQUENCES TO shortkit_app;
