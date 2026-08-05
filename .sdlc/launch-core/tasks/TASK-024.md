@@ -34,3 +34,11 @@ Endpoints (TASK-025), UI.
 **Produces**
 
 `generateSlug(domainId)` → an unused slug for that domain; `validateSlug(slug)` → ok or a named violation; the documented allowed alphabet, length bounds, and reserved slugs.
+
+
+## ⚠ Import the reserved-slug list from the root specifier (ADR-0005, F-045, 2026-08-04)
+
+Import from `@shortkit/contracts`, **never** `@shortkit/contracts/slug`. The subpath map
+was removed and a subpath import will not typecheck. If the symbol is missing from the
+root barrel, add its re-export line to `packages/contracts/src/index.ts` rather than
+reaching around it.

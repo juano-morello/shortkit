@@ -34,3 +34,20 @@ Any feature-specific contract (each feature TASK adds its own), the web client (
 **Produces**
 
 `ErrorEnvelope` — `{ code: string, message: string, details?: unknown }`; `ErrorCode` — the extensible union of stable codes; `Paginated<T>`; `Id` scalar; the API-side exception filter that serialises thrown errors into `ErrorEnvelope`.
+
+
+## ⚠ Contracts entry point is normative (ADR-0005, F-045, 2026-08-04)
+
+`@shortkit/contracts` has **exactly one entry point**. `packages/contracts/package.json`
+declares `"exports": { ".": "./src/index.ts" }` and `"sideEffects": false`, with **no
+`"./*"` key**. Both apps' tsconfig `paths` carry
+`"@shortkit/contracts": ["../../packages/contracts/src/index.ts"]` and nothing else.
+
+Do not add a subpath pattern. ADR-0005 records why: a subpath import must fail at
+typecheck rather than resolve one way in the bundler and another in `tsc`. The previous
+`"./*": "./src/*/index.ts"` resolved nothing at all — every subpath it advertised was dead.
+
+Every symbol reaches consumers through `src/index.ts`, one re-export line per producing
+TASK, alphabetical. `sideEffects: false` is what lets the web bundler drop re-exports a
+page does not use; it also means a contract module that runs code at import time gets
+silently dropped, so contracts must stay declaration-only.

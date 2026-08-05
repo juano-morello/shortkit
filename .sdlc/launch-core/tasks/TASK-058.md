@@ -108,3 +108,18 @@ Fix the comment as you go.
 `rate-limit.md`'s ownership table was written before TASK-009 was split, so it assigns
 auth-surface pieces to TASK-009 that now belong here. The split is authoritative; the
 table is not.
+
+
+## ⚠ Composition boundary with TASK-009 (ADR-0013, F-054, 2026-08-04)
+
+You own `authBodyCap`, `authRateLimit`, the `hooks.before` email bucket,
+`resolveRateLimitPrincipal`, the `AUTH_RATE_LIMIT_PORT` declaration, `LocalAuthRateLimiter`
+and the three integration tests in `rate-limit.md`.
+
+You **append** `emailRateLimitHook` to the `beforeHooks` array TASK-009 creates; you do not
+replace it. The port is required at boot, not `@Optional()`.
+
+Your three integration tests are what pins `ctx.path` being base-path-relative. ADR-0013
+now leans on them for that, so they are **required rather than advisory**. You do not own
+`assertBffProxySecretConfigured()` or its call in `main.ts` — those stay with TASK-009,
+whose `paths` reach `main.ts` while yours do not.

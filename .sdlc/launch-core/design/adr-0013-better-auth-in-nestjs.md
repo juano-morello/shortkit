@@ -118,8 +118,9 @@ returns on every request and the bucket does not exist. Three integration tests 
 pre-auth limiting and nothing else would notice.
 
 Both the Express middlewares and the hook reach Redis through `AUTH_RATE_LIMIT_PORT`
-rather than through `redisClient` directly, which is what lets TASK-009 build them in
-wave 2 against a dependency TASK-030 does not produce until wave 6 (F-024).
+rather than through `redisClient` directly, which is what lets TASK-058 build them
+against a dependency TASK-030 does not produce until wave 6 (F-024, re-attributed by
+F-054).
 
 Recorded in `rate-limit.md`'s Scope section, which previously read as though the surface
 simply had no limit.
@@ -208,16 +209,16 @@ attaches tenant creation to. It runs **after** the user row commits, so the memb
 a separate transaction and signup is not atomic across the two. Corrected 2026-08-04
 (F-029); ADR-0015 holds the residue argument and the two mechanisms that make it safe.
 
-**`hooks.before` has two owners and one slot, so it is a registry.** Better Auth takes a
-single `before` function. TASK-009 puts the email rate limiter there and TASK-013 puts
-invitation validation there, in the same `auth.config.ts`, eight waves apart. If the
-second author replaces rather than extends, the email bucket silently vanishes and F-019
-returns.
+**`hooks.before` has three owners and one slot, so it is a registry.** Re-attributed
+2026-08-04 (F-054). Better Auth takes a single `before` function. TASK-009 creates
+`auth.config.ts` with an empty registry, TASK-058 appends the email rate limiter, and
+TASK-013 appends invitation validation, eight waves later. If either appender replaces
+rather than extends, the email bucket silently vanishes and F-019 returns.
 
 ```ts
-// apps/api/src/auth/auth.config.ts — TASK-009 creates this shape.
+// apps/api/src/auth/auth.config.ts. TASK-009 creates this shape, empty.
 const beforeHooks: AuthBeforeHook[] = [
-  emailRateLimitHook,        // TASK-009
+  emailRateLimitHook,        // TASK-058 APPENDS.
   invitationValidationHook,  // TASK-013 APPENDS. It does not replace.
 ];
 
@@ -229,8 +230,9 @@ hooks: { before: createAuthMiddleware(async (ctx) => {
 Rate limiting runs first, so an attacker cannot use invitation-token probing to bypass
 it. A hook that does not apply to `ctx.path` returns immediately.
 
-TASK-009's three integration tests fail loudly if a later author replaces the array, which
-is why this is a stated rule rather than a mechanism.
+TASK-058's three integration tests fail loudly if a later author replaces the array,
+which is why this is a stated rule rather than a mechanism. They land before TASK-013
+appends, so the protection is in place when the second appender arrives.
 
 ## Alternatives considered
 
@@ -295,34 +297,57 @@ is why this is a stated rule rather than a mechanism.
 
 ### Follow-ups this creates
 
-**TASK-009 owns the entire auth surface, including its rate limiting.** Added
-2026-08-04 (F-024): the previous list omitted the limiter and the body cap entirely,
-while `rate-limit.md` named TASK-051 as their producer. TASK-051 cannot write
-`apps/api/src/auth/**`, and TASK-009 runs in wave 2 while `redisClient` arrives with
-TASK-030 in wave 6. Nobody owned the bucket and nothing said how a wave-2 mount reaches
-a wave-6 dependency.
+**TASK-009 mounts the auth surface; TASK-058 protects it.** Re-attributed 2026-08-04
+(F-054). This list previously read "TASK-009 owns the entire auth surface, including its
+rate limiting", which was true when F-024 added it. Juano split the protection surface
+out to TASK-058 on 2026-08-04, after Design roughly doubled TASK-009's scope, and the
+list did not follow. TASK-058 depends on TASK-009 and lands in the same wave sequence,
+so F-024's original point still holds: the auth surface protection has a named owner
+inside `apps/api/src/auth/**`, and it is not TASK-051.
 
 - TASK-009 owns the mount, the plugin configuration, `tenantIdForUser`, JWKS caching,
   and an e2e test asserting `POST /api/auth/sign-up/email` receives a parsed body.
-- TASK-009 also owns `authBodyCap`, `authRateLimit`, the `hooks.before` email bucket,
-  the `AUTH_RATE_LIMIT_PORT` declaration, and `LocalAuthRateLimiter`, plus the three
-  integration tests in `rate-limit.md` that pin the email bucket's key, predicate and
-  429 together.
+- TASK-009 also owns `assertBffProxySecretConfigured()` and its call in
+  `apps/api/src/main.ts`. `main.ts` is in TASK-009's `paths` and in nobody else's, so
+  TASK-058 cannot write it. Without that assertion production boots with
+  `BFF_PROXY_SECRET` unset, the trusted-proxy branch turns itself off, and every
+  IP-keyed bucket collapses onto Vercel's egress address.
+- **TASK-058 owns `authBodyCap`, `authRateLimit`, the `hooks.before` email bucket,
+  `resolveRateLimitPrincipal`, the `AUTH_RATE_LIMIT_PORT` declaration, and
+  `LocalAuthRateLimiter`**, plus the three integration tests in `rate-limit.md` that pin
+  the email bucket's key, predicate and 429 together. The port is required at boot
+  rather than `@Optional()`: an unbound token fails startup, because a missing limiter
+  opens the credential surface where a missing branding port only degrades a 404.
 - **TASK-051 binds `RedisAuthRateLimiter` to that token** and owns nothing inside
   `apps/api/src/auth/**`. The local limiter stays bound as ADR-0012's degraded fallback.
   The upgrade is per-machine to per-fleet; TASK-051 does not introduce the bucket.
+- `design/contracts/rate-limit.md`'s ownership table predates the split and still
+  assigns auth-surface pieces to TASK-009. Parked as F-037, with the correction written
+  into both TASK files. This list is the current attribution; that table is not. Parked
+  F-036 covers a second stale line, the `principal` doc comment in
+  `design/stubs/apps/api/src/auth/ports/auth-rate-limit.port.ts`, which still says
+  "platform-trusted client IP" where the rule is `resolveRateLimitPrincipal(headers)`.
 - TASK-011 owns `AuthGuard`, the revocation check, and the mapping from claims to
   `RequestContext`.
 - TASK-008 maps Better Auth's native error bodies onto `ErrorEnvelope` at the client
   boundary, **including reading `retryAfterSeconds` from a 429 body when the header is
   absent** (F-027).
 - Contracts: `design/contracts/auth-tokens.md`, `design/contracts/rate-limit.md`.
-- **TASK-013 appends to `beforeHooks`; it does not replace the array.**
+- **TASK-058 and TASK-013 both append to `beforeHooks`. Neither replaces the array.**
+  TASK-009 creates it empty (F-054).
 - TASK-009 sets `rateLimit: { enabled: false }`, owns the comment saying why, **and
   owns a unit test asserting the composed `betterAuth` config carries
   `rateLimit.enabled === false`**. Of the four verified Better Auth facts this design
-  leans on, this is the only one that degrades silently and only in production — the
-  hook signature and `ctx.body.email` fail loudly, and the `ctx.path` predicate is
-  pinned by the three integration tests — so it gets its own pin. The obligation to
-  re-verify all four facts against the pinned version travels with TASK-009's own
-  pinning step (ADR-0018). Re-attributed from TASK-001 on 2026-08-04 (F-040).
+  leans on, this is the only one that degrades silently and only in production. The hook
+  signature and `ctx.body.email` fail loudly, and TASK-058's three integration tests pin
+  the `ctx.path` predicate, so those three need no separate assertion. This one gets its
+  own pin.
+
+  **The unit test stays with TASK-009 even though the argument for it now spans two
+  TASKs.** Noted 2026-08-04 (F-054). TASK-009 writes `auth.config.ts` and the `rateLimit`
+  key, so the test that reads the composed config belongs beside the code that sets it,
+  and it must run in wave 2 rather than waiting for TASK-058. The `ctx.path` clause above
+  reduces what TASK-009 has to assert; it does not move anything into TASK-058. This
+  matches TASK-009's `## Approach`. The obligation to re-verify all four facts against
+  the pinned version travels with TASK-009's own pinning step (ADR-0018). Re-attributed
+  from TASK-001 on 2026-08-04 (F-040).

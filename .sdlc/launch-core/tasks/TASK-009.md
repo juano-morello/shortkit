@@ -51,6 +51,20 @@ name, had no such step, and its implementer had no way to fetch documentation, s
 requirement had no producer. It lands here because the implementer that mounts the
 library is the one that needs these four facts to be true.
 
+**Composition constraint, added 2026-08-04 (F-054, from ADR-0013).** You create
+`apps/api/src/auth/auth.config.ts` including `const beforeHooks: AuthBeforeHook[] = []`,
+**empty**. TASK-058 appends the email rate-limit hook and TASK-013 appends invitation
+validation; neither replaces the array. You own the mount, plugin config,
+`tenantIdForUser`, JWKS caching, `rateLimit: { enabled: false }` with the comment saying
+why, and the unit test asserting the composed config carries `rateLimit.enabled === false`.
+That test stays yours even though TASK-058 owns the three integration tests that pin
+`ctx.path`. Note that TASK-058 also writes `auth.config.ts` — `depends_on` sequences you
+ahead of it, so create the shape it appends to.
+
+**Contracts import rule (ADR-0005, F-045).** Import from `@shortkit/contracts`, never a
+subpath. The subpath map was removed; a subpath import will not typecheck. If a symbol is
+missing from the root barrel, add its re-export line to `packages/contracts/src/index.ts`.
+
 ## Out of scope for this TASK
 
 **Split 2026-08-04 on Juano's ruling:** the auth-surface protection — `authBodyCap`,

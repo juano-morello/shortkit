@@ -6,7 +6,7 @@ title: CI pipeline running the quality gates
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: [".github/workflows/**"]
+paths: [".github/**"]
 contracts: []
 test_files: []
 acceptance: [AC-5]
@@ -24,6 +24,12 @@ Uses the root scripts produced by TASK-001 and the values `init` wrote into `con
 ## Out of scope for this TASK
 
 Deployment, the performance gate (TASK-037), coverage thresholds.
+
+**Paths widened 2026-08-04 (F-055 consequence).** `paths` moved from
+`.github/workflows/**` to `.github/**`. Juano's F-055 ruling keeps exact pinning and
+requires it be paired with an update mechanism; ADR-0018 makes that mechanism
+`.github/dependabot.yml`, which the old glob excluded. With the old glob an implementer
+would correctly refuse to write the file and the ruling would not take effect.
 
 **Amended 2026-08-04 (F-039, ruled by Juano).** The `integration` job is **in** scope
 and was missing. ADR-0001's follow-ups assigned it here; the assignment never reached

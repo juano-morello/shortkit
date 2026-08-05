@@ -1205,3 +1205,33 @@
   escalated_to: juano
   resolved_by: null
   resolved_round: null
+
+- id: F-056
+  phase: test
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0013-better-auth-in-nestjs.md
+  line: 290
+  summary: >-
+    ADR-0013 contradicts itself on who maps Better Auth's native error bodies onto
+    ErrorEnvelope. The Negative-consequences bullet at line 290 says TASK-009 does it at the
+    web client boundary; the follow-up list at line 332 says TASK-008 does.
+  failure_scenario: >-
+    Orchestrator verified both lines and both TASKs' paths. TASK-009's paths are
+    apps/api/src/auth/**, apps/api/src/main.ts, packages/contracts/src/auth/** and
+    apps/api/src/app.module.ts - it CANNOT write apps/web, so the line-290 assignment is
+    not merely ambiguous, it is impossible. TASK-008's paths are apps/web/src/lib/api/**
+    and apps/web/src/components/errors/**, which is exactly where the mapping belongs. A
+    TASK-009 implementer reading the Consequences section first either attempts an
+    out-of-path edit or files the work as unownable; a TASK-008 implementer reading only
+    Consequences concludes the mapping is not its.
+  required_change: >-
+    Correct line 290 to name TASK-008. The follow-up list is right and needs no change.
+    Same defect class as F-054 - the architect found this one while fixing that one, and
+    correctly did not edit it because it was outside its four-finding brief.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null

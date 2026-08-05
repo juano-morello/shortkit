@@ -62,25 +62,59 @@ weekly `schedule`.
 - Roughly 30,000 Upstash commands per run. Weekly plus occasional manual runs is a few
   cents a month.
 
-**Every CI job installs with a frozen lockfile, and `quality` audits.** Added
-2026-08-04 (F-016). Grepping the design, the plan, TASK-001 and TASK-002 for `audit`,
+**Every CI job installs with a frozen lockfile, and two jobs audit.** Added
+2026-08-04 (F-016), extended 2026-08-04 (F-049, F-055). Grepping the design, the plan,
+TASK-001 and TASK-002 for `audit`,
 `dependabot`, `cve`, `lockfile` or `frozen-lockfile` returned nothing, on a stack that
 puts a young auth library on the critical path.
 
 | Job | Added step |
 |---|---|
 | every job | `pnpm install --frozen-lockfile` |
-| `quality` | `pnpm audit --prod --audit-level high` |
+| `quality` | `pnpm audit --prod --audit-level moderate` |
+| `dependencies`, weekly `schedule` only | `pnpm audit --audit-level moderate` |
 
 Without `--frozen-lockfile`, resolution can drift between the tested tree and the
-deployed one. The audit runs `--prod` so a dev-only advisory in Vitest or `unplugin-swc`
-does not block a merge, and at `--audit-level high` so it fails on something worth
-failing on.
+deployed one. The `quality` audit runs `--prod` so a dev-only advisory in Vitest or
+`unplugin-swc` cannot block a merge.
 
-**`better-auth` is pinned to an exact version**, not a caret range. ADR-0013 accepts
-that a Better Auth release can break the hand-written mount, so floating it means a
-transitive bump can break authentication with no code change. Everything else keeps
-caret ranges; the lockfile is what makes them reproducible.
+**The threshold is `moderate`, not `high`.** Lowered 2026-08-04 (F-049). `moderate` is
+the band that carries session fixation, open redirect and timing leaks, which is the
+band an auth library's advisories land in, and this ADR puts `better-auth` on the
+critical path. The security auditor ran `pnpm audit --audit-level low` across the whole
+tree, dev dependencies included, and got zero advisories, so lowering the merge gate
+blocks nothing that passes today.
+
+**A `dependencies` job audits the whole tree weekly.** Added 2026-08-04 (F-049). Every
+dependency is exact-pinned and every job installs `--frozen-lockfile`, so an audit that
+only runs on push and pull request cannot see an advisory published against a version
+already merged. Nothing in the tree changes, so nothing triggers a run. The weekly
+`schedule` is the only thing that re-asks the question against unchanged code. It drops
+`--prod` because a moderate advisory in a dev tool is worth knowing about when it is not
+blocking a merge. A failed scheduled run is the notification: GitHub emails the repo
+owner, and no issue-filing script or `issues: write` permission is needed.
+
+**Every dependency is pinned to an exact version.** Amended 2026-08-04 (F-055, ruled by
+Juano). TASK-001 pinned all four manifests exactly, against this ADR's earlier wording
+that only `better-auth` needed it. Juano kept the stricter version and this paragraph
+records it as the stance rather than the deviation it was.
+
+`better-auth` has its own reason: ADR-0013 accepts that a Better Auth release can break
+the hand-written mount, so a floating range lets a transitive bump break authentication
+with no code change. The rest are pinned so the manifests state what actually resolves.
+The earlier wording said carets stay reproducible because of the lockfile, which is
+true, and it is also true that a committed lockfile plus `--frozen-lockfile` already
+stopped carets from picking up patches. Carets bought drift on the next unpinned
+`pnpm install` and nothing else.
+
+**`.github/dependabot.yml` is what moves versions.** One `npm` ecosystem entry at
+`directory: "/"`, weekly. Dependabot reads `pnpm-workspace.yaml` and `pnpm-lock.yaml`
+(v9) and covers all four manifests from that entry. Minor and patch updates group into
+one PR; majors arrive one at a time. Exact pins mean a human merges every upgrade, and a
+bot opening the PR is what separates deliberate pinning from rot. Dependabot PRs run
+`quality`, `integration` and `performance` like any other PR. **A PR that bumps
+`better-auth` does not merge until the four facts below are re-checked against the new
+version**, same obligation as the original pin.
 
 **Whoever pins the version re-checks the four Better Auth facts the design was written
 against**, because they were verified against current-latest docs, not a pinned
@@ -125,6 +159,17 @@ consistent with SC-2's wording, and it is an interpretation rather than a fact.
 | Relative gate: fail if p99 rises more than 20% over the previous run on `main` | Adapts to runner drift | Needs stored history and lets slow drift accumulate: twelve 15% regressions each pass individually | An absolute budget with headroom is simpler and catches drift |
 | Autocannon or a Node-based generator | Same language as the project | Competes with the application for the event loop and the same CPUs; its own p99 includes its own scheduling | Measures the generator |
 
+On the audit threshold and the pinning stance, decided 2026-08-04 (F-049, F-055):
+
+| Option | Pros | Cons | Why not |
+|---|---|---|---|
+| Keep `--audit-level high` on `quality` | No new failure mode; the highest-signal advisories still block | Session fixation, open redirect and timing-leak advisories are rated moderate, and `better-auth` is on the critical path. Nothing else in the repo surfaces one | Leaves the exact class of advisory this stack is most exposed to passing silently |
+| `--audit-level low` on `quality` | Nothing gets through | Low advisories are mostly prototype-pollution reachability notes in transitive dev tools. A merge blocked on one that cannot be fixed pushes the team to an ignore list | Buys noise at the tier where the ignore list starts filling up |
+| Revert non-`better-auth` deps to caret ranges, as this ADR originally said | Restores the ADR's written stance without amending it; `pnpm update` picks up patches | The manifests then claim a range while `pnpm-lock.yaml` and `--frozen-lockfile` pin the resolution anyway, so the range describes nothing that happens in CI or in the Fly image | Undoes work the security auditor called strictly better to preserve a sentence |
+| Exact pins with no bot, relying on the audit alone | Nothing to configure; no PR noise | The audit reports a vulnerable version and no mechanism raises the version. Every bump is somebody remembering | Detection with no remediation path, which is how a known advisory stays deployed for a quarter |
+| Exact pins, `moderate` on both audits, Dependabot weekly | Manifests state what resolves; a bot proposes every bump; a scheduled run catches advisories published after merge | Weekly PR noise on a solo project, and CI minutes spent on bumps nobody asked for | Chosen |
+| Renovate instead of Dependabot | Better pnpm workspace support, richer grouping and automerge rules | Needs a GitHub App installed on the account and a config file with its own dialect to learn | Dependabot is native, needs no install, and grouping is enough at four manifests |
+
 ## Consequences
 
 ### Positive
@@ -156,11 +201,24 @@ consistent with SC-2's wording, and it is an interpretation rather than a fact.
   `ciP99BudgetMs` from being quoted as the latency commitment.
 - Roughly 2 minutes 20 seconds added to every pull request.
 - `pnpm audit` fails a merge on an advisory that may have no fix available and no
-  bearing on how the dependency is used. The escape hatch is an ignore list, which
-  becomes a place findings go to be forgotten. Nothing in `launch-core` reviews it.
-- Pinning `better-auth` exactly means security patches arrive only when someone bumps it
-  by hand. The audit step is what surfaces the need, so the two are load-bearing
-  together.
+  bearing on how the dependency is used. Dropping to `moderate` widens that band, and
+  the escape hatch is an ignore list, which becomes a place findings go to be forgotten.
+  Nothing in `launch-core` reviews it.
+- A low-severity advisory passes both audits. That band is deliberate and nothing else
+  catches it.
+- Exact pins across all four manifests mean security patches arrive only when someone
+  merges a bump. The `quality` audit surfaces the need on any open PR, the weekly
+  `dependencies` job surfaces it when no PR is open, and Dependabot proposes the bump.
+  Remove any of the three and the other two stop being sufficient.
+- Dependabot opens PRs weekly on a project with one maintainer. Unreviewed bot PRs pile
+  up, and a stale queue is worse than no queue because it looks like coverage. Nothing
+  in `launch-core` schedules the review.
+- The weekly `dependencies` job reports through a failed scheduled run, which GitHub
+  emails to the repo owner. An owner who filters those emails has no signal. Filing an
+  issue instead would need `issues: write` and a script, and that was not worth building
+  for one job.
+- A Dependabot PR that bumps `better-auth` carries the four-fact re-check, so it is
+  never a rubber-stamp merge. Whoever reviews it has to read release notes.
 
 ### Follow-ups this creates
 
@@ -178,7 +236,14 @@ consistent with SC-2's wording, and it is an interpretation rather than a fact.
   and escalates. Re-attributed from TASK-001 on 2026-08-04 (F-040): TASK-001 bootstraps
   the monorepo and excludes auth by name, so the pin had no producer there. The
   implementer that mounts the library is the one that needs the four facts to hold.
-- TASK-002 adds `--frozen-lockfile` to every job and the `pnpm audit --prod
-  --audit-level high` step to `quality`.
+- TASK-002 adds `--frozen-lockfile` to every job, the `pnpm audit --prod --audit-level
+  moderate` step to `quality`, and the `dependencies` job running `pnpm audit
+  --audit-level moderate` on a weekly `schedule` and on `workflow_dispatch`.
+- TASK-002 also adds `.github/dependabot.yml`. **Its `paths` currently read
+  `.github/workflows/**`, which excludes that file.** Widening them to `.github/**` is
+  Juano's edit, not the implementer's. Flagged 2026-08-04 (F-055).
+- Every dependency across `package.json`, `apps/api`, `apps/web` and
+  `packages/contracts` stays at an exact `x.y.z` or `workspace:*`. A reviewer seeing a
+  caret or tilde in a diff rejects it.
 - **Gate item for Juano:** confirm the reading of SC-2 recorded above.
 - Contract: `design/contracts/loadtest-result.md`.
