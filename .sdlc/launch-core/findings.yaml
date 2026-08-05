@@ -2062,3 +2062,74 @@
     TASK file rather than leaving it in the report.
   owner_slot: sdlc-test-architect
   status: open
+
+# Wave-1 red tests, STORY-002 (TASK-002, TASK-004). Raised by sdlc-test-architect while
+# establishing that AC-5 and AC-7 are not testable in-process. Both are ACs that do not exist:
+# a real obligation is written in a TASK file with no acceptance criterion to carry it, so an
+# auditor verifying the STORY verbatim signs off the defect. Same shape as F-050, which Juano
+# resolved by minting AC-112.
+
+- id: F-078
+  phase: test
+  task: TASK-004
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/stories/STORY-002.md
+  line: 18
+  summary: >-
+    TASK-004 must register BFF_PROXY_SECRET and API_BASE_URL as server-only variables and is
+    forbidden from giving either the NEXT_PUBLIC_ prefix, but no AC in STORY-002 mentions
+    environment variables at all. Shipping the proxy secret into the client bundle passes AC-7
+    and every other check in the STORY.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED both halves. TASK-004's Produces block, amended in Design round 5,
+    states "Neither may carry the NEXT_PUBLIC_ prefix - that prefix inlines a value into the
+    client bundle, which would publish the secret", and design/contracts/web-api-client.md:140
+    calls BFF_PROXY_SECRET "a required, server-only environment variable on Vercel". STORY-002
+    contains ZERO occurrences of env, NEXT_PUBLIC or secret across all three of its ACs; AC-7
+    asks only for 200 and HTML. So the one thing that would leak the shared secret to every
+    browser is invisible to the acceptance criteria, and sdlc-product-auditor verifies ACs
+    verbatim. The secret is what the API's constant-time match trusts before honouring a
+    forwarded client IP, so publishing it collapses all four IP-keyed rate-limit buckets.
+  required_change: >-
+    Mint an AC on STORY-002 requiring that no server-only variable appears in the built client
+    bundle - checkable as a build-output assertion that the value of BFF_PROXY_SECRET is absent
+    from .next/static/**, which belongs in CI rather than in vitest. Alternatively an explicit
+    sdlc-product-auditor instruction, but an AC is what F-050 established as the mechanism that
+    actually holds.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+
+- id: F-079
+  phase: test
+  task: TASK-002
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/stories/STORY-002.md
+  line: 16
+  summary: >-
+    TASK-002's F-064 obligation 2 requires the integration CI job to assert a non-zero test
+    count, but AC-5 does not, so an auditor reading AC-5 verbatim signs off an integration job
+    that spins up a real Postgres and runs zero assertions.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED that TASK-002 carries the obligation in a dated F-064 block - "The
+    integration job must assert a non-zero test count" - and that AC-5's only occurrence of
+    "non-zero" is about a command's exit code, not a test count. AC-5 as written is satisfied by
+    a workflow whose integration job exits 0 having collected nothing, which is exactly the state
+    pnpm test:integration was in before TASK-005's suite landed, and passWithNoTests is still set
+    until TASK-005 removes it (F-076). This is the failure F-039 was filed to prevent, re-entering
+    through the acceptance criteria rather than through the workflow.
+  required_change: >-
+    Widen AC-5 or mint a new AC so the non-zero-test-count assertion is verifiable, as was done
+    for AC-5 once already under F-039. The test architect also recommends, and it is worth taking
+    beyond the AC question, a `gate` job declaring needs: [quality, integration] as the branch's
+    required check - GitHub Actions rejects a workflow whose needs names a job that does not
+    exist, which converts F-039's silent-green failure mode into a hard configuration error.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
