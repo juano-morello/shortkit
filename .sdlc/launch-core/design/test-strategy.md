@@ -64,7 +64,7 @@ vitest test.
 | STORY-001 Monorepo scaffold | 5 | unit | — (see *Sequencing constraint*) |
 | STORY-002 Deployable skeleton + CI | 3 | unit + manual | deploy verification is manual |
 | STORY-003 Tenant-scoped persistence | 5 | **integration** | two-tenant, non-`BYPASSRLS` role |
-| STORY-004 Contracts + error surface | 3 | unit | — |
+| STORY-004 Contracts + error surface | 3 | unit + **build** | — (AC-14 is a build property, see below) |
 | STORY-005 Signup, login, verification | 10 | unit + integration | fake mail sender, live DB for user rows |
 | STORY-006 Agency + client workspaces | 5 | integration | two-tenant |
 | STORY-007 Members and roles | 7 | integration | two-tenant, role matrix |
@@ -135,6 +135,15 @@ Each of these carries a reason.
   confirm Fly and Vercel served them. No test in the suite covers it.
 - **Async React Server Components.** ADR-0001 records that vitest cannot render them.
   Coverage comes from testing their data functions directly.
+- **AC-14 as a vitest test.** AC-14 asserts that an incompatible contract change breaks
+  `apps/web`'s typecheck, which is a property of the build rather than of any importable
+  value. `sdlc-test-architect` declined to fake it and gave the decisive reason: the obvious
+  assertion is **weaker than the AC**, because `pnpm -r typecheck` runs `packages/contracts`
+  first and aborts dependents, so a mutation breaking contracts internally exits non-zero
+  without `apps/web` ever compiling. The faithful version also mutates a tracked source file
+  at runtime and nests a full typecheck inside a 576 ms suite. It belongs in CI: a
+  `contract-drift` step under TASK-002's `quality` job asserting non-zero exit **and**
+  diagnostics naming a path under `apps/web/`. Recorded here rather than left as a gap.
 - **Upstash in the PR gate.** ADR-0018 uses a local `redis:7-alpine` so the gated number
   measures application overhead rather than network variance.
 - **Browser-level checks.** ADR-0001 cites them for async React Server Component

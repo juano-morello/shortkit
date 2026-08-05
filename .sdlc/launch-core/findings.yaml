@@ -1791,3 +1791,109 @@
   owner_slot: sdlc-architect
   status: open
   note: deferred-observation
+
+# Wave-1 red tests, TASK-007 (STORY-004). Raised by sdlc-test-architect while writing the
+# AC-13 tests. F-070 and F-071 will present to TASK-007's implementer as "I need to edit a
+# file outside my paths", so they must be resolved before it dispatches.
+
+- id: F-070
+  phase: test
+  task: TASK-007
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-007.md
+  line: 9
+  summary: >-
+    TASK-007 Produces "the API-side exception filter that serialises thrown errors into
+    ErrorEnvelope", but registering it requires APP_FILTER in apps/api/src/app.module.ts, which
+    is outside TASK-007's paths ["packages/contracts/**", "apps/api/src/common/errors/**"].
+  failure_scenario: >-
+    The red tests boot AppModule and assert on real HTTP responses precisely because calling
+    catch() on a filter instance would still pass if the filter were never registered - the
+    likeliest way to get this wrong. So the tests cannot go green without the app.module.ts
+    edit. TASK-007's implementer hits a file outside its whitelist and either commits an
+    ownership violation or returns BLOCKED. AC-13 cannot be satisfied either way.
+  required_change: >-
+    Add apps/api/src/app.module.ts to TASK-007's paths. It is already a declared structural
+    serialisation point in plan.md's wave table, shared by every TASK registering a Nest module.
+  owner_slot: null
+  status: escalated
+  escalated_to: juano
+
+- id: F-071
+  phase: test
+  task: TASK-007
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: design
+  file: apps/api/package.json
+  line: 1
+  summary: >-
+    The exception filter must recognise a ZodError to satisfy the error contract's
+    validation_failed path, but apps/api has no zod dependency (verified unresolvable) and
+    apps/api/package.json is outside TASK-007's paths.
+  failure_scenario: >-
+    zod reaches apps/api today only by being inlined into the bundle through
+    @shortkit/contracts; it is not a resolvable import in apps/api source. The filter cannot
+    instanceof-check a type it cannot import. TASK-007's implementer either adds a dependency in
+    a manifest it does not own, or invents a duck-type check on error shape that silently stops
+    matching when zod changes its internals.
+  required_change: >-
+    The test architect's proposal is the cleaner one and avoids the paths problem entirely:
+    export isZodError and toValidationDetails from packages/contracts/src/errors.ts, which IS in
+    TASK-007's paths and already owns the error vocabulary. That keeps zod's identity on the side
+    of the boundary that declares it. Needs a design ruling, since it adds surface to the
+    contracts package.
+  owner_slot: sdlc-architect
+  status: open
+
+- id: F-072
+  phase: test
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: design
+  file: .sdlc/launch-core/design/contracts/error-envelope.md
+  line: 1
+  summary: >-
+    Nothing specifies how a domain error carries its ErrorCode to the exception filter. Roughly
+    15 downstream TASKs will throw domain errors expecting the filter to map them.
+  failure_scenario: >-
+    The filter has to answer "what code is this error?" for every error the app throws. No ADR,
+    contract or TASK defines the mechanism - a base DomainError class, a code property, a symbol,
+    a registry. TASK-007's implementer will invent one, and because it is the first, all ~15
+    later TASKs inherit the invention without it ever having been a decision. If it turns out
+    wrong, the correction touches every one of them.
+  required_change: >-
+    Specify the mechanism in error-envelope.md before TASK-007 dispatches. This is exactly the
+    class of decision Design exists to fix once rather than have an implementer settle by
+    accident.
+  owner_slot: sdlc-architect
+  status: open
+
+- id: F-073
+  phase: test
+  task: TASK-007
+  source: sdlc-test-architect
+  round: 0
+  severity: minor
+  kind: test-coverage
+  file: apps/api/src/common/errors/error-envelope.ts
+  line: 1
+  summary: >-
+    errorResponse() is production code with no test. It arrived early as F-042 evidence and is
+    covered only if TASK-007's implementer happens to route the filter through it.
+  failure_scenario: >-
+    The test architect deliberately did not add green tests during a red phase, which is correct
+    discipline. But the module is live: main.ts's bootstrap failure path already calls it. If the
+    filter re-implements the code-to-status lookup instead of reusing it, the duplication the
+    file's own comment forbids appears and nothing fails.
+  required_change: >-
+    Cover it when TASK-007 lands, and have the filter route through it rather than re-declaring
+    ERROR_CODE_STATUS. The AC-13 tests assert HTTP status, so a divergent second lookup would be
+    caught there - but only for codes the tests exercise.
+  owner_slot: sdlc-test-architect
+  status: open
