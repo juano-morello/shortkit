@@ -202,3 +202,14 @@ pins Neon's free tier, which scales to zero — the first request after an idle 
 is empty at process start too, so the same cap hits the first request after every deploy.
 This is the one of TASK-005's three unmeasured capacity numbers with a concrete stated
 mechanism, and **you wire the real endpoint, so you are the only place it can be confirmed**.
+
+## ⚠ F-217 — `/health` is excluded from the prefix but nothing serves it
+
+`main.ts` already excludes `/health` from the global prefix — that shipped with TASK-001 — but no
+controller answers it, so the route **404s today**. ADR-0006 has you verifying that `GET /health`
+resolves at the root after the prefix is set; the exclusion is in place and the endpoint is yours.
+
+Found by `sdlc-integrator` during wave 1's integration pass. It matters slightly more than an
+unbuilt endpoint usually would: configuration for a route exists while the route does not, so a
+platform health probe — which is what `fly.toml` will point at — reads a 404 as a broken service
+rather than an unimplemented one.

@@ -6867,3 +6867,164 @@
     produce exactly the messages F-209 asked for, and SIGKILL/SIGABRT are correctly absent from
     INTERRUPT_SIGNALS. The latent cost is that a third memory signal would silently get the generic
     message. Fix when the file is next opened.
+
+- id: F-213
+  phase: ship
+  task: TASK-005
+  source: sdlc-integrator
+  round: 1
+  severity: major
+  kind: security
+  file: apps/api/scripts/check-policies.mts
+  line: 1
+  summary: >-
+    F-147's exemption cross-check queries information_schema.columns, WHICH POSTGRES FILTERS BY
+    PRIVILEGE. A table the app role cannot see returns zero rows, so the gate prints "confirmed: no
+    tenant_id column" and exits 0 on a tenant-bearing table with row security off.
+  failure_scenario: >-
+    REPRODUCED BY THE INTEGRATOR AND INDEPENDENTLY BY THE ORCHESTRATOR. Created `session` with a
+    tenant_id column and no RLS, then REVOKE ALL ON session FROM shortkit_app. As the app role,
+    information_schema.columns returns 0 rows for that column while pg_attribute returns 1 -
+    information_schema is privilege-filtered, pg_attribute is not. The gate then printed
+    "skip session - exempt: Better Auth. No tenant_id (ADR-0003, ADR-0015) (confirmed: no tenant_id
+    column)" and "OK: 2 table(s) in schema public, all protected or exempt", EXIT 0. THE WORD
+    "confirmed" IS A FALSE CLAIM. This is precisely the scenario F-147's hardening was written to
+    prevent - an auth table that lands WITH a tenant_id being waved through - and the hardening
+    introduced the blind spot by choosing a privilege-filtered view and running as the constrained
+    role. The check connects as the runtime role deliberately, per F-122, because checking as the
+    migrator would prove nothing about the DSN the API uses; that decision is right and it is what
+    makes information_schema the wrong catalog.
+  required_change: >-
+    Query pg_attribute rather than information_schema.columns for the exemption cross-check.
+    Verified by both parties in the same session: pg_attribute is not privilege-filtered and
+    returns the column where information_schema returns nothing. Keep the runtime-role connection.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  ruling: >-
+    NOT A MERGE BLOCKER, and the integrator's reasoning is the one I am taking: the four exempt
+    tables DO NOT EXIST YET, so the blind spot has nothing to hide behind today - the gate reported
+    three of them as "not evaluated" in my own run. FIX BEFORE TASK-009, which creates exactly those
+    four tables and is the moment the defect becomes reachable. Recorded on TASK-009's card rather
+    than left in the ledger.
+
+- id: F-214
+  phase: ship
+  task: TASK-004
+  source: sdlc-integrator
+  round: 1
+  severity: major
+  kind: process
+  file: .sdlc/launch-core/state.yaml
+  line: 22
+  summary: >-
+    state.yaml records TASK-004 as in-audit with ac_blocked [AC-7] and a blocked_on string whose
+    three claims are all now false, while line 16 and the log record it done.
+  failure_scenario: >-
+    MY LEDGER ERROR, caught by the integrator. The blocked_on string says AC-7 needs a deployed
+    Vercel URL, that no git remote exists, and that no Vercel project exists. All three were true
+    when written and none is true now: the remote is github.com/juano-morello/shortkit, the Vercel
+    project is live on hobby, and AC-7 was verified by curl at 200 text/html. state.yaml is the
+    ledger a resuming session trusts over its own recollection, so a stale blocked_on is worse than
+    no entry - it would send a resuming orchestrator to re-solve a solved problem.
+  required_change: Reconcile the TASK-004 entry with reality.
+  owner_slot: null
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 1
+
+- id: F-215
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 1
+  severity: minor
+  kind: process
+  file: .gitignore
+  line: 1
+  summary: "Orphan commit c5e1165 carries a real change and no TASK id."
+  failure_scenario: >-
+    It is the .gitignore fix I made myself for F-197, and I gave it a conventional subject without a
+    TASK reference because it belonged to no TASK. GC-10 requires every commit subject to carry a
+    TASK id, and the integrator flagged it precisely because orphan commits are where scope creep
+    hides - the check is right even when this instance is benign. The second orphan, 98306e1, is a
+    .sdlc-only branch rename and was recorded rather than filed.
+  required_change: Nothing to undo. Recorded so the Ship-phase traceability check does not re-derive it.
+  owner_slot: null
+  status: open
+  ruling: >-
+    ACCEPTED AS AN ORPHAN WITH A REASON. The change was orchestrator cleanup of machine-generated
+    tooling noise that belonged to no TASK; inventing a TASK id would have been worse. Recorded so
+    the real Ship phase sees the disposition rather than the anomaly.
+
+- id: F-216
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 1
+  severity: minor
+  kind: process
+  file: .sdlc/launch-core/stories/STORY-001.md
+  line: 1
+  summary: "STORY-001's Definition of Done is unrecorded, though its only TASK (TASK-001) is done."
+  failure_scenario: >-
+    The integrator checked all four stories and found STORY-001 is the only one whose DoD should be
+    closeable and is not - STORY-002, 003 and 004 each still hold an unfinished TASK, so their todo
+    state is correct rather than stale. phases/implement.md requires walking the DoD explicitly at
+    STORY completion and recording the result in the STORY file.
+  required_change: Walk STORY-001's DoD and record it. Note sdlc-product-auditor already found the README half unsatisfied - GC-13 makes that TASK-001's.
+  owner_slot: null
+  status: open
+  ruling: DEFERRED to the real Ship phase, where every STORY's DoD is walked at once rather than one at a time.
+
+- id: F-217
+  phase: ship
+  task: TASK-003
+  source: sdlc-integrator
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/api/src/main.ts
+  line: 1
+  summary: >-
+    main.ts excludes /health from the global prefix, but no controller serves it - so the route
+    404s today.
+  failure_scenario: >-
+    ADR-0006 has TASK-003 verifying GET /health resolves at the root after the prefix is set. The
+    exclusion shipped with TASK-001; the controller is TASK-003's and has not run. So the
+    configuration for a route exists while the route does not, which reads as a broken health check
+    rather than an unbuilt one to anyone who tries it - including a platform health probe.
+  required_change: TASK-003 lands the health controller. Recorded on its card.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-218
+  phase: ship
+  task: TASK-002
+  source: sdlc-integrator
+  round: 1
+  severity: minor
+  kind: process
+  file: .github/workflows/ci.yml
+  line: 1
+  summary: >-
+    No GitHub Actions run stands behind the commits being merged. Everything in ci.yml is verified
+    by local reproduction only.
+  failure_scenario: >-
+    THE INTEGRATOR NAMED THE PART THAT MATTERS: provision-test-database.sql,
+    assert-contract-drift.mjs and assert-integration-collected.mjs HAD NEVER EXECUTED ANYWHERE
+    before its run, and a local run does not prove the workflow YAML parses or that the services:
+    block starts. GitHub's runners have been backed up over an hour, and - my own contribution -
+    every ledger push I made cancelled the in-flight run, because cancel-in-progress is true on
+    feature branches. So the runs that were queued never completed.
+  required_change: >-
+    Let one run complete before merging, or accept the merge and read the first run on main. Note
+    that merging is itself the fix for one thing: dependencies.yml has never run because schedule:
+    only fires from the default branch.
+  owner_slot: null
+  status: open
+  ruling: >-
+    ACCEPTED AND STATED AT THE MERGE DECISION rather than resolved. The honest position is that
+    wave 1's CI is verified locally and not in CI, and Juano should decide the merge knowing that
+    rather than discovering it.

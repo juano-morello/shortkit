@@ -149,3 +149,39 @@ same remediation-pressure shape that has now cost TASK-004 three fix rounds.
 base64url is already the house convention for every other secret in the design —
 `invitation-tokens.md`, `domain-provisioning.md`, ADR-0021 — so the constraint is right. It was
 simply recorded in the one place the person generating the value would not be reading.
+
+## ⚠ F-213 — fix `check-policies.mts` BEFORE you create the auth tables
+
+`sdlc-integrator` found this during wave 1's integration pass, and the orchestrator reproduced it
+independently. **You are the TASK that makes it reachable**, because you create `user`, `session`,
+`account` and `verification` — the exact four tables the exemption list names.
+
+F-147 hardened `apps/api/scripts/check-policies.mts` so an exemption must **assert** the relation
+carries no `tenant_id` rather than trusting the name. The hardening queries
+`information_schema.columns`. **Postgres filters that view by privilege**, and the check connects as
+`shortkit_app` deliberately (F-122 — checking as the migrator would prove nothing about the DSN the
+API actually uses). So a table the app role cannot see returns **zero rows**, and the gate concludes
+the column is absent.
+
+Reproduced, twice, independently:
+
+```
+create session with tenant_id, RLS off, REVOKE ALL ON session FROM shortkit_app
+
+as shortkit_app:  information_schema.columns → 0      pg_attribute → 1
+
+gate output:  skip  session — exempt: Better Auth. No tenant_id … (confirmed: no tenant_id column)
+              OK: 2 table(s) in schema public, all protected or exempt.
+              EXIT 0
+```
+
+**That is the exact scenario F-147's hardening was written to prevent** — an auth table landing
+*with* a `tenant_id` and being waved through — and the hardening introduced the blind spot by
+choosing a privilege-filtered catalog. The word "confirmed" in that output is a false claim.
+
+**The fix: query `pg_attribute` instead.** It is not privilege-filtered and returned the column
+where `information_schema` returned nothing. **Keep the runtime-role connection** — that part is
+correct and is what F-122 ruled.
+
+It is not a merge blocker today only because the four tables do not exist; the gate reported three
+of them as "not evaluated" in the orchestrator's run. **The moment you create them, it is.**
