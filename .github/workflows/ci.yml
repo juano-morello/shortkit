@@ -29,9 +29,14 @@ concurrency:
   # Not on the default branch. Cancelling is right on a feature branch or a pull request,
   # where only the latest push matters — but two merges landing close together on `main`
   # would cancel the first one's run, leaving that commit with a `gate` check of
-  # `cancelled` and no green record. On the one branch whose protection is the point, every
-  # commit gets its own verdict. Cancelled is a safe direction to fail in, so this is
-  # bookkeeping rather than a hole.
+  # `cancelled` and no green record.
+  #
+  # It NARROWS the gap rather than closing it: Actions keeps one running and one pending
+  # run per group, so a third merge arriving inside the same window still displaces the
+  # pending middle commit, which ends up with no verdict of its own. Fully per-commit
+  # verdicts would need `cancel-in-progress: false` and a queue, and the cost of that on a
+  # solo project is not worth what it buys. Cancelled is a safe direction to fail in — the
+  # `gate` job below treats it as failure — so this is bookkeeping, not a hole.
   cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
@@ -91,9 +96,16 @@ jobs:
       # This step is deliberately NOT a conditional skip of the AC-113 steps below. A skip
       # would report the guard as having run, which is the vacuous green the guard exists
       # to prevent — four minutes earlier and with a friendlier log.
+      #
+      # No step-level `env:` here on purpose. It would re-declare BFF_PROXY_SECRET from
+      # the same expression the job-level block forty lines above declares it from, and
+      # the stated reason for that block is that the value is declared exactly ONCE so no
+      # two places can drift. Two identical declarations are identical only until one of
+      # them is edited: change the job-level value and leave this one, and this step
+      # prints `OK: BFF_PROXY_SECRET is present.` on a run where the build got nothing —
+      # a preflight that green-lights the exact condition it exists to catch. It reads
+      # the job-level declaration instead, which is the value the build will actually see.
       - name: Assert the inlined-secret guard has a value to search for
-        env:
-          BFF_PROXY_SECRET: ${{ secrets.BFF_PROXY_SECRET }}
         run: |
           if [ -z "${BFF_PROXY_SECRET:-}" ]; then
             echo '::error::BFF_PROXY_SECRET is empty, so the AC-113 inlined-secret guard would have nothing to search for.'
@@ -267,7 +279,8 @@ jobs:
   # assertion on each result. `always()` here does not mask a failure (AC-5) — it is what
   # lets the step below observe one. `needs.<job>.result` is `success`, `failure`,
   # `cancelled` or `skipped`, and only the first passes; `cancelled` is reachable through
-  # `cancel-in-progress: true` above.
+  # the `concurrency` block above, which cancels superseded runs on every ref except the
+  # default branch.
   gate:
     name: gate
     runs-on: ubuntu-latest

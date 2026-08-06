@@ -6405,3 +6405,38 @@
   status: fixed
   resolved_by: orchestrator
   resolved_round: 2
+
+- id: F-198
+  phase: implement
+  task: null
+  source: sdlc-reviewer, sdlc-implementer-backend
+  round: 2
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/
+  line: 1
+  summary: >-
+    23 committed files cite contracts as `design/contracts/...` or `design/test-strategy.md`. That
+    path does not exist - the contracts live under `.sdlc/launch-core/design/`. Every citation in
+    the shipped source of a PUBLIC repo is a dead link.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED: `ls design/contracts` fails, and 23 files across apps/api/src,
+    apps/web/scripts, packages/contracts/src, docker-compose.test.yml and .github reference the
+    non-existent prefix. Raised independently by sdlc-reviewer, which declined to file it against
+    TASK-002's diff because it is pre-existing and repo-wide, and by sdlc-implementer-backend, which
+    fixed the two files it owns and explicitly refused to reach into the other 21. The citations are
+    the mechanism by which a reader gets from code to the normative document that governs it - the
+    same mechanism three separate findings this week (F-154, F-179, F-196) relied on to keep a
+    ruling from being reintroduced. A dead pointer does not merely fail to help; it teaches a reader
+    that the contracts are not where they are, on a repo anyone can read.
+  required_change: >-
+    One decision, applied once, then mechanical. Either rewrite the citations to
+    `.sdlc/launch-core/design/...`, or introduce a stable `design/` path - a symlink or a moved
+    directory - so the existing citations resolve. THE SECOND IS WORTH CONSIDERING rather than
+    dismissing: 23 files is a large mechanical diff across many TASKs' paths, and .sdlc/ is already
+    committed and public, so the prefix is the only thing that is wrong. Juano's call - it spans
+    TASK-001, 003, 004, 005, 007 and 002, so no single TASK card can carry it.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
