@@ -5945,7 +5945,7 @@
     the inherited contents: read. AND CORRECT THE COMMENT - it is the reason the wrong
     configuration looked right to both the implementer and the orchestrator.
   owner_slot: sdlc-implementer-backend
-  status: routed
+  status: fixed
   resolved_by: null
   resolved_round: null
 
@@ -5975,7 +5975,7 @@
     second REINTRODUCES THE VACUOUS-PASS SHAPE F-156 EXISTS TO PREVENT, so if taken, the skip must
     be loud and must not report the guard as having run.
   owner_slot: sdlc-implementer-backend
-  status: routed
+  status: fixed
   resolved_by: null
   resolved_round: null
 
@@ -6057,7 +6057,7 @@
     numPendingTests and numTodoTests. Whatever threshold is chosen, the docblock's claim and the
     code's behaviour must agree - today the docblock names the one case the code misses.
   owner_slot: sdlc-implementer-backend
-  status: routed
+  status: fixed
   resolved_by: null
   resolved_round: null
 
