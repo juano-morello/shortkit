@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "assert:no-secrets": "node scripts/assert-no-inlined-secrets.mjs"
   },
   "dependencies": {
     "@shortkit/contracts": "workspace:*",
