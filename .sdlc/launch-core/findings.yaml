@@ -5827,3 +5827,91 @@
     with no runtime consequence today, and the three anti-reintroduction notes that DO exist sit in
     the places a person actually edits - the script, .env.example and the TASK card. Recorded here
     so the Ship review sees it with the full-branch context.
+
+- id: F-180
+  phase: implement
+  task: TASK-002
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: contract
+  file: .github/dependabot.yml
+  line: 1
+  summary: >-
+    dependabot.yml declares only the npm ecosystem, so the pinned @v7 action references in both
+    workflows have no update mechanism - on a repo whose own stance is that pinning must be paired
+    with one.
+  failure_scenario: >-
+    RAISED BY THE IMPLEMENTER AGAINST ITS OWN WORK, and it declined to fix it for the right reason:
+    ADR-0018 specifies ONE npm entry, explicitly, so adding a github-actions ecosystem would be an
+    implementer amending an approved design decision rather than transcribing it. The gap is real -
+    ADR-0018's whole argument for exact pinning is that a pin without an update path rots, and the
+    action references are pinned exactly the way the ADR asks while being the only pinned thing in
+    the repo with no Dependabot entry watching them. Four lines to fix, and the implementer said so
+    while still not writing them.
+  required_change: >-
+    sdlc-architect decides whether ADR-0018's single-ecosystem specification was deliberate or an
+    omission, and amends it if the latter. Routing rule 0 - design/** is the architect's. If
+    amended, TASK-002 adds the github-actions entry.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-181
+  phase: implement
+  task: TASK-002
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: scope
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 1
+  summary: >-
+    assert-contract-drift.mjs implements AC-14, which is NOT on TASK-002's acceptance list -
+    [AC-5, AC-114, AC-113]. Directed by the card's Approach section and test-strategy.md, but not
+    by an AC this TASK owns.
+  failure_scenario: >-
+    SELF-DISCLOSED, with the contradiction stated rather than resolved. The card's own Approach
+    section and design/test-strategy.md:169-205 both direct the work, so the implementer was not
+    inventing it - but AC-14 belongs to TASK-007, which is already done, and sdlc-product-auditor
+    verdicts every addition against the ACs a TASK actually carries. So this is either a genuine
+    coverage gain that the acceptance list failed to record, or work that belongs on another card.
+    The implementer built it and said it deletes cleanly, which is the right shape for a
+    disagreement it cannot settle.
+  required_change: >-
+    Juano's call under routing rule 0, since it turns on whether an approved acceptance list is
+    incomplete. Recommend KEEPING it: the two mutations were verified by hand and both produce the
+    intended consumer typecheck failure, AC-14 is otherwise enforced by nothing in CI, and TASK-007
+    closing without it is exactly how a cross-TASK guarantee ends up owned by nobody. If kept,
+    AC-14 should be added to TASK-002's acceptance list so the product auditor can verdict it.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-182
+  phase: implement
+  task: TASK-002
+  source: sdlc-implementer-backend
+  round: 1
+  severity: nit
+  kind: implementation
+  file: .github/workflows/ci.yml
+  line: 1
+  summary: >-
+    Fork pull requests receive no repository secrets, so the quality job fails at assert:no-secrets
+    on any fork PR.
+  failure_scenario: >-
+    Disclosed by the implementer as loud rather than silent, which is the distinction that matters:
+    the AC-113 guard hard-fails on a missing BFF_PROXY_SECRET by design (F-156), so a fork PR
+    produces an obvious red at a named step rather than a green that proves nothing. No security
+    consequence - withholding secrets from fork PRs is GitHub behaving correctly. It is recorded
+    because the failure will read as a broken workflow to whoever opens the first fork PR, and this
+    repo is public.
+  required_change: >-
+    None now - the project has one contributor. If external contribution is ever accepted, either
+    gate the step on the secret being present or split fork PRs onto a workflow that skips it.
+  owner_slot: null
+  status: open
+  ruling: DEFERRED to Ship-phase triage. Correct behaviour today, documented so it is not rediscovered as a bug.
