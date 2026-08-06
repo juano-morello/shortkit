@@ -19,7 +19,7 @@ depends_on: [TASK-001]
 paths: [".github/**", "apps/api/scripts/**", "docs/**"]
 contracts: []
 test_files: []
-acceptance: [AC-5, AC-114, AC-113]
+acceptance: [AC-5, AC-114, AC-113, AC-14]
 rework_count: 0
 ---
 
@@ -184,3 +184,27 @@ run twice. The `--prod` gate is structurally blind to dev-only advisories — it
 `@esbuild-kit` loader chain. Build both, and create `docs/security/known-advisories.md` with
 the two rows from ADR-0018's register, assessments and clearing conditions intact, naming the
 file in the weekly job's audit step so a failure points at it.
+
+## ⚠ AC-14 added to this card 2026-08-06 (F-181, ruled by Juano)
+
+`assert-contract-drift.mjs` implements **AC-14**, and AC-14 was not on this card's
+`acceptance:` list when the script was written. The implementer disclosed the contradiction
+rather than resolving it, and said the script deletes cleanly if ruled the other way.
+
+It was not invented: this card's own `## Approach` section and
+`design/contracts/test-strategy.md:169-205` both direct the work. What was missing was the AC.
+
+**Ruled: keep the script, and AC-14 now belongs to this card.** The reasoning matters more than
+the bookkeeping — **AC-14 was otherwise enforced by nothing.** It belongs to TASK-007, which
+closed as `done` without it, and no other TASK carries it. A cross-TASK guarantee whose owning
+TASK has already closed is precisely how a guarantee ends up owned by nobody, which this
+initiative has now filed nineteen instances of in one form or another.
+
+`sdlc-reviewer` judged the script sound on its merits and verified its three occurrence counts
+against the current tree (`'not_found',` → 1, `not_found: 404,` → 1, `FORM_ERROR_KEY` → 5). It
+confirmed `--no-bail` is genuinely required, that matching
+`^<workspace> typecheck: <path>(l,c): error TSnnnn` is the right discrimination rather than
+pnpm's own failure line, and that asserting occurrence counts *before* the edit lands converts a
+silently-stale mutation into a loud failure instead of a false "AC-14 failing".
+
+`sdlc-product-auditor` can now verdict it, which it could not do while the AC was absent.

@@ -5886,7 +5886,14 @@
     closing without it is exactly how a cross-TASK guarantee ends up owned by nobody. If kept,
     AC-14 should be added to TASK-002's acceptance list so the product auditor can verdict it.
   owner_slot: null
-  status: escalated
+  status: fixed
+  ruling: >-
+    JUANO RULED 2026-08-06: KEEP the script, and AC-14 is added to TASK-002's acceptance list -
+    the recommendation accepted as written. The bookkeeping is the small half; the reason is that
+    AC-14 WAS OTHERWISE ENFORCED BY NOTHING. It belongs to TASK-007, which closed as done without
+    it, and no other TASK carries it. Adding it here lets sdlc-product-auditor verdict the script
+    at all, which it could not do while the AC was absent - a product auditor that verdicts
+    strictly against the acceptance list cannot approve work no AC asked for, however good it is.
   resolved_by: null
   resolved_round: null
 
