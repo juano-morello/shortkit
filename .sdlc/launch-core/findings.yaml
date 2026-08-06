@@ -5810,7 +5810,14 @@
     Found by sdlc-scout while grounding TASK-002, outside its paths, and reported as a gotcha
     rather than silently ignored. The document is normative for how this project tests, so a reader
     reaching it after the ruling gets the pre-ruling answer: that the guard searches for two
-    server-only values rather than one. The consequence is the exact reintroduction F-154's ruling
+    server-only values rather than one.
+    CORRECTION APPLIED 2026-08-06, raised by sdlc-product-auditor against this finding's own text.
+    This summary previously claimed "the code, the AC and .env.example were all updated". THAT IS
+    NOT TRUE OF THE AC. STORY-002.md:19 still carries the pre-F-154 wording naming both
+    BFF_PROXY_SECRET and API_BASE_URL; the F-154 amendment was written onto TASK-004's card only and
+    never propagated to the STORY that minted the AC. So F-179 AS ORIGINALLY WRITTEN WOULD NOT HAVE
+    CAUGHT THAT INSTANCE - anyone working from it would believe the AC was already reconciled. Filed
+    separately as F-196. The consequence is the exact reintroduction F-154's ruling
     was written to prevent - a future implementer or auditor reads the contract, finds the code
     checking only BFF_PROXY_SECRET, and "fixes" it back, which reds every correct build the moment
     anything reads NEXT_PUBLIC_API_BASE_URL. Three separate anti-reintroduction notes were placed
@@ -6323,3 +6330,38 @@
     recording that the SUBSTANTIVE half of F-189 is genuinely closed: exit 0 now implies the file
     came back byte-for-byte, because the restore is read back and compared before the success path
     returns.
+
+- id: F-196
+  phase: implement
+  task: TASK-004
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: process
+  file: .sdlc/launch-core/stories/STORY-002.md
+  line: 19
+  summary: >-
+    STORY-002's AC-113 text still reads "the values of the server-only variables BFF_PROXY_SECRET
+    and API_BASE_URL" - the pre-F-154 wording. The ruling was written onto TASK-004's card only and
+    never propagated to the STORY that minted the AC.
+  failure_scenario: >-
+    A future reader auditing verbatim against STORY-002.md - INCLUDING A FUTURE INSTANCE OF THIS
+    SAME AUDIT - sees a two-variable AC and a one-variable check and calls it not-met, or worse
+    "fixes" the check back to searching for API_BASE_URL, which reds every correct build the moment
+    NEXT_PUBLIC_API_BASE_URL is legitimately read. That is F-154's entire point, reintroduced through
+    the one surface the ruling did not reach. THE AUDITOR ALSO CAUGHT THAT F-179 WOULD NOT HAVE
+    CAUGHT THIS: F-179's own summary asserted "the code, the AC and .env.example were all updated",
+    which is false of the AC, so anyone working from F-179 would believe the reconciliation was done.
+    F-179's text has been corrected.
+  required_change: >-
+    Reconcile STORY-002.md:19 with TASK-004's F-154 amendment. Not TASK-002's - stories/** is outside
+    its paths and it never carried this text. Approved artifact, so routing rule 0 makes it Juano's
+    call whether to amend the STORY or record the divergence.
+  owner_slot: null
+  status: open
+  ruling: >-
+    DEFERRED to the wave-1 phase gate rather than opened as a round. It is the THIRD surface carrying
+    F-154's pre-ruling wording - the code and .env.example were corrected, test-strategy.md is F-179,
+    and STORY-002 is this - and the pattern rather than the instance is what the gate should see.
+    Three anti-reintroduction notes already sit where a person edits: the script, .env.example and
+    TASK-004's card.
