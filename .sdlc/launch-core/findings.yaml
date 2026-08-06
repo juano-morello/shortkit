@@ -5915,3 +5915,114 @@
   owner_slot: null
   status: open
   ruling: DEFERRED to Ship-phase triage. Correct behaviour today, documented so it is not rediscovered as a bug.
+
+- id: F-183
+  phase: implement
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 1
+  severity: blocker
+  kind: behavior
+  file: .github/workflows/ci.yml
+  line: 190
+  summary: >-
+    The gate job is SKIPPED when a needs job fails, and GitHub counts a skipped check run as
+    SATISFYING a required status check. Branch protection on main is therefore decorative - nothing
+    in CI blocks a merge.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED AT SOURCE: gate has no `if:` at all, so a failed `quality` or
+    `integration` leaves it skipped. GitHub's status-check reference states a required check is
+    satisfied by success, SKIPPED or neutral, and a job skipped through `needs` publishes a check
+    run with conclusion `skipped`. THE WORKFLOW'S OWN COMMENT AT :188-189 ASSERTS THE OPPOSITE -
+    "A needs job that fails or is skipped leaves this job skipped, which is not success" - and I
+    configured branch protection requiring `gate` on the strength of it an hour before this audit
+    ran. So pnpm audit, db:check-policies, the AC-113 inlined-secret guard, lint, typecheck, test
+    and build currently block nothing. The defect is not that the guard is weak; it is that a false
+    claim in a comment propagated into a repository setting that a human then trusted.
+  required_change: >-
+    `if: always()` on gate plus explicit assertions on needs.quality.result and
+    needs.integration.result. Fold in `permissions: {}`, which is exact for this job rather than
+    the inherited contents: read. AND CORRECT THE COMMENT - it is the reason the wrong
+    configuration looked right to both the implementer and the orchestrator.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-184
+  phase: implement
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: .github/dependabot.yml
+  line: 18
+  summary: >-
+    Dependabot-triggered runs receive only Dependabot secrets, so secrets.BFF_PROXY_SECRET is empty
+    and the quality job fails at the AC-113 step on every bump PR - including the security patches
+    ADR-0018 makes Dependabot the sole delivery path for.
+  failure_scenario: >-
+    Once F-183 is fixed and the gate actually blocks, NO DEPENDENCY BUMP CAN MERGE without an
+    enforce_admins: false bypass. The two findings compound: fix the blocker alone and the repo
+    acquires a required check that Dependabot can never satisfy. DISTINCT FROM F-182, which is
+    external fork PRs on a solo repo and was ruled inconsequential - Dependabot is required
+    infrastructure by ADR-0018's own Decision and starts firing on its schedule without anyone
+    opening a PR.
+  required_change: >-
+    Implementer decides the mechanism and justifies it. The two obvious shapes are a
+    Dependabot-specific secret, or gating the AC-113 step on the secret being present - but the
+    second REINTRODUCES THE VACUOUS-PASS SHAPE F-156 EXISTS TO PREVENT, so if taken, the skip must
+    be loud and must not report the guard as having run.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-185
+  phase: implement
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: implementation
+  file: .github/workflows/ci.yml
+  line: 31
+  summary: >-
+    No timeout-minutes on any job, so each inherits the six-hour default on a public repo that runs
+    fork-supplied installs.
+  failure_scenario: >-
+    A hung or deliberately slow job holds a runner for six hours. On a public repo anyone can open
+    a PR, and the install step executes lockfile-resolved package scripts. Not an exploit so much as
+    an absent bound on a shared resource, with no cost ceiling behind it.
+  required_change: Set explicit timeout-minutes per job, justified against observed run times (quality 56s, integration 51s, gate 4s).
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-186
+  phase: implement
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: implementation
+  file: .github/workflows/ci.yml
+  line: 45
+  summary: >-
+    That CI's BFF_PROXY_SECRET differs from production's is enforced only by a comment.
+  failure_scenario: >-
+    The orchestrator generated a deliberately different value for CI, following F-166's reasoning
+    that a non-production environment may use a distinct throwaway. Nothing enforces it - a future
+    operator syncing the two "for consistency" would put the production secret into a public repo's
+    Actions environment, where every workflow run and every fork-PR debate about masking becomes a
+    production exposure question.
+  required_change: >-
+    Implementer argues whether this is worth mechanising or is correctly a convention. The
+    orchestrator leans convention; the finding stands either way because nothing currently records
+    the reason at the point someone would change it.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
