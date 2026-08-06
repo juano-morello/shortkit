@@ -37,3 +37,12 @@ id_rsa*
 
 # superpowers review packages: regenerable diffs, not source
 .superpowers/
+.vercel
+
+# Added by `vercel link`. `.env*` re-shadows the `!.env.example` negation at line 25, so the
+# negation is restated here: a pattern later in the file wins, and without this a new
+# apps/api/.env.example — which F-169 requires TASK-009 to add — would be silently ignored.
+.env*
+!.env.example
+!*/.env.example
+!**/.env.example
