@@ -6588,3 +6588,184 @@
   status: routed
   resolved_by: null
   resolved_round: null
+
+- id: F-204
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 4
+  severity: major
+  kind: behavior
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 247
+  summary: >-
+    signalEvidence computes exitCode 0 when the signal name cannot be resolved, so
+    exitWithoutVerdict prints NO VERDICT and then EXITS 0 - the CI step goes GREEN on a run that
+    just said it has no verdict. The parent exited 1 on this same input, so the fix introduced it.
+  failure_scenario: >-
+    VERIFIED BY RUNNING THE SHIPPED EXPRESSIONS VERBATIM. spawnSync returns `signal: ''` - EMPTY
+    STRING, not null - when the direct child dies from a signal Node cannot name, which is every
+    number 32-64 on Linux. Confirmed: spawnSync('bash',['-c','kill -34 $$; sleep 5']) gives
+    {status:null, signal:""}. Empty string is not nullish, so byName is '', os.constants.signals['']
+    is undefined, byStatus is null, and exitCode = Number(null) = 0. Observed: evidence
+    {"name":"","exitCode":0}, cause "A child was terminated by , which is not an ordinary typecheck
+    failure.", process.exit(0), process exit code 0. ci.yml:154 has no continue-on-error, so THE
+    STEP PASSES and AC-14 is reported enforced on a run that never finished. The parent's
+    `process.exit(number ?? 1)` produced 1 here because number was null; `evidence?.exitCode ?? 1`
+    does not rescue 0.
+  required_change: >-
+    The no-verdict path exits non-zero on EVERY input. An unresolvable signal number falls back to
+    a non-zero code rather than to Number(null), and an empty-string signal is treated as
+    "signalled, name unknown" rather than as a name.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-205
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 4
+  severity: major
+  kind: behavior
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 227
+  summary: >-
+    This commit newly declares SIGQUIT one of the four signals "a human sends to stop a run", but
+    the listener registration loop still covers only SIGINT/SIGTERM/SIGHUP - so SIGQUIT terminates
+    by default, skips the finally, and leaves the tracked contract file mutated. F-195's SIGHUP
+    defect, for the signal this diff just named.
+  failure_scenario: >-
+    VERIFIED with a copy of the listener block and try/finally: kill -QUIT during the spawnSync gives
+    "Quit (core dumped)", the finally never runs, marker file left reading "MUTATED - finally never
+    ran". In the real script that is packages/contracts/src/errors.ts left holding the probe
+    identifier in the working tree - the outcome the file's own header calls the riskiest part of it.
+    Ctrl-\ is the same class of move as the terminal-close the SIGHUP paragraph argues for: what a
+    user tries when Ctrl-C appears to do nothing, WHICH IS PRECISELY WHAT THIS SCRIPT DOES.
+  required_change: >-
+    The set of signals whose disposition is replaced and the set classified as human interrupts
+    agree, or the file says why SIGQUIT is named in one and absent from the other.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-206
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 4
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 317
+  summary: >-
+    The corrected listener comment's "one reachable case" is NOT reachable. A signal queued during a
+    completed run is not dispatched at module end and does not convert exit 0 into 130 - it is
+    discarded and the run reports OK. FOURTH consecutive round this docblock is wrong about its own
+    mechanism.
+  failure_scenario: >-
+    VERIFIED THREE WAYS ON NODE v24.19.0. Control with no listener: killed at t=1s, exit 130 -
+    confirming delivery. Shipped shape, stdout to file: OK at t=4006, exit 0, LISTENER NEVER RAN.
+    Shipped shape, stdout to a PIPE (the CI shape, tested in case async stdout writes kept the loop
+    alive): same. Positive control with ONE setTimeout(50) after the body: listener ran at t=4011,
+    exit 130. Node unrefs the signal handle, so uv_run finds the loop not alive and returns without
+    draining the pending callback; the described behaviour needs a ref'd handle the script does not
+    have. So "converts an exit 0 into 130" does not happen and "Honest (the signal is not swallowed)"
+    is BACKWARDS - the signal IS swallowed silently. F-201's required_change offered "state that
+    nothing in this script ever dispatches them"; that option was correct and the other was taken.
+  required_change: >-
+    State that nothing in this script ever dispatches these listeners - they are registered solely to
+    replace the terminate-on-signal disposition - and that a signal arriving during a run that
+    completes is discarded, exit 0.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-207
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 4
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 261
+  summary: >-
+    The docblock directly above exitWithoutVerdict still describes the round-2 SINGLE-CONDITION
+    design this commit replaced, and re-asserts unqualified the absolute the header 190 lines up now
+    corrects. The two docblocks in one file disagree about the guard's design.
+  failure_scenario: >-
+    Lines 261-265 read "the run is treated as having no verdict when the typecheck produced no
+    diagnostics at all, whatever killed it" - EXACTLY THE DESIGN F-199 PROVED BROKEN, stated as
+    current, attached to the function that no longer works that way. Lines 254-259 restate "an
+    interrupted run leaves result.signal === null" as an absolute, which the header now qualifies
+    with the process-group case that F-199's required_change asked for. Lines 263-265 also restate
+    the mutation-1-only safety argument the new MUTATIONS block supersedes. SOMEONE SIMPLIFYING THE
+    UNION BACK TO THE NESTED FORM TO MATCH THIS DOCBLOCK REINTRODUCES F-199.
+  required_change: >-
+    This docblock describes the unioned two-condition design, or defers to the header rather than
+    restating a superseded version. The reviewer's note: if only one comment in this diff is
+    corrected, this is the one - it is the one physically attached to the function.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-208
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 4
+  severity: minor
+  kind: contract
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 126
+  summary: >-
+    The new MUTATIONS invariant states mutation 2's protection as BRANCH ORDERING - "the status === 0
+    branch reports it before the no-verdict guard is consulted" - which is the reverse of the control
+    flow this same commit shipped.
+  failure_scenario: >-
+    In the shipped file the guard is consulted FIRST at line 362 and `if (status === 0)` is line 366.
+    What actually protects an exit-0 run is the `status !== 0` conjunct INSIDE the guard's second
+    half, plus a clean run carrying no signal evidence for the first half. The conclusion is right
+    and the stated reason is false about the code beneath it. A maintainer adding a third mutation
+    and reasoning "exit 0 short-circuits before the guard" reasons from a premise the union already
+    invalidated - and the union's first half genuinely does fire on exit-0 runs, which is the
+    ordering this text denies exists. THE PARAPHRASE SWAPPED SHORT-CIRCUIT-WITHIN-A-CONDITION FOR
+    STATEMENT ORDERING, which is exactly the substance F-203 was filed to preserve.
+  required_change: >-
+    Name the actual mechanism: the diagnostics half is conjoined with status !== 0, and the signal
+    half requires signal evidence a clean run does not carry.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-209
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 4
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 217
+  summary: >-
+    SIGNAL_NAMES resolves 134 to "SIGIOT" because os.constants.signals aliases collide, and SIGABRT -
+    Node's own JS-heap OOM abort - lands in the generic branch with no OOM hypothesis, though
+    F-202's required_change named SIGKILL/SIGABRT.
+  failure_scenario: >-
+    Object.fromEntries keeps the LAST entry for duplicate numbers: 6 -> SIGIOT rather than SIGABRT,
+    29 -> SIGPOLL rather than SIGIO. A tsc that exhausts the V8 heap aborts with SIGABRT, pnpm
+    reports Exit status 134, and the operator is told "A child was terminated by SIGIOT". That is a
+    runner memory problem - THE CASE F-202 EXISTS TO SURFACE - reported under a name almost nobody
+    uses and with the memory hypothesis absent, because oomLikely is SIGKILL-only. The kernel-OOM
+    half at 137 is correct and verified.
+  required_change: Prefer the canonical name on alias collisions, and keep the out-of-memory hypothesis visible for SIGABRT as well as SIGKILL.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
