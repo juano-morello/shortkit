@@ -8,14 +8,6 @@
  *
  * `db:migrate` runs as DATABASE_MIGRATION_URL (shortkit_migrator), the role that owns
  * the tables. It is never DATABASE_URL: shortkit_app owns nothing and can run no DDL.
- *
- * ⚠ THIS FILE IS NOT TYPECHECKED (F-133). `apps/api/tsconfig.json`'s `include` covers
- * src, test and the vitest and tsup configs, and not this one, so `pnpm typecheck` never
- * reads it: a wrong `dialect`, a wrong `out`, or a misspelled `defineConfig` field passes
- * typecheck and lint and fails at `pnpm db:migrate`, which no gate runs. Adding
- * `drizzle.config.ts` to that `include` is a one-line change and belongs to whoever owns
- * `apps/api/tsconfig.json`, which is not TASK-005. Until then, run `pnpm db:migrate`
- * against the compose database after editing this file.
  */
 import { defineConfig } from 'drizzle-kit';
 

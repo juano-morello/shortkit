@@ -26,11 +26,8 @@
  * Run it after `db:migrate`, against a database the migrations have been applied to.
  * CI's integration job runs it (TASK-002).
  *
- * ⚠ NOT TYPECHECKED. `apps/api/tsconfig.json`'s `include` covers src, test and the vitest
- * and tsup configs; `scripts/**` is not in it and that file is not TASK-005's to edit
- * (F-133, same shape as `drizzle.config.ts`). Node runs this by stripping the types, so
- * nothing here may use syntax that needs emit — no enums, no namespaces, no decorators,
- * no parameter properties.
+ * Node runs this by stripping the types (`.mts`, no build step), so nothing here may use
+ * syntax that needs emit — no enums, no namespaces, no decorators, no parameter properties.
  */
 import pg from 'pg';
 
@@ -38,17 +35,30 @@ import pg from 'pg';
  * Tables that legitimately carry no row-level security. Every entry needs a reason, and
  * the reason has to be a decision recorded somewhere, not a shrug — an exception list is
  * the obvious place to hide the failure this script exists to catch.
+ *
+ * A `Map` rather than an object literal (F-146): an object literal's lookup resolves
+ * through `Object.prototype`, so `EXEMPT['constructor']` returns the native `Object`
+ * function — not `undefined` — and a table named `constructor`, `toString`, `valueOf`,
+ * `hasOwnProperty` or `__proto__` (all legal lowercase Postgres identifiers) would read as
+ * exempt and pass unchecked. `Map#get` carries no such inheritance.
+ *
+ * Naming a table here is not enough to exempt it (F-147): `main()` below cross-checks
+ * every entry against `information_schema.columns` before honouring it. An entry for a
+ * table that carries a `tenant_id` column fails the check instead of skipping it — the
+ * name is a claim, not a fact, and the reason recorded next to each entry is exactly that
+ * claim: "no tenant_id".
  */
-const EXEMPT: Readonly<Record<string, string>> = {
+const EXEMPT: ReadonlyMap<string, string> = new Map([
   // ADR-0003 and ADR-0015 put the Better Auth tables outside the tenancy contract: they
   // carry no tenant_id, so there is no predicate to write. Tenant-facing code reads
   // `user` only through userDirectory.findByIds(), which joins tenant_memberships, and
   // RLS on the joined table does the filtering (rls-policy-template.md, "Tables covered").
-  user: 'Better Auth. No tenant_id (ADR-0003, ADR-0015)',
-  session: 'Better Auth. No tenant_id (ADR-0003, ADR-0015)',
-  account: 'Better Auth. No tenant_id (ADR-0003, ADR-0015)',
-  verification: 'Better Auth. No tenant_id (ADR-0003, ADR-0015)',
-};
+  // None of the four exist yet (TASK-009) — the entries are inert until then.
+  ['user', 'Better Auth. No tenant_id (ADR-0003, ADR-0015)'],
+  ['session', 'Better Auth. No tenant_id (ADR-0003, ADR-0015)'],
+  ['account', 'Better Auth. No tenant_id (ADR-0003, ADR-0015)'],
+  ['verification', 'Better Auth. No tenant_id (ADR-0003, ADR-0015)'],
+]);
 
 interface TableRow {
   table_name: string;
@@ -71,6 +81,21 @@ const TABLES = `
      and c.relkind in ('r', 'p')
    order by c.relname`;
 
+interface TenantIdColumnRow {
+  table_name: string;
+}
+
+/**
+ * Every table in `public` that actually carries a `tenant_id` column. This is what an
+ * exemption is checked against (F-147) — the entry in `EXEMPT` is a claim that the table
+ * has no such column, and this query is how that claim gets verified rather than trusted.
+ */
+const TENANT_ID_COLUMNS = `
+  select table_name
+    from information_schema.columns
+   where table_schema = 'public'
+     and column_name = 'tenant_id'`;
+
 function connectionString(): string {
   const value = process.env.DATABASE_URL;
 
@@ -89,9 +114,13 @@ async function main(): Promise<void> {
   await client.connect();
 
   let rows: TableRow[];
+  let tenantIdTables: Set<string>;
 
   try {
     rows = (await client.query<TableRow>(TABLES)).rows;
+    tenantIdTables = new Set(
+      (await client.query<TenantIdColumnRow>(TENANT_ID_COLUMNS)).rows.map((r) => r.table_name),
+    );
   } finally {
     await client.end();
   }
@@ -110,11 +139,21 @@ async function main(): Promise<void> {
   const unprotected: string[] = [];
 
   for (const row of rows) {
-    const exemption = EXEMPT[row.table_name];
+    const exemption = EXEMPT.get(row.table_name);
 
     if (exemption !== undefined) {
-      console.log(`skip  ${row.table_name} — exempt: ${exemption}`);
-      continue;
+      if (!tenantIdTables.has(row.table_name)) {
+        console.log(`skip  ${row.table_name} — exempt: ${exemption} (confirmed: no tenant_id column)`);
+        continue;
+      }
+
+      // The exemption's premise no longer holds: the table exists and carries a
+      // tenant_id column, so it falls through to the same check as every other table
+      // instead of being waved through on its name (F-147).
+      console.log(
+        `      ${row.table_name} — exemption ("${exemption}") does not apply: this table ` +
+          'has a tenant_id column, so it is checked like any other table.',
+      );
     }
 
     const missing = [
@@ -128,6 +167,21 @@ async function main(): Promise<void> {
     }
 
     console.log(`ok    ${row.table_name}`);
+  }
+
+  // An EXEMPT entry that never matched a row was never evaluated, and that is a
+  // different fact from "evaluated and confirmed no tenant_id" above — the table isn't
+  // wrong, it just doesn't exist in this database yet (TASK-009, for all four today).
+  // Saying so explicitly keeps that silence from reading as a check that passed.
+  const neverExisted = [...EXEMPT.keys()].filter(
+    (name) => !rows.some((row) => row.table_name === name),
+  );
+
+  if (neverExisted.length > 0) {
+    console.log(
+      `\n${String(neverExisted.length)} exemption(s) refer to tables that do not exist in ` +
+        `schema public yet, so they were not evaluated: ${neverExisted.join(', ')}.`,
+    );
   }
 
   if (unprotected.length > 0) {

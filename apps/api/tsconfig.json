@@ -22,6 +22,8 @@
     "vitest.setup.ts",
     "vitest.config.ts",
     "vitest.integration.config.ts",
-    "tsup.config.ts"
+    "tsup.config.ts",
+    "drizzle.config.ts",
+    "scripts/**/*.mts"
   ]
 }
