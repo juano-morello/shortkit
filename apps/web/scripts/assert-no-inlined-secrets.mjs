@@ -1,8 +1,8 @@
 /**
  * `pnpm --filter @shortkit/web assert:no-secrets`
  *
- * Contract: TASK-004.md (F-078's AC-113, F-084's split, and the round 1-4 fixes:
- * F-154/F-155/F-156/F-160/F-161/F-163/F-164/F-165/F-167/F-171/F-172/F-173), ADR-0014,
+ * Contract: TASK-004.md (F-078's AC-113, F-084's split, and the round 1-6 fixes:
+ * F-154/F-155/F-156/F-160/F-161/F-163/F-164/F-165/F-167/F-171/F-172/F-173/F-175), ADR-0014,
  * design/contracts/web-api-client.md
  * Produced by: TASK-004
  *
@@ -157,24 +157,47 @@ const LEAK_TARGET_VAR = 'BFF_PROXY_SECRET';
  * otherwise has no way to confirm.
  *
  * F-171 (round 4): activation is derived from the build, not inferred from source text. See the
- * three-way discriminator in `main()` — `NAME_PATTERN`/the name search below is the mechanism
- * that makes it possible: a compiled reference to this variable always leaves the bare variable
- * NAME somewhere under `.next` (emitted literally when the build's own environment lacked a
- * value to substitute; surviving in the compiled SSR chunk's `.js.map` `sourcesContent` when a
- * value WAS substituted, because source maps embed the original source Next compiled from), while
- * a reference that exists in source but was never reached by an entrypoint — the shape three
- * rounds of narrowing the source scan could not close, because it isn't a source-side problem —
- * leaves neither the name nor the value anywhere.
+ * three-way discriminator in `main()` — the name search there (matching
+ * `POSITIVE_CONTROL_REFERENCE` below, not this bare variable name) is the mechanism that makes it
+ * possible: a compiled *read* of this variable always leaves the reference somewhere under
+ * `.next` (emitted literally when the build's own environment lacked a value to substitute;
+ * surviving in the compiled SSR chunk's `.js.map` `sourcesContent` when a value WAS substituted,
+ * because source maps embed the original source Next compiled from), while a reference that
+ * exists in source but was never reached by an entrypoint — the shape three rounds of narrowing
+ * the source scan could not close, because it isn't a source-side problem — leaves neither the
+ * reference nor the value anywhere.
  *
  * CAVEAT TO RECORD: the "compiled with a real value substituted" branch of this discriminator
- * relies on the name surviving in server source maps, which Next 16 emits by default
+ * relies on the reference surviving in server source maps, which Next 16 emits by default
  * (`productionBrowserSourceMaps` governs only client maps and is unrelated). If server source
  * maps are ever disabled, that branch degrades from a comparison ("value present in the build →
- * pass") to a name-only signal, which this script already treats as sufficient evidence of
- * activation — the FAIL branch (name present, value absent) still requires a real mismatch to
- * fire, so a disabled source map cannot cause a false FAIL, only a less certain PASS.
+ * pass") to a reference-only signal, which this script already treats as sufficient evidence of
+ * activation — the FAIL branch (reference present, value absent) still requires a real mismatch
+ * to fire, so a disabled source map cannot cause a false FAIL, only a less certain PASS.
  */
 const POSITIVE_CONTROL_VAR = 'NEXT_PUBLIC_API_BASE_URL';
+
+/**
+ * F-175 (round 6): the discriminator above matches this full expression, not the bare variable
+ * name. Round 4 matched `POSITIVE_CONTROL_VAR` bare, which activates on any compiled module that
+ * merely *mentions* the name — a code comment, or a user-facing string like "Set
+ * NEXT_PUBLIC_API_BASE_URL and redeploy" (the exact shape of an error surface under TASK-008's
+ * declared `apps/web/src/components/errors/**`) — without the build ever having read it. That
+ * mention still lands in a compiled chunk (a comment can survive in a source map; a string
+ * literal is compiled verbatim), the value is absent because nothing read it, and round 4's
+ * bare-name match reported that as a mismatch. Matching the full read expression instead is
+ * exactly F-167's constraint 2, correct there for the source scan and dropped when round 4
+ * replaced the source scan with this build-output scan — restored here rather than reinvented.
+ *
+ * RESIDUAL, NOT A MISS: a destructured read — `const { NEXT_PUBLIC_API_BASE_URL } = process.env`
+ * — would not match this pattern either. That is correct, not a gap to close: turbopack does not
+ * perform `NEXT_PUBLIC_` substitution on a destructured `process.env` access any more than it
+ * substitutes one written as `process.env['NEXT_PUBLIC_API_BASE_URL']`, so no value is ever
+ * inlined for either shape and the build-derived NOTICE (no evidence either way) is the accurate
+ * outcome for both, not a false inactive. Do not "fix" this by loosening the pattern back toward
+ * the bare name.
+ */
+const POSITIVE_CONTROL_REFERENCE = `process.env.${POSITIVE_CONTROL_VAR}`;
 
 /**
  * F-160/F-164/F-165: `BFF_PROXY_SECRET`'s required shape, enforced here and stated in
@@ -395,7 +418,7 @@ async function main() {
   for (const file of controlFiles) {
     const contents = await readFile(file, 'utf8');
 
-    if (!nameFound && contents.includes(POSITIVE_CONTROL_VAR)) {
+    if (!nameFound && contents.includes(POSITIVE_CONTROL_REFERENCE)) {
       nameFound = true;
     }
 
@@ -427,26 +450,27 @@ async function main() {
   if (!nameFound) {
     console.log(
       `OK: checked ${String(totalFiles)} file(s) across ${perRootSummary} for ${secret.name}, ` +
-        `no leaked value found. NOTICE: ${POSITIVE_CONTROL_VAR} was not found — as a name or a ` +
-        `value — anywhere under ${POSITIVE_CONTROL_SCAN_ROOT.name} (excluding cache/). No ` +
-        'compiled reference means this run has no evidence either way, not evidence of a ' +
-        'mismatch (F-171) — the positive control is inactive, and this run does NOT prove ' +
-        'build/check environment agreement. It activates automatically the first time a module ' +
-        `reachable from an entrypoint reads ${POSITIVE_CONTROL_VAR} (TASK-008).`,
+        `no leaked value found. NOTICE: no compiled read of ${POSITIVE_CONTROL_VAR} (matching ` +
+        `\`${POSITIVE_CONTROL_REFERENCE}\`) and no value for it were found anywhere under ` +
+        `${POSITIVE_CONTROL_SCAN_ROOT.name} (excluding cache/). No compiled read means this run ` +
+        'has no evidence either way, not evidence of a mismatch (F-171) — the positive control ' +
+        'is inactive, and this run does NOT prove build/check environment agreement. It ' +
+        'activates automatically the first time a module reachable from an entrypoint reads ' +
+        `${POSITIVE_CONTROL_VAR} (TASK-008).`,
     );
     return;
   }
 
-  // nameFound && !valueFound: a compiled reference exists but its value is missing from the
-  // scan. Requiring the value now (rather than up front) is what keeps this branch from firing
-  // before the build has even shown the reference exists — see the file header's F-171 section.
+  // nameFound && !valueFound: a compiled read exists but its value is missing from the scan.
+  // Requiring the value now (rather than up front) is what keeps this branch from firing before
+  // the build has even shown the read exists — see the file header's F-171 section.
   let positiveControlValue;
 
   try {
     positiveControlValue = readRequiredValue(POSITIVE_CONTROL_VAR);
   } catch (error) {
     console.error(
-      `FAIL: ${error.message} A compiled reference to ${POSITIVE_CONTROL_VAR} was found under ` +
+      `FAIL: ${error.message} A compiled read of ${POSITIVE_CONTROL_VAR} was found under ` +
         `${POSITIVE_CONTROL_SCAN_ROOT.name}, so this check needs a real value to compare ` +
         'against it.',
     );
@@ -455,12 +479,12 @@ async function main() {
   }
 
   console.error(
-    `FAIL: a compiled reference to ${POSITIVE_CONTROL_VAR} was found under ` +
+    `FAIL: a compiled read of ${POSITIVE_CONTROL_VAR} was found under ` +
       `${POSITIVE_CONTROL_SCAN_ROOT.name} (excluding cache/), but this check's value ` +
       `(${String(positiveControlValue.length)} character(s)) is not present anywhere in that ` +
-      "scan. This is the positive control (F-156/F-161/F-167/F-171): its match is what proves " +
-      "the build actually ran with this check's environment. The build ran without a real " +
-      `value for ${POSITIVE_CONTROL_VAR}, or with a different one than this check is now ` +
+      "scan. This is the positive control (F-156/F-161/F-167/F-171/F-175): its match is what " +
+      "proves the build actually ran with this check's environment. The build ran without a " +
+      `real value for ${POSITIVE_CONTROL_VAR}, or with a different one than this check is now ` +
       'reading — the dominant real-world case is the Vercel project variable not being set for ' +
       'the environment this build ran in.',
   );
