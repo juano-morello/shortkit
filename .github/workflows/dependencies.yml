@@ -40,8 +40,17 @@ jobs:
   dependencies:
     name: dependencies
     runs-on: ubuntu-latest
+    # Checkout, install and one audit. The comparable work in `quality` — everything up to
+    # and including the first audit step — took 18s on run 31113561948. 10 minutes is the
+    # same order of headroom the other jobs get; this one never runs a build, so it needs
+    # less. Anything is better than the six-hour default.
+    timeout-minutes: 10
     steps:
+      # persist-credentials: false — the default leaves GITHUB_TOKEN in .git/config for
+      # every later step. Nothing here runs git after checkout.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-toolchain
 

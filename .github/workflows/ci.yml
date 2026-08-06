@@ -26,12 +26,24 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Not on the default branch. Cancelling is right on a feature branch or a pull request,
+  # where only the latest push matters — but two merges landing close together on `main`
+  # would cancel the first one's run, leaving that commit with a `gate` check of
+  # `cancelled` and no green record. On the one branch whose protection is the point, every
+  # commit gets its own verdict. Cancelled is a safe direction to fail in, so this is
+  # bookkeeping rather than a hole.
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
   quality:
     name: quality
     runs-on: ubuntu-latest
+    # Observed 56s on the first green run (31113561948). 15 minutes is roughly sixteen
+    # times that, which absorbs a slow registry or a cold Next build and still bounds the
+    # job: `pull_request` on a public repo runs an attacker's `pnpm-workspace.yaml`,
+    # lockfile and package scripts, so the six-hour default is three jobs' worth of free
+    # compute per PR, repeatable. A wrong-but-present bound beats 360.
+    timeout-minutes: 15
     # JOB-LEVEL, NOT STEP-LEVEL, AND THAT IS THE POINT (F-156). AC-113's guard searches
     # the built output for the VALUE of BFF_PROXY_SECRET, so it only means anything if
     # the build it inspects ran with the same value the check reads. A build in one step
@@ -39,16 +51,59 @@ jobs:
     # the environment once for the whole job makes that agreement structural instead of
     # something two step-level `env:` blocks have to keep matching.
     #
-    # This BFF_PROXY_SECRET is CI's own, deliberately not the value registered on Vercel:
-    # CI never talks to Fly, and the guard only needs a conforming value to search for.
+    # This BFF_PROXY_SECRET is CI's own, deliberately NOT the value registered on Vercel.
+    # That divergence is what makes the job-level scope above cheap: every step in this
+    # job, including `pnpm install`'s build scripts, sees a random base64url string that
+    # authenticates nothing. Setting this secret to the production value would silently
+    # convert that reach into a real exposure — the rule and its rotation are recorded in
+    # docs/security/ci-secrets.md, which is the file to read before changing either value.
     env:
       BFF_PROXY_SECRET: ${{ secrets.BFF_PROXY_SECRET }}
       NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
       API_BASE_URL: ${{ vars.API_BASE_URL }}
     steps:
+      # persist-credentials: false — the default writes GITHUB_TOKEN into .git/config as an
+      # http.extraheader, readable by every later step including dependency build scripts.
+      # Nothing after checkout runs git, so nothing needs it. Its reach today is bounded
+      # entirely by `permissions: contents: read`, which is exactly why it should not be
+      # left for a future job that needs a write scope to convert into an exposure.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-toolchain
+
+      # FAIL FAST AND SAY WHY, NEVER SKIP. `assert:no-secrets` already refuses to run
+      # without this value — correctly, since a search with nothing to search for is a
+      # vacuous pass, which is the whole shape F-156 exists to prevent. What that failure
+      # does not say is WHY the value is missing on this particular run, and there are two
+      # non-obvious causes:
+      #
+      #   1. Dependabot. GitHub runs Dependabot-triggered `push` and `pull_request` events
+      #      with Dependabot secrets only — Actions secrets are not exposed — so
+      #      `secrets.BFF_PROXY_SECRET` is empty on every bump PR unless the same value is
+      #      ALSO registered under Settings > Secrets and variables > Dependabot. ADR-0018
+      #      makes Dependabot the only mechanism that raises a version, so this failing
+      #      quietly trains a human to bypass the gate on exactly the pull requests that
+      #      carry security fixes.
+      #   2. A pull request from a fork, which receives no secrets by design.
+      #
+      # This step is deliberately NOT a conditional skip of the AC-113 steps below. A skip
+      # would report the guard as having run, which is the vacuous green the guard exists
+      # to prevent — four minutes earlier and with a friendlier log.
+      - name: Assert the inlined-secret guard has a value to search for
+        env:
+          BFF_PROXY_SECRET: ${{ secrets.BFF_PROXY_SECRET }}
+        run: |
+          if [ -z "${BFF_PROXY_SECRET:-}" ]; then
+            echo '::error::BFF_PROXY_SECRET is empty, so the AC-113 inlined-secret guard would have nothing to search for.'
+            echo 'Register it as a Dependabot secret as well as an Actions secret if this is a Dependabot run'
+            echo '(Settings > Secrets and variables > Dependabot). Fork pull requests receive no secrets at all.'
+            echo 'See docs/security/ci-secrets.md. Do not repair this by skipping the guard.'
+            exit 1
+          fi
+
+          echo 'OK: BFF_PROXY_SECRET is present.'
 
       # ADR-0018: the merge gate audits the PRODUCTION graph only, so a dev-only advisory
       # with no fix available cannot block a merge. The price is that this step is blind
@@ -89,6 +144,11 @@ jobs:
   integration:
     name: integration
     runs-on: ubuntu-latest
+    # Observed 51s on run 31113561948, of which 14s was pulling and starting the service
+    # container. Same 15-minute bound and the same reasoning as `quality`, with one extra
+    # margin: `test/support/psql.ts` falls back to `docker run … psql` per statement if the
+    # runner image ever stops shipping a client, which took 24s locally against 10s here.
+    timeout-minutes: 15
     env:
       # The same DSNs docker-compose.test.yml documents in its header, down to the port,
       # so the commands below read identically to the local ones. Fixture credentials for
@@ -130,7 +190,10 @@ jobs:
           --health-retries 30
           --health-start-period 10s
     steps:
+      # persist-credentials: false — see the note on the same step in `quality`.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-toolchain
 
@@ -185,12 +248,56 @@ jobs:
   # The branch's required check, and the only one that should be (test-strategy.md).
   # GitHub Actions rejects a workflow whose `needs` names a job that does not exist, so a
   # job silently dropped or renamed becomes a hard configuration error here instead of a
-  # green pipeline that ran nothing. A `needs` job that fails or is skipped leaves this
-  # job skipped, which is not success.
+  # green pipeline that ran nothing.
+  #
+  # ⚠ `needs:` ALONE DOES NOT GATE. A job whose `needs` dependency failed does not fail —
+  # it is SKIPPED, and it publishes a check run named `gate` with conclusion `skipped`.
+  # GitHub's status-check reference counts `success`, `skipped` AND `neutral` as satisfying
+  # a required check, so branch protection requiring only `gate` raised no objection on a
+  # run where `quality` went red. Every control this job fans in — `pnpm audit`,
+  # `db:check-policies`, the AC-113 inlined-secret guard, the AC-114 collection assertion,
+  # lint, typecheck, test, build — blocked nothing. Not weakened in the failure case:
+  # inoperative in it, which is the only case the gate exists for.
+  #
+  # The earlier version of this comment asserted the opposite, and the branch protection
+  # was configured on the strength of it. That is why the correction is written out rather
+  # than quietly replaced.
+  #
+  # So: `if: always()` to make the job RUN whatever its dependencies did, and an explicit
+  # assertion on each result. `always()` here does not mask a failure (AC-5) — it is what
+  # lets the step below observe one. `needs.<job>.result` is `success`, `failure`,
+  # `cancelled` or `skipped`, and only the first passes; `cancelled` is reachable through
+  # `cancel-in-progress: true` above.
   gate:
     name: gate
     runs-on: ubuntu-latest
     needs: [quality, integration]
+    if: always()
+    # This job checks nothing out and calls no API. `{}` grants the GITHUB_TOKEN no scope
+    # at all, rather than inheriting the workflow's `contents: read`.
+    permissions: {}
+    timeout-minutes: 5
     steps:
-      - name: Both gates passed
-        run: echo 'quality and integration both succeeded.'
+      - name: Assert quality and integration both succeeded
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+        run: |
+          echo "quality=$QUALITY integration=$INTEGRATION"
+
+          failed=0
+          for pair in "quality:$QUALITY" "integration:$INTEGRATION"; do
+            job="${pair%%:*}"
+            result="${pair#*:}"
+            if [ "$result" != 'success' ]; then
+              echo "::error::job '$job' finished as '$result', not 'success'."
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo 'The merge gate fails when either job is anything but success — including skipped and cancelled.'
+            exit 1
+          fi
+
+          echo 'quality and integration both succeeded.'

@@ -40,15 +40,21 @@ DO $$
 DECLARE
   bad text;
 BEGIN
+  -- rls-policy-template.md: "shortkit_app must never hold BYPASSRLS, SUPERUSER,
+  -- CREATEROLE or table ownership." Three of the four are checked here; table ownership
+  -- is checked downstream by check-policies.mts's count of tables owned in schema public,
+  -- which runs in the same job. CREATEROLE cannot escalate to the other two on PostgreSQL
+  -- 16+ — the server closes that path — and it is listed because this block is the
+  -- contract's only mechanical reader and was two words short of matching it.
   SELECT string_agg(rolname, ', ')
     INTO bad
     FROM pg_roles
    WHERE rolname IN ('shortkit_app', 'shortkit_migrator')
-     AND (rolbypassrls OR rolsuper);
+     AND (rolbypassrls OR rolsuper OR rolcreaterole);
 
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION
-      'role(s) % hold BYPASSRLS or SUPERUSER. Row-level security does not apply to them, so every isolation assertion in the integration suite would pass without proving anything (ADR-0003).',
+      'role(s) % hold BYPASSRLS, SUPERUSER or CREATEROLE. The first two exempt a role from row-level security, so every isolation assertion in the integration suite would pass without proving anything (ADR-0003, rls-policy-template.md).',
       bad;
   END IF;
 

@@ -43,6 +43,37 @@ runs:
 
         echo "version=${floor#>=}" >> "$GITHUB_OUTPUT"
 
+    # The symmetric check for the pnpm half, and F-064's defect reintroduced through
+    # absence if it is left out (F-188). Corepack only verifies a hash that is THERE. Drop
+    # `packageManager` — a bad merge, a tool rewriting the manifest — and `corepack enable`
+    # still succeeds, pnpm resolves to Corepack's own bundled release, nothing compares it
+    # to anything, no sha512 is checked, and the log reads exactly as it does on a correct
+    # run. That is the decorative hash F-064 was filed about, arriving through the field
+    # being gone rather than through a hardcoded version.
+    #
+    # The `+sha512.` half of the glob is the point: `pnpm@11.20.0` alone would satisfy
+    # Corepack and verify nothing.
+    - name: Resolve the pnpm pin from package.json packageManager
+      id: pnpm
+      shell: bash
+      run: |
+        pin="$(node -p "require('./package.json').packageManager ?? ''")"
+
+        case "$pin" in
+          pnpm@*+sha512.*) ;;
+          '')
+            echo "::error::package.json has no packageManager field. Corepack would fall back to its own bundled pnpm and verify no integrity hash."
+            exit 1
+            ;;
+          *)
+            echo "::error::packageManager is '$pin'. It must read pnpm@<version>+sha512.<hash>: without the hash Corepack installs the version but verifies nothing, which reads as supply-chain coverage that does not exist (F-064)."
+            exit 1
+            ;;
+        esac
+
+        version="${pin#pnpm@}"
+        echo "version=${version%%+*}" >> "$GITHUB_OUTPUT"
+
     - name: Install Node
       uses: actions/setup-node@v7
       with:
@@ -60,9 +91,21 @@ runs:
       shell: bash
       env:
         COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        PINNED_PNPM: ${{ steps.pnpm.outputs.version }}
       run: |
         corepack enable
-        pnpm --version
+
+        actual="$(pnpm --version)"
+
+        # `pnpm --version` printed on its own proves only that A pnpm exists. Comparing it
+        # to the pinned version is what makes the preceding step's validation load-bearing
+        # all the way through to the install below.
+        if [ "$actual" != "$PINNED_PNPM" ]; then
+          echo "::error::pnpm resolved to $actual, but package.json pins $PINNED_PNPM. Corepack did not activate the pinned release, so the integrity hash was not the thing that gated this install."
+          exit 1
+        fi
+
+        echo "OK: pnpm $actual, activated by Corepack from the integrity-hashed packageManager pin."
 
     # --frozen-lockfile on every job (ADR-0018): without it, resolution can drift
     # between the tree CI tested and the tree that gets deployed.

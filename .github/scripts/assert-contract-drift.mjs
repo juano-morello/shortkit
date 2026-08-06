@@ -34,14 +34,33 @@
  * deliberate: `Failed in ... at /path/to/apps/web` also contains the directory but says
  * only that the workspace failed, not that a diagnostic named a path inside it.
  *
- * The source file is restored in a `finally`, so a crash mid-run leaves the tree clean.
+ * ============================================================================
+ * IT EDITS A TRACKED FILE, SO THE RESTORE IS THE RISKIEST PART OF IT (F-189).
+ * ============================================================================
+ *
+ * `packages/contracts/src/errors.ts` is mutated in place and put back. Three things make
+ * that safe rather than merely intended:
+ *
+ *   1. A `finally` covers every throw, including a failed occurrence-count guard.
+ *   2. SIGINT and SIGTERM are handled and restore SYNCHRONOUSLY before re-exiting. A
+ *      `finally` does not run on a signal, and this script's header advertises it as a
+ *      command a human can run — Ctrl-C during either typecheck (the two slowest things
+ *      it does, so the likeliest moment) would otherwise leave a probe identifier in a
+ *      tracked source file with nothing saying so.
+ *   3. The restore is VERIFIED before exit 0: the file is read back and compared to the
+ *      bytes read at the start. "The finally ran" and "the file came back byte-identical"
+ *      are different claims, and only the second one matters.
+ *
+ * Everything is written with the synchronous fs API so the signal path and the ordinary
+ * path use the same code — an async write started inside a signal handler is not
+ * guaranteed to finish before the process exits.
  *
  * NOT TYPECHECKED: the root tsconfig's `include` is `["vitest.config.ts"]`, so nothing
  * under `.github/` is in any project's program. Plain ESM, Node runs it as written.
  */
 /* global process, console */
 import { spawnSync } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const CONTRACT_FILE = 'packages/contracts/src/errors.ts';
 
@@ -111,15 +130,32 @@ function runTypecheck() {
   return { status: result.status, output: `${result.stdout}\n${result.stderr}` };
 }
 
-const original = await readFile(CONTRACT_FILE, 'utf8');
+const original = readFileSync(CONTRACT_FILE, 'utf8');
 const failures = [];
+
+function restore() {
+  writeFileSync(CONTRACT_FILE, original);
+}
+
+// A `finally` does not run on a signal. Restore, then re-raise the default disposition by
+// exiting with the conventional 128+signo, so a caller still sees an interrupted run.
+for (const [signal, code] of [
+  ['SIGINT', 130],
+  ['SIGTERM', 143],
+]) {
+  process.on(signal, () => {
+    restore();
+    console.error(`\n${signal} — ${CONTRACT_FILE} restored.`);
+    process.exit(code);
+  });
+}
 
 try {
   for (const mutation of MUTATIONS) {
     console.log(`\n--- ${mutation.name}`);
     console.log(`    expects a diagnostic under ${mutation.consumer}/ — ${mutation.why}`);
 
-    await writeFile(CONTRACT_FILE, applyReplacements(original, mutation.replacements));
+    writeFileSync(CONTRACT_FILE, applyReplacements(original, mutation.replacements));
 
     const { status, output } = runTypecheck();
 
@@ -145,7 +181,22 @@ try {
     console.log(`    OK: ${mutation.consumer} reported a compiler diagnostic.`);
   }
 } finally {
-  await writeFile(CONTRACT_FILE, original);
+  restore();
+}
+
+// "The finally ran" is not "the file came back". Nothing downstream reads this file after
+// the script exits, so an incomplete restore would otherwise be invisible until it showed
+// up in someone's `git status` — or, worse, in a commit.
+const restored = readFileSync(CONTRACT_FILE, 'utf8');
+
+if (restored !== original) {
+  console.error(
+    `\nFAIL: ${CONTRACT_FILE} was not restored to its original contents. This script mutates a ` +
+      'tracked source file in place, so the working tree is now carrying a contract-drift probe ' +
+      'identifier. Restore it with `git checkout -- ' +
+      `${CONTRACT_FILE}\` before committing anything.`,
+  );
+  process.exit(1);
 }
 
 if (failures.length > 0) {
