@@ -6769,3 +6769,101 @@
   status: routed
   resolved_by: null
   resolved_round: null
+
+- id: F-210
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 5
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 300
+  summary: >-
+    exitWithoutVerdict's docblock and the header assert that signalling pnpm leaves
+    result.signal === null with a non-zero status. NOT REPRODUCIBLE: 3/3 direct SIGINTs to the
+    verified pnpm pid gave {status: null, signal: "SIGINT"|"SIGTERM"}.
+  failure_scenario: >-
+    Prose-only. The union handles both shapes and every shape the reviewer produced exits non-zero
+    with the correct message. It is a READER failure: the claimed indistinguishable-from-drift shape
+    is offered as the reason the diagnostics half of the union must exist, and that reason appears
+    false - though the diagnostics half is independently justified in the same docblock by non-tsc
+    typecheck breakage, so "do not simplify this back to a single condition" still rests on a true
+    premise. The reviewer verified by ps that it signalled the real pnpm process rather than a
+    wrapper, and got TWO DIFFERENT SIGNALS FROM ONE EXPERIMENT, so pnpm's shutdown is visibly racy.
+  required_change: n/a - parked, see ruling.
+  owner_slot: sdlc-implementer-backend
+  status: parked
+  ruling: >-
+    PARKED AT THE ROUND CAP, DELIBERATELY, IN THE REVIEWER'S OWN WORDS. Correcting it would be the
+    FIFTH consecutive rewrite of a mechanism sentence, and the previous four each introduced the
+    next defect. pnpm's shutdown is racy - the same experiment returned two different signals - so
+    no single-sentence replacement is safe to assert either. Revisit only as part of F-211's
+    structural change, not on its own.
+
+- id: F-211
+  phase: retro
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 5
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 1
+  summary: >-
+    This file's comments assert empirical claims about Node, libuv and pnpm signal behaviour that no
+    gate in the repo can falsify, that are timing-dependent, and that carry no runtime consequence
+    when wrong. Five rounds of corrections, and the corrections are the defect source.
+  failure_scenario: >-
+    THE MECHANISM, WHICH IS THE RETRO ITEM RATHER THAN ANY INSTANCE. Every sentence that has needed
+    correcting is an empirical claim about a THIRD PARTY'S behaviour, and those claims share three
+    properties whose combination generates defects: (1) NOTHING IN THE REPO CAN FALSIFY THEM - the
+    file is outside every tsconfig program and no test imports it, so there is no gate between a
+    true sentence and a false one; (2) they are TIMING-DEPENDENT, so the honest experiment returns
+    different answers on different runs - round 1's SIGINT verification was confounded by GNU
+    timeout, and the reviewer's own pnpm run disagreed with itself 2:1; (3) being wrong is
+    CONSEQUENCE-FREE PER INSTANCE, so they accumulate rather than surface. THE COMPOUNDING IS THE
+    POINT: three of round 4's four documentation findings were created by round 3's corrections, and
+    round 4's own rewrite introduced F-210. The file carries ~190 lines of comment against ~130 of
+    code, and the comment's job has drifted from "why this decision" to "how Node and pnpm behave
+    under signals" - the first is stable and worth writing, the second is a moving unverifiable
+    target.
+  required_change: >-
+    ONE STRUCTURAL CHANGE, NOT A CORRECTION. Strip causal explanations of third-party behaviour,
+    keeping the observed shapes, the decision rule and the why-this-decision commentary; or promote
+    the load-bearing claims into executable assertions so a gate can falsify them. Fold F-212 in -
+    same defect class, crossed into the code.
+  owner_slot: null
+  status: routed-later
+  ruling: >-
+    ROUTED TO RETRO rather than to a fix round, on the reviewer's recommendation and my agreement.
+    Five rounds is the evidence that another correction is not the answer. Recorded here so the
+    Retro phase sees the mechanism rather than six instances of it.
+
+- id: F-212
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 5
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 250
+  summary: >-
+    MEMORY_SIGNALS and the evidence.memory field it computes are NEVER READ - the message branches
+    hardcode evidence.name === 'SIGKILL' / 'SIGABRT', while the INTERRUPT_SIGNALS docblock names
+    MEMORY_SIGNALS as the classification authority.
+  failure_scenario: >-
+    Confirmed by grep: .memory has ZERO readers and MEMORY_SIGNALS has exactly one, the write.
+    Adding a third name to the set changes nothing observable - the operator still gets the generic
+    "terminated by X" message with no memory hypothesis, WHICH IS EXACTLY THE DEFECT F-209 WAS FILED
+    ABOUT, ONE SIGNAL OVER. The reviewer's framing: the same disease crossing from the prose into
+    the code, a declaration presented as the authority that no consumer consults.
+  required_change: n/a - parked and folded into F-211.
+  owner_slot: sdlc-implementer-backend
+  status: parked
+  ruling: >-
+    PARKED AT THE CAP AND FOLDED INTO F-211. Behaviourally inert today: the two hardcoded branches
+    produce exactly the messages F-209 asked for, and SIGKILL/SIGABRT are correctly absent from
+    INTERRUPT_SIGNALS. The latent cost is that a third memory signal would silently get the generic
+    message. Fix when the file is next opened.
