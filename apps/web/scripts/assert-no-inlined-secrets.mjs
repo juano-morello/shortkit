@@ -1,8 +1,8 @@
 /**
  * `pnpm --filter @shortkit/web assert:no-secrets`
  *
- * Contract: TASK-004.md (F-078's AC-113, F-084's split, F-154/F-155/F-156/F-160's round-1
- * fixes), ADR-0014, design/contracts/web-api-client.md
+ * Contract: TASK-004.md (F-078's AC-113, F-084's split, and the round 1/2 fixes:
+ * F-154/F-155/F-156/F-160/F-161/F-163/F-164/F-165), ADR-0014, design/contracts/web-api-client.md
  * Produced by: TASK-004
  *
  * WHY THIS EXISTS. `BFF_PROXY_SECRET` is a required, server-only Vercel project variable
@@ -28,7 +28,8 @@
  * `.next/server/app/**` instead, which an unauthenticated `curl` of the page returns just as
  * directly. Both roots are scanned, every file in each, not a fixed extension list, because a
  * leak takes whatever shape the framework's internal file naming happens to produce next.
- * Neither root may be silently skipped when absent — see `SCAN_ROOTS` and its handling below.
+ * Neither root may be silently skipped when absent, and — as of round 2 (F-163) — neither may
+ * silently count as covered when present but empty. See `SCAN_ROOTS` and its handling below.
  *
  * KNOWN CEILING, NOT FIXED HERE (F-157, routed to TASK-012/ADR-0014, not this TASK — do not
  * attempt from this file). Per-request dynamic server rendering (any route that reads
@@ -39,20 +40,26 @@
  * ONE LEAK TARGET, DELIBERATELY (F-154, round 1, escalated to and ruled by Juano — see
  * `LEAK_TARGET_VAR` below for why `API_BASE_URL` is not checked).
  *
- * POSITIVE CONTROL (F-156, round 1, major). The script reads its search values from its own
- * environment at check time; nothing by itself proves that environment matches the one the
- * build actually ran with. A build made without `BFF_PROXY_SECRET` exported, checked afterward
- * with a placeholder, finds nothing and passes forever while a real Vercel build — which does
- * have the real values — inlines them into a different artifact. Two things close that gap:
- * (1) `vercel.json`'s `buildCommand` now runs this script immediately after the build it just
- * produced, in the same environment, so there is only ever one artifact and one environment to
- * agree or disagree; and (2) `POSITIVE_CONTROL_VAR` below asserts that a *known-public* value
- * actually made it into the output, so an environment that silently supplied nothing reds
- * instead of vacuously greening.
+ * POSITIVE CONTROL, CONDITIONAL ON A SOURCE REFERENCE (F-156 round 1, F-161 round 2). The
+ * script reads its search values from its own environment at check time; nothing by itself
+ * proves that environment matches the one the build actually ran with. `vercel.json`'s
+ * `buildCommand` closes that gap structurally for the deploy path by chaining this script onto
+ * the build that just ran, in the same process environment. `POSITIVE_CONTROL_VAR` closes it
+ * for any other invocation (e.g. a future CI step that builds and checks separately): if source
+ * code references it, its value must show up in the output, or the environments disagreed.
  *
- * Run after `pnpm --filter @shortkit/web build`, with `BFF_PROXY_SECRET` and
- * `NEXT_PUBLIC_API_BASE_URL` set in the environment to the same real values the build ran
- * with. `vercel.json`'s `buildCommand` does this for the deploy that matters; TASK-002's CI
+ * Round 1 asserted the value's presence unconditionally, which fails on today's `apps/web` —
+ * nothing yet reads `process.env.NEXT_PUBLIC_API_BASE_URL` (TASK-008 adds the first read), and
+ * Next only inlines a `NEXT_PUBLIC_` variable where it is textually referenced, so there was
+ * nothing for a real value to produce (F-161, self-identified by `sdlc-security-auditor`: it
+ * specified "assert present" assuming a reference already existed and hadn't checked). As of
+ * round 2 the control activates only when `hasSourceReference()` finds a real reference under
+ * `apps/web`'s own source — see that function and `POSITIVE_CONTROL_VAR` below for the three
+ * constraints the auditor called not optional when resolving it this way.
+ *
+ * Run after `pnpm --filter @shortkit/web build`, with `BFF_PROXY_SECRET` and (once TASK-008
+ * lands) `NEXT_PUBLIC_API_BASE_URL` set in the environment to the same real values the build
+ * ran with. `vercel.json`'s `buildCommand` does this for the deploy that matters; TASK-002's CI
  * workflow (`.github/**`, outside this TASK's paths, F-084's split) is a second, earlier
  * invocation of the same command.
  *
@@ -103,26 +110,34 @@ const SCAN_ROOTS = [
 const LEAK_TARGET_VAR = 'BFF_PROXY_SECRET';
 
 /**
- * F-156's positive control. `NEXT_PUBLIC_API_BASE_URL` is genuinely public (see above), so its
- * value being present in the output is not itself a finding — it is proof the build ran with
- * the same environment this check is reading, which the check otherwise has no way to confirm.
- *
- * Expected to fail on a build of today's `apps/web`: no code under `apps/web` reads
- * `process.env.NEXT_PUBLIC_API_BASE_URL` yet (TASK-008 adds the first read), and Next.js only
- * inlines a `NEXT_PUBLIC_` variable where it is textually referenced in code, so there is
- * nothing yet for a real value to produce. That is not a bug in this control — it correctly
- * reports that nothing yet proves the deploy environment is wired the way the build assumed.
- * It starts passing once client-reachable code reads that variable.
+ * F-156's positive control, gated as of F-161. `NEXT_PUBLIC_API_BASE_URL` is genuinely public
+ * (see `LEAK_TARGET_VAR` above), so its value being present in the output is not itself a
+ * finding — it is proof the build ran with the same environment this check is reading, which
+ * the check otherwise has no way to confirm. It only makes sense to assert presence once some
+ * source file actually reads it; `hasSourceReference()` below decides that at run time instead
+ * of assuming it, which is exactly what round 1 got wrong.
  */
 const POSITIVE_CONTROL_VAR = 'NEXT_PUBLIC_API_BASE_URL';
 
 /**
- * F-160: a secret this short makes the search meaningless — either it matches incidentally
- * across large parts of the build output, or it is a placeholder that was never going to be
- * inlined anywhere in the first place. `openssl rand -base64 32` (the format `.env.example`
- * documents) produces 44 characters; 32 is a floor below that, not a target.
+ * F-160/F-164/F-165: `BFF_PROXY_SECRET`'s required shape, enforced here and stated in
+ * `.env.example` in the same unit (characters) so the documented format, the enforced check
+ * and the recommended generator agree.
+ *
+ * MIN_SECRET_LENGTH — a secret this short makes the search meaningless: either it matches
+ * incidentally across large parts of the build output, or it is a placeholder that was never
+ * going to be inlined anywhere.
+ *
+ * BASE64URL_PATTERN — F-164's cheaper fix in place of chasing escaping variants. A raw
+ * substring search misses a value rendered in an escaped form (HTML entities, unicode escapes,
+ * JSON quoting), and round 1's `JSON.stringify`-based extra pass only covered one of those
+ * forms. Constraining the secret's charset to base64url removes the problem at its root: no
+ * character in that alphabet is ever escaped by HTML entity encoding, `\uXXXX` unicode
+ * escaping, or JSON string escaping, so a raw `.includes()` cannot be fooled by an escaped
+ * rendering — there is no escaped rendering to be fooled by.
  */
 const MIN_SECRET_LENGTH = 32;
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /**
  * Reads a required value from the environment. Mirrors the convention in
@@ -132,7 +147,7 @@ const MIN_SECRET_LENGTH = 32;
  * loudly — a vacuous pass here is the same shape of silent-green defect this script exists to
  * prevent.
  */
-function readRequiredValue(name, { minLength } = {}) {
+function readRequiredValue(name, { minLength, requireBase64Url } = {}) {
   const value = process.env[name];
 
   if (value === undefined || value.trim() === '') {
@@ -149,6 +164,15 @@ function readRequiredValue(name, { minLength } = {}) {
         'character minimum this check requires (F-160). A short or placeholder value either ' +
         'matches incidentally across large parts of the build output or was never going to be ' +
         'inlined anywhere — see apps/web/.env.example for the required format.',
+    );
+  }
+
+  if (requireBase64Url === true && !BASE64URL_PATTERN.test(value)) {
+    throw new Error(
+      `${name} contains a character outside the base64url alphabet (A-Z, a-z, 0-9, "-", "_", ` +
+        'no padding). This check\'s escaped-form coverage (F-164) depends on the value never ' +
+        'needing HTML-entity, unicode-escape or JSON-quote escaping in the first place — see ' +
+        'apps/web/.env.example for a generator that produces a conforming value.',
     );
   }
 
@@ -173,10 +197,12 @@ async function collectFiles(dir) {
 }
 
 /**
- * F-160: plain substring matching misses an escaped rendering of the value — an RSC flight
- * payload or an HTML attribute can escape characters a raw secret might contain. `JSON.stringify`
- * covers the common case (quotes, backslashes, control characters); it will not catch every
- * possible escaping scheme, but it costs nothing extra to check alongside the raw form.
+ * F-160: plain substring matching misses an escaped rendering of the value. `JSON.stringify`
+ * covers quote/backslash/control-character escaping, which is what round 2's reproduction
+ * showed standalone `.rsc` files use. It does not cover HTML-entity or unicode-escape
+ * renderings (F-164) — `BASE64URL_PATTERN` above is what actually closes that gap for
+ * `BFF_PROXY_SECRET`. This function stays in place because `POSITIVE_CONTROL_VAR` is a URL, not
+ * a charset-gated secret, and the cheap extra pass still costs nothing.
  */
 function matchesValue(contents, value) {
   if (contents.includes(value)) {
@@ -187,18 +213,76 @@ function matchesValue(contents, value) {
   return jsonEscaped !== value && contents.includes(jsonEscaped);
 }
 
+/**
+ * F-161, constraint 1. Directories the source scan never enters. `.next` and `node_modules`
+ * are build output and dependencies, not this app's source. `scripts` holds this very file,
+ * which names `POSITIVE_CONTROL_VAR` repeatedly in its own comments — scanning it would make
+ * the positive control activate itself immediately regardless of whether any real code reads
+ * the variable, reproducing F-161's failure one layer of indirection down.
+ */
+const SOURCE_EXCLUDED_DIRS = new Set(['.next', 'node_modules', 'scripts']);
+
+/**
+ * Only file types Next.js or the test runner actually execute are treated as source. This is
+ * what excludes `apps/web/.env.example` and `package.json` without a hardcoded per-file
+ * exception list — `.env.example` names both env vars in plain text and would "activate" the
+ * positive control the same way the script's own header would, for the same underlying reason.
+ */
+const SOURCE_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
+
+async function collectSourceFiles(dir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = [];
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (SOURCE_EXCLUDED_DIRS.has(entry.name)) {
+        continue;
+      }
+
+      files.push(...(await collectSourceFiles(path.join(dir, entry.name))));
+    } else if (entry.isFile() && SOURCE_FILE_EXTENSIONS.has(path.extname(entry.name))) {
+      files.push(path.join(dir, entry.name));
+    }
+  }
+
+  return files;
+}
+
+/**
+ * F-161 (option (a), routed and ruled by `sdlc-security-auditor`, the agent that specified the
+ * control and owned getting its wording wrong in round 1 — see `POSITIVE_CONTROL_VAR` above).
+ * True only if some source file under `apps/web` (excluding `.next/`, `node_modules/`,
+ * `scripts/` — constraint 1) textually references `name`.
+ *
+ * A vitest spec file referencing the variable would also count as "active" here, which is not
+ * narrowed further: a false "active" fails closed rather than vacuously passing, which is the
+ * safe direction to be wrong in, unlike the failure this control exists to prevent.
+ */
+async function hasSourceReference(name) {
+  const files = await collectSourceFiles(process.cwd());
+
+  for (const file of files) {
+    const contents = await readFile(file, 'utf8');
+
+    if (contents.includes(name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function main() {
   let secret;
-  let positiveControl;
 
   try {
     secret = {
       name: LEAK_TARGET_VAR,
-      value: readRequiredValue(LEAK_TARGET_VAR, { minLength: MIN_SECRET_LENGTH }),
-    };
-    positiveControl = {
-      name: POSITIVE_CONTROL_VAR,
-      value: readRequiredValue(POSITIVE_CONTROL_VAR),
+      value: readRequiredValue(LEAK_TARGET_VAR, {
+        minLength: MIN_SECRET_LENGTH,
+        requireBase64Url: true,
+      }),
     };
   } catch (error) {
     console.error(`FAIL: ${error.message}`);
@@ -206,11 +290,29 @@ async function main() {
     return;
   }
 
+  const positiveControlActive = await hasSourceReference(POSITIVE_CONTROL_VAR);
+  let positiveControl = null;
+
+  if (positiveControlActive) {
+    try {
+      positiveControl = {
+        name: POSITIVE_CONTROL_VAR,
+        value: readRequiredValue(POSITIVE_CONTROL_VAR),
+      };
+    } catch (error) {
+      console.error(`FAIL: ${error.message}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   const filesByRoot = [];
 
   for (const root of SCAN_ROOTS) {
+    let files;
+
     try {
-      filesByRoot.push({ root: root.name, files: await collectFiles(root.dir) });
+      files = await collectFiles(root.dir);
     } catch (error) {
       if (error.code === 'ENOENT') {
         console.error(
@@ -225,6 +327,21 @@ async function main() {
 
       throw error;
     }
+
+    // F-163: a root that exists but is empty is the same vacuous pass as a missing root, one
+    // level over — a Next.js layout change could relocate prerendered output while still
+    // creating this directory, silently dropping coverage to a green log.
+    if (files.length === 0) {
+      console.error(
+        `FAIL: ${root.dir} exists but contains no files. This check does not count an empty ` +
+          `root as covered (F-163) — confirm \`pnpm --filter @shortkit/web build\` actually ` +
+          `produced output under ${root.name} before trusting a pass here.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    filesByRoot.push({ root: root.name, files });
   }
 
   const leaks = [];
@@ -241,7 +358,11 @@ async function main() {
         leaks.push({ root, file, name: secret.name });
       }
 
-      if (!positiveControlFound && matchesValue(contents, positiveControl.value)) {
+      if (
+        positiveControlActive &&
+        !positiveControlFound &&
+        matchesValue(contents, positiveControl.value)
+      ) {
         positiveControlFound = true;
       }
     }
@@ -266,23 +387,37 @@ async function main() {
     return;
   }
 
-  if (!positiveControlFound) {
+  if (positiveControlActive && !positiveControlFound) {
     console.error(
       `FAIL: ${positiveControl.name}'s value was not found anywhere under ` +
-        `${SCAN_ROOTS.map((root) => root.name).join(' or ')}. This is the positive control ` +
-        "(F-156): its presence is what proves the build actually ran with this check's " +
-        'environment, rather than the search finding nothing because there was nothing there ' +
-        'to find. If no client-reachable code reads NEXT_PUBLIC_API_BASE_URL yet, this failure ' +
-        'is expected — see the note on POSITIVE_CONTROL_VAR above.',
+        `${SCAN_ROOTS.map((root) => root.name).join(' or ')}, even though source code ` +
+        `references it. This is the positive control (F-156/F-161): its presence is what ` +
+        "proves the build actually ran with this check's environment. A reference existing " +
+        'without the value landing means the build ran without a real value for this ' +
+        'variable, or with a different one than this check is now reading.',
     );
     process.exitCode = 1;
     return;
   }
 
-  console.log(
-    `OK: checked ${String(totalFiles)} file(s) across ${SCAN_ROOTS.map((root) => root.name).join(', ')}, ` +
-      'no leaked value found; positive control confirmed.',
-  );
+  const perRootSummary = filesByRoot
+    .map(({ root, files }) => `${root} (${String(files.length)})`)
+    .join(', ');
+
+  if (positiveControlActive) {
+    console.log(
+      `OK: checked ${String(totalFiles)} file(s) across ${perRootSummary}, no leaked value ` +
+        'found; positive control confirmed (source reference found, value present).',
+    );
+  } else {
+    console.log(
+      `OK: checked ${String(totalFiles)} file(s) across ${perRootSummary}, no leaked value ` +
+        `found. NOTICE: no source reference to ${POSITIVE_CONTROL_VAR} found under apps/web ` +
+        '(excluding .next/, node_modules/, scripts/) — the positive control is inactive, so ' +
+        'this run does NOT prove build/check environment agreement (F-161). It activates ' +
+        'automatically the first time client-reachable code reads that variable (TASK-008).',
+    );
+  }
 }
 
 await main();
