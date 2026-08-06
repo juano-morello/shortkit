@@ -123,8 +123,12 @@ const CONTRACT_FILE = 'packages/contracts/src/errors.ts';
  *     `apps/api` half still emits diagnostics, so `hasAnyDiagnostic` is true and the
  *     ordinary verdict path runs.
  *   - Mutation 2 has ONE consumer, and a genuine regression there means nothing broke at
- *     all — the typecheck exits 0, and the `status === 0` branch reports it before the
- *     no-verdict guard is consulted.
+ *     all — the typecheck exits 0. What protects that run is the `status !== 0` conjunct
+ *     INSIDE the guard, which short-circuits before `hasAnyDiagnostic` is reached, plus a
+ *     clean run carrying no signal evidence for the other half of the union to find. It is
+ *     NOT the `if (status === 0)` branch below: that sits after the guard, not before it,
+ *     and never gets the chance to matter here. Short-circuiting within one condition, not
+ *     statement ordering — the distinction is the whole of why this is safe.
  *
  * THE SAFETY PROPERTY IS THEREFORE THE TABLE'S, NOT THE GUARD'S. A third mutation with a
  * single consumer whose regression surfaces as a NON-ZERO exit carrying no diagnostics —
@@ -213,78 +217,135 @@ function hasAnyDiagnostic(output) {
 const SIGNAL_BY_NAME = /Command failed with signal "(SIG\w+)"/;
 const SIGNAL_BY_STATUS = /Exit status (1(?:2[89]|3\d|4[0-3]))\b/;
 
-/** 128+n back to a name, so `Exit status 137` can be told apart from `Exit status 130`. */
-const SIGNAL_NAMES = Object.fromEntries(
-  Object.entries(os.constants.signals).map(([name, number]) => [number, name]),
-);
+/**
+ * 128+n back to a name, so `Exit status 137` can be told apart from `Exit status 130`.
+ *
+ * FIRST NAME WINS, and that is not incidental (F-209). `os.constants.signals` maps two
+ * names onto some numbers — 6 is both SIGABRT and SIGIOT, 29 is both SIGIO and SIGPOLL —
+ * and `Object.fromEntries` keeps the LAST, so the obvious one-liner resolves 134 to
+ * "SIGIOT". A `tsc` that exhausts the V8 heap aborts with SIGABRT and pnpm reports
+ * `Exit status 134`, so that one-liner told the operator their memory problem was
+ * "terminated by SIGIOT", under a name almost nobody uses.
+ */
+const SIGNAL_NAMES = {};
+
+for (const [name, number] of Object.entries(os.constants.signals)) {
+  if (!(number in SIGNAL_NAMES)) {
+    SIGNAL_NAMES[number] = name;
+  }
+}
 
 /**
- * Signals a human sends to stop a run. SIGKILL is deliberately NOT one of them: on a CI
- * runner it is almost always the kernel out-of-memory killer, which is a capacity problem
- * and needs a different first move from "someone pressed Ctrl-C". Either way the run has
- * no verdict, but the message has to point at the right thing.
+ * Signals a human sends to stop a run. SIGKILL and SIGABRT are deliberately NOT among
+ * them — see `MEMORY_SIGNALS`. Either way the run has no verdict, but the message has to
+ * point at the right thing.
  */
 const INTERRUPT_SIGNALS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']);
+
+/**
+ * The two that mean "this machine ran out of memory", which is a capacity problem needing
+ * a different first move from "someone pressed Ctrl-C" — and the case least likely to
+ * reproduce anywhere but the runner it happened on.
+ */
+const MEMORY_SIGNALS = new Set(['SIGKILL', 'SIGABRT']);
 
 /**
  * Everything the run says about having been signalled, from three sources in descending
  * directness: `spawnSync` saw its own child die from one; pnpm named it; pnpm reported a
  * child at 128+n. Returns null when there is no such evidence at all.
+ *
+ * `spawnSync` REPORTS AN EMPTY STRING, NOT NULL, when the child died from a signal Node
+ * cannot name — every number 32-64 on Linux (F-204). Empty string is not nullish, so
+ * `signal ?? …` treats it as a name, `os.constants.signals['']` is undefined, and the
+ * arithmetic below fell through to `Number(null)`, which is **0**. That made the no-verdict
+ * path call `process.exit(0)` and the CI step go green on a run that had just printed
+ * NO VERDICT. It is handled explicitly here and clamped again at the exit.
  */
 function signalEvidence(signal, output) {
-  const byName = signal ?? SIGNAL_BY_NAME.exec(output)?.[1] ?? null;
-  const byStatus = SIGNAL_BY_STATUS.exec(output)?.[1] ?? null;
-  const name = byName ?? (byStatus === null ? null : (SIGNAL_NAMES[Number(byStatus) - 128] ?? null));
+  const namedBySpawn = typeof signal === 'string' && signal !== '' ? signal : null;
+  const unnamedBySpawn = signal === '';
 
-  if (name === null && byStatus === null) {
+  const byStatus = SIGNAL_BY_STATUS.exec(output)?.[1] ?? null;
+  const name =
+    namedBySpawn ??
+    SIGNAL_BY_NAME.exec(output)?.[1] ??
+    (byStatus === null ? null : (SIGNAL_NAMES[Number(byStatus) - 128] ?? null));
+
+  if (name === null && byStatus === null && !unnamedBySpawn) {
     return null;
   }
 
   const number = name === null ? undefined : os.constants.signals[name];
+  const candidate =
+    typeof number === 'number' ? 128 + number : byStatus !== null ? Number(byStatus) : 1;
 
   return {
     name,
-    exitCode: typeof number === 'number' ? 128 + number : Number(byStatus),
+    // Never 0, whatever the inputs were. This value is the process's exit code on a path
+    // that has just declared it has no verdict, and the CI step carries no
+    // `continue-on-error`, so a 0 here is a green gate over an unfinished typecheck.
+    exitCode: Number.isInteger(candidate) && candidate > 0 ? candidate : 1,
     interrupt: name !== null && INTERRUPT_SIGNALS.has(name),
-    oomLikely: name === 'SIGKILL',
+    memory: name !== null && MEMORY_SIGNALS.has(name),
   };
 }
 
 /**
- * `spawnSync`'s `signal` is NOT sufficient on its own, and round 2 of this script briefly
- * claimed it was. Verified: `spawnSync` does report `{ status: null, signal: 'SIGINT' }`
- * when its direct child is killed — but the direct child here is `pnpm`, which TRAPS
- * SIGINT, waits for its own children and then exits with an ordinary status. Interrupting
- * a real run therefore leaves `result.signal === null` and `result.status` non-zero, which
- * is exactly the shape a drift failure has.
+ * Reports that this run cannot rule on AC-14, and exits NON-ZERO.
  *
- * So the run is treated as having no verdict when the typecheck produced no diagnostics at
- * all, whatever killed it. That covers the interrupt without depending on pnpm's signal
- * handling, and it cannot swallow a real finding: a mutation that genuinely fails to break
- * a consumer produces diagnostics from the OTHER workspaces it does break, so
- * `hasAnyDiagnostic` is true and the ordinary verdict path runs.
+ * Reached from the union at the call site — either condition alone, never nested. Read
+ * that condition rather than this docblock for the logic; what follows is why the two
+ * halves exist and what each is worth.
  *
- * It also catches a second thing worth catching: a typecheck broken for a non-tsc reason
- * (`next typegen` failing, a missing binary). That is not an AC-14 regression either, and
- * reporting it as one sends the reader after the wrong file. Either way the exit is
- * non-zero, so the gate stays red — only the explanation changes.
+ * **Signal evidence.** Whether `spawnSync` sees a signal depends on WHO was signalled.
+ * Signal only node and `pnpm` traps it, waits for its children and exits with an ordinary
+ * status, so `result.signal` is null and `result.status` is non-zero — the same shape a
+ * drift failure has. Signal the process GROUP, which is what Ctrl-C does, and `spawnSync`
+ * reports the signal directly. Both verified. Neither `signal === null` nor
+ * `signal !== null` is an absolute here, which is why this half cannot be the only test.
+ *
+ * **No diagnostics on a non-zero exit.** A genuine regression always emits `error TSnnnn`,
+ * so a non-zero typecheck with none of them did not finish. This half also catches a
+ * typecheck broken for a non-tsc reason — `next typegen` failing, a missing binary after a
+ * dependency bump — which is not an AC-14 regression either, and reporting it as one sends
+ * the reader after the wrong file.
+ *
+ * **Why neither is enough alone.** Round 2 nested the signal check inside the diagnostics
+ * check and left a window (F-199): mutation 1 breaks two workspaces that finish at
+ * different times, so an interrupt landing between them leaves diagnostics in the output,
+ * the diagnostics test is false, and the interrupt is reported as an AC-14 regression.
+ * **Do not simplify this back to a single condition.** The invariant above `MUTATIONS`
+ * covers what the diagnostics half is safe against and why that safety is the table's
+ * rather than this function's.
+ *
+ * **This function must never exit 0** (F-204). It has just told the operator the run has
+ * no verdict, and the CI step carries no `continue-on-error`, so a 0 is a green gate over
+ * an unfinished typecheck.
  */
 function exitWithoutVerdict(evidence, output) {
   restore();
+
+  const memoryAdvice =
+    ' On a CI runner this is nearly always a memory problem rather than anything to do with ' +
+    'this check — look at what the runner had available, not at the contract. It will not ' +
+    'reproduce locally.';
 
   const cause =
     evidence === null
       ? 'No signal was reported anywhere in the output, and the typecheck emitted no compiler ' +
         'diagnostics, so it did not finish. The likely cause is a typecheck broken for a ' +
         'non-tsc reason — `next typegen` failing, or a missing binary after a dependency bump.'
-      : evidence.oomLikely
-        ? 'A child was KILLED (SIGKILL). On a CI runner that is almost always the kernel ' +
-          'out-of-memory killer rather than anything to do with this check — look at memory ' +
-          'first, not at the contract. It will not reproduce locally.'
-        : evidence.interrupt
-          ? `Interrupted (${evidence.name}).`
-          : `A child was terminated by ${evidence.name ?? 'a signal'}, which is not an ordinary ` +
-            'typecheck failure.';
+      : evidence.name === 'SIGKILL'
+        ? `A child was KILLED (SIGKILL), which is the kernel out-of-memory killer.${memoryAdvice}`
+        : evidence.name === 'SIGABRT'
+          ? `A child ABORTED (SIGABRT). For \`tsc\` that is usually V8 exhausting its heap.${memoryAdvice}`
+          : evidence.interrupt
+            ? `Interrupted (${evidence.name}).`
+            : evidence.name === null
+              ? 'A child was terminated by a signal Node could not name — every signal number ' +
+                '32-64 on Linux reports this way. Not an ordinary typecheck failure.'
+              : `A child was terminated by ${evidence.name}, which is not an ordinary typecheck ` +
+                'failure.';
 
   console.error(
     '\nNO VERDICT: this run of `pnpm -r --no-bail typecheck` cannot say anything about AC-14 ' +
@@ -293,12 +354,17 @@ function exitWithoutVerdict(evidence, output) {
       `  ${CONTRACT_FILE} restored.\n\n` +
       // The step captures both streams, so pnpm's output reaches nobody unless it is
       // printed here. Without it the message above is the operator's entire evidence for a
-      // failure that, in the OOM case, does not reproduce anywhere else. The sibling
+      // failure that, in the memory cases, does not reproduce anywhere else. The sibling
       // failure path below prints the same thing for the same reason.
       `Full output:\n${output}`,
   );
 
-  process.exit(evidence?.exitCode ?? 1);
+  // Clamped a second time, at the one place it decides the gate. `signalEvidence` already
+  // guarantees a positive `exitCode`; this repeats it because the cost of the two being out
+  // of step is a green CI step over a run that just said it has no verdict (F-204).
+  const code = evidence?.exitCode ?? 1;
+
+  process.exit(Number.isInteger(code) && code > 0 ? code : 1);
 }
 
 const original = readFileSync(CONTRACT_FILE, 'utf8');
@@ -308,25 +374,41 @@ function restore() {
   writeFileSync(CONTRACT_FILE, original);
 }
 
-// These do not fire during the run. What registering them DOES do is replace the default
-// terminate-on-signal disposition, so the process survives long enough for the `finally`
-// below to restore the file — that is their whole job, and it is verified.
+// ============================================================================
+// NOTHING IN THIS SCRIPT EVER DISPATCHES THESE. THE BODIES ARE DEAD CODE.
+// ============================================================================
 //
-// THERE IS NO "BETWEEN MUTATIONS" WINDOW where they get a turn, which an earlier version
-// of this comment claimed: the whole try/for body is synchronous, so the loop never turns
-// until it ends. The one reachable case is the opposite shape — a signal queued during a
-// run that goes on to COMPLETE is dispatched when the module body ends, so the listener
-// prints its line after the OK and converts an exit 0 into 130. Honest (the signal is not
-// swallowed) and confusing (nothing was interrupted), and left as is rather than
-// suppressed, because a signal that reaches a completed run is still a signal the caller
-// sent.
+// Registering a listener replaces the default terminate-on-signal disposition. THAT IS
+// THEIR ENTIRE JOB, and it is the whole reason they are here: verified that with no
+// listener a signal kills the process outright, the `finally` never runs, and the file is
+// left holding a probe identifier.
 //
-// An interrupt that STOPS the run is `exitWithoutVerdict`'s `128 + signo`, not this. The
-// two exit codes are identical, so do not read an exit 130 as evidence that a listener ran.
+// The bodies never execute. The try/for below is fully synchronous, and Node unrefs the
+// signal handle, so when the module body ends the loop is not alive and `uv_run` returns
+// without draining the pending callback. Verified on Node v24.19.0 three ways, including
+// with stdout on a pipe (the CI shape) in case async writes kept the loop alive: the
+// listener never ran. A positive control with a single `setTimeout` after the body — a
+// ref'd handle this script does not have — did run it.
+//
+// So the signal is SWALLOWED SILENTLY: a run interrupted after its last `spawnSync`
+// returns still exits 0. Three earlier versions of this comment described a mechanism this
+// script does not have, the last of them claiming the opposite of the truth ("the signal is
+// not swallowed"). Anything that adds an `await` or a timer down there changes this, and
+// then the codes below start mattering.
+//
+// An interrupt that actually STOPS a run is `exitWithoutVerdict`'s `128 + signo`, never
+// this. The exit codes are identical, so an exit 130 is not evidence a listener ran.
+//
+// SIGQUIT is in the list because this diff's own `INTERRUPT_SIGNALS` calls it one of the
+// signals a human sends to stop a run, and it was missing here (F-205). Ctrl-\ is the same
+// class of move as closing the terminal: what someone tries when Ctrl-C appears to do
+// nothing, which is exactly what this script does. Verified that an unhandled SIGQUIT
+// ("Quit (core dumped)") skips the `finally` and leaves the tree mutated.
 for (const [signal, code] of [
   ['SIGINT', 130],
   ['SIGTERM', 143],
   ['SIGHUP', 129],
+  ['SIGQUIT', 131],
 ]) {
   process.on(signal, () => {
     restore();
