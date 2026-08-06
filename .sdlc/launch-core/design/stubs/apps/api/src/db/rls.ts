@@ -6,6 +6,17 @@
  * Drizzle Kit does not generate policy DDL. Each schema file exports its policy SQL
  * built from here, and the producing TASK appends it to the generated migration BY HAND
  * in the same commit. `pnpm db:check-policies` asserts the result against pg_policies.
+ *
+ * THIS FILE READS ALL THREE CONTEXT FLAGS AND SETS NONE (F-118). It is the one file
+ * besides each flag's setter that may contain the strings `app.tenant_id`,
+ * `app.redirect_context` and `app.privileged_erase`, because the policies that read them
+ * are built here. The isolation suite asserts this file contains no set_config call at
+ * all, which is what keeps that carve-out from being the hole
+ * (design/contracts/isolation-coverage.md, clause A3).
+ *
+ * Write each flag name inline in the policy SQL. No exported constant: clause A4 forbids
+ * passing an identifier to set_config, so a constant would be inlined at the only call
+ * site that matters anyway.
  */
 
 export interface PolicySet {

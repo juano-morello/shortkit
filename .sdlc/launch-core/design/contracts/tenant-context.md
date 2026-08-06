@@ -61,11 +61,17 @@ export declare function Public(justification: string): MethodDecorator & ClassDe
 
 ```sql
 BEGIN;
-SELECT set_config('statement_timeout', $1, true);
-SELECT set_config('app.tenant_id',     $2, true);
+SELECT set_config('statement_timeout',                   $1, true);
+SELECT set_config('idle_in_transaction_session_timeout', $2, true);
+SELECT set_config('app.tenant_id',                       $3, true);
 -- fn runs here
 COMMIT;   -- or ROLLBACK if fn throws
 ```
+
+All three run before `fn` does. Their order among themselves is not load-bearing.
+ADR-0021's requirement that a capability-token digest check be the first statement in
+the transaction means the first statement `fn` issues, not the first statement on the
+connection.
 
 **`set_config(name, value, true)`, never `SET LOCAL`.** Revised 2026-08-04 (F-007):
 PostgreSQL's `SET`/`SET LOCAL` accept no bind parameters, so `SET LOCAL app.tenant_id =
@@ -77,6 +83,71 @@ transaction, which is AC-11.
 **No context flag is ever set by string concatenation, in any file.** `tenantId` is
 validated as a uuid before it reaches `set_config`; for ADR-0021's capability-token
 routes it arrives from an unauthenticated URL segment.
+
+### `idle_in_transaction_session_timeout`, and the client listener it requires
+
+Added 2026-08-05 (F-123), recommended by `sdlc-security-auditor`. `isolation-coverage.md`
+clause A4 admits the name; see its permitted-name table.
+
+**Value: `5000`, a module constant.** Not derived from `options.statementTimeoutMs` and
+not settable through `TenantTransactionOptions`. The two bound different things and fail
+differently: `statement_timeout` cancels one query, this one terminates the connection.
+A caller that lowers its statement budget to 200 ms is asking for a tighter query bound,
+not for a 200 ms ceiling on the gap between two queries, which garbage collection alone
+can exceed on a loaded instance. Adding an option later is an edit to this section.
+
+**What it buys.** `statement_timeout` bounds a query that is running. It does not bound a
+gap with no query running, and a third-party call inside `fn` is exactly that gap. Node's
+`fetch` has no default timeout, so an `fn` awaiting a hung mail, DNS or Fly API call holds
+one of `POOL_MAX` pooled connections until the socket gives up, which can be minutes. Ten
+of those take the instance out while `statement_timeout` never fires, the health check
+keeps passing and no error is logged anywhere. ADR-0002 recorded the ban on third-party
+I/O inside `fn` as "a rule, not a mechanism". This is the mechanism.
+
+**What it does not buy.** It bounds a hang. It does not ban I/O: a 200 ms mail call inside
+`fn` still violates the rule and still passes, and no grep catches it. The rule below
+under "What the implementer must guarantee" stands on its own.
+
+**The listener is part of the same change. Do not land the `set_config` without it.**
+
+```ts
+// in client(), immediately after the pool is constructed
+pool.on('connect', (client) => {
+  client.on('error', (error: Error) => {
+    // name and SQLSTATE only, per rule 2 of "Driver errors inside `fn`"
+  });
+});
+```
+
+Why, in the order the failure runs:
+
+1. On expiry PostgreSQL sends `FATAL: terminating connection due to idle-in-transaction
+   timeout`, SQLSTATE `25P03`, then closes the socket.
+2. The client is checked out and no query is active, so `pg`'s `_handleErrorMessage`
+   finds no active query, calls `_handleErrorEvent`, and reaches `client.emit('error')`
+   (`pg@8.22.0`, `lib/client.js`). The socket `end` handler emits a second time.
+3. A checked-out client has no `'error'` listener. `pg-pool` removes its own
+   `idleListener` in `_acquireClient` (`pg-pool@3.14.0`, line 344) and drizzle's
+   `NodePgSession.transaction` calls `pool.connect()` and attaches none.
+4. Node throws on an `'error'` emit with no listener. The process dies with an
+   uncaughtException, and whichever third party was slow chose the moment.
+
+`pool.on('error')` from the rest of F-123 does not cover this. It fires through
+`makeIdleListener`, which is attached only while a client sits idle **in** the pool.
+Attach on `'connect'`, which `pg-pool` emits once per newly created client and which
+`pg-pool` never removes because it did not add it. Not `'acquire'`, which fires on every
+checkout and stacks a listener per use.
+
+**What the caller sees when it fires.** PostgreSQL has already rolled the transaction
+back and killed the backend. drizzle then runs `ROLLBACK` on a dead client in its own
+catch and rethrows that failure in place of the original, so the error reaching the caller
+of `withTenantTransaction` is a `pg` connection error, not a `DatabaseError` carrying
+`25P03`. `postgresErrorCode` answers `undefined` for it. Nothing may branch on this error;
+the guarantee is that nothing is committed and the connection is discarded.
+
+**This closes an exposure that already exists.** Any mid-transaction connection death
+reaches step 3 the same way today: Neon scale-to-zero, a failover, a restart. The new
+statement makes that path routine rather than exceptional, and the listener closes both.
 
 ## The three sanctioned ways to obtain a tenant id
 
@@ -133,13 +204,85 @@ Three rules, all normative:
 Route enumeration cannot see an in-handler check, so an integration test asserting 403
 for a tenant `member` and a tenant `admin` is the only coverage of AC-105 on this route.
 
+## Driver errors inside `fn`
+
+Added 2026-08-05 (F-120), raised independently by `sdlc-reviewer` and
+`sdlc-security-auditor`. Normative for every TASK that catches a database error.
+
+**drizzle wraps per statement. `databaseTransaction` unwraps per transaction.** Since
+drizzle-orm 0.44 a failed statement throws `DrizzleQueryError`, whose `cause` is the
+driver's `pg.DatabaseError` and whose `message` is the literal
+`Failed query: ${query}\nparams: ${params}`, so it carries the SQL text and every bound
+parameter. `databaseTransaction` unwraps that at the transaction boundary, so the error a caller of
+`withTenantTransaction` receives is the driver's own. **A `catch` inside `fn` runs before
+that boundary and receives the wrapper.** On the wrapper, `error.code` is `undefined`,
+`error.constraint` is `undefined`, and `error.message` carries the row values.
+
+Two accessors, exported from `apps/api/src/db/client.ts`. They are the only sanctioned
+way to read a caught database error anywhere in `apps/api`, inside `fn` or outside it.
+
+```ts
+/**
+ * The five-character SQLSTATE of a caught database error, unwrapping drizzle's
+ * per-statement DrizzleQueryError first. Returns undefined for anything that is not a
+ * pg.DatabaseError, wrapped or not.
+ */
+export declare function postgresErrorCode(error: unknown): string | undefined;
+
+/**
+ * The name of the constraint or unique index the statement violated, unwrapping the
+ * same way. Returns undefined when the driver did not report one.
+ */
+export declare function postgresErrorConstraint(error: unknown): string | undefined;
+```
+
+`postgresErrorConstraint` exists because `postgresErrorCode` alone is not enough for the
+two call sites that need this: `slug.md`'s collision loop and
+`domain-provisioning.md`'s verify transition both branch on `23505` and both would
+otherwise be assuming their table has exactly one unique constraint that can fire.
+
+### The rules
+
+1. **Every catch that branches on a Postgres condition calls `postgresErrorCode`.**
+   Reading `error.code` directly is a defect, and inside `fn` it is a silent one: the
+   branch never matches, and the error surfaces as a 500 with the wrong code.
+2. **Never read `message`, `stack`, `toString()`, `detail`, `hint`, `where`,
+   `internalQuery` or `query` off a caught database error.** Not to log it, not to
+   include it in an envelope, not to build a diagnostic string. This holds for the
+   wrapper and for the unwrapped `pg.DatabaseError` alike, and it holds inside `fn`,
+   where TASK-007's exception filter never sees the error and cannot redact it.
+3. **The readable fields are a closed allowlist**: the SQLSTATE through
+   `postgresErrorCode`, and the constraint name through `postgresErrorConstraint`.
+   Nothing else. Widening it needs an edit to this section.
+4. **Rethrow what you did not handle, unchanged.** Do not wrap a driver error in a new
+   `Error` whose message interpolates the original; that reintroduces rule 2's leak
+   through a different field. `error-envelope.md`'s rule holds: a wrapper that is
+   genuinely needed is itself a `DomainError`.
+
+### The residual, stated rather than left implicit
+
+An unwrapped `pg.DatabaseError` is **not** value-free. On a unique violation the driver
+populates `detail` with the colliding column values verbatim, as in
+`Key (slug)=(abc) already exists`. `where` and `internalQuery` can carry query text and
+values from a trigger or a function body. Unwrapping the drizzle wrapper strictly reduces
+exposure; it does not eliminate it. Rule 2 names those fields for that reason, and rule
+3's allowlist is closed rather than "everything except `message`".
+
+The consequence for logging is in `logging-and-headers.md`. The consequence for the error
+envelope is that no driver error field ever reaches a response body; `error-envelope.md`
+already forbids that, and this section is the reason it matters more than it looks.
+
 ## Invariants a caller may rely on
 
 1. Inside `fn`, every query against a tenant-scoped table sees only rows whose
    `tenant_id` equals `tenantId`. Enforced by RLS (see `rls-policy-template.md`), not
    by an application `where` clause (AC-25).
 2. `fn` throwing rolls the transaction back and rethrows the original error. Nothing is
-   committed (AC-11).
+   committed (AC-11). Revised 2026-08-05 (F-120): "the original error" means the driver's
+   own `pg.DatabaseError`, not drizzle's `DrizzleQueryError` wrapper, because
+   `databaseTransaction` unwraps at the transaction boundary. **This invariant says
+   nothing about what a `catch` inside `fn` sees**, which is the wrapper. See "Driver
+   errors inside `fn`".
 3. After `withTenantTransaction` returns, the pooled connection carries no residue of
    `app.tenant_id` (AC-11).
 4. `tenantDb()` outside an active context throws `TenantContextMissingError`. It never
@@ -154,8 +297,62 @@ for a tenant `member` and a tenant `admin` is the only coverage of AC-105 on thi
 ## What the implementer must guarantee
 
 - `apps/api/src/db/client.ts` is the only file constructing the Drizzle client, and it
-  does not export it. `tenantDb()`, `withTenantTransaction`, `withRedirectRead` and
-  `privilegedTenantEraser` are the only consumers.
+  does not export it. It additionally exports `postgresErrorCode` and
+  `postgresErrorConstraint`, which any file may import.
+- **`databaseTransaction` has exactly four sanctioned consumers.** Amended 2026-08-05
+  (F-126). This list named three; the fourth arrived when TASK-005 put the boot check in
+  `rls.ts`, and TASK-056 needs a list that is true.
+
+  | Consumer | File | Path |
+  |---|---|---|
+  | `withTenantTransaction` | `apps/api/src/tenancy/tenant-context.ts` | data |
+  | `withRedirectRead` | `apps/api/src/redirect/db/redirect-read.ts` | data |
+  | `privilegedTenantEraser` | `apps/api/src/gdpr/privileged-eraser.ts` | data |
+  | `assertRuntimeRoleCannotBypassRls` | `apps/api/src/db/rls.ts` | control |
+
+  The three data-path consumers reach tenant-scoped tables, and each is narrowed by
+  policy in `rls-policy-template.md`. The control-path consumer reads `pg_roles` and
+  `pg_class` before the process accepts traffic, touches no tenant-scoped table and
+  returns no tenant data, so **`ISOLATION_EXCLUSIONS` stays at two** and the "Deliberate
+  exclusions" table below is unchanged. A fourth consumer is not a third exclusion.
+
+  **What the list is for.** Not unreachability: any module can import
+  `databaseTransaction`, and no type prevents it. The guarantee is that a transaction
+  opened without a context flag sees zero rows on every tenant-scoped table and can write
+  none, which is fail-closed by policy rather than by enumeration. The list is what makes
+  a fifth caller a reviewed diff instead of an unremarked one.
+
+  **Admitting a fifth.** It qualifies only if it is one of the two `ISOLATION_EXCLUSIONS`,
+  or if it reads `pg_catalog` and `information_schema` only and runs before the process
+  serves traffic. Anything else needs an ADR superseding ADR-0002.
+
+  **TASK-056 asserts it.** Over `apps/api/src/**/*.ts`, excluding `*.spec.ts` and
+  excluding `client.ts` itself, the set of files containing the string
+  `databaseTransaction` equals exactly those four paths. File-level and by grep, like
+  `isolation-coverage.md` clauses A1 to A3, for the same reason: what a reviewer checks a
+  diff against is a list of file names. Timing matches clause A1's. `redirect-read.ts`
+  (TASK-029) and `privileged-eraser.ts` (TASK-054) both land before TASK-056's wave, so
+  set equality holds when the suite first runs and is not assertable earlier.
+
+  **Known coupling, recorded and not fixed (F-126).** `rls.ts` was a module of policy
+  strings that schema files and the frozen policy fixture import. It now imports
+  `client.ts`, so importing the policy template pulls in `pg` and `drizzle` transitively.
+  Nothing breaks today: `client.ts` builds its pool on first use rather than at import, so
+  `check-policies.mts` and every schema file still load without `DATABASE_URL`. The cost
+  is a runtime driver in the module graph of a module that only needed strings. Moving the
+  boot check into its own file is the repair, and it is not TASK-005's to make:
+  `apps/api/test/tenancy/tenant-context.int-spec.ts` imports
+  `assertRuntimeRoleCannotBypassRls` from `../../src/db/rls`, so the move edits a test file
+  and belongs to `sdlc-test-architect`. F-116 decides where the boot call site lives
+  (TASK-003, `main.ts`); whoever settles that decides the check's home with it, and the
+  fourth row above moves with it. Deliberately not a TASK-056 assertion: asserting the
+  current module graph would freeze the arrangement we want to keep able to change.
+- **No file outside `apps/api/src/db/client.ts` imports `DrizzleQueryError` or names it
+  in an `instanceof`.** The two accessors are the whole interface to a caught database
+  error; a second unwrap site is a second place to get it wrong. TASK-056 greps for this
+  alongside its other source-level checks.
+- **`.code` is never read off a caught error in `apps/api/src/**`.** Read the SQLSTATE
+  through `postgresErrorCode`. Inside `fn` the direct read silently yields `undefined`.
 - **No third-party network I/O inside `fn`.** Mail, Fly API and DNS calls go in
   `afterCommit` or after the call returns. The transaction holds a pooled connection
   for its whole lifetime.

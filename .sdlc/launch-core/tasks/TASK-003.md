@@ -122,3 +122,83 @@ was the right call after ADR-0024 had to strike an unverified redaction claim as
 TASK-007 is wave 1 and closes before TASK-003 runs in wave 2, so they never execute
 concurrently — but merge deliberately rather than assuming, the same care `plan.md`'s wave
 table asks for at `app.module.ts`, which these two TASKs already share.
+
+## ⚠ F-116 — the RLS bypass guard's call site lands here (ruled by Juano 2026-08-05)
+
+TASK-005 built `assertRuntimeRoleCannotBypassRls()` in `apps/api/src/db/rls.ts` because
+`design/contracts/rls-policy-template.md` names it, and disclosed that **nothing calls it**.
+Verified by the orchestrator: grep over `apps/api/src` finds exactly one occurrence, the export
+itself. Both candidate call sites — `main.ts` and the `DbModule` composition root — are outside
+TASK-005's paths, so the placement was Juano's call. It is yours.
+
+**What it guards.** The function is the runtime proof that the application's database role cannot
+see through row-level security. With no call site, a `DATABASE_URL` pointing at a superuser or any
+`BYPASSRLS` role starts the API normally and **every tenant-scoped query silently returns every
+tenant's rows** — the one condition GC-5 exists to make impossible. The integration suite cannot
+catch this: `rls-fixture.ts` asserts the role's attributes before the tests run, so the suite
+proves the *policies* work while nothing proves the *deployed process* refused the wrong role.
+
+**The ruling: boot-time refusal in `main.ts`, not a module-init assertion and not a warning.**
+Call it during bootstrap and **refuse to start** if it fails. A process that logs a warning and
+serves traffic with RLS disabled is worse than one that never came up. This joins the `main.ts`
+obligations you already carry from F-060, F-090, F-093 and F-108 — make it one coherent bootstrap
+sequence rather than four bolted-on checks, and record the ordering you chose in your report.
+
+**Related and still open: F-119.** `db:migrate` runs `drizzle-kit`, a devDependency, while
+ADR-0004 has the Fly release command running migrations in the deployed image — where
+devDependencies are not installed. A `--prod` build or any multi-stage build that prunes them has
+no `drizzle-kit` binary, so the release command fails at deploy time rather than build time. You
+own `fly.toml` and the `Dockerfile`, so you settle it: promote `drizzle-kit` to a dependency and
+ship a migration toolchain into the runtime image, or have the release command run something else.
+Record which way and why in your report — this is a deployment-shape decision, not a manifest typo.
+
+## ⚠ Four deferred TASK-005 findings routed here 2026-08-05
+
+These were raised against TASK-005 and deferred as minors rather than fixed. They land on
+your card because **you are the TASK that makes them true or false**, and a ledger line
+would not survive to you.
+
+**F-144 — the F-137 listener has no regression test, and you are slated to edit those exact
+lines. Satisfy this BEFORE you refactor `client.ts`'s logger.** Raised independently by
+`sdlc-reviewer` and `sdlc-security-auditor`. Deleting the
+`pool.on('connect', client => client.on('error', …))` block leaves all 65 unit and 21
+integration tests green: the F-123 idle test kills a connection that is *already back in the
+pool*, where pg-pool re-attaches its own `idleListener` on release, so the pool-level handler
+alone satisfies it. The guarded path is the opposite state — `_acquireClient` removes
+`idleListener` on checkout and drizzle's `NodePgSession.transaction` attaches none, so a
+client killed **mid-transaction** has zero listeners and Node exits the process. The 5 s
+`idle_in_transaction_session_timeout` added in the same round makes that routine rather than
+exceptional. `client.ts:54` already announces "TASK-003 replaces this with the pino logger".
+The test the auditors specify: kill a backend while it is checked out inside a transaction
+(`pg_terminate_backend` from a second connection, or the idle bound itself) and assert the
+call rejects with **no `uncaughtException`**. The existing F-123 test already installs the
+capture the assertion needs. Test files are `sdlc-test-architect`'s — request it, do not
+write it yourself.
+
+**F-141 — `docs/architecture/rls.md:160` says `assertRuntimeRoleCannotBypassRls` runs at
+"boot, before traffic". Nothing calls it.** Raised independently by `sdlc-reviewer` and
+`sdlc-product-auditor`. The repository's only RLS architecture document tells a reader that a
+`DATABASE_URL` pointing at a superuser, a `BYPASSRLS` role or a table-owning role cannot boot
+the API. Today it boots normally and every policy is decoration. Of the three checks in that
+table this is the one with no other detector. **You land F-116's boot call site, so you are
+the TASK that makes the sentence true** — correct the row when you wire it. Two smaller
+instances in the same file: `:161` says `db:check-policies` runs in CI (TASK-002's, unbuilt),
+and the flag table at `:83` names `src/redirect/db/redirect-read.ts` and
+`src/gdpr/privileged-eraser.ts`, neither of which exists.
+
+**F-142 — `docs/architecture/migrations.md:102` states the Fly release command running
+`db:migrate` as an existing procedure.** No `fly.toml`, `Dockerfile` or release command
+exists, and **F-119 disputes whether `drizzle-kit` is even present in a production image**.
+You own `fly.toml` and the `Dockerfile`, so you settle F-119 and correct this section in the
+same change. A document that states an unresolved question as fact is how the answer stops
+being asked.
+
+**F-149 — `connectionTimeoutMillis: 2000` also caps connection ESTABLISHMENT, not just the
+queue wait its docblock reasons about.** pg-pool applies the same value in `newClient`
+(`pg-pool@3.14.0:250-263`): a new client that has not finished connecting within it has its
+socket destroyed, and the caller gets "Connection terminated due to connection timeout". GC-3
+pins Neon's free tier, which scales to zero — the first request after an idle period pays TCP
++ TLS + auth + compute wake, and if that exceeds 2 s it **fails rather than waits**. The pool
+is empty at process start too, so the same cap hits the first request after every deploy.
+This is the one of TASK-005's three unmeasured capacity numbers with a concrete stated
+mechanism, and **you wire the real endpoint, so you are the only place it can be confirmed**.

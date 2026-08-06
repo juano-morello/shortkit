@@ -89,15 +89,105 @@ reviewer sees, and ADR-0020 requires a written justification with it.
 
 ### 1. The grep assertion
 
-Each Postgres context flag must appear in exactly one non-test source file:
+Normative, and stated to be implemented literally. Settled 2026-08-05 (F-118); the
+earlier one-sentence form ("each flag appears in exactly one non-test source file") was
+unsatisfiable, because the policies that read a flag are built in
+`apps/api/src/db/rls.ts` while the statement that sets it lives elsewhere.
 
-| String | Permitted file |
+**The scan set.** Every file matching `apps/api/src/**/*.ts` whose name does not end
+`.spec.ts`. Nothing else is scanned. Three exclusions, each deliberate:
+
+| Excluded | Why |
 |---|---|
-| `app.tenant_id` | `apps/api/src/tenancy/tenant-context.ts` |
-| `app.redirect_context` | `apps/api/src/redirect/db/redirect-read.ts` |
-| `app.privileged_erase` | `apps/api/src/gdpr/privileged-eraser.ts` |
+| `apps/api/src/**/*.spec.ts` | unit tests set flags to prove policies deny |
+| `apps/api/test/**` | the integration harness sets `app.tenant_id` by design (`apps/api/test/support/psql.ts`) |
+| `apps/api/drizzle/**` | migration DDL. Its flag literals are all inside `CREATE POLICY ... current_setting(...)`, which is the read side of the same distinction A1 draws. DDL applied by `shortkit_migrator` at deploy cannot set a flag on a request path |
 
-A fourth escape, or a second file setting an existing one, fails here.
+**The three flags and their permitted files.**
+
+| Flag | The one file that may SET it | May also contain the string |
+|---|---|---|
+| `app.tenant_id` | `apps/api/src/tenancy/tenant-context.ts` | `apps/api/src/db/rls.ts` |
+| `app.redirect_context` | `apps/api/src/redirect/db/redirect-read.ts` | `apps/api/src/db/rls.ts` |
+| `app.privileged_erase` | `apps/api/src/gdpr/privileged-eraser.ts` | `apps/api/src/db/rls.ts` |
+
+**A1. Set call sites.** For each flag `F`, let `setters(F)` be the files in the scan set
+containing at least one match of
+
+```
+/set_config\s*\(\s*(['"`])(app\.[a-z_]+)\1/
+```
+
+whose second capture group equals `F`. Assert `setters(F)` equals exactly the one
+permitted setter for `F`. This is the clause that carries the security claim: reading a
+flag in a policy is not an escape, setting one is.
+
+**A2. Containment.** For each flag `F`, let `mentions(F)` be the files in the scan set
+containing the substring `F` anywhere at all: code, comment, template string, JSDoc.
+Assert `mentions(F)` is a subset of `{ permitted setter for F, apps/api/src/db/rls.ts }`.
+A copy of the literal in a repository, a service or a guard fails here even if nothing
+sets it, because it is the step before someone does.
+
+**A3. `rls.ts` reads, never sets.** Assert `apps/api/src/db/rls.ts` contains no match of
+`/set_config\s*\(/`. Without A3, A2's carve-out is the hole: `rls.ts` would be a file
+permitted to contain all three strings and permitted to set them.
+
+**A4. No computed flag name, and a closed list of non-`app` names.** For every match of
+`/set_config\s*\(/` in the scan set, assert the first argument is a single-quoted,
+double-quoted or backtick-quoted string literal whose value is one of these three:
+
+| Permitted first argument | Issued by | Since |
+|---|---|---|
+| `statement_timeout` | `withTenantTransaction` (`tenant-context.md`, "SQL issued") | 2026-08-04, F-007 |
+| `idle_in_transaction_session_timeout` | `withTenantTransaction`, in the same statement group | 2026-08-05, F-123 |
+| anything beginning `app.` | the three flag setters in the table above, further constrained by A1 and A2 | initial |
+
+The predicate TASK-056 implements, over the first argument as defined below:
+
+```
+/^(['"`])(statement_timeout|idle_in_transaction_session_timeout|app\.[^'"`]*)\1$/
+```
+
+An identifier, a `${...}` interpolation, or a concatenation fails. A4 is what makes A1
+sound: without it, `set_config(FLAG, ...)` defeats A1 with a one-line alias. It is also
+the first enforcement of ADR-0003's no-concatenation rule, which was prose with no test
+behind it.
+
+**The two non-`app` names are an enumeration, not a pattern, and that is deliberate.**
+A pattern loose enough to admit a legitimate GUC by shape (`/^[a-z_]+$/`, say) also
+admits `role`, `session_authorization`, `row_security` and `search_path`. Grep cannot
+tell a resource bound from an identity switch, so the list names the GUCs rather than
+describing them. This is the same shape as `ISOLATION_EXCLUSIONS`'s length assertion
+above and as `tenant-context.md` rule 3's closed field allowlist: widening it is a
+one-line diff a reviewer sees.
+
+**Admitting a third name.** Edit the table above and ADR-0003's A4 restatement in the
+same commit, and record why. The test a candidate has to pass: the GUC is `USERSET`, it
+is set transaction-locally with `is_local = true`, and it bounds a resource the
+transaction already holds. It must not change the connection's identity, its row
+visibility, or how an unqualified name resolves. `idle_in_transaction_session_timeout`
+passes on all four counts, which is why it is here and `row_security` never will be.
+
+**Consequence for implementers: a flag name gets no named constant.** A4 rejects
+`set_config(TENANT_ID_SETTING, ...)`. The setter files write their own flag literal
+inline, and `rls.ts` writes all three inline in its policy templates.
+
+**All four clauses are text scans over file contents. None of them parses TypeScript, and
+none distinguishes code from a comment.** That is intended. A commented-out
+`set_config('app.privileged_erase', ...)` in a repository file is a copy-paste one
+uncomment away from being real, and A2 fails on it. The cost is that the permitted setter
+files carry their own flag name in their header comments, which A1 and A2 both match
+harmlessly because those files are the permitted ones.
+
+For A4, "first argument" means the text between `set_config(` and the first following
+comma, trimmed. No flag name contains a comma, so no balanced-paren parse is needed.
+
+A fourth escape, a second file setting an existing flag, a stray copy of a flag string,
+or a flag name passed as a variable each fail one of the four clauses and name the file.
+
+**Timing.** A1 asserts exactly-one. `redirect-read.ts` (TASK-029) and
+`privileged-eraser.ts` (TASK-054) both land before TASK-056's wave, so all three setters
+exist when the suite first runs. A1 is not runnable earlier.
 
 ### 2. The `pg_policies` shape assertion
 
@@ -143,8 +233,12 @@ hand-written string will not match.
 
 | Way a third escape could arrive | Caught by |
 |---|---|
-| a new context flag set in application code | grep |
-| an existing flag set in a second file | grep |
+| a new context flag set in application code | grep A1 |
+| an existing flag set in a second file | grep A1 |
+| a flag literal copied into a file that does not set it | grep A2 |
+| `rls.ts` itself setting a flag | grep A3 |
+| a flag name passed to `set_config` as a variable, to defeat A1 | grep A4 |
+| a fourth flag added to a policy template in `rls.ts` | **not by grep.** A2 permits all flag strings there. The `pg_policies` shape assertion rejects it, because the policy carrying it is not on the approved list |
 | a new permissive policy on an existing table | `pg_policies` shape |
 | a widened `FOR` clause on an approved policy | `pg_policies` shape |
 | a tenant-scoped table with RLS not forced | `pg_policies` shape |

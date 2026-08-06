@@ -241,6 +241,18 @@ CREATE UNIQUE INDEX domains_hostname_owned_unique
   the tenant who can place our TXT record in the zone can get there, and there is one
   zone, so at most one wins. A losing transition catches `23505` and moves that row to
   `verification_failed` with `last_error = 'hostname_claimed_elsewhere'`.
+
+  **Read the code and the index name through the accessors, not off the error.** Added
+  2026-08-05 (F-120). This catch runs inside the reconciler's `withTenantTransaction`, so
+  the caught value is drizzle's per-statement `DrizzleQueryError` wrapper and
+  `error.code` is `undefined`. A direct read makes the losing transition rethrow instead
+  of demoting the row, which leaves a domain stuck retrying a transition that can never
+  succeed. Take the branch on
+  `postgresErrorCode(error) === '23505' && postgresErrorConstraint(error) === 'domains_hostname_owned_unique'`,
+  both imported from `apps/api/src/db/client.ts`, and rethrow anything else unchanged.
+  **Never read `.message`**: the wrapper's message carries the SQL and every bound
+  parameter, including the hostname and the tenant id. See `tenant-context.md`, "Driver
+  errors inside `fn`".
 - **Unverified claims expire after 7 days.** The reconciler deletes any domain still in
   `pending_verification` or `verification_failed` whose `created_at` is older than
   `UNVERIFIED_CLAIM_TTL_DAYS`, so an abandoned or malicious claim does not accumulate.

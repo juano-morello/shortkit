@@ -41,11 +41,36 @@ SELECT set_config('app.tenant_id',        $1, true);   -- withTenantTransaction
 SELECT set_config('app.redirect_context', 'on', true); -- withRedirectRead
 SELECT set_config('app.privileged_erase', $1, true);   -- privilegedTenantEraser
 SELECT set_config('statement_timeout',    $1, true);
+SELECT set_config('idle_in_transaction_session_timeout', '5000', true);
 ```
+
+The last two are not context flags. They bound the resources a tenant transaction holds,
+and `isolation-coverage.md` clause A4 names them as the only two non-`app.` GUCs any
+`set_config` under `apps/api/src` may take. The idle bound was added 2026-08-05 (F-123);
+`tenant-context.md` carries it, including the `pg` client error listener it requires.
 
 **No context flag is ever set by string concatenation, in any file.** The value passed
 for `app.tenant_id` and `app.privileged_erase` is validated as a uuid before it reaches
 the statement. Revised 2026-08-04 (F-007).
+
+**The flag name is an inline SQL string literal. The value is bound.** Added 2026-08-05
+(F-118). Write `set_config('app.tenant_id', ${value}, true)`, not
+`set_config(${SOME_CONSTANT}, ${value}, true)`. The name is a compile-time constant that
+never comes from a request, and `isolation-coverage.md`'s clause A4 asserts that every
+`set_config` first argument in `apps/api/src/**` is a quoted literal. An identifier there
+is indistinguishable by grep from an identifier holding a concatenated value, so no flag
+gets a named TypeScript constant. `rls.ts` writes all three literals inline in its policy
+templates too.
+
+**One file sets each flag. `apps/api/src/db/rls.ts` reads all three and sets none.**
+
+| Flag | Set by | Read by |
+|---|---|---|
+| `app.tenant_id` | `apps/api/src/tenancy/tenant-context.ts` | `<t>_tenant_isolation`, `tenants_self_*` |
+| `app.redirect_context` | `apps/api/src/redirect/db/redirect-read.ts` | `<t>_redirect_read` |
+| `app.privileged_erase` | `apps/api/src/gdpr/privileged-eraser.ts` | `<t>_privileged_erase`, `tenants_privileged_erase` |
+
+The full four-clause assertion TASK-056 implements is in `isolation-coverage.md`.
 
 ## Per-table template
 

@@ -49,6 +49,9 @@ SELECT set_config('app.tenant_id', $1, true);
 ```
 
 No context flag is ever set by concatenation, in any file. Revised 2026-08-04 (F-007).
+The flag **name** is an inline SQL string literal, never a bound parameter and never a
+TypeScript identifier; only the **value** is bound. Clause A4 below is what enforces it.
+Revised 2026-08-05 (F-118).
 
 **The policy template.** Every tenant-scoped table applies all of these. TASK-005
 publishes it; every later schema TASK copies it verbatim with the table name
@@ -133,8 +136,47 @@ that sets a new context flag. It does not catch a cascade and it does not catch 
 permissive policy added to an existing table, which is how F-005 survived the first
 round. Two assertions in the isolation suite, not one:
 
-1. `app.tenant_id`, `app.redirect_context` and `app.privileged_erase` each appear in
-   exactly one non-test source file.
+1. **One setter file per flag.** Revised 2026-08-05 (F-118). The earlier wording, "each
+   flag appears in exactly one non-test source file", was unsatisfiable for all three
+   flags, not just one: the policies that READ a flag are built in
+   `apps/api/src/db/rls.ts`, and the code that SETS it lives elsewhere, so every flag
+   name is in at least two files by construction. The property that carries the security
+   claim is about `set_config` call sites, not about occurrences of the string. Reading a
+   flag inside a `CREATE POLICY` is not an escape; setting one is.
+
+   The assertion now has four clauses, stated exactly in `isolation-coverage.md` with the
+   regexes TASK-056 implements:
+
+   - **A1** For each flag, exactly one file in the scan set contains a `set_config` call
+     naming it, and it is that flag's permitted setter.
+   - **A2** For each flag, the string appears only in that flag's permitted setter and in
+     `apps/api/src/db/rls.ts`.
+   - **A3** `apps/api/src/db/rls.ts` contains no `set_config` call at all. That is what
+     stops A2's carve-out from becoming the hole.
+   - **A4** Every `set_config` first argument in the scan set is a quoted string literal
+     beginning `app.`, or one of exactly two named GUCs: `statement_timeout` and
+     `idle_in_transaction_session_timeout`. No identifier, no concatenation, no
+     interpolation. A4 is the check behind this ADR's existing no-concatenation rule,
+     which until now was prose with nothing enforcing it.
+
+     The second GUC was admitted 2026-08-05 (F-123) so `withTenantTransaction` can bound
+     how long a transaction sits idle holding a pooled connection. The non-`app` names
+     are an enumeration rather than a pattern, because a pattern loose enough to admit a
+     timeout by shape also admits `role`, `session_authorization`, `row_security` and
+     `search_path`, and grep cannot tell a resource bound from an identity switch.
+     `isolation-coverage.md` clause A4 holds the permitted-name table, the regex TASK-056
+     implements, and the test a third name has to pass.
+
+   The scan set is `apps/api/src/**/*.ts` minus `*.spec.ts`. `apps/api/test/**` and
+   `apps/api/drizzle/**` are outside it. The migration SQL is excluded deliberately: it
+   holds the `CREATE POLICY` statements that read the flags, so its literals are the
+   read side of exactly the same distinction A1 draws, and DDL applied by
+   `shortkit_migrator` at deploy cannot set a flag on a request path.
+
+   **No flag gets a named constant.** A4 forbids passing one to `set_config`, so a
+   constant would have to be inlined at the only call site that matters, which is what
+   the setter files do directly. `rls.ts` writes all three literals inline in its policy
+   templates.
 2. **Every policy on every tenant-scoped table matches an approved shape by name and
    by `qual` text.** The approved set is the **seven** shapes above and nothing else:
    `<t>_tenant_isolation`, `<t>_privileged_erase`, `<t>_redirect_read`,
@@ -204,6 +246,19 @@ not a GC-5 exception and does not become a third exclusion.
   flag per tenant or run before the policy is created.
 - The grep test couples the isolation suite to file layout. Moving
   `redirect-read.ts` fails a test that has nothing to do with the move.
+- **`rls.ts` is a permitted container for all three flag strings, so A2 cannot see a
+  fourth flag added to a policy template there.** A3 keeps that file from setting
+  anything, and the `pg_policies` shape assertion rejects any policy whose name or `qual`
+  is not on the approved list, so a new flag in a new policy fails there instead. The
+  cost is that one of the two completeness assertions has a blind file and the other has
+  to cover it. Added 2026-08-05 (F-118).
+- **A4 bans a named constant for a flag name.** Someone will reasonably want
+  `TENANT_ID_SETTING` to bind the setter to the policies that read it, and A4 says no,
+  because an identifier at a `set_config` call site is indistinguishable by grep from an
+  identifier holding a concatenated value. The drift it would have prevented is caught
+  loudly instead: a typo on either side makes `current_setting` return NULL, every policy
+  denies, and AC-8, AC-9 and AC-10 fail on the first integration run. Added 2026-08-05
+  (F-118).
 
 ### Follow-ups this creates
 

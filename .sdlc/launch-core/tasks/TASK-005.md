@@ -6,7 +6,7 @@ title: Database connection, migrations, and the tenant-context transaction helpe
 status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts", "apps/api/src/tenancy/tenant-context.ts", "apps/api/package.json", "pnpm-lock.yaml"]
+paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/drizzle.config.ts", "apps/api/scripts/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts", "apps/api/src/tenancy/tenant-context.ts", "apps/api/package.json", "pnpm-lock.yaml", "docs/architecture/rls.md", "docs/architecture/migrations.md"]
 contracts: [design/contracts/rls-policy-template.md, design/contracts/tenant-context.md]
 test_files: ["apps/api/test/tenancy/tenant-context.int-spec.ts"]
 acceptance: [AC-8, AC-9, AC-10, AC-11]
@@ -33,6 +33,36 @@ it. It lands here because the migration runner and the non-`BYPASSRLS` role are 
 already this TASK's, and neither is verifiable without a database to apply them to.
 The CI-side equivalent is a `services:` container and belongs to TASK-002 (F-039), not
 here.
+
+**Amended 2026-08-05 (F-117 and F-122, ruled by Juano).** Three deliverables that
+ADRs assigned to this TASK were unreachable from its paths. All three now land here
+and `paths:` has been widened accordingly.
+
+1. **`apps/api/drizzle.config.ts`** — ratified. The file already exists and is
+   committed; `drizzle-kit migrate` has no CLI flag for the connection URL, so
+   `db:migrate` does not run without it. No TASK card named it. This records reality
+   rather than assigning new work.
+2. **`docs/architecture/rls.md` and `docs/architecture/migrations.md`** — assigned
+   here. ADR-0003 and ADR-0004 name both as this TASK's in their follow-ups. Note
+   that **GC-13 does not cover them** — GC-13 is `docs.required: [README]` with
+   TASK-001 as sole producer. Their real obligation is STORY-003's Definition of Done
+   line, "Docs updated (README / API / ADR consequences)". They land now, while the
+   mechanisms are fresh, because two procedure caveats the audit panel surfaced have
+   no other home: drizzle's migrator decides what to apply by comparing **timestamps,
+   not hashes**, so appending policies to an already-applied migration is a silent
+   no-op; and the integration fixture drops and recreates `tenants`, so running the
+   suite removes the migrated table and its policies, and re-running `db:migrate`
+   will not restore them — `docker compose down -v` is the reset.
+3. **`pnpm db:check-policies`** — assigned here in its **minimum viable form**, which
+   needs no `tenantScopedTables()` and is therefore not blocked on TASK-053. Assert
+   from `pg_class` that every table in schema `public` has both `relrowsecurity` and
+   `relforcerowsecurity` true, with an explicit exception list. It lands before the
+   second tenant-scoped table rather than after: grants to `shortkit_app` are
+   automatic via `ALTER DEFAULT PRIVILEGES` while RLS is opt-in per table via two
+   hand-appended lines drizzle-kit does not generate, so TASK-023 adding `links` and
+   forgetting `ENABLE` or `FORCE` would ship a silently unprotected table with every
+   gate green. Wiring the check into the CI integration job stays TASK-002's; the
+   script and its `package.json` entry are this TASK's.
 
 ## Interfaces
 

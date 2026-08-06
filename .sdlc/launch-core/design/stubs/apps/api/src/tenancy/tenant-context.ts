@@ -4,18 +4,39 @@
  * Produced by: TASK-005 (withTenantTransaction, tenantDb), TASK-011 (interceptor, RequestContext)
  *
  * GC-5 lives here. Every tenant-scoped read or write runs inside a transaction that
- * has set `app.tenant_id`. THIS IS THE ONLY FILE THAT MAY CONTAIN THE STRING
- * `app.tenant_id` outside tests. The isolation suite asserts that by grep.
+ * has set `app.tenant_id`. THIS IS THE ONLY FILE THAT MAY SET IT outside tests, and
+ * the only file besides ../db/rls.ts that may contain the string at all. rls.ts holds
+ * the policies that READ the flag and sets nothing; the isolation suite asserts both
+ * halves by grep (design/contracts/isolation-coverage.md, clauses A1 to A4).
  *
- * SQL issued (F-007, 2026-08-04):
+ * SQL issued (F-007, 2026-08-04; third statement F-123, 2026-08-05):
  *   BEGIN;
- *   SELECT set_config('statement_timeout', $1, true);
- *   SELECT set_config('app.tenant_id',     $2, true);
+ *   SELECT set_config('statement_timeout',                   $1, true);
+ *   SELECT set_config('idle_in_transaction_session_timeout', $2, true);
+ *   SELECT set_config('app.tenant_id',                       $3, true);
+ *
+ * The idle bound is 5000 ms, a module constant, not derived from statementTimeoutMs and
+ * not settable through TenantTransactionOptions. statement_timeout bounds a running
+ * query; nothing bounded the gap between two queries, which is what a third-party call
+ * inside `fn` is. ADR-0002 called the ban on that I/O "a rule, not a mechanism". This is
+ * the mechanism, and it catches a hang rather than a fast call.
+ *
+ * IT DOES NOT SHIP WITHOUT THE CLIENT ERROR LISTENER IN db/client.ts. On expiry
+ * Postgres terminates the backend while no query is active, `pg` emits 'error' on the
+ * checked-out client, and a checked-out client has no listener: pg-pool removes its own
+ * in _acquireClient and drizzle attaches none, so Node turns it into an uncaughtException
+ * and the API dies. pool.on('error') does not cover this. See tenant-context.md,
+ * "`idle_in_transaction_session_timeout`, and the client listener it requires".
  *
  * NEVER `SET LOCAL app.tenant_id = $1`. PostgreSQL's SET accepts no bind parameter,
  * and the shortest repair is string interpolation at the one statement all of RLS
  * depends on. set_config is parameterised with identical transaction-local semantics.
  * NO CONTEXT FLAG IS EVER SET BY CONCATENATION.
+ *
+ * WRITE THE FLAG NAME AS AN INLINE SQL LITERAL, NOT AS AN IMPORTED CONSTANT (F-118).
+ * Only the value is bound. Clause A4 asserts that every set_config first argument under
+ * apps/api/src is a quoted literal, because an identifier there cannot be told apart by
+ * grep from an identifier holding a concatenated value.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { PgTransaction } from 'drizzle-orm/pg-core';

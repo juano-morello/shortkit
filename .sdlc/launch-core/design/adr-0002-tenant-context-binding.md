@@ -85,6 +85,15 @@ lookups happen after the transaction commits, from the caller. `withTenantTransa
 takes an optional `afterCommit` callback for work that must follow a successful
 commit.
 
+**Revised 2026-08-05 (F-123): the rule gets a bound.** `withTenantTransaction` also
+issues `set_config('idle_in_transaction_session_timeout', '5000', true)`, so a
+transaction that sits idle for five seconds loses its backend instead of holding a
+pooled connection for as long as a hung socket takes. `statement_timeout` never fires on
+that path, because no statement is running. The bound catches a hang; it does not catch
+a fast third-party call, and nothing greps for one. `design/contracts/tenant-context.md`
+carries the mechanism, including the `pool.on('connect')` client error listener the
+statement cannot ship without, and `isolation-coverage.md` clause A4 admits the GUC name.
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not |
@@ -113,9 +122,22 @@ commit.
   time spent doing nothing. Under load the connection pool, not CPU, becomes the
   limit on API concurrency. The redirect path is exempt, so GC-1 is unaffected, but
   the dashboard API will saturate earlier than a connection-per-query design would.
-- The ban on third-party calls inside a transaction is a rule, not a mechanism. A
-  future TASK can violate it and nothing fails immediately; it shows up as pool
-  exhaustion under load.
+- The ban on third-party calls inside a transaction is a rule with a five-second
+  backstop, not a mechanism. Revised 2026-08-05 (F-123): a future TASK can still violate
+  it, and a call that answers inside five seconds violates it invisibly. What changed is
+  the tail. A hung call now kills its own transaction rather than holding a pooled
+  connection until the socket gives up, so the violation surfaces as a failed request
+  instead of as pool exhaustion with a passing health check.
+- Added 2026-08-05 (F-123): the idle bound terminates the backend, so the error the
+  caller gets is a `pg` connection failure rather than SQLSTATE `25P03`. drizzle's
+  `ROLLBACK` runs on a dead client and its failure replaces the original error. Nothing
+  is committed and the connection is discarded, and the price is an error nobody can
+  branch on.
+- Added 2026-08-05 (F-123): the same statement makes an unhandled `'error'` on a
+  checked-out `pg` client a routine event rather than an exceptional one, and Node turns
+  that into an uncaughtException. `client.ts` now carries a second error listener, on the
+  client and not on the pool, and every future change to how transactions get their
+  connection has to keep it attached.
 - `AsyncLocalStorage` costs measurable overhead per request and makes stack traces
   from inside a repository harder to read.
 - The tenant id in a JWT claim means a tenant change requires a new token. Nothing
@@ -131,3 +153,17 @@ commit.
   handler transaction.
 - TASK-056 asserts that `tenantDb` has exactly one definition and that no file
   outside `apps/api/src/db/client.ts` imports the unwrapped Drizzle client.
+- Added 2026-08-05 (F-120): `client.ts` also exports `postgresErrorCode` and
+  `postgresErrorConstraint`, and TASK-056 asserts no file outside it imports
+  `DrizzleQueryError` or reads `.code` off a caught error. drizzle wraps a failed
+  statement, `databaseTransaction` unwraps a failed transaction, and a `catch` inside
+  `fn` sits between the two, holding a wrapper whose message carries every bound
+  parameter. `design/contracts/tenant-context.md`, "Driver errors inside `fn`", is
+  normative.
+- Added 2026-08-05 (F-123): TASK-005 issues the idle bound and attaches the client error
+  listener together. Landing the `set_config` alone is a regression, not a partial fix.
+- Added 2026-08-05 (F-126): `databaseTransaction` has four sanctioned consumers, three on
+  the data path and `assertRuntimeRoleCannotBypassRls` on the control path. TASK-056
+  asserts the set of files by grep. The boot check sits in `rls.ts` today, which drags
+  `pg` into the module graph of every schema file; F-116 owns where the boot call site
+  lives, and whoever settles it decides whether the check moves.

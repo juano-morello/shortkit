@@ -78,12 +78,36 @@ Without `--frozen-lockfile`, resolution can drift between the tested tree and th
 deployed one. The `quality` audit runs `--prod` so a dev-only advisory in Vitest or
 `unplugin-swc` cannot block a merge.
 
+**The two audits are two obligations, not one gate run twice.** Stated normatively
+2026-08-05 (F-124), because the two commands differ by more than a schedule and a reader
+of the table above could take either as a superset of the other.
+
+| | `quality` | `dependencies` |
+|---|---|---|
+| Command | `pnpm audit --prod --audit-level moderate` | `pnpm audit --audit-level moderate` |
+| Trigger | every push and pull request | weekly `schedule`, plus `workflow_dispatch` |
+| Sees | production dependency graph only | the whole tree, dev dependencies included |
+| Blind to | **every dev-only advisory, at every severity** | nothing at `moderate` or above |
+| Effect of a hit | blocks the merge | fails a scheduled run, which emails the repo owner |
+
+`--prod` buys a blind spot on purpose: a dev-only advisory with no fix available must not
+be able to stop a merge. The price is that the `quality` job **can never** surface an
+advisory in `drizzle-kit`, `tsup`, `vitest` or any other devDependency, at any severity.
+The weekly `dependencies` job is the only thing in `launch-core` that looks at that half
+of the tree. Drop it and nothing replaces it. TASK-002 builds both.
+
 **The threshold is `moderate`, not `high`.** Lowered 2026-08-04 (F-049). `moderate` is
 the band that carries session fixation, open redirect and timing leaks, which is the
 band an auth library's advisories land in, and this ADR puts `better-auth` on the
-critical path. The security auditor ran `pnpm audit --audit-level low` across the whole
-tree, dev dependencies included, and got zero advisories, so lowering the merge gate
-blocks nothing that passes today.
+critical path.
+
+When this was written on 2026-08-04, `pnpm audit --audit-level low` across the whole
+tree returned zero advisories, so lowering the merge gate blocked nothing. **That
+sentence is no longer true and the decision is unaffected.** Corrected 2026-08-05
+(F-124): TASK-005 added `drizzle-kit` and TASK-001 added `tsup`, and the tree now carries
+two dev-only esbuild advisories, recorded below. Neither is visible to `--prod`, so
+neither blocks a merge at any threshold. The `moderate` choice still rests on the
+argument above it rather than on the tree happening to be clean.
 
 **A `dependencies` job audits the whole tree weekly.** Added 2026-08-04 (F-049). Every
 dependency is exact-pinned and every job installs `--frozen-lockfile`, so an audit that
@@ -93,6 +117,25 @@ already merged. Nothing in the tree changes, so nothing triggers a run. The week
 `--prod` because a moderate advisory in a dev tool is worth knowing about when it is not
 blocking a merge. A failed scheduled run is the notification: GitHub emails the repo
 owner, and no issue-filing script or `issues: write` permission is needed.
+
+**Accepted advisories live in `docs/security/known-advisories.md`.** Added 2026-08-05
+(F-124). A weekly job that fails on the same unfixable advisory every week becomes a
+weekly email nobody opens. The register is the answer: one row per advisory that has been
+assessed and accepted, with the assessment, the condition that clears it, and the date.
+The `dependencies` job's step name points at the file, so the owner reading a failure
+email has somewhere to check whether this is the known one before spending an hour on it.
+A human reads the register; no tool consumes it. `pnpm audit` never gets `--ignore` or an
+override, so an accepted advisory still fails the weekly run and still has to be re-read.
+TASK-002 creates the file with the two rows below.
+
+| Advisory | Severity | Package and path | Assessment | Clears when |
+|---|---|---|---|---|
+| [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) | moderate | `esbuild <= 0.24.2`, resolved 0.18.20, via `apps__api > drizzle-kit > @esbuild-kit/esm-loader > @esbuild-kit/core-utils > esbuild` | **Not exploitable here. Accepted 2026-08-05, `sdlc-security-auditor`.** The vulnerability is in esbuild's development server, which lets any website send requests to it and read the response. `@esbuild-kit/core-utils` uses only the transform API and `drizzle-kit` never starts a server, so there is no listening socket to reach. `drizzle-kit` is a devDependency, so `--prod` does not see it and it blocks no merge. | `drizzle-kit` publishes a release that drops `@esbuild-kit/esm-loader`. Both `@esbuild-kit` packages are deprecated upstream and superseded by `tsx`, which `drizzle-kit` already depends on, so the pinned-back esbuild will not move on its own. Re-check on every `drizzle-kit` bump. |
+| [GHSA-g7r4-m6w7-qqqr](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr) | low | `esbuild >= 0.27.3 < 0.28.1`, via `apps__api > tsup > esbuild` and `apps__api > tsup > bundle-require > esbuild` | **Not exploitable here. Assessed 2026-08-05, `sdlc-architect`, not reviewed by the security auditor.** Arbitrary file read when running the development server on Windows. `tsup` bundles and does not run esbuild's serve mode, and neither CI nor the Fly image is Windows. Recorded because **neither audit job reports it**: it is below the `moderate` threshold on both, so it is invisible until someone runs `--audit-level low` by hand. | A `tsup` bump to a release resolving `esbuild >= 0.28.1`. A fix exists upstream, unlike the row above. |
+
+Both reproduced on 2026-08-05 against the committed lockfile:
+`pnpm audit --prod --audit-level moderate` exits 0, `pnpm audit --audit-level moderate`
+exits 1 reporting the first row, `pnpm audit --audit-level low` reports both.
 
 **Every dependency is pinned to an exact version.** Amended 2026-08-04 (F-055, ruled by
 Juano). TASK-001 pinned all four manifests exactly, against this ADR's earlier wording
@@ -205,7 +248,16 @@ On the audit threshold and the pinning stance, decided 2026-08-04 (F-049, F-055)
   the escape hatch is an ignore list, which becomes a place findings go to be forgotten.
   Nothing in `launch-core` reviews it.
 - A low-severity advisory passes both audits. That band is deliberate and nothing else
-  catches it.
+  catches it. `GHSA-g7r4-m6w7-qqqr` is the first one, and it is in the register only
+  because a human ran `--audit-level low` by hand. Nothing schedules that.
+- **The `quality` job cannot see a dev-only advisory at any severity**, so the weekly
+  `dependencies` job is a single point of detection for the whole devDependency tree
+  rather than a second opinion on it. A `schedule` trigger that GitHub disables after 60
+  days of repository inactivity takes that detection with it, silently.
+- The advisory register is a document a human maintains. An accepted row that nobody
+  re-reads becomes permission to ignore a weekly failure, which is the failure mode an
+  ignore list has, arriving more slowly. Nothing in `launch-core` schedules a review of
+  it.
 - Exact pins across all four manifests mean security patches arrive only when someone
   merges a bump. The `quality` audit surfaces the need on any open PR, the weekly
   `dependencies` job surfaces it when no PR is open, and Dependabot proposes the bump.
@@ -238,7 +290,13 @@ On the audit threshold and the pinning stance, decided 2026-08-04 (F-049, F-055)
   implementer that mounts the library is the one that needs the four facts to hold.
 - TASK-002 adds `--frozen-lockfile` to every job, the `pnpm audit --prod --audit-level
   moderate` step to `quality`, and the `dependencies` job running `pnpm audit
-  --audit-level moderate` on a weekly `schedule` and on `workflow_dispatch`.
+  --audit-level moderate` on a weekly `schedule` and on `workflow_dispatch`. **These are
+  two obligations, not one gate run twice**; see the table above. Neither command takes
+  `--ignore` or any override.
+- TASK-002 creates `docs/security/known-advisories.md` with the two rows from the
+  advisory table above, copied with their assessments and clearing conditions intact, and
+  names the file in the `dependencies` job's audit step so a failure email points at it.
+  Added 2026-08-05 (F-124).
 - TASK-002 also adds `.github/dependabot.yml`. **Its `paths` currently read
   `.github/workflows/**`, which excludes that file.** Widening them to `.github/**` is
   Juano's edit, not the implementer's. Flagged 2026-08-04 (F-055).

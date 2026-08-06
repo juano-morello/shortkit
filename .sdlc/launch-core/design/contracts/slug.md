@@ -84,6 +84,29 @@ transaction, so TASK-025 wraps each insert attempt in `SAVEPOINT slug_try` and
 `ROLLBACK TO SAVEPOINT slug_try` before redrawing. Omitting this produces
 `current transaction is aborted` on the second attempt.
 
+**Reading `23505` here needs `postgresErrorCode`.** Added 2026-08-05 (F-120). This catch
+sits inside the `fn` of a `withTenantTransaction`, so the caught value is drizzle's
+per-statement `DrizzleQueryError` wrapper and **`error.code` is `undefined`**. Reading it
+directly makes the loop miss every collision: a generated slug surfaces as a 500 instead
+of redrawing, and a supplied slug surfaces as a 500 instead of AC-38's 409. Read both
+facts through the accessors `apps/api/src/db/client.ts` exports:
+
+```ts
+if (
+  postgresErrorCode(error) === '23505' &&
+  postgresErrorConstraint(error) === 'links_domain_id_slug_unique'
+) {
+  // rollback to savepoint; redraw or 409 per the branches above
+}
+throw error;   // anything else, unchanged
+```
+
+**Never read `.message` off the caught error**, here least of all: the wrapper's message
+is `Failed query: <the INSERT>\nparams: <every bound parameter>`, which on this statement
+is the destination URL, the slug and the tenant id. See `tenant-context.md`, "Driver
+errors inside `fn`", for the full rule and for the fields that stay unreadable even after
+unwrapping.
+
 ## Error mapping
 
 | Condition | Status | Code | Body |

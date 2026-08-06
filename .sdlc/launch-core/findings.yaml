@@ -2251,7 +2251,16 @@
     exactly per ADR-0018. APPLIED as an explicit obligation block in TASK-005 so the implementer
     cannot add pg and stop.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 0
+  ruling: >-
+    ORCHESTRATOR VERIFIED AT SOURCE 2026-08-05, not taken from a report. apps/api/package.json:30
+    carries "drizzle-kit": "0.31.10" under devDependencies, exactly the pin ADR-0018 requires, and
+    apps/api/drizzle.config.ts exists to give db:migrate its connection URL. TASK-005's initial
+    implementation satisfied this finding before the audit panel ran; it was miscounted as one of the
+    six open majors in the panel-complete ledger entry because nobody re-checked the manifest after
+    the implementer landed it. Closed at round 0 - it never needed a fix round.
 
 - id: F-081
   phase: test
@@ -3611,8 +3620,17 @@
     module-init assertion is a decision rather than a transcription. Recommend it lands in TASK-003
     alongside the F-090 and F-108 obligations it already carries in main.ts, as a boot-time check that
     refuses to start rather than a warning.
-  owner_slot: null
-  status: escalated
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  ruling: >-
+    JUANO RULED 2026-08-05: the recommendation, taken as given. The call site is main.ts as a
+    BOOT-TIME REFUSAL - the process does not start if the role can bypass RLS. Not a module-init
+    assertion, where a throw during Nest's DI graph construction is noisier to diagnose, and not a
+    warning, because a process that logs and then serves traffic with RLS disabled is worse than one
+    that never came up. Recorded in TASK-003's card as an obligation block alongside the F-060, F-090,
+    F-093 and F-108 main.ts obligations it already carries, with an instruction to make one coherent
+    bootstrap sequence rather than four bolted-on checks. TASK-003 is wave 2; this closes as ROUTED,
+    not fixed, and TASK-005 is not held for it.
   resolved_by: null
   resolved_round: null
 
@@ -3635,8 +3653,15 @@
     drizzle.config.ts anywhere, yet ADR-0004 assigns it to TASK-005 and drizzle-kit migrate has no CLI
     flag for the connection URL, so without it db:migrate is F-080 one level down - which is why the
     implementer built it despite the paths mismatch and said so. docs/ does not exist and docs/** is in
-    no TASK's paths, while ADR-0003 and ADR-0004 follow-ups name both documents as TASK-005's; GC-13
-    makes docs a real obligation rather than a nicety. db:check-policies is named by ADR-0004,
+    no TASK's paths, while ADR-0003 and ADR-0004 follow-ups name both documents as TASK-005's.
+    CORRECTION APPLIED 2026-08-05, held until the reviewer and security auditor returned because both
+    carried this file in their dispatch. This block previously read "GC-13 makes docs a real
+    obligation rather than a nicety". That basis was WRONG and sdlc-product-auditor caught it:
+    plan.md:36 states GC-13 as `docs.required: [README]`, whose sole producer is TASK-001, and it says
+    nothing about docs/architecture/*.md. The real obligation for the two documents is STORY-003's own
+    Definition of Done at stories/STORY-003.md:37 - "Docs updated (README / API / ADR consequences)" -
+    together with the ADR-0003 and ADR-0004 prose follow-ups that name TASK-005 by id. The conclusion
+    below is unchanged: the documents are unowned and their placement is Juano's call. db:check-policies is named by ADR-0004,
     rls-policy-template.md AND ADR-0018 and produced by nobody - and it is specified against
     tenantScopedTables(), which is TASK-053's and does not exist, so the implementer correctly declined
     to build a half version rather than inventing a stub for a symbol three waves out.
@@ -3646,8 +3671,21 @@
     architecture documents: assign to a TASK with docs/** in its paths, or rule them out of launch-core
     scope. (3) db:check-policies: attach to TASK-053 or TASK-056, both of which run after
     tenantScopedTables() exists.
-  owner_slot: null
-  status: escalated
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  ruling: >-
+    JUANO RULED 2026-08-05, three separate calls, ALL THREE LAND IN TASK-005 and its paths widened
+    to match. (1) drizzle.config.ts RATIFIED into paths - the file exists, is committed and is what
+    gives db:migrate its connection URL, so this records reality rather than assigning work.
+    (2) docs/architecture/rls.md and docs/architecture/migrations.md ASSIGNED to TASK-005, written
+    now while the mechanisms are fresh, because two procedure caveats the panel surfaced have no
+    other home - drizzle's migrator compares TIMESTAMPS not hashes so appending policies to an
+    already-applied migration is a silent no-op, and the integration fixture drops and recreates
+    tenants so the suite wipes the migrated table and re-running db:migrate does not restore it.
+    (3) db:check-policies ASSIGNED to TASK-005 in the minimum viable pg_class form, NOT deferred to
+    TASK-053 or TASK-056 as this finding proposed - see F-122's ruling for why the timing decided it.
+    The GC-13 basis originally given in this finding's failure_scenario was wrong and is corrected
+    in place above.
   resolved_by: null
   resolved_round: null
 
@@ -3827,8 +3865,18 @@
     explicit exception list, and run it in the integration job. Routing is F-117's open question; the
     point of this finding is that it is a blocking prerequisite for the next schema TASK rather than a
     tidy-up.
-  owner_slot: null
-  status: escalated
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  ruling: >-
+    JUANO RULED 2026-08-05: BUILD IT NOW, minimum viable form, into TASK-005's fix round 1. The
+    auditor's pg_class assertion - every table in schema public has relrowsecurity AND
+    relforcerowsecurity, with an explicit exception list - needs no tenantScopedTables() and is
+    therefore not blocked on TASK-053. Timing is the whole argument: TASK-023 adds links three waves
+    before TASK-053 exists, and it is exactly the TASK this finding predicts will hand-append a
+    CREATE POLICY block and omit ENABLE or FORCE with every gate staying green. Deferring the
+    detector past the TASK it was written to catch defeats it. The script and its package.json entry
+    are TASK-005's; wiring it into the CI integration job stays TASK-002's. TASK-005's paths gained
+    apps/api/scripts/**. Bundled into the fix-round-1 implementer dispatch.
   resolved_by: null
   resolved_round: null
 
@@ -4177,3 +4225,568 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-134
+  phase: implement
+  task: TASK-005
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: implementation
+  file: apps/api/vitest.integration.config.ts
+  line: 1
+  summary: >-
+    The integration suite cannot grow past one file. A second .int-spec.ts sharing rls-fixture.ts
+    fails with `relation "rls_fixture_rows" does not exist`, because nothing sets fileParallelism:
+    false and two files race the same drop-and-recreate fixture.
+  failure_scenario: >-
+    HIT, NOT PREDICTED - the test architect ran into it while placing this round's tests and had to
+    keep everything in one file because of it. rls-fixture.ts drops and recreates its table per file;
+    with vitest's default file-level parallelism, file B's setup drops the table file A is mid-way
+    through querying. The failure is a schema error rather than an isolation error, so it reads as a
+    broken fixture rather than a concurrency bug, and the natural repair is to duplicate the fixture
+    per file - which silently doubles the setup cost and leaves the race in place for file three.
+    TASK-006 (the isolation suite) and TASK-056 both add integration files to this project, so the
+    ceiling binds within two waves. tenant-context.int-spec.ts is already 629 lines added this round.
+  required_change: >-
+    Set fileParallelism: false in apps/api/vitest.integration.config.ts, or give rls-fixture.ts a
+    per-file table name so files stop sharing one. The config file is TASK-005's under F-076, so the
+    test architect correctly did not touch it. State which you chose and why in the report - a
+    per-file table name keeps parallelism and costs isolation-suite realism; serialising keeps one
+    shared shape and costs wall-clock.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-135
+  phase: implement
+  task: TASK-005
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: implementation
+  file: apps/api/tsconfig.json
+  line: 19
+  summary: >-
+    apps/api/tsconfig.json's `include` covers neither drizzle.config.ts nor the new scripts/**, so
+    pnpm typecheck passes while a CI gate script and the migration config are never type-checked.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED at apps/api/tsconfig.json:19-26 - include is src/**/*.ts, test/**/*.ts,
+    vitest.setup.ts, vitest.config.ts, vitest.integration.config.ts, tsup.config.ts. Nothing else.
+    F-133 filed this as a nit when drizzle.config.ts was the only unchecked file. It is now two
+    files, and the second is apps/api/scripts/check-policies.mts - the RLS opt-in detector F-122
+    ruled in as a blocking prerequisite for TASK-023. A type error in the one script whose job is to
+    catch a silently unprotected table would ship green, which is the same class of gap the script
+    exists to close. The implementer recorded it as outside its paths rather than widening the config
+    itself.
+  required_change: >-
+    Add drizzle.config.ts and scripts/** to apps/api/tsconfig.json's include. OWNERSHIP IS THE
+    OBSTACLE, not the edit: tsconfig*.json is TASK-001's, and TASK-001 is done. Juano's call under
+    routing rule 0 - either ratify apps/api/tsconfig.json into TASK-005's paths for this one edit, or
+    open a follow-up TASK. Note that .mts under a scripts/** glob may need its own module settings;
+    whoever takes it should run pnpm typecheck and read the output rather than assume the include
+    line is sufficient.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-136
+  phase: implement
+  task: TASK-005
+  source: sdlc-implementer-backend
+  round: 1
+  severity: nit
+  kind: implementation
+  file: README.md
+  line: 1
+  summary: >-
+    README.md does not link the two architecture documents that landed this round, so docs/architecture/
+    is reachable only by knowing it exists.
+  failure_scenario: >-
+    Cosmetic today, and filed as a nit rather than dressed up. It matters slightly more than usual
+    because docs/architecture/migrations.md is the only place two operational caveats are written
+    down - drizzle's migrator compares timestamps rather than hashes, and the integration fixture
+    wipes the migrated table - and an unlinked document is one nobody reads before hitting either.
+  required_change: >-
+    Add a line to README.md pointing at docs/architecture/. README.md is TASK-001's under GC-13 and
+    TASK-001 is done; TASK-005's paths do not reach it. Small enough to carry to Ship-phase triage
+    rather than open a card for. Logged, not routed.
+  owner_slot: null
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-137
+  phase: implement
+  task: TASK-005
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/api/src/db/client.ts
+  line: 58
+  summary: >-
+    A pg client that errors while CHECKED OUT has no error listener at all, so a connection killed
+    mid-transaction becomes an uncaughtException. F-123's pool.on('error') covers the idle-in-pool
+    half only.
+  failure_scenario: >-
+    Raised by sdlc-architect while settling A4, and it explicitly declined to write to findings.yaml
+    because that file is the orchestrator's - so this entry is mine, not a copy of its wording. The
+    mechanism: pg-pool removes its own idleListener in _acquireClient, and drizzle's
+    NodePgSession.transaction attaches none, so between checkout and release the client has zero
+    'error' listeners. Node throws on an EventEmitter 'error' with no listener, so the process exits.
+    F-123's fix attached the listener to the POOL, which does not fire for a checked-out client.
+    The trigger is not exotic and does not depend on the idle timeout being added: ADR-0002 targets
+    Neon, and scale-to-zero, a failover or a restart killing a connection mid-transaction all land
+    here. Adding set_config('idle_in_transaction_session_timeout') WITHOUT the listener makes it
+    worse rather than better, because it introduces a new routine path onto the same emit - which is
+    why the architect refused to let the timeout land alone.
+  required_change: >-
+    Attach pool.on('connect', (client) => client.on('error', handler)) in client(). 'connect' rather
+    than 'acquire': pg-pool emits 'connect' once per new client and never removes a listener it did
+    not add, while 'acquire' fires per checkout and would stack one listener per use. Handler logs
+    name and SQLSTATE only, per the contract's rule 2. Dispatched to sdlc-implementer-backend in the
+    round 1 follow-up, bundled with the idle timeout so neither lands alone.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+# ---- TASK-005 fix round 1, scoped re-review r2. Three auditors, deduped. ----
+# All three verdicted every round-1 finding ADDRESSED. Everything below is NEW and
+# minor or nit. sdlc-reviewer's explicit recommendation, which I am following: none of
+# these extend the loop. Rulings are on each entry.
+
+- id: F-138
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/tenant-context.md
+  line: 290
+  summary: >-
+    The contract's invariants never describe the settled-context behaviour F-121 introduced.
+    Invariant 5 still promises unconditional reuse on nesting.
+  failure_scenario: >-
+    A TASK-011 or TASK-025 implementer reading only the contract writes a follow-up inside fn
+    that calls withTenantTransaction, expects reuse per invariant 5, and gets a runtime
+    TenantContextMissingError with no contract text explaining it. The behaviour is written down
+    only in docs/architecture/rls.md, which is not normative and which no consuming TASK is
+    pointed at. Invariant 4 covers tenantDb() by a generous reading; the nesting branch is
+    uncovered.
+  required_change: >-
+    tenant-context.md states as an invariant that a context is invalidated when its transaction
+    settles, and that tenantDb, currentTenantId and a nested withTenantTransaction all throw
+    rather than reuse a released handle.
+  owner_slot: sdlc-architect
+  status: open
+  ruling: >-
+    DEFERRED, routed rather than fixed now. Routing rule 0 puts design/** with sdlc-architect.
+    It is the most load-bearing of the fourteen because it is the one a downstream implementer
+    would hit as an unexplained runtime throw. Must be closed before TASK-011 or TASK-025
+    dispatch, both of which consume this contract - recorded on their cards, not left here.
+
+- id: F-139
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: implementation
+  file: apps/api/src/db/client.ts
+  line: 21
+  summary: >-
+    The sanctioned-consumer comment says tenant-context.md "still names three". The architect
+    amended it to four in the same round.
+  failure_scenario: >-
+    F-126 existed so TASK-056 would find one list that is true. A comment in the file TASK-056
+    greps from, asserting the normative document disagrees, invites the next reader to trust the
+    wrong one or to "fix" the contract back to three.
+  required_change: Drop the stale sentence or cite the amended contract.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: DEFERRED to Ship-phase triage. One stale sentence; no behaviour depends on it.
+
+- id: F-140
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: implementation
+  file: docs/architecture/migrations.md
+  line: 20
+  summary: >-
+    The Commands section says every command needs DATABASE_MIGRATION_URL. db:check-policies reads
+    DATABASE_URL and hard-fails without it; db:generate needs no connection at all.
+  failure_scenario: >-
+    A TASK-002 author following the document exports only DATABASE_MIGRATION_URL and runs
+    db:check-policies, which exits 1 - or, reading the sentence as authoritative, points
+    DATABASE_URL at the migrator DSN, which silently defeats the script's own recorded decision
+    to check as the role whose access the policies constrain.
+  required_change: >-
+    State per command which variable it needs, with the reason for db:check-policies using the
+    runtime role.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    DEFERRED but ROUTED TO TASK-002's card, not left in the ledger. TASK-002 is the reader this
+    misleads and it runs next wave.
+
+- id: F-141
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer, sdlc-product-auditor
+  round: 2
+  severity: minor
+  kind: docs
+  file: docs/architecture/rls.md
+  line: 160
+  summary: >-
+    rls.md's "What checks what" table gives assertRuntimeRoleCannotBypassRls a When of "boot,
+    before traffic". Nothing calls it. Two smaller instances in the same file: db:check-policies
+    described as running in CI (TASK-002, unbuilt), and a flag table naming two source files that
+    do not exist.
+  failure_scenario: >-
+    RAISED INDEPENDENTLY BY TWO AUDITORS. A reader of the repository's only RLS architecture
+    document concludes a deployed API refuses a DATABASE_URL pointing at a superuser, a BYPASSRLS
+    role or a table-owning role. Today it boots normally and every policy is decoration. Of the
+    three checks in that table this is the one with no other detector. The document states a
+    safety control is running when it is not.
+  required_change: >-
+    Mark the not-yet-wired rows as intended state naming the owning TASK, the way the same
+    document already does for tenantScopedTables()/TASK-053.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    DEFERRED AND ROUTED TO TASK-003, which is the coherent home rather than a follow-up on
+    TASK-005: TASK-003 owns main.ts and lands F-116's boot call site, so it is the TASK that
+    MAKES THE SENTENCE TRUE. Recorded on its card with the instruction to correct the row if it
+    wires the check and to mark it intended-state if it does not. This is the finding I came
+    closest to opening a round for; two auditors flagged it and it is a false safety claim.
+
+- id: F-142
+  phase: implement
+  task: TASK-005
+  source: sdlc-product-auditor
+  round: 2
+  severity: minor
+  kind: docs
+  file: docs/architecture/migrations.md
+  line: 102
+  summary: >-
+    The "At deploy" section describes the Fly release command running db:migrate as an existing
+    procedure. No fly.toml, Dockerfile or release command exists, and F-119 disputes whether
+    drizzle-kit is even present in a production image.
+  failure_scenario: >-
+    A document that states an unresolved question as fact is how the answer stops being asked.
+    F-119 is open precisely because TASK-003 has not decided how drizzle-kit reaches the deployed
+    image. Neither the F-117 ruling nor STORY-003's DoD asked for a deploy section.
+  required_change: >-
+    Mark the section as ADR-0004's intended state owned by TASK-003 and cross-reference F-119, or
+    drop it until TASK-003 settles it.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: DEFERRED AND ROUTED TO TASK-003 alongside F-119 and F-141, for the same reason.
+
+- id: F-143
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: docs
+  file: docs/architecture/rls.md
+  line: 128
+  summary: >-
+    rls.md lists app.redirect_context but never says its policy is PERMISSIVE and therefore
+    cross-tenant by design.
+  failure_scenario: >-
+    Postgres ORs permissive policies, so a transaction with app.redirect_context set sees every
+    tenant's rows regardless of app.tenant_id. That is the documented GC-5 exclusion, but it means
+    the flag IS the whole boundary, and TASK-029 must never set it in a transaction that also does
+    tenant work. The new document describes the flag without describing the one property that
+    makes it dangerous. The boundary's shape is unchanged by this diff; the omission is in the
+    new doc.
+  required_change: State the PERMISSIVE-OR semantics and the TASK-029 constraint in the flag table.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    DEFERRED AND ROUTED TO TASK-029's card. It is the TASK that must not violate the constraint,
+    and it is three waves out - a ledger line would not survive to it.
+
+- id: F-144
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/tenancy/tenant-context.int-spec.ts
+  line: 1
+  summary: >-
+    Nothing fails if F-137's checked-out-client error listener is deleted, and TASK-003 is
+    slated to edit those exact lines.
+  failure_scenario: >-
+    RAISED INDEPENDENTLY BY TWO AUDITORS and it is the sharpest of the fourteen. Removing the
+    pool.on('connect', ...) block leaves all 65 unit and 21 integration tests green: the F-123
+    idle test kills a connection already back in the pool, where pg-pool re-attaches its own
+    idleListener on release, so the pool-level handler alone satisfies it. The guarded path is the
+    opposite state - _acquireClient removes idleListener on checkout and drizzle attaches none, so
+    a client killed mid-transaction has zero listeners and Node exits the process. The 5s
+    idle_in_transaction bound this round added makes that path ROUTINE rather than exceptional,
+    and client.ts:54 already announces "TASK-003 replaces this with the pino logger" - a refactor
+    of these lines by a TASK with no test telling it the block is load-bearing. The security
+    auditor's phrasing of the same point: the probe was adequate as evidence the fix is correct,
+    not adequate as protection against regression.
+  required_change: >-
+    An integration case that kills a backend while it is checked out inside a transaction -
+    pg_terminate_backend from a second connection, or the idle bound itself - asserting the call
+    rejects with no uncaughtException. The existing F-123 test already installs the
+    uncaughtException capture the assertion needs.
+  owner_slot: sdlc-test-architect
+  status: open
+  ruling: >-
+    DEFERRED BUT ROUTED TO TASK-003's card as a hard prerequisite, not to the ledger. TASK-003 is
+    the TASK that will edit those lines and the one the missing test would protect. Written there
+    as an obligation to be satisfied BEFORE it refactors client.ts's logger, with the mechanism
+    the auditors supplied.
+
+- id: F-145
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 230
+  summary: >-
+    settled is raised after COMMIT returns rather than when fn resolves, so there is a window one
+    round trip wide where the context is live and the client is already released.
+  failure_scenario: >-
+    drizzle releases the client in its own finally roughly three microtasks before ours. The
+    REVIEWER INDEPENDENTLY ANALYSED THE SAME WINDOW AND REACHED A STRONGER CONCLUSION than "I
+    could not find a reach": settled is assigned as a microtask chained off the resolution of
+    drizzle's transaction promise, and Node drains the whole microtask queue before any macrotask,
+    so every continuation resuming on I/O lands after it. The only interleaving left is a
+    continuation that already resolved DURING COMMIT, which queues onto our own client while the
+    transaction is still ours and executes after COMMIT with app.tenant_id already gone
+    (transaction-local) - RLS returns zero rows and refuses every write. Fail-closed, not
+    cross-tenant.
+  required_change: >-
+    One-line tightening available: raise settled on fn's resolution rather than the transaction
+    promise's. What would REOPEN this is anything that moves settled off the synchronous
+    continuation of the awaited promise - that property is what makes it safe, and it is not
+    written down anywhere.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    DEFERRED. Two auditors independently concluded it is fail-closed, and the reviewer supplied a
+    mechanism rather than an absence of counterexample. What I am NOT comfortable deferring
+    silently is the fragility: the guard is sound because of a microtask-ordering property nobody
+    has written down. Carried to Ship-phase triage with that stated.
+
+- id: F-146
+  phase: implement
+  task: TASK-005
+  source: sdlc-product-auditor, sdlc-security-auditor, sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/api/scripts/check-policies.mts
+  line: 113
+  summary: >-
+    EXEMPT is a plain object literal, so EXEMPT[row.table_name] resolves through
+    Object.prototype. A table named constructor, toString, valueOf, hasOwnProperty or __proto__
+    reads as exempt and is skipped unchecked.
+  failure_scenario: >-
+    FOUND BY ALL THREE AUDITORS INDEPENDENTLY - product at minor, security and reviewer at nit -
+    and the product auditor DEMONSTRATED it rather than predicting it by running the lookup:
+    'constructor' returns the native Object function, which is !== undefined, so the script prints
+    skip-exempt and passes an unprotected table. All five names are legal lowercase Postgres
+    identifiers that pass SAFE_TABLE_NAME. Low likelihood, but this is the one script whose entire
+    purpose is preventing a silently unprotected table from passing a green gate, and its own
+    comment says an exception list is the obvious place to hide that failure.
+  required_change: Object.hasOwn(EXEMPT, row.table_name), or build EXEMPT with Object.create(null) or a Map.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    DEFERRED, and it is the one I most dislike deferring - three-auditor convergence on a
+    one-line fix. It does not extend the loop because no table with a prototype name exists or is
+    planned, and the script is correct today over a schema holding only tenants. ROUTED TO
+    TASK-002's card, which wires this script into CI and is the next TASK to touch it.
+
+- id: F-147
+  phase: implement
+  task: TASK-005
+  source: sdlc-product-auditor, sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: scope
+  file: apps/api/scripts/check-policies.mts
+  line: 42
+  summary: >-
+    EXEMPT is pre-populated with four Better Auth tables - user, session, account, verification -
+    none of which exist, in a TASK whose out-of-scope list names auth.
+  failure_scenario: >-
+    F-122's ruling asked for "an explicit exception list", not for entries in it. The exemption is
+    granted before the schema that would justify it exists. If the auth tables land carrying a
+    tenant_id, or under prefixed names, or if ADR-0015's workspace scoping changes what is
+    tenant-scoped, the check passes them silently and the reviewer of THAT TASK sees no diff,
+    because the carve-out was written three waves earlier. The auditors disagree on weight: the
+    security auditor accepts them because rls-policy-template.md:178 records exactly those four as
+    no-tenant_id and TASK-009's, and the reviewer accepts them because each carries an ADR
+    citation, which is what keeps an exception list from becoming a dumping ground.
+  required_change: >-
+    Juano's call, not the implementer's: keep the four as a recorded decision, or ship the list
+    empty so the first exemption arrives as a reviewed one-line diff in the TASK that creates the
+    table.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-148
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: contract
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 247
+  summary: >-
+    The afterCommit failure logger reads error.message off any caught error, which
+    tenant-context.md rule 2 - added this same round - forbids for database errors.
+  failure_scenario: >-
+    The rule the round created, violated by a line the round did not touch. afterCommit hooks may
+    open their own transaction (the invariant-6 test does exactly that), so an unwrapped
+    pg.DatabaseError reaches this catch, and Postgres embeds offending values in the primary
+    message for a whole class of conditions - invalid input syntax for type uuid: "<value>",
+    date/time field value out of range: "<value>". That lands in the log store unredacted, which
+    is also GC-9's "no PII in log bodies".
+  required_change: >-
+    Log the error name and, for a database error, the SQLSTATE through postgresErrorCode - the
+    same allowlist discardedConnection() already uses in client.ts.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    DEFERRED to Ship-phase triage, flagged as the one deferred minor with a GC breach in it. Not
+    routed to a later TASK because no later TASK touches this line; it needs its own small dispatch
+    or a Ship-phase fix, and the Ship review sees this ruling.
+
+- id: F-149
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/api/src/db/client.ts
+  line: 81
+  summary: >-
+    connectionTimeoutMillis also caps ESTABLISHMENT of a new connection, not only the queue wait
+    the docblock reasons about, so 2000 ms is a hard ceiling on a Neon cold start.
+  failure_scenario: >-
+    pg-pool applies the same value in newClient (pg-pool@3.14.0:250-263): a brand-new client that
+    has not finished connecting within it has its socket destroyed and the caller gets
+    "Connection terminated due to connection timeout". GC-3 pins Neon's free tier, which scales to
+    zero, so the first request after an idle period pays TCP + TLS + auth + compute wake on a
+    fresh connection - if that exceeds 2 s the request FAILS rather than waits. The pool is empty
+    at process start too, so the same cap applies to the first request after every deploy. The
+    docblock justifies the number purely as queue-wait, so the property is not merely unmeasured,
+    it is undocumented.
+  required_change: >-
+    The docblock states that the number also bounds connection establishment against a
+    scale-to-zero compute and was chosen without measurement, or the two bounds are separated.
+    The number itself is TASK-003's to confirm against a real endpoint.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    DEFERRED AND ROUTED TO TASK-003, which wires the real Neon endpoint and is the only place the
+    number can be confirmed. This is the one capacity number of the three with a concrete stated
+    mechanism rather than a general unease.
+
+- id: F-150
+  phase: implement
+  task: TASK-005
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: implementation
+  file: apps/api/src/db/rls.ts
+  line: 147
+  summary: >-
+    The boot check counts relkind 'r' while check-policies matches ('r','p'), so a partitioned
+    table owned by the runtime role passes the boot check.
+  failure_scenario: >-
+    check-policies.mts deliberately covers partitioned tables, arguing a partitioned parent
+    lacking RLS is the same defect; the boot check written in the same round does not. A runtime
+    role owning a partitioned table in public is owner-exempt wherever FORCE is absent, and the
+    boot check reports zero. No partitioned table exists or is planned in launch-core.
+  required_change: The two checks use the same relkind set, or the boot check says why it does not.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: DEFERRED. Nit, no partitioned table exists or is planned. Carried to Ship-phase triage.
+
+- id: F-151
+  phase: implement
+  task: TASK-005
+  source: sdlc-product-auditor
+  round: 2
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/tenancy/tenant-context.int-spec.ts
+  line: 238
+  summary: >-
+    AC-11's no-leak test depends on pg-pool's LIFO idle reuse returning the same connection and
+    asserts nothing about connection identity. Restated from round 1 because this diff changed
+    the pool.
+  failure_scenario: >-
+    The dependency is satisfied today - pg-pool acquires with _idle.pop() and POOL_MAX = 10 is
+    pg's own default - but the test cannot distinguish "the same connection carried no residue"
+    from "a different connection was handed out". If a later change pins, rotates or resets
+    connections, it goes on passing while proving nothing, and AC-11's stated verification method
+    quietly stops being exercised. The file now creates up to ten connections in its pool suite,
+    so the pool is no longer trivially single-connection.
+  required_change: >-
+    Select pg_backend_pid() inside both transactions and assert equality, so the test fails loudly
+    if the premise stops holding rather than passing vacuously.
+  owner_slot: sdlc-test-architect
+  status: open
+  ruling: >-
+    DEFERRED. Not a code defect. It was noted rather than filed in round 1 because AC-11 itself
+    specifies this verification method; it is filed now because the pool changed under it. Carried
+    to Ship-phase triage.
+
+- id: F-152
+  phase: implement
+  task: TASK-005
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/api/src/db/client.ts
+  line: 81
+  summary: >-
+    The acquisition timeout rejects with a plain Error carrying no SQLSTATE, and the redirect path
+    shares this pool - so GC-8's branded-404 guarantee has no error code to branch on.
+  failure_scenario: >-
+    GC-8 says no unresolvable request returns 5xx to a visitor; it returns the branded 404. Pool
+    exhaustion or a cold-start timeout on the redirect path produces an error that
+    postgresErrorCode answers undefined for, so a handler branching on SQLSTATE cannot classify it
+    and the default arm is a 500. The auditor deferred this to the ledger rather than the loop
+    because the redirect path does not exist yet.
+  required_change: >-
+    TASK-029 and TASK-007 must map an acquisition failure to the branded 404 rather than a 500.
+  owner_slot: null
+  status: open
+  ruling: >-
+    DEFERRED AND ROUTED TO BOTH TASK-029 AND TASK-007's cards. A GC-8 obligation that lands in the
+    ledger and nowhere else will not survive to the wave that needs it - this initiative has filed
+    that same failure four times as the F-064 class.

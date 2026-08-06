@@ -151,6 +151,14 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 - Adding a field that could carry a secret means adding its path to `REDACT_PATHS` in the
   same commit.
 - Never log `error.request` or `error.config` from an HTTP client. Both carry headers.
+- **Never log a database error's `detail`, `hint`, `where`, `internalQuery` or `query`.**
+  Added 2026-08-05 (F-120). A `pg.DatabaseError` populates `detail` on a unique violation
+  with the colliding column values verbatim (`Key (slug)=(abc) already exists`), and
+  `where` and `internalQuery` carry query text from a trigger or function body.
+  `REDACT_PATHS` is a path list and cannot reach inside those strings, so redaction is
+  not a fallback here. The readable fields on a caught database error are the SQLSTATE
+  and the constraint name, both through the accessors in `tenant-context.md`, "Driver
+  errors inside `fn`".
 
 ## Versioning
 

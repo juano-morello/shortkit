@@ -137,3 +137,36 @@ the failure F-039 exists to prevent, re-entering through the acceptance criteria
 rejects a workflow whose `needs` names a job that does not exist, so a job silently dropped
 or renamed becomes a hard configuration error instead of a green pipeline that ran nothing.
 Raised by `sdlc-test-architect` while establishing AC-5's exemption.
+
+## ⚠ Two deferred TASK-005 findings routed here 2026-08-05
+
+You wire `pnpm db:check-policies` into the CI integration job (F-122's ruling), so you are
+the next TASK to touch that script and its documentation.
+
+**F-146 — `apps/api/scripts/check-policies.mts:113` looks the exemption up through
+`Object.prototype`.** Found independently by **all three auditors**, and
+`sdlc-product-auditor` demonstrated it rather than predicting it by running the lookup:
+`EXEMPT['constructor']` returns the native `Object` function, which is `!== undefined`, so the
+script prints `skip constructor — exempt: …` and passes an unprotected table. `constructor`,
+`toString`, `valueOf`, `hasOwnProperty` and `__proto__` are all legal lowercase Postgres
+identifiers that pass `SAFE_TABLE_NAME`. Low likelihood, but this is the one script whose
+entire purpose is preventing a silently unprotected table from passing a green gate, and its
+own comment says an exception list is the obvious place to hide that failure. Fix:
+`Object.hasOwn(EXEMPT, row.table_name)`, or build `EXEMPT` with `Object.create(null)` or a
+`Map`.
+
+**F-140 — `docs/architecture/migrations.md:20` says every command needs
+`DATABASE_MIGRATION_URL`.** It does not. `db:generate` needs no connection, and
+`db:check-policies` reads `DATABASE_URL` and hard-fails without it. **You are the reader this
+misleads**: export only `DATABASE_MIGRATION_URL` and `db:check-policies` exits 1; read the
+sentence as authoritative and point `DATABASE_URL` at the migrator DSN, and you silently
+defeat the script's own recorded decision to check as the role whose access the policies
+constrain. State per command which variable it needs, with the reason for the last.
+
+**Also confirm, per F-124's ruling:** the `quality` job's `pnpm audit --prod --audit-level
+moderate` and the **weekly** all-dependency audit are two distinct obligations, not one gate
+run twice. The `--prod` gate is structurally blind to dev-only advisories — it exits 0 while
+`--audit-level low` reports `GHSA-67mh-4wv8-2f99` through drizzle-kit's deprecated
+`@esbuild-kit` loader chain. Build both, and create `docs/security/known-advisories.md` with
+the two rows from ADR-0018's register, assessments and clearing conditions intact, naming the
+file in the weekly job's audit step so a failure points at it.

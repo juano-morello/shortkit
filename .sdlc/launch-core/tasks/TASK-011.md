@@ -34,3 +34,19 @@ JWT issuance and `AuthUser` (TASK-009); `withTenantTransaction` (TASK-005); `Err
 **Produces**
 
 `AuthGuard` — rejects 401 unauthenticated, 403 `email_not_verified` unverified; `RequestContext` — `{ userId, tenantId }` available to every authenticated handler; `@Public()` marker exempting a route from the guard.
+
+## ⚠ F-138 must be closed before this TASK is dispatched (routed 2026-08-05)
+
+`design/contracts/tenant-context.md` invariant 5 promises that nesting `withTenantTransaction`
+with the same `tenantId` reuses the outer transaction, **with no exception stated**. The
+shipped code (`tenant-context.ts:179-181`, TASK-005 fix round 1) throws
+`TenantContextMissingError` when the outer context has already settled. You consume that
+contract, so as written it would send you into a fire-and-forget follow-up inside `fn` that
+calls `withTenantTransaction`, expects reuse, and gets an unexplained runtime throw — the
+behaviour is written down only in `docs/architecture/rls.md`, which is not normative and which
+your card does not point at.
+
+Routed to `sdlc-architect` under routing rule 0. **Do not dispatch this TASK until the
+contract states the settled-context invariant**: a context is invalidated when its transaction
+settles, and `tenantDb`, `currentTenantId` and a nested `withTenantTransaction` all throw
+rather than reuse a released handle.
