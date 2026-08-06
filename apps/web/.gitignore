@@ -1,0 +1,11 @@
+# Round-3 housekeeping. Proving a fix in apps/web/scripts/assert-no-inlined-secrets.mjs
+# sometimes needs a real Next.js build with a temporary component reading an env var — always
+# deleted immediately after each proof, but this backstops that manual cleanup in case a step
+# is interrupted mid-round, so a probe file can never be swept into a commit by an unrelated
+# `git add`.
+_probe-*
+_leak-test-*
+# Route-handler probes can't use a leading underscore — Next.js treats a leading-underscore
+# folder as a private, non-routed folder, which would make the probe route unreachable and
+# defeat the point of proving it. This pattern covers that case instead.
+app/probe-*
