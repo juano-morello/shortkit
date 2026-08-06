@@ -6183,3 +6183,143 @@
     stronger of the two, and the reviewer's own framing is that the resulting databases are
     identical - it is the assertions that differ. Recorded on TASK-006's card rather than left in
     the ledger.
+
+- id: F-192
+  phase: implement
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: implementation
+  file: .github/workflows/ci.yml
+  line: 248
+  summary: >-
+    The gate now fails correctly, but branch protection on main is ADMIN-EXEMPT
+    (enforce_admins: false, no required reviews) - so for the only account that can merge, the
+    required check is advisory rather than blocking.
+  failure_scenario: >-
+    VERIFIED AGAINST THE LIVE REPO, not inferred: GET /branches/main/protection returns
+    contexts ["gate"], strict true, enforce_admins.enabled FALSE and no required_pull_request_reviews
+    block. F-183's fix is real - run 31115825037 publishes gate: failure - but a red gate presents an
+    admin with "Merge without waiting for requirements to be met", and a direct git push to main is
+    not blocked at all, because status-check enforcement on push is exactly what enforce_admins
+    governs. Juano is the sole contributor and an admin, so THE POPULATION FOR WHOM THE GATE IS
+    BINDING TODAY IS EMPTY. No attacker; this is control integrity rather than an exploit, which is
+    why it is minor and not a repeat of F-183. It matters because it is the other half of the same
+    claim the blocker was about, and because F-184's own failure scenario names enforce_admins: false
+    as the bypass a permanently-red Dependabot PR would train. The comment at ci.yml:248 calls gate
+    "the branch's required check" with no qualification. ORCHESTRATOR NOTE: I set that protection,
+    with enforce_admins false, without considering this.
+  required_change: >-
+    Decide and record, NOT NECESSARILY CHANGE. Either set enforce_admins: true - on a solo repo that
+    is what converts the gate from a warning light into a gate, and the cost is that a red CI means
+    fixing CI - or record the bypass as deliberate where a reader of the gate job will find it: the
+    ci.yml:248 comment and/or docs/security/ci-secrets.md, which is currently the only place the repo
+    describes its CI security posture and says nothing about branch protection.
+  owner_slot: null
+  status: fixed
+  ruling: >-
+    JUANO RULED 2026-08-06: enforce_admins TRUE. APPLIED AND VERIFIED - GET /branches/main/protection
+    now returns contexts ["gate"], strict true, enforce_admins.enabled TRUE, force pushes false,
+    deletions false. The cost is real and was stated before he chose: a red CI now means fixing CI
+    before merging, with no override, including for a Dependabot PR that is red for an infrastructure
+    reason. On a solo repo that is the entire value of having built the gate - the auditor's framing
+    was that shipping a TASK whose headline deliverable is "the gate now blocks" without knowing
+    whether it blocks the only person who can merge is shipping an unexamined premise.
+  resolved_by: null
+  resolved_round: null
+
+- id: F-193
+  phase: implement
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: implementation
+  file: .github/workflows/ci.yml
+  line: 94
+  summary: >-
+    The Dependabot preflight tests one of the three job-level values it exists to diagnose, so a run
+    that loses `vars` rather than `secrets` fails four minutes later with no pointer to the cause.
+  failure_scenario: >-
+    quality declares BFF_PROXY_SECRET, NEXT_PUBLIC_API_BASE_URL and API_BASE_URL at job level, and
+    assert-no-inlined-secrets.mjs hard-requires the first two - readRequiredValue throws on
+    NEXT_PUBLIC_API_BASE_URL as the positive control - but the preflight tests only the secret. That
+    variables resolve on Dependabot runs is real but UNDOCUMENTED by GitHub: the Dependabot-on-Actions
+    page covers secrets and is silent on vars, github/docs issue 43950 is open on exactly that
+    omission, and this repo has never had a Dependabot run to observe. If that behaviour changes, or
+    someone deletes a repository variable, the run dies inside assert:no-secrets after a full install
+    and two builds with an error naming a variable and not naming Dependabot - the same unexplained
+    red on a security-patch PR the preflight was added to prevent.
+  required_change: Loop the preflight over the three names, keeping the fail-closed-and-name-the-cause shape.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: DEFERRED to Ship-phase triage. Diagnosability rather than a control; the failure is still red, only less legible.
+
+- id: F-194
+  phase: implement
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: implementation
+  file: docs/security/ci-secrets.md
+  line: 22
+  summary: >-
+    The doc describes the production-side control in the PRESENT TENSE although no code implements it
+    yet, and cites a file path that does not exist in this repository.
+  failure_scenario: >-
+    It says "On Vercel it is real: the API performs a constant-time match on it before honouring a
+    forwarded x-shortkit-client-ip". git grep BFF_PROXY_SECRET returns NO HIT anywhere under apps/ or
+    packages/ - the control is designed (ADR-0014, rate-limit.md, the resolve-rate-limit-principal.ts
+    stub) and NOT BUILT. A reader of a file whose stated job is "read this before changing either
+    value" reasonably takes its present tense as a statement about running code, and the honest
+    reading today is that nothing checks the proxy-auth header yet. The citation
+    design/contracts/web-api-client.md also resolves to nothing - there is no design/ directory at the
+    repo root, the contracts live under .sdlc/launch-core/design/contracts/, and the constant-time
+    rule is normative in rate-limit.md rather than web-api-client.md.
+  required_change: >-
+    Put the claim in the tense that matches reality, and fix both pointers to
+    .sdlc/launch-core/design/contracts/rate-limit.md. No other claim in the file needs changing - the
+    auditor verified the register itself against the API.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: DEFERRED to Ship-phase triage. It becomes wrong-in-a-way-that-matters when TASK-012 lands the API-side check; that is the moment to fix it.
+
+- id: F-195
+  phase: implement
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 143
+  summary: >-
+    The SIGINT/SIGTERM handlers cannot run until the fully synchronous body finishes, so what actually
+    restores the file on Ctrl-C is the finally. SIGHUP is unhandled, and the escalation that
+    Ctrl-C-appearing-to-do-nothing invites is what leaves the tree dirty.
+  failure_scenario: >-
+    A GENUINELY SUBTLE CORRECTION TO A FIX THE SAME AUDITOR ASKED FOR. After the F-189 rewrite there
+    is no await left in the module - readFileSync, writeFileSync, spawnSync - so the whole run is one
+    synchronous block, and Node cannot deliver a signal to a JS listener until the event loop gets a
+    turn. Registering the listener DOES replace the default disposition, which is why the interrupted
+    run came back byte-identical - but by way of the finally, not the handler. The visible behaviour
+    is a script that ignores Ctrl-C and keeps running the second mutation and second recursive
+    typecheck. The developer response to that is closing the terminal (SIGHUP, unhandled, default
+    disposition terminates, no finally) or kill -9 (unhandleable) - and either lands the original
+    F-189 outcome. The docblock says the signals "are handled and restore SYNCHRONOUSLY before
+    re-exiting", which reads as prompt interruption.
+  required_change: >-
+    Add SIGHUP to the handled list and correct the docblock to say what holds: the restore comes from
+    the finally on the ordinary path and the handler is the backstop. Prompt interruption would need
+    the handler to kill the in-flight child and the body to yield - not worth it for a dev-invoked
+    probe, but the doc should not promise it.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    DEFERRED to Ship-phase triage, on the auditor's own ship judgement - dev-tool ergonomics, a
+    dirty working tree as the worst case on a one-developer repo, and git status surfaces it. Worth
+    recording that the SUBSTANTIVE half of F-189 is genuinely closed: exit 0 now implies the file
+    came back byte-for-byte, because the restore is read back and compared before the success path
+    returns.
