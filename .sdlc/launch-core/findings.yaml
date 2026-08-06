@@ -7028,3 +7028,46 @@
     ACCEPTED AND STATED AT THE MERGE DECISION rather than resolved. The honest position is that
     wave 1's CI is verified locally and not in CI, and Juano should decide the merge knowing that
     rather than discovering it.
+
+- id: F-219
+  phase: ship
+  task: TASK-002
+  source: orchestrator
+  round: 1
+  severity: major
+  kind: behavior
+  file: .github/workflows/ci.yml
+  line: 31
+  summary: >-
+    F-185's timeouts are sized against EXECUTION time but are consumed by QUEUE time. Under runner
+    congestion the jobs are cancelled before executing a single step, so CI cannot pass at all -
+    and the run reports `failure`, which is indistinguishable from a real one at a glance.
+  failure_scenario: >-
+    OBSERVED, not predicted. Run 31123456025 on 3f68317: conclusion FAILURE, all three jobs
+    CANCELLED, and `gh api .../jobs` shows ZERO STEPS EXECUTED on every one of them. quality and
+    integration were both cancelled at exactly 15 minutes after started_at, which is precisely the
+    `timeout-minutes: 15` F-185 added. The timeouts were sized from run 31113561948's real timings -
+    quality 56s, integration 51s - giving roughly 16x headroom, which is generous against EXECUTION.
+    It is nothing against a queue: GitHub's runner pool has been congested for over an hour and six
+    consecutive runs on this branch never completed. THE PART THAT MAKES IT A FINDING RATHER THAN AN
+    OUTAGE is that F-185 was filed to bound a hung job so a required check fails fast instead of
+    hanging for six hours - and the bound now fires on healthy jobs that simply have not started, so
+    the required check reports failure on a tree nothing has tested. I contributed to the congestion
+    myself: cancel-in-progress is true on feature branches by F-190's fix, so every ledger push I
+    made superseded the in-flight run.
+  required_change: >-
+    Decide what the timeout is bounding. If it is execution, the job needs to distinguish
+    not-yet-started from running - GitHub does not offer a separate queue timeout, so the practical
+    options are a materially larger timeout-minutes that tolerates queueing, or accepting that a
+    congested pool cancels runs and reading `zero steps executed` as the signature rather than as a
+    failure. Also worth deciding whether cancel-in-progress on feature branches is right for a repo
+    whose author pushes ledger commits frequently - it is correct in principle and it is why six
+    runs in a row never completed.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  ruling: >-
+    NOT A MERGE BLOCKER FOR THE MERGED TREE, which is verified locally and thoroughly - unit 65,
+    integration 21, lint, typecheck, build, and db:check-policies green on a clean database. It IS a
+    blocker for treating CI as evidence: F-218 said no run stands behind these commits, and F-219
+    explains why none can while the queue is long. Recorded before any push so the state of the
+    world is on the record rather than discovered later.
