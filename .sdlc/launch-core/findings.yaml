@@ -6026,3 +6026,153 @@
   status: routed
   resolved_by: null
   resolved_round: null
+
+- id: F-187
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: behavior
+  file: .github/scripts/assert-integration-collected.mjs
+  line: 52
+  summary: >-
+    The AC-114 guard PASSES on a fully skipped suite - the exact vacuous green it exists to stop -
+    and its own docblock claims it catches that case.
+  failure_scenario: >-
+    TRACED TO VITEST'S SOURCE, not reasoned from behaviour. Change describe( to describe.skip( in
+    tenant-context.int-spec.ts - a normal debugging move - and push. vitest 3.2.7's JSON reporter
+    sets numTotalTests = getTests(files).length, SKIPPED TESTS INCLUDED, and pushes one testResults
+    entry per FILE with status "passed" regardless of skip state. So the report carries
+    testResults.length === 1, numTotalTests === 21, numPassedTests === 0, numPendingTests === 21,
+    and vitest exits 0. The script's two conditions - files < 1 || tests < 1 - are both false, so it
+    prints "OK: the integration suite collected 21 test(s) across 1 file(s)" and exits 0. The
+    integration job is then GREEN HAVING EXECUTED ZERO ASSERTIONS: assertAppRoleCannotBypassRls()
+    never runs, the RLS surface is untouched, postgres:17-alpine was stood up for nothing, and SC-1
+    reads as proven by a suite that asserted nothing. That is F-039's failure one layer deeper. The
+    script's own header at :9-11 asserts it catches "a file whose suites are all describe.skip-shaped
+    at collection time". IT DOES NOT - describe.skip bodies are still collected.
+  required_change: >-
+    Separate a COLLECTED test from an EXECUTED one. The report already carries numPassedTests,
+    numPendingTests and numTodoTests. Whatever threshold is chosen, the docblock's claim and the
+    code's behaviour must agree - today the docblock names the one case the code misses.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-188
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: implementation
+  file: .github/actions/setup-toolchain/action.yml
+  line: 59
+  summary: >-
+    The action validates engines.node's shape and fails loudly on anything unexpected, but
+    validates NOTHING about packageManager - so F-064 obligation 1's supply-chain guarantee fails
+    open.
+  failure_scenario: >-
+    If root package.json loses its packageManager field - a bad merge, or a tool that rewrites the
+    manifest - corepack enable still succeeds and pnpm resolves to Corepack's bundled known-good
+    release. pnpm --version prints that version into the log with nothing comparing it to anything.
+    No sha512 is verified and CI reads exactly as it does today. SAME SHAPE AS THE DEFECT F-064 WAS
+    FILED AGAINST - a hash that is decorative while reading as supply-chain coverage - reintroduced
+    through the field's ABSENCE instead of its bypass. The asymmetry is the defect: the Node half of
+    the same file already does exactly this check for engines.node at :36-42.
+  required_change: Fail when packageManager is missing, or when the activated pnpm version does not equal the version it names.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-189
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 114
+  summary: >-
+    The script mutates a tracked source file in place and restores it only in a finally, which a
+    signal does not run - so an interrupted LOCAL invocation leaves packages/contracts/src/errors.ts
+    silently mutated.
+  failure_scenario: >-
+    The header documents the script as a local command, so it will be run locally. Ctrl-C during
+    either recursive typecheck - each about 10s in CI, longer cold, and --no-bail means both run to
+    completion - terminates Node on SIGINT WITHOUT executing the finally. The working tree is left
+    containing a probe identifier with no message saying so, and the next command a developer runs
+    compiles against it. Ephemeral on the runner; on a working tree with other uncommitted changes
+    to that file, recovering means discarding them.
+  required_change: >-
+    Either the mutation does not touch the working tree, or SIGINT/SIGTERM restores the file before
+    exiting. Cheap adjacent improvement the reviewer suggests: have the script verify its own
+    restore before exiting 0, which also closes the unproven "came back byte-identical" item.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-190
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: nit
+  kind: implementation
+  file: .github/workflows/ci.yml
+  line: 29
+  summary: >-
+    cancel-in-progress: true applies to main as well as feature branches, so two quick merges leave
+    the first commit with a cancelled gate and no green record.
+  failure_scenario: >-
+    Merge two PRs a minute apart. The first push-on-main run is cancelled mid-flight, that commit's
+    gate check ends `cancelled`, and no run ever proves it green - on the one branch whose
+    protection is the entire point of the job. Cancelled is a SAFE direction, since it does not read
+    as success, so this is bookkeeping rather than a hole.
+  required_change: "Scope cancellation to non-default refs: cancel-in-progress on github.ref != refs/heads/main."
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-191
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: implementation
+  file: .github/scripts/provision-test-database.sql
+  line: 39
+  summary: >-
+    The three role-model invariants exist only in the CI copy. docker-compose.test.yml asserts none
+    of them, so the two provisioning paths guarantee different things even though they produce the
+    same database.
+  failure_scenario: >-
+    THE REVIEWER DIFFED THE TWO PATHS STATEMENT BY STATEMENT and found NO divergence in the
+    resulting database - identical roles, grants, ALTER DEFAULT PRIVILEGES, statement order and
+    executing identity. The divergence is in what each ASSERTS. If someone edits the Compose file's
+    inline block to give shortkit_migrator SUPERUSER while debugging a grant and does not touch the
+    CI copy, the app-role half is still recovered locally by assertAppRoleCannotBypassRls - but the
+    MIGRATOR-OWNS-shortkit_test invariant, which the CI file calls load-bearing for the two ALTER
+    DEFAULT PRIVILEGES statements, has NO LOCAL EQUIVALENT AT ALL. A local database provisioned with
+    the wrong owner then surfaces as a permission error inside a test rather than at provisioning
+    time. The only thing holding the two files together is a header comment in each.
+  required_change: >-
+    The invariants hold in both environments, not just CI - either a shared artifact both paths
+    consume, or an equivalent guard on the local path. NOTE docker-compose.test.yml is TASK-005's
+    file, so this is a divergence for the orchestrator to route rather than a request to edit it in
+    TASK-002.
+  owner_slot: null
+  status: open
+  ruling: >-
+    ROUTED TO TASK-006, which owns the isolation harness and is the next TASK to touch the local
+    provisioning path. Not opened as a TASK-005 round: TASK-005 is done, the CI copy is already the
+    stronger of the two, and the reviewer's own framing is that the resulting databases are
+    identical - it is the assertions that differ. Recorded on TASK-006's card rather than left in
+    the ledger.
