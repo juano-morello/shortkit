@@ -4288,7 +4288,7 @@
     whoever takes it should run pnpm typecheck and read the output rather than assume the include
     line is sufficient.
   owner_slot: null
-  status: escalated
+  status: routed
   resolved_by: null
   resolved_round: null
 
@@ -4647,7 +4647,7 @@
     empty so the first exemption arrives as a reviewed one-line diff in the TASK that creates the
     table.
   owner_slot: null
-  status: escalated
+  status: routed
   resolved_by: null
   resolved_round: null
 
@@ -5641,8 +5641,10 @@
     process.env.X into the SSR chunk itself; real read with matching value -> OK unchanged; real
     read with a DIFFERENT value -> FAIL unchanged.
   owner_slot: sdlc-implementer-frontend
-  status: parked
+  status: routed
   ruling: >-
+    CAP EXCEPTION AUTHORISED BY JUANO 2026-08-06 - dispatched as fix round 6 alongside F-178.
+    The recommendation below was accepted as written.
     ADJUDICATED AT THE CAP, 2026-08-05. REAL AND LOAD-BEARING - the finding stands, the auditor
     says it would NOT ship with it open, and I agree with its reasoning. It is therefore NOT parked
     as contestable or as harmless. But the cap is five rounds and this is round five, and
@@ -5729,3 +5731,64 @@
     under these roots is a genuine defect either way. Recorded rather than fixed because it is the
     third rationale correction in this file and the pattern - not this instance - is the Retro
     item. Carried to Ship-phase triage.
+
+- id: F-178
+  phase: implement
+  task: TASK-004
+  source: orchestrator
+  round: 6
+  severity: major
+  kind: behavior
+  file: vercel.json
+  line: 3
+  summary: >-
+    vercel.json does not deploy. With Root Directory unset, Vercel resolves framework: "nextjs"
+    against the REPO-ROOT package.json, which has no `next` dependency, and the build aborts before
+    buildCommand ever runs.
+  failure_scenario: >-
+    OBSERVED ON A REAL DEPLOY, 2026-08-06, the first one ever attempted. `vercel deploy --prod`
+    against github.com/juano-morello/shortkit on the hobby plan: the filtered install succeeded
+    exactly as the auditors predicted - 269 packages, apps/api absent, esbuild the only postinstall
+    - and then Vercel emitted "Warning: Could not identify Next.js version, ensure it is defined as
+    a project dependency" followed by "Error: No Next.js version detected. Make sure your
+    package.json has next in either dependencies or devDependencies. Also check your Root Directory
+    setting matches the directory of your package.json file." Status deploy_failed. THE BUILD NEVER
+    REACHED buildCommand, so assert:no-secrets never ran and none of the five rounds of work on it
+    was exercised. THIS IS THE EXACT RISK BOTH AUDITORS NAMED AND NEITHER COULD TEST.
+    sdlc-reviewer r1 wrote that repo-root-relative keys with Root Directory unset "is a documented,
+    valid Vercel monorepo pattern" but that it "cannot confirm it against an actual Vercel build
+    environment ... first real deploy is the actual test". The implementer's own r1 report flagged
+    it as "the first thing to check if the first deploy 404s or 500s". Both were right to flag it;
+    the pattern does not hold for framework detection, which happens BEFORE and INDEPENDENTLY of
+    installCommand and buildCommand.
+  required_change: >-
+    Make framework detection find apps/web. The conventional fix is Root Directory = apps/web in
+    project settings, but note that Vercel then reads vercel.json FROM the Root Directory, so the
+    file must move to apps/web/vercel.json and its buildCommand, installCommand and outputDirectory
+    must be re-expressed relative to that - which also changes whether --filter is still needed.
+    The alternative is to keep the file at the repo root and drop `framework`, letting the build be
+    driven entirely by the explicit commands, at the cost of losing Next-specific optimisations.
+    IMPLEMENTER DECIDES AND JUSTIFIES; the orchestrator applies whatever project-settings change is
+    named, since that is outside the repository.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+# ---- F-135 and F-147 RULED 2026-08-06 (Juano unblocked; orchestrator recommendation accepted) ----
+#
+# F-135 RULED: ratify apps/api/tsconfig.json into TASK-005's paths for the single edit that adds
+#   drizzle.config.ts and scripts/** to `include`. Same transcription-gap class as drizzle.config.ts
+#   itself under F-117(1). The alternative - a follow-up TASK - was rejected because the gap leaves
+#   scripts/check-policies.mts with NO GATE COVERAGE AT ALL (not typechecked, no test, not yet run
+#   by any job) through the exact wave that depends on it, and the edit is one line.
+#
+# F-147 RULED: KEEP the four Better Auth exemptions, WITH the security auditor's r2 hardening.
+#   Two of the three auditors accepted them on the record and gave reasons: sdlc-security-auditor
+#   because rls-policy-template.md:178 already records exactly those four as no-tenant_id and
+#   TASK-009's, and sdlc-reviewer because each carries an ADR citation, "which is the property that
+#   keeps an exception list from becoming a dumping ground". sdlc-product-auditor's objection is
+#   real and is answered rather than overruled: its worry is that a carve-out written three waves
+#   early passes a table nobody re-examined. The hardening closes exactly that - each exemption must
+#   ASSERT the relation carries no tenant_id column rather than trusting the name, so an auth table
+#   that lands WITH a tenant_id fails the check instead of being waved through.

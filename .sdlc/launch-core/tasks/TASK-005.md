@@ -6,7 +6,7 @@ title: Database connection, migrations, and the tenant-context transaction helpe
 status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/drizzle.config.ts", "apps/api/scripts/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts", "apps/api/src/tenancy/tenant-context.ts", "apps/api/package.json", "pnpm-lock.yaml", "docs/architecture/rls.md", "docs/architecture/migrations.md"]
+paths: ["apps/api/src/db/**", "apps/api/drizzle/**", "apps/api/drizzle.config.ts", "apps/api/scripts/**", "apps/api/src/db/schema/tenants.ts", "docker-compose.test.yml", "apps/api/vitest.integration.config.ts", "apps/api/src/tenancy/tenant-context.ts", "apps/api/package.json", "apps/api/tsconfig.json", "pnpm-lock.yaml", "docs/architecture/rls.md", "docs/architecture/migrations.md"]
 contracts: [design/contracts/rls-policy-template.md, design/contracts/tenant-context.md]
 test_files: ["apps/api/test/tenancy/tenant-context.int-spec.ts"]
 acceptance: [AC-8, AC-9, AC-10, AC-11]
@@ -137,3 +137,30 @@ after this one, not just this one.
 Regenerate it by running the install, never by hand-editing. If a later wave puts two manifest
 holders in one wave, that wave needs worktree isolation and the lockfile is resolved by
 re-running the install on the merged manifests — never by merging lockfile hunks.
+
+## ⚠ F-135 and F-147 ruled 2026-08-06 — reopened for one small round
+
+**F-135 — `apps/api/tsconfig.json` ratified into `paths:`.** Its `include` reaches neither
+`drizzle.config.ts` nor the new `scripts/**`, so `pnpm typecheck` passes while
+`apps/api/scripts/check-policies.mts` — the RLS opt-in detector ruled in under F-122 as a blocking
+prerequisite for TASK-023 — is type-checked by nothing. `sdlc-product-auditor` put it sharply: that
+script currently has **no gate coverage at all** — not typechecked, no test, not run by any job yet.
+`tsconfig*.json` is TASK-001's and TASK-001 is done, so this ratifies the file into TASK-005 for a
+single edit, the same transcription-gap class as `drizzle.config.ts` under F-117(1). Add both paths
+to `include`, run `pnpm typecheck`, and **read the output rather than assuming the line is
+sufficient** — `.mts` under a `scripts/**` glob may need its own module settings.
+
+**F-147 — keep the four Better Auth exemptions, and harden them.** `check-policies.mts` exempts
+`user`, `session`, `account` and `verification`, none of which exist yet. Two of the three auditors
+accepted them on the record: `sdlc-security-auditor` because `rls-policy-template.md:178` already
+records exactly those four as no-`tenant_id` and TASK-009's, and `sdlc-reviewer` because each
+carries an ADR citation, "which is the property that keeps an exception list from becoming a dumping
+ground". `sdlc-product-auditor` wanted the list shipped empty so the first exemption arrives as a
+reviewed one-line diff.
+
+Its objection is real and is **answered rather than overruled**: the worry is that a carve-out
+written three waves early passes a table nobody re-examined. So take the security auditor's r2
+hardening — **each exemption must assert the relation carries no `tenant_id` column rather than
+trusting the name.** An auth table that lands *with* a `tenant_id` then fails the check instead of
+being waved through, which is the exact scenario the objection describes. An exemption for a table
+that does not exist yet is inert; an exemption that stops being justified becomes a red.
