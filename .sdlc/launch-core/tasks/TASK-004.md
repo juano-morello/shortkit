@@ -89,3 +89,110 @@ constant-time match trusts before honouring a forwarded client address. Publishe
 browser, it lets anyone forge `X-Shortkit-Client-IP`, which collapses all four IP-keyed
 rate-limit buckets — the same product-wide outage the architect self-found in Design round 4,
 arrived at from the opposite direction.
+
+## ⚠ Transcription gap closed 2026-08-05 — ADR-0006's `/api` obligation
+
+`design/adr-0006-http-surface-partitioning.md:112-113` reads: "TASK-004 and TASK-008 set
+`NEXT_PUBLIC_API_BASE_URL` and the server-side base URL to include `/api`." **That obligation
+was never restated on this card.** Found by `sdlc-scout` and verified at source by the
+orchestrator.
+
+Recorded here as a transcription of a decision the Design gate already approved, not as a new
+one — the F-053 / F-076 mechanical class. Both `NEXT_PUBLIC_API_BASE_URL` and `API_BASE_URL`
+carry the `/api` suffix; the API sets that global prefix in `main.ts` (TASK-001) and TASK-029
+registers the redirect controller *outside* it, so a base URL missing `/api` reaches the
+redirect surface rather than the JSON one.
+
+## ⛔ AC-7 IS BLOCKED — deployment needs Juano's account, not code
+
+`sdlc-scout` checked and the orchestrator confirmed at source: **no `vercel.json`, no
+`.vercel/`, no Vercel token, org id or project id anywhere in the repo, no `.github/`, and
+`git remote -v` returns nothing — this repository has no remote at all.**
+
+AC-7 requires a *deployed* Vercel URL that `sdlc-product-auditor` verifies by hitting it.
+That cannot be produced from inside the repository under any implementation. It needs Juano's
+Vercel account and a git remote to deploy from, and deploying is an outward-facing action that
+is his to authorise regardless.
+
+**Consequence for this TASK:** the buildable half ships and is auditable now — `vercel.json`,
+the three environment-variable registrations, `apps/web/scripts/assert-no-inlined-secrets.mjs`
+and its `assert:no-secrets` entry. **AC-7 stays open and TASK-004 cannot reach `done`** until
+the deployment exists. AC-113 is fully verifiable now and must be, including the negative case
+the card already demands: build once with the value deliberately inlined and confirm the script
+exits non-zero, because a check that never fires and a check that cannot fire look identical on
+a green run.
+
+**The same blocker reaches further than this TASK.** With no git remote, TASK-002's CI workflow
+also has nothing to run on. That is a launch-core-wide prerequisite, not a TASK-004 detail.
+
+## ⚠ AC-113 AMENDED 2026-08-05 (F-154, ruled by Juano) — `API_BASE_URL` is no longer a target
+
+AC-113 as minted by F-078 said the check searches for the values of **both**
+`BFF_PROXY_SECRET` and `API_BASE_URL`. **It now searches for `BFF_PROXY_SECRET` only.**
+
+**Why the original wording could not stand.** `sdlc-reviewer` and `sdlc-security-auditor`
+independently reproduced the same failure by building: `.env.example` gives
+`NEXT_PUBLIC_API_BASE_URL` and `API_BASE_URL` the identical value — ADR-0006 and ADR-0014 route
+both to the same Fly origin with the same `/api` suffix, so that is the documented operational
+configuration, not an accident. The check does a raw substring search with no way to attribute a
+match to which variable's *read* produced it. So the moment TASK-008 reads
+`NEXT_PUBLIC_API_BASE_URL` in client code — that variable's entire purpose — Next inlines it
+exactly as designed and the check reports `API_BASE_URL` as leaked, on a build with nothing
+wrong with it, permanently, with no code change in `apps/web` able to clear it.
+
+**Why dropping it rather than working around it.** `API_BASE_URL` **is not confidential**. It is
+the public Fly hostname, committed in cleartext in `.env.example` and discoverable from any
+redirect. Checking it buys no confidentiality. What it costs is the guard's credibility: an
+unfixable red on a correct build gets resolved by loosening the check, and the cheapest loosening
+anyone reaches for — match only if the value is long enough, or not a URL, or skip chunks — then
+applies to `BFF_PROXY_SECRET` too. `BFF_PROXY_SECRET` has no legitimate public counterpart and
+does not share this problem.
+
+**Consequence for the script:** `BFF_PROXY_SECRET` is the sole leak target, and F-156's positive
+control becomes coherent — asserting `NEXT_PUBLIC_API_BASE_URL`'s value **is** present is now the
+proof that build and check saw the same environment, with nothing contradicting it. The script
+header must record *why* `API_BASE_URL` is excluded, or a future reader will "fix" it back and
+reintroduce the permanent red.
+
+## ⚠ F-157 ROUTED OUT 2026-08-05 (ruled by Juano) — the render-time half is TASK-012's
+
+`sdlc-security-auditor` reproduced a leak that **no build-output scan can ever catch**: with
+`export const dynamic = 'force-dynamic'`, a server-component-prop leak puts the secret nowhere on
+disk under `.next` at all, while `curl` returns it in the HTML body. Every dashboard route in
+ADR-0014 reads `cookies()` for `sk_at` and is therefore dynamic by definition — so the **entire
+authenticated surface**, the one that will actually handle `BFF_PROXY_SECRET`, is structurally
+invisible to this control even after F-155's widening lands.
+
+**TASK-004 owns the ceiling statement, not the remedy.** The script header and this card must say
+plainly that this control covers **build-time inlining and prerendered output only, not
+per-request server render** — because the danger the auditor named is the overclaim: an
+implementer reads AC-113 as "we have a control for this" and ships a server-to-client prop on a
+dynamic route with green CI.
+
+**The remedy is TASK-012's, with an ADR-0014 amendment making it normative:**
+`experimental_taintUniqueValue` applied to `BFF_PROXY_SECRET` and to the `sk_at` cookie value at
+their single read sites, which throws at *render* time when either crosses into a client
+component on any route type. `import 'server-only'` is a useful complement but does not stop the
+prop path. TASK-012 owns `serverApiClient()` and the proxy, so it owns those read sites.
+
+## ⚠ F-166 — the three variables must be registered for Preview and Development too
+
+Recorded by the orchestrator 2026-08-05 from `sdlc-security-auditor`'s round-2 audit, because
+nothing in the repo said it and `tasks/**` is not an implementer's path.
+
+`vercel.json`'s `buildCommand` now chains `assert:no-secrets`, and that check **hard-fails when
+`BFF_PROXY_SECRET` is unset** — the correct posture, and what F-156 asked for. But Vercel scopes
+project environment variables **per environment**, and the common default is to register a secret
+for Production only. Every preview deploy then dies at `BFF_PROXY_SECRET is not set` in the build
+step, on a branch with nothing wrong with it.
+
+**Register all three — `NEXT_PUBLIC_API_BASE_URL`, `API_BASE_URL`, `BFF_PROXY_SECRET` — for
+Production, Preview and Development.** Preview may use a distinct throwaway `BFF_PROXY_SECRET`
+as long as the Fly side accepts it.
+
+Worth stating why this is on the card rather than in the ledger: it is the **same
+remediation-pressure shape as F-154 and F-161**, which between them cost two fix rounds. The
+person unblocking previews reaches for the cheapest cut in reach, and the cheapest cut is deleting
+the `&& assert:no-secrets` chain. Three findings on this TASK have now had that identical shape —
+a control that is correct, that reds something the operator urgently wants green, and whose
+removal is one edit away.

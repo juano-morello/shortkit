@@ -4790,3 +4790,942 @@
     DEFERRED AND ROUTED TO BOTH TASK-029 AND TASK-007's cards. A GC-8 obligation that lands in the
     ledger and nowhere else will not survive to the wave that needs it - this initiative has filed
     that same failure four times as the F-064 class.
+
+- id: F-153
+  phase: implement
+  task: TASK-002
+  source: orchestrator
+  round: 2
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-002.md
+  line: 19
+  summary: >-
+    Three obligations were routed onto TASK-002's card that its paths cannot reach. TASK-002 is
+    [".github/**"] only; the items live in apps/api/scripts/**, docs/architecture/ and docs/security/.
+  failure_scenario: >-
+    INSTANCE SEVENTEEN of the artifact-assigns-work-a-TASK-cannot-do class, and THE FIRST ONE I
+    PRODUCED MYSELF rather than found. I routed F-146 (the Object.prototype exemption lookup in
+    check-policies.mts) and F-140 (the wrong env-var claim in docs/architecture/migrations.md) onto
+    TASK-002's card because it is the next TASK to touch that script and the reader those docs
+    mislead - and did not check its paths against them. sdlc-architect had independently done the
+    same thing earlier the same day, assigning docs/security/known-advisories.md to TASK-002 under
+    F-124. Caught at dispatch time by reading the card before scouting, which is the only reason it
+    did not reach an implementer as an impossible instruction. The class has a consistent shape: the
+    TASK that is CONCEPTUALLY right for a piece of work is not always the TASK whose paths reach it,
+    and every actor in this workflow makes the substitution.
+  required_change: >-
+    Juano's call under routing rule 0 - amending an approved TASK card is his. Either widen
+    TASK-002's paths to ["github/**", "apps/api/scripts/**", "docs/**"], or re-route the three items
+    to a TASK that already reaches them, or open a small follow-up TASK owning them. Note the
+    orchestrator has already written a warning block onto TASK-002's card telling its implementer
+    NOT to widen its own paths and to report the items as unreachable if this is unresolved at
+    dispatch.
+  owner_slot: null
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-154
+  phase: implement
+  task: TASK-004
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 127
+  summary: >-
+    AC-113's detector will fail permanently on correct builds. It raw-substring-searches for
+    API_BASE_URL's value, and TASK-004's own .env.example gives NEXT_PUBLIC_API_BASE_URL the
+    identical value - so the intended, legitimate inlining of the public variable reports as a
+    leak of the server-only one.
+  failure_scenario: >-
+    THE REVIEWER PROVED THIS BY BUILDING, not by argument, and the orchestrator verified every
+    link except the build itself. It built apps/web with a client component reading ONLY
+    process.env.NEXT_PUBLIC_API_BASE_URL, set to https://shortkit-api.fly.dev/api - the exact
+    literal .env.example documents - with API_BASE_URL never referenced by any code path. The
+    script reported "FAIL: API_BASE_URL in .next/static/chunks/2utktmc78r5j9.js", exit 1.
+    ORCHESTRATOR VERIFIED THE MECHANISM AT SOURCE: line 127 is a bare contents.includes(value)
+    with no attribution of a match to which variable's READ produced it, and .env.example sets
+    both NEXT_PUBLIC_API_BASE_URL and API_BASE_URL to the byte-identical
+    https://shortkit-api.fly.dev/api. This is not a contrived case - ADR-0006 and ADR-0014 route
+    the public and the server-only base URL to the SAME Fly origin with the SAME /api suffix, so
+    identical values are the documented operational configuration. The moment TASK-008 lands and
+    reads NEXT_PUBLIC_API_BASE_URL in client code, which is that variable's entire purpose, every
+    build fails this check forever on genuinely correct output. The predictable repair by whoever
+    debugs that red CI is to weaken the check - which is how a real BFF_PROXY_SECRET leak
+    eventually passes unnoticed. The guard degrades into noise exactly when it starts being used.
+  required_change: >-
+    Two candidate fixes and the choice is NOT the implementer's, because AC-113's own text
+    mandates the behaviour that causes this. (a) Distinguish "value present because the public
+    var was read" from "value present because the server-only var was read" - e.g. stop treating
+    API_BASE_URL as a leak target when its value is provably identical to the registered
+    NEXT_PUBLIC_API_BASE_URL value, since then the string carries nothing a browser could not
+    legitimately have. (b) Re-examine AC-113's scope: BFF_PROXY_SECRET has no legitimate public
+    counterpart and does not have this problem, so searching for API_BASE_URL's raw value may be
+    the wrong requirement rather than the wrong implementation. AC-113 was minted by F-078 and
+    RULED BY JUANO, so (b) reopens an approved artifact - routing rule 0, his call.
+  owner_slot: null
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-155
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 1
+  severity: blocker
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 48
+  summary: >-
+    The guard scans only .next/static/**. A server-only value reaching the browser through
+    prerendered HTML or an RSC flight payload lands in .next/server/app/** and the guard exits 0
+    on the exact leak it exists to stop.
+  failure_scenario: >-
+    REPRODUCED END TO END by the auditor in a scratch copy of this repo (Next 16.3.0, turbopack,
+    unmodified next.config.ts), running the DELIVERED script unchanged. A server component reads
+    process.env.BFF_PROXY_SECRET and passes it as a prop to a 'use client' component - the single
+    most common Next.js server-data leak, and exactly the shape TASK-012 creates when
+    serverApiClient() and the proxy start handling this secret. The value appeared in
+    .next/server/app/index.html, index.rsc and both .segment.rsc files; nowhere under
+    .next/static; `next start` plus an unauthenticated `curl -s http://host/` returned it in the
+    HTML body; and the guard printed "OK: checked 10 file(s)" and exited 0. ORCHESTRATOR VERIFIED
+    THE MECHANISM AT SOURCE: line 48 defines a single STATIC_DIR = .next/static and no other root
+    is ever read, and line 139's failure message asserts "A value only reaches .next/static/** by
+    being read through a NEXT_PUBLIC_-prefixed variable" - a claim this reproduction disproves.
+    Also verified the real repository is untouched: git status --porcelain shows only .sdlc files.
+    What the attacker gets is BFF_PROXY_SECRET, the API's constant-time match for honouring
+    x-shortkit-client-ip; forging that header collapses all four IP-keyed rate-limit buckets into
+    one shared bucket product-wide.
+  required_change: >-
+    Widen the scanned roots to include .next/server/app/** - at minimum *.html, *.rsc,
+    *.segment.rsc and the prerendered .meta/.segments trees - alongside .next/static/**. Report
+    which root each hit came from. Do NOT silently skip a missing root: an absent
+    .next/server/app must fail the same way an absent .next/static does today, or the widening
+    re-creates the vacuous pass one level down. Correct the false claim in the failure message.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-156
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 94
+  summary: >-
+    The guard cannot tell whether the build it inspects was made with the values it searches for,
+    so a build/check environment mismatch is a permanent silent green.
+  failure_scenario: >-
+    The script reads values at CHECK time from its own environment, and the agreement that they
+    match the BUILD's values is prose in a file header addressed to a different TASK - F-084 gives
+    the CI wiring to TASK-002 under .github/**. Nothing enforces it. The auditor points out this
+    is not hypothetical: TASK-004-report.md literally documents running the check with placeholder
+    values against a build that did not have them. If TASK-002 does the same, the search finds
+    nothing and exits 0 forever while the Vercel production build, which does have the real
+    values, inlines them. THE GUARD NEVER INSPECTS THE ARTIFACT THAT IS ACTUALLY PUBLISHED - CI
+    builds one copy, Vercel builds another. A secret published only by a Vercel dashboard-set
+    variable, e.g. someone adding NEXT_PUBLIC_BFF_PROXY_SECRET in project settings where it never
+    appears in the repo, is invisible to CI by construction.
+  required_change: >-
+    Make build and check share one environment BY CONSTRUCTION: invoke the assertion from
+    vercel.json's buildCommand - `pnpm --filter @shortkit/web build && pnpm --filter @shortkit/web
+    assert:no-secrets` - so it inspects the deployed artifact with the real project variables and
+    a failure fails the DEPLOY. vercel.json is inside TASK-004's paths, so this does not cross the
+    F-084 split. Additionally add a POSITIVE CONTROL: assert NEXT_PUBLIC_API_BASE_URL's value IS
+    present in the output, proving build and check saw the same environment, so a mismatch reds
+    rather than greens.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-157
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-004.md
+  line: 44
+  summary: >-
+    No build-output scan can cover dynamic routes, which is where the entire authenticated
+    surface will live. AC-113's guarantee is broader than any file scan can deliver.
+  failure_scenario: >-
+    REPRODUCED. The same server-component-prop leak with `export const dynamic = 'force-dynamic'`
+    puts the value NOWHERE on disk under .next at all - the guard prints OK and exits 0 - while
+    curl returns the secret in the HTML body twice. Every dashboard route in ADR-0014 reads
+    cookies() for sk_at and is therefore dynamic BY DEFINITION, so the entire authenticated
+    surface, the one that will actually touch BFF_PROXY_SECRET and sk_at, is structurally
+    invisible to this control EVEN AFTER F-155's fix. The danger is the overclaim: AC-113 reads
+    "no server-only value may appear in the built client bundle", a future implementer reads that
+    as "we have a control for this", and ships a server-to-client prop on a dynamic route with a
+    green CI.
+  required_change: >-
+    Two parts, and the second is not TASK-004's. (1) State the ceiling explicitly in the script
+    header and on the card: this control covers build-time inlining and prerendered output only,
+    NOT per-request server render. (2) Add a control that does cover it, owned at TASK-012 /
+    ADR-0014 rather than here: React's experimental_taintUniqueValue applied to BFF_PROXY_SECRET
+    and the sk_at cookie value at their single read sites, which throws at RENDER time when the
+    value crosses into a client component on any route type. `import 'server-only'` is a useful
+    complement but does not stop the prop path. Part 2 is Juano's routing call.
+  owner_slot: null
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-158
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: vercel.json
+  line: 4
+  summary: >-
+    The unfiltered workspace install runs apps/api's native install scripts inside the Vercel
+    build environment, where BFF_PROXY_SECRET is present.
+  failure_scenario: >-
+    `pnpm install --frozen-lockfile` at the repo root installs every workspace including apps/api,
+    though buildCommand builds only @shortkit/web. pnpm-workspace.yaml's allowBuilds permits
+    install scripts for @swc/core and esbuild; @swc/core is an apps/api-ONLY devDependency
+    (apps/api/package.json:28) the web build never uses. Vercel exposes project environment
+    variables to the install and build steps, so a compromised @swc/core release executes with
+    BFF_PROXY_SECRET and API_BASE_URL readable in process.env and outbound network available, on a
+    deploy that had no reason to install it. Narrow, and the auditor was explicit that allowBuilds
+    blocking everything else is a GOOD posture and --frozen-lockfile with a sha512-pinned
+    packageManager is the right call - the exposure is simply avoidable at zero cost.
+  required_change: >-
+    Scope the deploy install to the web workspace and its dependencies (`pnpm install
+    --frozen-lockfile --filter @shortkit/web...`), or drop @swc/core from allowBuilds for deploy.
+    VERIFY the filtered install still resolves @shortkit/contracts before adopting it - ADR-0005
+    has the web app importing that workspace as source, so a too-narrow filter breaks the build.
+    Deliberate change, not a blind one.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-159
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0022-logging-cors-and-security-headers.md
+  line: 1
+  summary: >-
+    The web origin ships with no security headers and no design artifact assigns them to it.
+    ADR-0022 and logging-and-headers.md cover the API deployable only.
+  failure_scenario: >-
+    ADR-0022 specifies helmet, HSTS, X-Frame-Options DENY, nosniff, Referrer-Policy and CSP - all
+    registered in the API's main.ts, all scoped to NestJS responses. The Vercel origin, which will
+    serve the login form and the dashboard and hold the sk_at/sk_rt cookies, gets Next's defaults,
+    which is nothing. vercel.json is where headers would go and it sets none. THE AUDITOR WAS
+    HONEST ABOUT THE ACTUAL EXPLOITABILITY RATHER THAN INFLATING IT: clickjacking is largely
+    defused because SameSite=Lax means the cookies are not sent to a cross-site iframe, so a
+    framed dashboard renders signed-out; referrer leakage of workspace and link ids is defused by
+    the modern browser default of strict-origin-when-cross-origin. So this is hardening and
+    OWNERSHIP, not a live exploit. It is worth filing because the gap is SILENT - nothing in the
+    frozen artifacts says the web origin was considered, so no later TASK will notice it missing.
+  required_change: >-
+    Record the decision where an implementer will read it - an ADR-0022 amendment naming the
+    Vercel origin - covering at minimum X-Frame-Options DENY (or CSP frame-ancestors 'none'),
+    X-Content-Type-Options nosniff, and an explicit Referrer-Policy, plus HSTS once a custom apex
+    replaces *.vercel.app, since vercel.app is HSTS-preloaded and a custom domain is not. Route
+    the ownership; do not let it be invented ad hoc by whichever frontend TASK trips over it.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-160
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 127
+  summary: >-
+    Plain substring matching misses an escaped rendering of the value, and readSecret accepts a
+    secret short enough to make the check meaningless.
+  failure_scenario: >-
+    contents.includes(value) compares the raw value. A secret containing <, >, " or a non-ASCII
+    character is emitted escaped in an RSC flight payload or an HTML attribute and the raw
+    substring does not match - which matters more once F-155 widens the scan to exactly those
+    payloads. Conversely readSecret accepts any non-blank string, so BFF_PROXY_SECRET=dev either
+    matches half the bundle or means nothing. Low likelihood, since an openssl rand -base64 32
+    secret contains only characters that survive verbatim, but the constraint lives nowhere.
+  required_change: >-
+    State the required secret format in .env.example (base64url, >= 32 bytes) and have readSecret
+    reject values below a minimum length. Optionally search the JSON.stringify'd form alongside
+    the raw form.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+# ---- Juano's rulings 2026-08-05 on F-153, F-154, F-157 ----
+# Recorded as a block because the three interact: F-154's ruling unblocks F-156's positive
+# control, and F-157's ruling is what lets TASK-004 state a ceiling instead of overclaiming.
+#
+# F-153 RULED: widen TASK-002's paths to [".github/**", "apps/api/scripts/**", "docs/**"].
+#   TASK-002 is genuinely the right owner of all three orphaned items - it wires
+#   check-policies into CI, it is the reader migrations.md misleads, and it builds the weekly
+#   audit job known-advisories.md serves. Applied to the card; its warning block rewritten
+#   from "do not widen your own paths" to a record of why the paths are what they are.
+#
+# F-154 RULED: DROP API_BASE_URL from the checked list; AC-113 amended on TASK-004's card.
+#   API_BASE_URL is not confidential - public Fly hostname, cleartext in .env.example,
+#   discoverable from any redirect. Checking it buys no confidentiality and costs the guard's
+#   credibility. BFF_PROXY_SECRET has no legitimate public counterpart and does not share the
+#   problem. Sent to the in-flight implementer mid-work, because it removes the contradiction
+#   between F-156's positive control and F-154 that I had told it not to resolve.
+#
+# F-157 RULED: the render-time control lands in TASK-012 with an ADR-0014 amendment.
+#   experimental_taintUniqueValue on BFF_PROXY_SECRET and the sk_at cookie at their single read
+#   sites, throwing at render time on any route type. TASK-004 owns the CEILING STATEMENT only.
+#   Written onto TASK-012's card in full, not left as a ledger line.
+
+- id: F-161
+  phase: implement
+  task: TASK-004
+  source: sdlc-implementer-frontend
+  round: 1
+  severity: major
+  kind: scope
+  file: vercel.json
+  line: 5
+  summary: >-
+    F-156's positive control fails on today's build, so vercel.json's buildCommand will fail
+    every deploy until TASK-008 lands a client-reachable read of NEXT_PUBLIC_API_BASE_URL.
+  failure_scenario: >-
+    SELF-DISCLOSED BY THE IMPLEMENTER AND REPRODUCED BY THE ORCHESTRATOR. grep over apps/web/app
+    and packages finds ZERO references to NEXT_PUBLIC_API_BASE_URL - reading it is TASK-008's
+    work - and Next only inlines a NEXT_PUBLIC_ variable where it is textually referenced. So the
+    positive control, which asserts that value IS present in the output as proof that build and
+    check shared an environment, has nothing to find. Run against a current build with all three
+    variables set it exits 1: "NEXT_PUBLIC_API_BASE_URL's value was not found anywhere under
+    .next/static or .next/server/app". Because F-156 moved the invocation into vercel.json's
+    buildCommand, that failure fails the DEPLOY - which is exactly what AC-7 needs to succeed.
+    THE IMPLEMENTER DID THE RIGHT THING: it implemented F-156 as specified, hit the consequence,
+    documented it prominently in the script header and its report, and did NOT resolve it by
+    weakening the check. That is the third time this initiative has seen an implementer stop at a
+    conflict rather than quietly resolve it, and the second time from this slot.
+  required_change: >-
+    Three candidate resolutions, and the choice is a sequencing decision rather than a code
+    defect. (a) Make the positive control conditional on a source reference existing - fail only
+    if some file under apps/web textually references NEXT_PUBLIC_API_BASE_URL and its value is
+    nonetheless absent. Sound and fails closed the moment TASK-008 lands, but it is a deviation
+    from what sdlc-security-auditor specified. (b) Activate the positive control in TASK-008,
+    which is the TASK that creates the condition making it satisfiable. (c) Accept it: AC-7 is
+    ALREADY blocked on infrastructure Juano must create, so no deploy is attempted before
+    TASK-008 either way, and the control is correct for every deploy that will actually happen.
+    Note (c) is only safe while the infrastructure block holds - the moment the Vercel project
+    exists, this becomes the thing standing between the repo and a first deploy.
+  owner_slot: null
+  status: routed
+  ruling: >-
+    DE-ESCALATED 2026-08-05 and routed as option (a), on the judgement of sdlc-security-auditor -
+    the agent that SPECIFIED the control and that owned the wording it now says was wrong. Its
+    reasoning against (c) is what decided it: the moment Juano creates the Vercel project, which
+    is the entire remaining purpose of TASK-004 and its one open AC, the first deploy fails on
+    this control, the person debugging that red is Juano at the moment he wants a URL, and the
+    cheapest repair in reach is deleting the assert:no-secrets chain. That is the same
+    remediation-pressure failure F-154's ruling just spent a round eliminating. (b) is strictly
+    worse than (a) because it ships the control dormant and makes activation an unenforced
+    cross-TASK promise. Not held for Juano because the resolution is a code decision inside
+    TASK-004's paths and touches no AC - F-156's positive control is a mechanism, not AC-113's
+    text. Flagged to him rather than blocking on him.
+  resolved_by: null
+  resolved_round: null
+
+- id: F-162
+  phase: implement
+  task: TASK-004
+  source: sdlc-reviewer
+  round: 2
+  severity: nit
+  kind: implementation
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 166
+  summary: >-
+    The widened scan reads every file under both roots as UTF-8 with no extension filter. Correct
+    today, wasteful once .next/static/media holds binary assets that can never contain a text
+    match.
+  failure_scenario: >-
+    NOT A CORRECTNESS DEFECT and the reviewer was explicit about that: reading a binary file as
+    utf8 cannot throw and cannot produce a false match - it decodes to replacement characters that
+    .includes() never matches. The cost is that once real static assets land (favicon, webfonts,
+    OG images) the scan reads their full bytes on every CI run and every deploy for no benefit. At
+    current size - 576K .next/static, 284K .next/server/app, ~55 files - it is unmeasurable. A
+    scaling note, filed so it is not rediscovered as a mystery slowdown.
+  required_change: >-
+    None now. Once static/media assets exist, skip common binary extensions or cap the size read -
+    WITHOUT narrowing the .html/.rsc/.segment.rsc/.meta coverage F-155 added, which is the whole
+    point of the widening.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  ruling: >-
+    DEFERRED to Ship-phase triage. No asset exists that triggers it and the fix would be guesswork
+    about which extensions matter until some do.
+
+- id: F-163
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 211
+  summary: >-
+    A scan root that EXISTS but is EMPTY passes green while the success line still names it as
+    covered. F-155's vacuous pass is closed for an absent root and open for an empty one - the
+    same shape, one step over.
+  failure_scenario: >-
+    REPRODUCED. Against a build where the positive control passes, each root was emptied in turn
+    with the directory left in place: both runs exit 0 printing "OK: checked N file(s) across
+    .next/static, .next/server/app" - naming both roots as covered when one contributed nothing.
+    10 files with .next/server/app emptied, 45 with .next/static emptied, against 55 intact. The
+    per-root counts that would expose it are not printed. F-155's own required_change said a
+    missing root must not be silently skipped "or the widening re-creates the vacuous pass one
+    level down"; absent is handled, empty is not. THE REALISTIC TRIGGER IS NOT AN ATTACKER BUT A
+    NEXT.JS LAYOUT CHANGE - the roots are hardcoded internal paths, and a version that relocates
+    prerendered output while still creating .next/server/app degrades this control to
+    .next/static-only coverage, silently back to the exact state F-155 was filed against, with a
+    green log asserting otherwise. A RENAMED root is handled correctly (the old path goes absent
+    and reds); an EMPTIED one is not.
+  required_change: >-
+    Fail when any root contributes zero files, with the same message shape as the absent-root
+    path, and print the per-root file count in the success line so partial coverage is visible in
+    a deploy log rather than only by rebuilding.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-164
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 181
+  summary: >-
+    The escaped-form search covers JSON quote/backslash escaping but not the HTML-entity and
+    unicode-escape forms Next uses in prerendered HTML - so the one browser-delivered file is the
+    one that can be missed.
+  failure_scenario: >-
+    REPRODUCED with a 40-character secret containing < > & and a quote, leaked via a
+    server-component prop. The value lands in .next/server/app/index.html in two escaped forms -
+    HTML entities in the markup, unicode escapes in the embedded RSC script - and matchesValue
+    catches NEITHER: index.html is ABSENT from the FAIL list. The run still reds, but ONLY because
+    the standalone .rsc twins escape as plain JSON and are caught by the JSON.stringify pass. So
+    the miss is masked by a sibling artifact rather than by the matcher, and the failure output
+    UNDER-REPORTS which files leak, misleading whoever remediates. Low likelihood by design - the
+    documented base64 format contains no character that gets escaped, and a plain openssl
+    rand -base64 32 secret matches verbatim everywhere.
+  required_change: >-
+    Either add the HTML-entity and unicode-escape renderings alongside the JSON form, or - cheaper
+    and more durable, and the auditor's preference - CONSTRAIN THE VALUE AT THE GATE: reject a
+    BFF_PROXY_SECRET containing any character outside the base64url alphabet, so no escaping can
+    ever apply. The second also makes .env.example's stated format enforced rather than advisory.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-165
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: implementation
+  file: apps/web/.env.example
+  line: 36
+  summary: >-
+    The documented secret format, the enforced minimum and the recommended generator disagree with
+    each other in three ways.
+  failure_scenario: >-
+    The comment says "base64url, at least 32 bytes"; MIN_SECRET_LENGTH enforces 32 CHARACTERS,
+    about 24 bytes of encoded entropy, so a value that satisfies the check can violate the
+    documented floor; and the recommended `openssl rand -base64 32` emits STANDARD base64, whose
+    + and / are not in the base64url alphabet the same line requires. No attack - 24 bytes is not
+    brute-forceable and the API only compares the value - but the charset half is what F-164's
+    cheaper fix depends on, and a generator that contradicts its own stated format is what gets
+    copy-pasted.
+  required_change: >-
+    Make the three agree: state the minimum in the same unit the check enforces, and either
+    recommend a base64url generator or drop the base64url wording in favour of base64.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-166
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-004.md
+  line: 1
+  summary: >-
+    Chaining a fail-closed check into buildCommand means BFF_PROXY_SECRET must be registered for
+    Preview and Development too, not just Production, or every non-production deploy fails.
+  failure_scenario: >-
+    The script hard-fails when BFF_PROXY_SECRET is unset - correct posture, and the round-1 ask.
+    But Vercel scopes project environment variables PER ENVIRONMENT and the common default is to
+    register a secret for Production only. Every preview deploy then dies at "BFF_PROXY_SECRET is
+    not set" in the build step, on a branch with nothing wrong with it. SAME REMEDIATION-PRESSURE
+    SHAPE AS F-154 AND F-161: the person unblocking previews reaches for the cheapest cut, which
+    is the assert:no-secrets chain. Operational rather than exploitable, and worth recording only
+    because nothing in the repo says it - the card names the three variables but not their scope.
+  required_change: >-
+    Record on TASK-004's card, beside the variable registrations, that all three must be set for
+    Production, Preview and Development, and that Preview may use a distinct throwaway
+    BFF_PROXY_SECRET as long as the Fly side accepts it. Orchestrator-applied, since tasks/** is
+    not an implementer's path.
+  owner_slot: null
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-167
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 390
+  summary: >-
+    The positive control ACTIVATES on any textual reference under apps/web but SEARCHES only the
+    two browser-delivery roots, so a server-only or test-only reference reds a correct build - and
+    the failure message states a diagnosis that is false.
+  failure_scenario: >-
+    REPRODUCED TWICE BY BUILDING, and it is the FOURTH instance of the remediation-pressure shape
+    this TASK keeps producing - this time INSIDE F-161's own fix. (A) A static server component and
+    a dynamic route handler reading process.env.NEXT_PUBLIC_API_BASE_URL without rendering it put
+    the value ONLY in .next/server/chunks/*.js; grep under the two scanned roots finds nothing,
+    because turbopack puts app code in .next/server/chunks and leaves page.js as a loader. Run with
+    the IDENTICAL value the build used, the script exits 1 claiming "the build ran without a real
+    value for this variable, or with a different one than this check is now reading" - BOTH STATED
+    CAUSES ARE FALSE. (B) A single vitest spec naming the variable - a file Next never compiles -
+    activates the control and reds an otherwise untouched build. The code comment anticipates the
+    spec case and rules it acceptable because "a false active fails closed"; that reasoning holds
+    for a check whose red costs a rerun and NOT for one chained into vercel.json's buildCommand,
+    where the red blocks the deploy. THE TRIGGER IS TASK-008, the exact TASK this fix nominates as
+    its activator: its paths include spec files, its card lists the variable as consumed, and
+    web-api-client.md:202 plus ADR-0014 make a first reference that is server-side or tree-shaken
+    out of every client bundle a LIKELY shape rather than a contrived one. The operator meeting the
+    red is Juano at first deploy; the message sends him to check Vercel env vars that are correct;
+    and the cheapest repair left is deleting the assert:no-secrets chain, which is the leak guard
+    for BFF_PROXY_SECRET and not just the control.
+  required_change: >-
+    Make the activation condition and the search scope describe the same builds. (1) For the
+    POSITIVE CONTROL ONLY, search the whole of .next rather than the two delivery roots - proving
+    environment agreement does not require the value to be browser-reachable, and
+    .next/server/chunks is where server-side inlining lands. This must NOT widen the
+    BFF_PROXY_SECRET leak scan, which is correctly bound to the two delivery roots.
+    CORRECTION APPLIED 2026-08-05 (F-172): the reason ORIGINALLY GIVEN HERE - that widening would
+    red on any legitimate server-side use of the secret, which is what TASK-012 will write - is
+    MEASURABLY FALSE and the auditor that wrote it raised the correction against itself in r4.
+    Verified by building, twice, independently: an unprefixed variable is NEVER build-time
+    substituted; a server-side read compiles to a runtime property access and its value appears
+    nowhere under .next, cache included. The reason the leak scan stays narrow is different and
+    survives: the two delivery roots are exactly the artifacts an unauthenticated request can
+    retrieve, so a red there means THIS SECRET IS REACHABLE BY ANYONE - precise and actionable.
+    Widening would weaken a red to 'this was baked in somewhere' and would require rewriting the
+    failure message, which explains only the two delivery paths. (2) Narrow hasSourceReference to non-test source and match
+    process.env.NEXT_PUBLIC_API_BASE_URL rather than the bare name. FLOOR if either is declined:
+    rewrite the failure message to enumerate the third cause and name the command that
+    distinguishes it, so the person debugging is not told something false about their environment.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-168
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 262
+  summary: >-
+    The source scan is rooted at apps/web and skips node_modules, so a read inside a
+    transpilePackages workspace package leaves the control INACTIVE while the value really is
+    inlined into the client bundle - and the NOTICE then asserts nothing reads the variable.
+  failure_scenario: >-
+    REPRODUCED. next.config.ts:6 already sets transpilePackages: ['@shortkit/contracts'], so that
+    package's source is compiled through Next's loader and gets NEXT_PUBLIC_ inlining. A module in
+    packages/contracts reading the variable, consumed from a 'use client' component that never
+    names it, puts the value in .next/static/chunks/*.js AND .next/server/app/index.html - yet the
+    script exits 0 printing "no source reference found ... the positive control is inactive ... It
+    activates automatically the first time client-reachable code reads that variable". Every clause
+    is wrong for that build. THIS IS CONSTRAINT 1 ARRIVING FROM THE OTHER SIDE: constraint 1 guards
+    against false ACTIVATION and nothing guards against false INACTIVATION. No leak and not
+    exploitable - the consequence is the CI path losing its environment-agreement proof while the
+    log says the control simply has not been reached yet.
+  required_change: >-
+    Either extend the source scan to the workspace packages listed in next.config.ts's
+    transpilePackages, or state the limit in the NOTICE. The NOTICE currently names only the three
+    directory exclusions and so OVERSTATES what was searched - it omits the extension filter and
+    omits that the walk never leaves apps/web.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-169
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/design/contracts/rate-limit.md
+  line: 104
+  summary: >-
+    A format constraint on a TWO-SIDED shared secret is now enforced on the Vercel half and
+    documented only in the web app's .env.example. The normative contract for the Fly half still
+    says only "set and non-empty".
+  failure_scenario: >-
+    rate-limit.md:104 and ADR-0014:89 require BFF_PROXY_SECRET set and non-empty on the API side
+    and say nothing about its alphabet, and there is NO apps/api/.env.example at all - the auditor
+    checked, the file does not exist - so the Fly side has no documented generator. Whoever sets
+    the Fly half first, TASK-009 per rate-limit.md:129, reaches for the obvious default, and the
+    obvious default is openssl rand -base64 32 - WHICH IS WHAT THIS REPO RECOMMENDED UNTIL THE
+    ROUND-2 COMMIT and what remains in git history one git log -p away. About 74% of such values
+    contain a + or /. The result is a secret that is correct, secure and accepted by every consumer
+    EXCEPT this check, which reds the Vercel build - and by then the value is shared across two
+    deployables, so the correct repair (rotate both sides, redeploy) is dearer than the wrong one
+    (delete the chain). Same shape as F-166, one variable over. base64url is already the house
+    convention for every other secret in the design, so the constraint is right; it is recorded in
+    the one place the person generating the value will not be reading.
+  required_change: >-
+    State the enforced format - base64url alphabet, no padding, >= 32 characters, with the same
+    generator line - where the Fly half is configured: rate-limit.md's configuration section and
+    TASK-009's card, beside assertBffProxySecretConfigured(). Orchestrator-applied like F-166;
+    design/** and tasks/** are outside an implementer's paths.
+  owner_slot: null
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-170
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 3
+  severity: nit
+  kind: implementation
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 231
+  summary: >-
+    SOURCE_FILE_EXTENSIONS' comment claims it covers the file types Next or the test runner execute
+    - true only under the default pageExtensions, and nothing re-checks it.
+  failure_scenario: >-
+    The auditor VERIFIED the claim holds today - next@16.3.0 defaults pageExtensions to
+    tsx/ts/jsx/js, all covered, and imported modules resolve through covered extensions. It stops
+    holding the moment pageExtensions is extended; the standard case is MDX, where a marketing or
+    docs page can interpolate process.env.NEXT_PUBLIC_* and be fully client-reachable from a .mdx
+    file the walk ignores. Same false-inactive consequence as F-168. Speculative today - @next/mdx
+    is not a dependency.
+  required_change: >-
+    None now. If MDX or any pageExtensions change lands, extend SOURCE_FILE_EXTENSIONS in the same
+    commit. A line in the comment saying the set TRACKS pageExtensions would make that obligation
+    visible to whoever makes the change.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  ruling: >-
+    DEFERRED, and bundled into fix round 3 only as the one-line comment note - the extension set
+    itself is correct today and changing it would be speculation about a dependency nobody has added.
+
+- id: F-171
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 4
+  severity: major
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 499
+  summary: >-
+    The positive control still infers ACTIVATION from source text while taking its EVIDENCE from
+    build output. A module that references the variable but is imported by no route is never
+    compiled, lands nothing in .next, and reds a correct build - which is exactly the module
+    TASK-008's card describes.
+  failure_scenario: >-
+    REPRODUCED BY BUILDING at 3f1e429, and it is the ROOT CAUSE F-167's fix did not close - F-167
+    closed the two INSTANCES the auditor enumerated, server-only and test-only, not the mechanism
+    they were instances of. The auditor created apps/web/src/lib/api/<client>.ts reading
+    process.env.NEXT_PUBLIC_API_BASE_URL with a colocated spec and NO page importing it. Clean
+    build with the real value set: grep across ALL of .next finds neither the value NOR the
+    variable name, because turbopack only compiles modules reachable from an entrypoint. Run with
+    the IDENTICAL value the build used, the script exits 1 claiming the build ran without a real
+    value or with a different one - BOTH FALSE, on correct code with a correct environment.
+    TASK-008.md declares paths apps/web/src/lib/api/** and apps/web/src/components/errors/**, lists
+    NEXT_PUBLIC_API_BASE_URL as consumed, and puts "any feature screen" OUT OF SCOPE - so on the
+    day TASK-008 merges there is a non-test source reference and no route importing it. FIFTH
+    instance of the remediation-pressure shape, arriving through the one artefact TASK-008's card
+    actually promises to produce.
+  required_change: >-
+    Derive ACTIVATION from the build rather than the source tree, using the auditor's MEASURED
+    discriminator, verified across three builds: a compiled reference always leaves the variable
+    NAME somewhere under .next - emitted literally when the value is unset, surviving in the SSR
+    chunk's .js.map sourcesContent when it is set - whereas an uncompiled reference leaves NEITHER
+    name nor value. So: value present -> pass; NAME present and value absent -> FAIL as today,
+    which is the real mismatch and the dominant real-world case; NEITHER present -> not in the
+    build graph, not evidence of a mismatch, print a NOTICE and exit 0. This DELETES the source
+    scan and takes F-168's transpilePackages hole and F-170's pageExtensions obligation with it.
+    Caveat to record if taken: the compiled-with-a-wrong-value branch relies on server source maps,
+    which Next 16 emits by default; disabling them weakens that branch to a silent inactive. FLOOR
+    if the unconditional fail stays: the message must enumerate this third cause and name the
+    command that distinguishes it.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-172
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: implementation
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 104
+  summary: >-
+    The comment recording WHY the leak scan stays narrow gives a measurably false reason - the
+    auditor's own r3 wording, propagated verbatim into the code - and it is what the next person
+    will read when deciding whether to widen it.
+  failure_scenario: >-
+    THE AUDITOR RAISED THIS AGAINST ITSELF. :104-108 says widening "would red on any legitimate
+    server-side read of BFF_PROXY_SECRET, which is exactly what TASK-012's proxy route will write."
+    VERIFIED FALSE BY BUILDING, independently by both the implementer and the auditor: an
+    unprefixed variable is never build-time substituted - a server-side read compiles to
+    `"string"==typeof process.env.BFF_PROXY_SECRET` and the value appears nowhere under .next,
+    cache included. Only NEXT_PUBLIC_ variables are substituted. Consequence: whoever next weighs
+    widening the leak scan weighs it against a false-positive risk THAT DOES NOT EXIST. Same class
+    as F-167's false diagnosis, one layer up - a security decision recorded with a wrong rationale.
+  required_change: >-
+    Correct the rationale to what the evidence supports: the two delivery roots are exactly the
+    artifacts an unauthenticated request can retrieve, so a red there means "reachable by anyone",
+    which is precise and actionable; widening would weaken a red to "baked in somewhere" and would
+    require rewriting a failure message that explains only the two delivery paths. THE CONCLUSION
+    IS UNCHANGED - do not widen SCAN_ROOTS - only the reason is. Already corrected by the
+    orchestrator in findings.yaml F-167; the code comment is the implementer's.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-173
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 4
+  severity: nit
+  kind: implementation
+  file: apps/web/.gitignore
+  line: 6
+  summary: >-
+    The new ignore patterns hide exactly the class of file the orchestrator's `git status` evidence
+    is used to prove absent, while the source scan - which walks the filesystem, not git - still
+    sees it.
+  failure_scenario: >-
+    AIMED AT THE ORCHESTRATOR'S VERIFICATION METHOD, AND CORRECT. ORCHESTRATOR CONFIRMED with git
+    check-ignore: _probe-* matches apps/web/app/_probe-client.tsx - the exact file the r3 note
+    caught - at any depth, and app/probe-* matches apps/web/app/probe-health/route.ts. So
+    `git status --porcelain apps/web/app/`, the evidence cited in three rounds, is now BLIND to the
+    file class it was catching. Second consequence: collectSourceFiles walks the FS and never
+    consults git, so a leftover ignored probe still activates the positive control and is still
+    compiled locally - an invisible file can red a local run, or green one whose committed tree has
+    no reference. Nothing ships, since an ignored file cannot be committed and Vercel builds from
+    git, so the cost is MISLEADING VERIFICATION rather than exposure. VERIFIED the patterns do NOT
+    mask a legitimate Next private folder - apps/web/app/_components/foo.tsx is not ignored.
+  required_change: >-
+    Orchestrator switches to `git status --porcelain --ignored apps/web/` for cleanliness evidence
+    in every remaining round - APPLIED - and the implementer narrows app/probe-* so it cannot
+    swallow a future liveness route named apps/web/app/probe-*, which would 404 in production with
+    no diff to look at.
+  owner_slot: sdlc-implementer-frontend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-174
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 4
+  severity: nit
+  kind: behavior
+  file: .sdlc/launch-core/tasks/TASK-008.md
+  line: 1
+  summary: >-
+    A hardcoded fallback default for NEXT_PUBLIC_API_BASE_URL would satisfy the positive control
+    without the build having read the environment at all, turning the control into a tautology.
+  failure_scenario: >-
+    `process.env.NEXT_PUBLIC_API_BASE_URL ?? 'https://shortkit-api.fly.dev/api'` is the standard way
+    people write that read, and TASK-008 is the TASK that writes it. With such a default the literal
+    lands in .next FROM THE SOURCE, so the control greens even on a build that ran with the variable
+    entirely unset - the one thing it exists to detect. Not a leak and not TASK-004's to fix; it is
+    a constraint on the TASK that will write the read.
+  required_change: >-
+    One line on TASK-008's card: do not give NEXT_PUBLIC_API_BASE_URL a hardcoded fallback, let it
+    fail loudly. Orchestrator-applied, since tasks/** is outside an implementer's paths.
+  owner_slot: null
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+# ---- TASK-004 fix-round CAP reached (5/5). Every survivor adjudicated with a written ruling. ----
+
+- id: F-175
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 398
+  summary: >-
+    Activation matches the BARE variable NAME anywhere under .next, so a compiled module that
+    MENTIONS NEXT_PUBLIC_API_BASE_URL without reading it - a comment, or a user-facing error string
+    - activates the control, finds no value, and reds a build with correct code and a correct
+    environment.
+  failure_scenario: >-
+    REPRODUCED BY BUILDING, TWICE, with the build's environment and the checker's both holding the
+    correct value. (a) A compiled 'use client' component whose only mention is a COMMENT: the name
+    lands in the SSR chunk's .js.map sourcesContent, the value lands nowhere, exit 1 claiming the
+    build ran without a real value or with a different one - both false. (b) A component rendering
+    the STRING "The API is not configured. Set NEXT_PUBLIC_API_BASE_URL and redeploy." - this shape
+    does NOT depend on source maps at all and so survives every mitigation offered for the
+    source-map caveat; the name lands in index.html, the client chunk AND the SSR chunk, the value
+    lands nowhere, same false diagnosis. That sentence is what an error surface under TASK-008's
+    declared path apps/web/src/components/errors/** says, and this repo's house style is heavily
+    commented with exactly shape (a). THIS IS F-167's CONSTRAINT 2 - match the full process.env.X
+    expression rather than the bare name - SILENTLY DROPPED IN THE MOVE from source scanning to
+    build-output scanning. It was correct in round 3 as POSITIVE_CONTROL_REFERENCE and got lost in
+    transit.
+  required_change: >-
+    Match the full expression rather than the bare name. The auditor MEASURED the replacement
+    across five builds and every branch is preserved or fixed: mention-only comment -> NOTICE exit
+    0 (was exit 1); mention-only string -> NOTICE exit 0 (was exit 1); real read with the build
+    unset -> FAIL unchanged, and NOT source-map-dependent because turbopack emits the literal
+    process.env.X into the SSR chunk itself; real read with matching value -> OK unchanged; real
+    read with a DIFFERENT value -> FAIL unchanged.
+  owner_slot: sdlc-implementer-frontend
+  status: parked
+  ruling: >-
+    ADJUDICATED AT THE CAP, 2026-08-05. REAL AND LOAD-BEARING - the finding stands, the auditor
+    says it would NOT ship with it open, and I agree with its reasoning. It is therefore NOT parked
+    as contestable or as harmless. But the cap is five rounds and this is round five, and
+    references/superpowers-map.md is explicit that a loop surviving five rounds is STRUCTURALLY
+    WRONG rather than one round short - so I am not dispatching a sixth round and not quietly
+    raising the cap. ESCALATED TO JUANO with the full payload. Recommendation: authorise the
+    one-line change as a cap exception rather than reopening the loop, because the remedy is a
+    single string constant that the auditor has ALREADY measured against all five branches, and
+    because the alternative - shipping it - costs a red deploy on the day someone writes a normal
+    comment. Mitigating facts recorded so the ruling is honest either way: today's tree contains no
+    NEXT_PUBLIC_ string anywhere under .next, VERIFIED, so it cannot fire now; TASK-004 cannot
+    reach done regardless because AC-7 needs infrastructure that does not exist; and the fix stays
+    one line whenever it does fire.
+
+- id: F-176
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 5
+  severity: minor
+  kind: behavior
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 383
+  summary: >-
+    A value match ALONE prints "positive control confirmed", with no requirement that the name also
+    appear and no minimum length on the value, so an incidental occurrence of the value string
+    claims a proof the run does not have.
+  failure_scenario: >-
+    MEASURED ON TODAY'S REAL TREE: with NEXT_PUBLIC_API_BASE_URL="/api", the string "/api" already
+    appears in 14 files under apps/web/.next, several outside cache/ - so valueFound is true on the
+    first file, the loop short-circuits, and the script prints "positive control confirmed" for a
+    build that never read the variable. A same-origin relative base URL is not hypothetical:
+    ADR-0014 has the browser calling only this app and never Fly, which is the direction TASK-012's
+    proxy points. There is no analogue of MIN_SECRET_LENGTH, which exists on the leak target for
+    exactly this reason under F-160. The diff's contribution is the WORDING - before, an unproven
+    control printed an honest NOTICE; now it can print a positive claim.
+  required_change: >-
+    Keep the value-before-name ordering, which is correct, but put a floor under the needle: run
+    the control value through readRequiredValue with a minLength before searching, and have the OK
+    message say that a value match alone is evidence the value is PRESENT, not evidence it got
+    there through this variable. The auditor explicitly does NOT recommend requiring nameFound
+    alongside valueFound, because that would make the whole control source-map-dependent and give
+    up the tolerance the ordering was designed for.
+  owner_slot: sdlc-implementer-frontend
+  status: parked
+  ruling: >-
+    ADJUDICATED AT THE CAP, 2026-08-05. PARKED - real, not load-bearing. The AUDITOR'S OWN
+    JUDGEMENT, which I asked for explicitly and am adopting rather than inferring: it WOULD ship
+    with this open. It cannot produce a red, it cannot hide a leak, and the value it turns on is
+    configuration TASK-008 and TASK-012 will set rather than anything TASK-004 controls. Its
+    framing is the right one for the record: a claim-strength defect in a DIAGNOSTIC, not a defect
+    in a GUARD. Carried to Ship-phase triage, where the full-branch context includes whether
+    TASK-008 chose a relative base URL - which is the condition that makes it fire.
+
+- id: F-177
+  phase: implement
+  task: TASK-004
+  source: sdlc-security-auditor
+  round: 5
+  severity: nit
+  kind: implementation
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 43
+  summary: >-
+    F-172's replacement rationale is itself slightly false in the same direction as the one it
+    replaced - .next/server/app is not "exactly the artifacts an unauthenticated request can
+    retrieve"; it also holds compiled server-only route handlers and their source maps.
+  failure_scenario: >-
+    MEASURED: a route handler builds to .next/server/app/<segment>/route.js plus route.js.map,
+    route.js.nft.json and route_client-reference-manifest.js - all inside a leak-scan root, none
+    retrievable by any request. A red naming a route.js would carry the claim "reachable by anyone
+    right now" when it is not. It would STILL be a real baked-in secret, so the red is a true
+    positive; only the explanation is wrong. The cost is one more overstated rationale in the one
+    file where three rounds have been spent correcting overstated rationales.
+  required_change: >-
+    One clause: these two roots are a SUPERSET of what an unauthenticated request retrieves - all
+    the browser-reachable output plus the compiled server code colocated with it - so a red here is
+    at minimum a baked-in secret and usually a directly reachable one.
+  owner_slot: sdlc-implementer-frontend
+  status: parked
+  ruling: >-
+    ADJUDICATED AT THE CAP, 2026-08-05. PARKED - the auditor would ship with it and so would I. The
+    direction is harmless: the scan covers MORE than the comment claims, not less, and every red
+    under these roots is a genuine defect either way. Recorded rather than fixed because it is the
+    third rationale correction in this file and the pattern - not this instance - is the Retro
+    item. Carried to Ship-phase triage.

@@ -16,7 +16,7 @@ test_exempt_reason: >-
   AC-114 are verified by the workflow running in CI and by sdlc-product-auditor reading it.
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: [".github/**"]
+paths: [".github/**", "apps/api/scripts/**", "docs/**"]
 contracts: []
 test_files: []
 acceptance: [AC-5, AC-114, AC-113]
@@ -138,7 +138,21 @@ rejects a workflow whose `needs` names a job that does not exist, so a job silen
 or renamed becomes a hard configuration error instead of a green pipeline that ran nothing.
 Raised by `sdlc-test-architect` while establishing AC-5's exemption.
 
-## ⚠ Two deferred TASK-005 findings routed here 2026-08-05
+## ⚠ Two deferred TASK-005 findings routed here 2026-08-05 — F-153 RESOLVED, paths widened
+
+**`paths:` was widened by Juano's ruling on 2026-08-05** to
+`[".github/**", "apps/api/scripts/**", "docs/**"]`, so all three items below are now reachable
+and all three are yours.
+
+The history, because it is worth knowing why the card says this: the orchestrator routed the
+first two here on the reasoning that TASK-002 is the next TASK to *touch* that script and the
+reader those documents mislead — and did not check the paths glob. `sdlc-architect` had made
+the identical substitution earlier the same day assigning `docs/security/known-advisories.md`
+here under F-124. That was instance **seventeen** of the artifact-assigns-work-a-TASK-cannot-do
+class, and the first the orchestrator produced itself rather than found. Ruled by widening
+rather than re-routing, because TASK-002 is genuinely the right owner of all three: it wires
+`check-policies` into CI, it is the reader `migrations.md` misleads, and it builds the weekly
+audit job `known-advisories.md` serves.
 
 You wire `pnpm db:check-policies` into the CI integration job (F-122's ruling), so you are
 the next TASK to touch that script and its documentation.

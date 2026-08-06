@@ -494,3 +494,26 @@ Handled in `apiClient`, centrally, so no screen reimplements it.
 `RATE_LIMIT_MAX_WRITES` and `RATE_LIMIT_WINDOW_S` are configuration, changeable by
 deploy. The key prefix `rl:v1:` changes only if the algorithm changes; bumping it
 resets every tenant's current window.
+
+## BFF_PROXY_SECRET — enforced format (added 2026-08-05, F-169)
+
+This contract previously required only that `BFF_PROXY_SECRET` be **set and non-empty**. That is
+now insufficient to describe the system, because the Vercel half enforces a format the Fly half
+does not document.
+
+**Normative:** `BFF_PROXY_SECRET` is **base64url** — `A-Z`, `a-z`, `0-9`, `-`, `_`, **no padding**
+— and **at least 32 characters**. Generate it with:
+
+```
+openssl rand 24 | base64 | tr '+/' '-_' | tr -d '='
+```
+
+`apps/web/scripts/assert-no-inlined-secrets.mjs` rejects any value outside that alphabet before it
+scans anything, and that script is chained into `vercel.json`'s `buildCommand` — so a value that
+satisfies this contract's old wording but not this one **fails the Vercel deploy**, while being
+accepted by every consumer on the API side.
+
+The constraint exists so that no HTML-entity, `\uXXXX` or JSON-string escaping can ever apply to
+the value, which is what lets the leak scan match it verbatim in prerendered HTML and RSC payloads
+(F-164). It matches the house convention already used by `invitation-tokens.md`,
+`domain-provisioning.md` and ADR-0021.

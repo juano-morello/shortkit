@@ -116,3 +116,36 @@ migrating to TASK-058, which would ship your mount one wave without its acceptan
 You now share `apps/api/test/auth/**` with TASK-058, as you already share `auth.config.ts`.
 `depends_on` sequences you first. Create the directory; TASK-058 adds its three rate-limit
 integration tests beside yours.
+
+## ⚠ F-169 — `BFF_PROXY_SECRET` has an ENFORCED format now, and it is documented on the other side
+
+Applied by the orchestrator 2026-08-05 from `sdlc-security-auditor`'s round-3 audit of TASK-004.
+`design/**` and `tasks/**` are outside an implementer's paths, so this is recorded rather than
+routed.
+
+You configure the **Fly half** of `BFF_PROXY_SECRET` (`rate-limit.md:129`,
+`assertBffProxySecretConfigured()`). As of TASK-004's fix round 2, the **Vercel half is
+format-enforced**: `apps/web/scripts/assert-no-inlined-secrets.mjs` rejects the value unless it is
+**base64url — `A-Z a-z 0-9 - _`, no padding — and at least 32 characters**, and that check is
+chained into `vercel.json`'s `buildCommand`, so a nonconforming value **fails the deploy**.
+
+`rate-limit.md:104` and ADR-0014:89 still say only "set and non-empty", and there is **no
+`apps/api/.env.example`** — so nothing on your side documents a generator.
+
+**Generate it with the same line `apps/web/.env.example` gives:**
+
+```
+openssl rand 24 | base64 | tr '+/' '-_' | tr -d '='
+```
+
+**Why this is on your card rather than in the ledger.** The obvious default is
+`openssl rand -base64 32` — which is what this repo itself recommended until TASK-004's round-2
+commit, and which is still one `git log -p` away. Roughly 74% of those values contain a `+` or `/`.
+That produces a secret that is correct, secure, and accepted by every consumer *except* the Vercel
+build check — and by the time it fails, the value is shared across two deployables, so the correct
+repair (rotate both sides, redeploy) costs more than the wrong one (delete the check). This is the
+same remediation-pressure shape that has now cost TASK-004 three fix rounds.
+
+base64url is already the house convention for every other secret in the design —
+`invitation-tokens.md`, `domain-provisioning.md`, ADR-0021 — so the constraint is right. It was
+simply recorded in the one place the person generating the value would not be reading.
