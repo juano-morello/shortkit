@@ -50,6 +50,24 @@ export default defineConfig({
     environment: 'node',
     include: [INTEGRATION_SPEC],
     setupFiles: ['./vitest.setup.ts'],
+    /**
+     * ONE FILE AT A TIME (F-134). vitest runs the tests inside a file in sequence
+     * but runs FILES in parallel, and every integration suite here shares one
+     * database and one fixture that drops and recreates its tables per test. A
+     * second `.int-spec.ts` therefore fails with `relation "rls_fixture_rows" does
+     * not exist` when another file's setup drops the table mid-query — hit while
+     * placing this round's tests, not predicted. TASK-006 and TASK-056 both add
+     * files here within two waves.
+     *
+     * Serialising rather than giving each file its own table name, for two reasons.
+     * Per-file tables would keep the wall clock but make each suite assert against
+     * a table shaped like the real ones rather than the one the other suites use,
+     * and the races that remain — a shared `tenants` root, a shared role, the
+     * connection pool's `max` divided across workers — are not solved by renaming a
+     * table. And the cost is small and bounded: these suites are dominated by round
+     * trips to one Postgres, which is itself the serialisation point.
+     */
+    fileParallelism: false,
   },
   plugins: [swc.vite({ module: { type: 'es6' } })],
 });

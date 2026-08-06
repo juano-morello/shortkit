@@ -20,6 +20,33 @@
 # The credentials below are fixtures. They exist in a file that only ever points at
 # a throwaway container, and the suite refuses to run against a role that could
 # bypass RLS, so there is nothing here to protect.
+#
+# ---------------------------------------------------------------------------
+# TEST-ONLY. DO NOT ADAPT THIS FILE INTO A PRODUCTION DATABASE (F-131).
+# ---------------------------------------------------------------------------
+#
+# It is the repository's only worked example of role provisioning, so it is what
+# someone reaches for under time pressure. Half of it is meant to be copied and
+# half of it must not be.
+#
+# Reusable — this is rls-policy-template.md's "Roles" section, applied:
+#   - both roles NOBYPASSRLS, both with attribute defaults otherwise;
+#   - shortkit_app owns nothing and receives DML only through
+#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator;
+#   - USAGE on schema public and nothing more.
+#
+# NOT reusable:
+#   - literal passwords in a committed file, including the bootstrap superuser's;
+#   - no TLS requirement. A production DSN with `sslmode=require` gets encryption
+#     with NO certificate verification; `sslmode=verify-full` is the one that means
+#     what it looks like;
+#   - tmpfs storage, which loses everything on restart;
+#   - ALTER DEFAULT PRIVILEGES is scoped to the identity `shortkit_migrator`, so a
+#     deploy that runs migrations as any other role grants shortkit_app nothing.
+#     That fails closed, but it fails at runtime rather than at deploy.
+#
+# Provisioning the production roles is not this file's job and is not yet owned by
+# any TASK; it is routed alongside F-116.
 
 services:
   postgres:
@@ -40,9 +67,19 @@ services:
       - source: shortkit_roles_sql
         target: /docker-entrypoint-initdb.d/10-roles.sql
     healthcheck:
-      # `-U shortkit_app -d shortkit_test` rather than the superuser, so the
-      # container only reports healthy once the init script below has run.
-      test: ['CMD-SHELL', 'pg_isready -U shortkit_app -d shortkit_test']
+      # Executes a statement AS shortkit_app, over TCP on 127.0.0.1, against
+      # shortkit_test (F-127). All three halves are load-bearing, and `pg_isready`
+      # has none of them: it does not authenticate — its -U and -d only affect what
+      # the server logs — and with no -h it uses the unix socket. The postgres
+      # entrypoint runs initdb, starts a TEMPORARY socket-only server, runs the init
+      # script, stops it, then starts the real one. A `pg_isready` probe landing in
+      # that window returns 0 and marks the container healthy, so `up -d --wait`
+      # returns and the next command gets ECONNREFUSED or "role shortkit_app does
+      # not exist". This probe is false until the roles exist, the database exists,
+      # and the real server is accepting TCP connections.
+      test:
+        - 'CMD-SHELL'
+        - 'psql "postgres://shortkit_app:app@127.0.0.1:5432/shortkit_test" -tAc "select 1" >/dev/null 2>&1'
       interval: 1s
       timeout: 3s
       retries: 30

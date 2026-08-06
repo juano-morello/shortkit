@@ -7,10 +7,16 @@
  * built from here, and the producing TASK appends it to the generated migration BY HAND
  * in the same commit. `pnpm db:check-policies` asserts the result against pg_policies.
  *
- * This file holds the literal names of the three context flags. ADR-0003 asserts each
- * one appears in exactly one non-test source file, and the policies that READ a flag
- * live here, so the code that SETS it imports the name from here rather than repeating
- * it — see TENANT_ID_SETTING below.
+ * THIS FILE READS ALL THREE CONTEXT FLAGS AND SETS NONE (F-118). It is the one file
+ * besides each flag's setter that may contain the strings `app.tenant_id`,
+ * `app.redirect_context` and `app.privileged_erase`, because the policies that read them
+ * are built here. The isolation suite asserts this file contains no set_config call at
+ * all, which is what keeps that carve-out from being the hole
+ * (design/contracts/isolation-coverage.md, clause A3).
+ *
+ * Write each flag name inline in the policy SQL. No exported constant: clause A4 forbids
+ * passing an identifier to set_config, so a constant would be inlined at the only call
+ * site that matters anyway.
  */
 import { sql } from 'drizzle-orm';
 
@@ -20,13 +26,6 @@ export interface PolicySet {
   readonly table: string;
   readonly statements: string[];
 }
-
-/**
- * The transaction-local setting every tenant_isolation policy reads and
- * `withTenantTransaction` sets. Imported by apps/api/src/tenancy/tenant-context.ts,
- * which is the only code that may set it.
- */
-export const TENANT_ID_SETTING = 'app.tenant_id';
 
 /**
  * Postgres folds an unquoted identifier to lower case and these names are also
@@ -68,8 +67,8 @@ export function tenantScopedPolicies(table: string): PolicySet {
       // succeeds, which is exactly what AC-9 asserts it does not.
       `CREATE POLICY ${t}_tenant_isolation ON ${t}\n` +
         `  FOR ALL\n` +
-        `  USING      (tenant_id = current_setting('${TENANT_ID_SETTING}', true)::uuid)\n` +
-        `  WITH CHECK (tenant_id = current_setting('${TENANT_ID_SETTING}', true)::uuid);`,
+        `  USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)\n` +
+        `  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);`,
       // Exclusion 2 of exactly 2. FOR DELETE and it stays FOR DELETE: it grants no
       // read, and it names one tenant, so even the eraser cannot cross a boundary.
       `CREATE POLICY ${t}_privileged_erase ON ${t}\n` +
@@ -108,6 +107,7 @@ interface RuntimeRolePrivileges extends Record<string, unknown> {
   role: string;
   superuser: boolean;
   bypassrls: boolean;
+  tables_owned_in_public: number;
 }
 
 /**
@@ -120,13 +120,32 @@ interface RuntimeRolePrivileges extends Record<string, unknown> {
  * that at runtime; this check is the only thing that does. It throws rather than
  * calling process.exit so the caller can close what it already opened — main.ts's
  * bootstrap handler exits non-zero (ADR-0003).
+ *
+ * THREE PROPERTIES, NOT TWO (F-129). Table ownership is the third, and ADR-0003 says
+ * it is the one that gets missed: a table's owner is exempt from its own policies
+ * wherever FORCE ROW LEVEL SECURITY is absent, and that line is hand-appended per
+ * table by whoever writes the migration. The count is of tables `current_user` owns,
+ * not of tables that exist — a check on the latter would refuse the correctly
+ * provisioned database, where shortkit_app owns nothing and shortkit_migrator owns
+ * everything.
+ *
+ * One limit worth stating so this is not read as stronger than it is: `rolbypassrls`
+ * is a role attribute, and attributes are not inherited, so a role that is a MEMBER
+ * of a BYPASSRLS role reads false here. That is only reachable through `SET ROLE`,
+ * which nothing in this application issues.
  */
 export async function assertRuntimeRoleCannotBypassRls(): Promise<void> {
   const privileges = await databaseTransaction(async (tx) => {
     const result = await tx.execute<RuntimeRolePrivileges>(
       sql`select current_user                           as role,
                  current_setting('is_superuser') = 'on' as superuser,
-                 rolbypassrls                           as bypassrls
+                 rolbypassrls                           as bypassrls,
+                 (select count(*)::int
+                    from pg_class c
+                    join pg_namespace n on n.oid = c.relnamespace
+                   where n.nspname = 'public'
+                     and c.relkind = 'r'
+                     and c.relowner = current_user::regrole) as tables_owned_in_public
             from pg_roles
            where rolname = current_user`,
     );
@@ -144,6 +163,16 @@ export async function assertRuntimeRoleCannotBypassRls(): Promise<void> {
         `security (superuser=${String(privileges.superuser)}, ` +
         `bypassrls=${String(privileges.bypassrls)}). Every tenant isolation policy would ` +
         'be ignored. Connect as shortkit_app (ADR-0003).',
+    );
+  }
+
+  if (privileges.tables_owned_in_public > 0) {
+    throw new Error(
+      `DATABASE_URL connects as '${privileges.role}', which owns ` +
+        `${String(privileges.tables_owned_in_public)} table(s) in schema public. A table's ` +
+        'owner is exempt from its policies unless that table carries FORCE ROW LEVEL ' +
+        'SECURITY, which is appended per table by hand. Connect as shortkit_app, which ' +
+        'owns nothing, and run migrations as shortkit_migrator (ADR-0003).',
     );
   }
 }

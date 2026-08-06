@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:check-policies": "node scripts/check-policies.mts"
   },
   "dependencies": {
     "@nestjs/common": "11.1.28",

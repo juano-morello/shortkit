@@ -5,20 +5,38 @@
  *
  * GC-5 lives here. Every tenant-scoped read or write runs inside a transaction that
  * has set `app.tenant_id`. THIS IS THE ONLY FILE THAT MAY SET IT outside tests, and
- * the isolation suite asserts that by grep. The literal name is TENANT_ID_SETTING in
- * ../db/rls.ts, imported below, because the policies that READ the flag live there:
- * ADR-0003's grep then finds the string in exactly one non-test source file, and the
- * statement that sets it cannot drift from the policies that depend on it.
+ * the only file besides ../db/rls.ts that may contain the string at all. rls.ts holds
+ * the policies that READ the flag and sets nothing; the isolation suite asserts both
+ * halves by grep (design/contracts/isolation-coverage.md, clauses A1 to A4).
  *
- * SQL issued (F-007, 2026-08-04):
+ * SQL issued (F-007, 2026-08-04; third statement F-123, 2026-08-05):
  *   BEGIN;
- *   SELECT set_config('statement_timeout', $1, true);
- *   SELECT set_config('app.tenant_id',     $2, true);
+ *   SELECT set_config('statement_timeout',                   $1, true);
+ *   SELECT set_config('idle_in_transaction_session_timeout', $2, true);
+ *   SELECT set_config('app.tenant_id',                       $3, true);
+ *
+ * The idle bound is 5000 ms, a module constant, not derived from statementTimeoutMs and
+ * not settable through TenantTransactionOptions. statement_timeout bounds a running
+ * query; nothing bounded the gap between two queries, which is what a third-party call
+ * inside `fn` is. ADR-0002 called the ban on that I/O "a rule, not a mechanism". This is
+ * the mechanism, and it catches a hang rather than a fast call.
+ *
+ * IT DOES NOT SHIP WITHOUT THE CLIENT ERROR LISTENER IN db/client.ts. On expiry
+ * Postgres terminates the backend while no query is active, `pg` emits 'error' on the
+ * checked-out client, and a checked-out client has no listener: pg-pool removes its own
+ * in _acquireClient and drizzle attaches none, so Node turns it into an uncaughtException
+ * and the API dies. pool.on('error') does not cover this. See tenant-context.md,
+ * "`idle_in_transaction_session_timeout`, and the client listener it requires".
  *
  * NEVER `SET LOCAL app.tenant_id = $1`. PostgreSQL's SET accepts no bind parameter,
  * and the shortest repair is string interpolation at the one statement all of RLS
  * depends on. set_config is parameterised with identical transaction-local semantics.
  * NO CONTEXT FLAG IS EVER SET BY CONCATENATION.
+ *
+ * WRITE THE FLAG NAME AS AN INLINE SQL LITERAL, NOT AS AN IMPORTED CONSTANT (F-118).
+ * Only the value is bound. Clause A4 asserts that every set_config first argument under
+ * apps/api/src is a quoted literal, because an identifier there cannot be told apart by
+ * grep from an identifier holding a concatenated value.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Logger } from '@nestjs/common';
@@ -26,7 +44,6 @@ import { sql } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type { TenantRole, WorkspaceRole } from '@shortkit/contracts';
 import { databaseTransaction } from '../db/client';
-import { TENANT_ID_SETTING } from '../db/rls';
 import type * as schema from '../db/schema';
 
 declare const tenantScopedBrand: unique symbol;
@@ -62,11 +79,22 @@ export interface TenantTransactionOptions {
 }
 
 export class TenantContextMissingError extends Error {
-  constructor() {
-    super('No tenant transaction is active. Call withTenantTransaction first.');
+  constructor(reason = 'No tenant transaction is active. Call withTenantTransaction first.') {
+    super(reason);
     this.name = 'TenantContextMissingError';
   }
 }
+
+/**
+ * A settled context is not an active one, so this is the same class rather than a new
+ * one — but the message has to say which of the two happened, or the developer whose
+ * continuation resumed after COMMIT reads "call withTenantTransaction first" and
+ * concludes the guard is broken (F-121).
+ */
+const CONTEXT_HAS_SETTLED =
+  'The tenant transaction this context belonged to has already committed or rolled ' +
+  'back. Its connection is back in the pool and may now belong to another tenant. ' +
+  'Work that outlives the transaction belongs in afterCommit or after the call returns.';
 
 export class TenantContextMismatchError extends Error {
   constructor(outer: string, inner: string) {
@@ -81,9 +109,19 @@ export class TenantContextMismatchError extends Error {
  * COMMIT rather than run at the end of its own frame, where nothing has committed
  * yet (contract invariants 5 and 6 together). TenantContext, which is what callers
  * see, stays exactly as the contract declares it.
+ *
+ * `settled` is the F-121 guard. AsyncLocalStorage keeps this store visible to every
+ * continuation descended from inside the transaction callback, including ones that
+ * resume after COMMIT — a fire-and-forget `void warmCache()` inside `fn` is the
+ * ordinary way that gets written — and `pg` does not disable `query` on a client it
+ * has returned to the pool. Such a statement executes on a connection another
+ * request has since checked out, inside that tenant's open transaction. The flag
+ * lives on the context rather than on the handle because `fn` holds `db` directly:
+ * only the shared read path can be closed.
  */
 interface ActiveTenantContext extends TenantContext {
   readonly afterCommit: AfterCommitHook[];
+  settled: boolean;
 }
 
 type AfterCommitHook = () => Promise<void> | void;
@@ -99,6 +137,17 @@ const logger = new Logger('TenantTransaction');
 
 /** design/contracts/tenant-context.md, TenantTransactionOptions.statementTimeoutMs. */
 const DEFAULT_STATEMENT_TIMEOUT_MS = 5000;
+
+/**
+ * How long the transaction may sit between two statements before Postgres ends it
+ * (F-123). Fixed, and deliberately not derived from `statementTimeoutMs`: the two
+ * bound different things and fail differently — one cancels a query, the other
+ * terminates the connection — and a caller lowering its query budget to 200 ms is
+ * not asking for a 200 ms ceiling on the gap between two queries, which garbage
+ * collection alone can exceed on a loaded instance. No caller in launch-core needs
+ * to tune it; making it tunable is an edit to the contract, not a new option.
+ */
+const IDLE_IN_TRANSACTION_TIMEOUT_MS = 5000;
 
 /**
  * Opens a transaction, sets app.tenant_id via set_config, runs `fn` inside it.
@@ -124,6 +173,13 @@ export async function withTenantTransaction<T>(
   const active = tenantStorage.getStore();
 
   if (active !== undefined) {
+    // A settled context is not an active one. Taking the reuse branch here would run
+    // `fn` against a released handle with no BEGIN and no set_config at all — GC-5's
+    // hole, reached without touching anything the contract forbids (F-121).
+    if (active.settled) {
+      throw new TenantContextMissingError(CONTEXT_HAS_SETTLED);
+    }
+
     if (active.tenantId !== scopedTo) {
       throw new TenantContextMismatchError(active.tenantId, scopedTo);
     }
@@ -131,28 +187,54 @@ export async function withTenantTransaction<T>(
     // Reuses the outer transaction and opens no savepoint. A savepoint here would
     // let an inner failure be swallowed while the outer transaction still commits,
     // which is the opposite of AC-11.
+    const nested = await fn(active.db);
+
+    // Enqueued only now, because `fn` resolved (F-125). Registering the hook before
+    // running `fn` fires it for work that never happened: the nested frame throws,
+    // the outer one catches to build a partial-success response, COMMIT succeeds,
+    // and an invitation email announces a row that was never inserted. The top-level
+    // path below already behaves this way — a throw rolls back and no hook runs.
     if (options?.afterCommit !== undefined) {
       active.afterCommit.push(options.afterCommit);
     }
 
-    return fn(active.db);
+    return nested;
   }
 
   const afterCommit: AfterCommitHook[] =
     options?.afterCommit === undefined ? [] : [options.afterCommit];
+  const statementTimeoutMs = String(
+    options?.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS,
+  );
 
-  const result = await databaseTransaction(async (tx) => {
-    const db = tx as TenantDb;
+  let context: ActiveTenantContext | undefined;
+  let result: T;
 
-    // Both values are bound, never interpolated. `set_config` is the parameterised
-    // form of SET LOCAL, which accepts no bind parameter at all (F-007).
-    await tx.execute(
-      sql`select set_config('statement_timeout', ${String(options?.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS)}, true)`,
-    );
-    await tx.execute(sql`select set_config(${TENANT_ID_SETTING}, ${scopedTo}, true)`);
+  try {
+    result = await databaseTransaction(async (tx) => {
+      const db = tx as TenantDb;
 
-    return tenantStorage.run({ tenantId: scopedTo, db, afterCommit }, () => fn(db));
-  });
+      // Every value is bound and every flag name is an inline literal. `set_config`
+      // is the parameterised form of SET LOCAL, which accepts no bind parameter at
+      // all (F-007). The order of the three is not load-bearing.
+      await tx.execute(sql`select set_config('statement_timeout', ${statementTimeoutMs}, true)`);
+      await tx.execute(
+        sql`select set_config('idle_in_transaction_session_timeout', ${String(IDLE_IN_TRANSACTION_TIMEOUT_MS)}, true)`,
+      );
+      await tx.execute(sql`select set_config('app.tenant_id', ${scopedTo}, true)`);
+
+      context = { tenantId: scopedTo, db, afterCommit, settled: false };
+
+      return tenantStorage.run(context, () => fn(db));
+    });
+  } finally {
+    // Whether it committed or rolled back, the handle is back in the pool from here
+    // (F-121). The store stays visible to continuations; what changes is that every
+    // read of it now throws.
+    if (context !== undefined) {
+      context.settled = true;
+    }
+  }
 
   // Only reached once COMMIT has returned: a throw inside `fn` rolls the transaction
   // back and rethrows before this line, so no hook runs for work that was undone.
@@ -171,9 +253,21 @@ export async function withTenantTransaction<T>(
   return result;
 }
 
+/**
+ * The rejected value is reported as a short prefix and a length, never in full
+ * (F-132). On ADR-0021's capability-token routes it is an unauthenticated URL
+ * segment, and this error is a plain Error, so TASK-007's filter logs its message:
+ * unbounded attacker-controlled bytes would otherwise sit in the log store forever.
+ * Eight characters is enough to recognise a truncated uuid or an obvious typo.
+ */
+const REPORTED_PREFIX_LENGTH = 8;
+
 export class InvalidTenantIdError extends Error {
   constructor(value: string) {
-    super(`Tenant id is not a uuid: ${JSON.stringify(value)}`);
+    super(
+      `Tenant id is not a uuid: ${JSON.stringify(value.slice(0, REPORTED_PREFIX_LENGTH))}` +
+        `... (${String(value.length)} characters)`,
+    );
     this.name = 'InvalidTenantIdError';
   }
 }
@@ -186,13 +280,22 @@ export class InvalidTenantIdError extends Error {
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Throws InvalidTenantIdError. Called before every set_config of a tenant id. */
+/**
+ * Throws InvalidTenantIdError. Called before every set_config of a tenant id.
+ *
+ * RETURNS THE CANONICAL FORM, which is lower case, and that is the value to compare
+ * against anything Postgres returns (F-130): the regex accepts either casing, while
+ * Postgres normalises `uuid` to lower case on output. Without this the nesting check
+ * below is a case-sensitive compare that raises a spurious mismatch for one tenant
+ * spelled two ways, and any later equality test against a row's `tenant_id`
+ * disagrees silently.
+ */
 export function assertUuid(value: string): string {
   if (!UUID.test(value)) {
     throw new InvalidTenantIdError(value);
   }
 
-  return value;
+  return value.toLowerCase();
 }
 
 /** Reads the ambient context. Throws when none is active. Never returns an unscoped client. */
@@ -209,6 +312,12 @@ function activeContext(): ActiveTenantContext {
 
   if (active === undefined) {
     throw new TenantContextMissingError();
+  }
+
+  // F-121. Everything that reads the ambient context comes through here, which is
+  // why the flag lives on the context and not on the handle.
+  if (active.settled) {
+    throw new TenantContextMissingError(CONTEXT_HAS_SETTLED);
   }
 
   return active;
