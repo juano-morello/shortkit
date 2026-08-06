@@ -6440,3 +6440,151 @@
   status: escalated
   resolved_by: null
   resolved_round: null
+
+- id: F-199
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 3
+  severity: major
+  kind: behavior
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 273
+  summary: >-
+    The no-verdict guard is gated on the absence of diagnostics ANYWHERE, but mutation 1 breaks TWO
+    workspaces - so an interrupt arriving after the first has emitted leaves diagnostics in the
+    output, skips exitWithoutVerdict, and reports the interrupt as an AC-14 regression. F-195's
+    exact failure mode, in the window the fix does not cover.
+  failure_scenario: >-
+    REPRODUCED against pnpm 11.20.0, the pinned version, with the real reporter and in a throwaway
+    workspace so the repo was untouched. Captured: status null, signal 'SIGINT', hasAnyDiagnostic
+    TRUE, and the finished workspace's line present in full. Traced through the shipped script: the
+    guard needs !hasAnyDiagnostic and gets false, status === 0 is false, the consumer pattern does
+    not match, so it pushes a failure, CONTINUES TO MUTATION 2 and runs a second full typecheck
+    after the user pressed Ctrl-C, then exits 1 with a FAIL indistinguishable from a real
+    regression. THE WINDOW IS NOT EXOTIC: the docblock's own reason for --no-bail is that the
+    mutation breaks apps/api as well as apps/web, and apps/web's typecheck is `next typegen && tsc`
+    against apps/api's plain `tsc`, so they finish at different times BY CONSTRUCTION and the gap is
+    the window. Both discriminators were in the data and both were ignored - result.signal was
+    'SIGINT' and INTERRUPT_BY_NAME matched pnpm's summary - because they are read only INSIDE
+    exitWithoutVerdict, which the diagnostics test had already excluded. It also falsifies the
+    docblock's absolute that "an interrupted run leaves signal === null": true when only node is
+    signalled, false when the GROUP is, and Ctrl-C signals the group.
+  required_change: >-
+    Make signal evidence a no-verdict condition IN ITS OWN RIGHT, unioned with the
+    absent-diagnostics condition rather than nested behind it. A missing consumer diagnostic in a
+    run that was signalled cannot be recorded as a drift failure. Add the process-group case to the
+    docblock, since it is the case a human produces.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-200
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 3
+  severity: major
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 223
+  summary: >-
+    exitWithoutVerdict DISCARDS the captured typecheck output, so the non-signal cases it exists to
+    catch surface as a red CI step whose only evidence was piped into the process and thrown away.
+  failure_scenario: >-
+    runTypecheck uses stdio ['ignore','pipe','pipe'], so pnpm's output reaches nobody except this
+    script, and the step runs in CI. If next typegen fails, or a binary is missing after a
+    Dependabot bump, or the runner OOM-kills a child: non-zero exit, zero error TS lines, the guard
+    fires, and the operator gets "NO VERDICT ... likely causes are a typecheck broken for a non-tsc
+    reason or an out-of-memory kill" WITH NOT ONE LINE OF WHAT PNPM SAID. The sibling failure path
+    two branches down prints the full output for exactly this reason, so the diff loses context the
+    file already knew to keep. THE OOM CASE IS THE WORST - it will not reproduce on a developer's
+    machine, and it is the one this script's own message nominates.
+  required_change: The captured output reaches the log on the no-verdict path, as it does on the no-diagnostic-attributed path.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-201
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 3
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 248
+  summary: >-
+    The new listener comment claims they are "kept callable for the interval between mutations,
+    where the loop does turn". There is no such interval - the entire try/for body is synchronous.
+    Third confidently-worded mechanism claim in this docblock; the first two are what F-195 is.
+  failure_scenario: >-
+    No await, no async callback and no promise anywhere in the loop body, so a queued signal
+    callback cannot be dispatched between mutations any more than during spawnSync. The
+    implementer's own verified row is consistent with this and NOT with the comment - "SIGINT during
+    mutation 1 -> exit 130, stops at mutation 1" is exitWithoutVerdict's 128 + signo, not the
+    listener's process.exit(130), and the two are observationally identical. The one place the
+    listener CAN fire is the opposite of what the comment says: a signal queued during a run that
+    completes normally is dispatched when the module body ends and the loop finally turns, printing
+    "SIGINT - restored" AFTER the OK line and converting an exit 0 into 130.
+  required_change: >-
+    State either that nothing in this script ever dispatches them and they are registered purely for
+    their disposition side effect, or name the post-body drain as the one place they can run.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-202
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 3
+  severity: minor
+  kind: implementation
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 220
+  summary: >-
+    An `Exit status 137` match is reported as "Interrupted", which mislabels the OOM kill the same
+    function's other branch correctly names.
+  failure_scenario: >-
+    INTERRUPT_BY_STATUS accepts 128-143, so a runner OOM-killing tsc yields "Interrupted - pnpm
+    reported a child exiting 137, which is 128 + a signal number". SIGKILL from the kernel OOM
+    killer is not an interrupt, and the out-of-memory hypothesis appears only in the cause === null
+    branch, which this case does not take. COMBINED WITH F-200's DISCARDED OUTPUT, a CI OOM is the
+    hardest case in this script to diagnose and the message points away from it.
+  required_change: Distinguish human-sent signals from SIGKILL/SIGABRT, or use neutral phrasing that keeps the OOM hypothesis visible on every by-status path.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-203
+  phase: implement
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 3
+  severity: minor
+  kind: contract
+  file: .github/scripts/assert-contract-drift.mjs
+  line: 1
+  summary: >-
+    The guard's safety property belongs to the CURRENT MUTATIONS table rather than to the guard
+    itself, and that invariant is unwritten.
+  failure_scenario: >-
+    THE REVIEWER TRIED TO CONSTRUCT A SWALLOWED FINDING AND COULD NOT, then wrote down WHY rather
+    than reporting the absence. Mutation 1 is saved by the co-broken workspace, exactly as the
+    implementer argued. Mutation 2 is saved by something DIFFERENT the implementer did not state:
+    FORM_ERROR_KEY has ONE consumer, so a genuine regression there makes the typecheck exit 0, and
+    status === 0 short-circuits the guard before hasAnyDiagnostic is consulted. So a future third
+    mutation with a single consumer whose regression shows up as a non-zero exit WITHOUT TS
+    diagnostics would be swallowed. Nothing in the file tells whoever adds that mutation.
+  required_change: >-
+    Write the invariant next to the MUTATIONS table, so it is learned from the file rather than from
+    an incident.
+  owner_slot: sdlc-implementer-backend
+  status: routed
+  resolved_by: null
+  resolved_round: null
