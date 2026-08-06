@@ -1,0 +1,196 @@
+# The merge gate.
+#
+# ADR: adr-0018-ci-performance-gate.md, adr-0001-test-framework.md
+# Produced by: TASK-002 (AC-5, AC-113, AC-114; F-039, F-055, F-064, F-084, F-091, F-122)
+#
+# `performance` and `performance-full` are ADR-0018's Layer 1 and Layer 2 and belong to
+# TASK-037, not here. The ADR's title covers all four jobs; its Follow-ups section is what
+# splits them.
+#
+# NOTHING HERE MAY SWALLOW A FAILURE (AC-5). No `continue-on-error`, no `|| true`, no
+# `set +e`, no step that reads an exit code and reports success anyway. Every command's
+# non-zero exit fails its step, its job, and the workflow.
+name: ci
+
+on:
+  # Every branch, not just `main`: a push is the earliest place a red gate can be seen,
+  # and a solo project pushes long-lived branches before opening a pull request. The cost
+  # is that a branch with an open PR runs both events; `concurrency` below keeps each
+  # event's runs from stacking, but it does not merge the two, and that is accepted.
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    # JOB-LEVEL, NOT STEP-LEVEL, AND THAT IS THE POINT (F-156). AC-113's guard searches
+    # the built output for the VALUE of BFF_PROXY_SECRET, so it only means anything if
+    # the build it inspects ran with the same value the check reads. A build in one step
+    # and a check in another under different env is a green that proves nothing. Declaring
+    # the environment once for the whole job makes that agreement structural instead of
+    # something two step-level `env:` blocks have to keep matching.
+    #
+    # This BFF_PROXY_SECRET is CI's own, deliberately not the value registered on Vercel:
+    # CI never talks to Fly, and the guard only needs a conforming value to search for.
+    env:
+      BFF_PROXY_SECRET: ${{ secrets.BFF_PROXY_SECRET }}
+      NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+      API_BASE_URL: ${{ vars.API_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-toolchain
+
+      # ADR-0018: the merge gate audits the PRODUCTION graph only, so a dev-only advisory
+      # with no fix available cannot block a merge. The price is that this step is blind
+      # to every dev-only advisory at every severity — the weekly `dependencies` workflow
+      # is the only thing that looks at that half of the tree. Two obligations, not one
+      # gate run twice.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level moderate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # AC-113. `pnpm build` above already builds apps/web under this same job env, and
+      # this rebuild is still deliberate: it puts the build the guard inspects immediately
+      # next to the guard, so the pairing survives a future change to what `pnpm -r build`
+      # covers. TASK-004 owns the script; this TASK owns the invocation (F-084's split).
+      - name: Build apps/web for the inlined-secret scan
+        run: pnpm --filter @shortkit/web build
+
+      - name: Assert no server-only value was inlined into the build
+        run: pnpm --filter @shortkit/web assert:no-secrets
+
+      # AC-14, specified in design/test-strategy.md and revised by F-091 to two mutations.
+      # Last because it is the slowest step here — it runs the recursive typecheck twice —
+      # and everything above fails faster.
+      - name: Assert a breaking contract change fails a consumer's typecheck
+        run: node .github/scripts/assert-contract-drift.mjs
+
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    env:
+      # The same DSNs docker-compose.test.yml documents in its header, down to the port,
+      # so the commands below read identically to the local ones. Fixture credentials for
+      # a container destroyed with the runner.
+      #
+      # 55433 rather than 5432 because the ubuntu-latest image ships a PostgreSQL server
+      # package of its own; the mapping stays off the default port for the same reason
+      # the compose file does.
+      DATABASE_URL: postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test
+      DATABASE_MIGRATION_URL: postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          # The bootstrap superuser. Nothing below connects as it except the provisioning
+          # step: every statement the suite issues comes from one of the two NOBYPASSRLS
+          # roles, because a superuser is exempt from every policy and would make
+          # AC-8..AC-11 vacuous.
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 55433:5432
+        # NOT `pg_isready` (F-127). The postgres entrypoint runs initdb, starts a
+        # TEMPORARY socket-only server, then stops it and starts the real one. `pg_isready`
+        # does not authenticate — its -U and -d only affect what the server logs — and with
+        # no -h it uses the unix socket, so a probe landing in that window returns 0 and
+        # the service is marked healthy while the next command gets ECONNREFUSED.
+        #
+        # This probe authenticates, over TCP, against a real database on the real server.
+        # It cannot be the compose file's probe (authenticating as shortkit_app against
+        # shortkit_test) because GitHub Actions has no way to create those roles before the
+        # service starts — see the provisioning step below. The rest of F-127's property is
+        # recovered there and in `db:check-policies`, which is the first thing to connect
+        # over the host mapping as shortkit_app.
+        options: >-
+          --health-cmd "psql 'postgres://postgres:postgres@127.0.0.1:5432/postgres' -tAc 'select 1'"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 10s
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-toolchain
+
+      # GitHub Actions' `services:` has no equivalent to Compose's `configs:` block, so
+      # the roles cannot be baked into the image the way docker-compose.test.yml does
+      # them. They are created here instead, as a step, once the service is healthy.
+      #
+      # Run through the service container's own psql rather than the runner's: it is the
+      # matching major version, and it removes any dependency on what the runner image
+      # happens to ship. PGPASSWORD is set so the `\connect` in the file reconnects
+      # without prompting.
+      - name: Provision the migrator and app roles
+        run: |
+          docker exec -i -e PGPASSWORD=postgres "${{ job.services.postgres.id }}" \
+            psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U postgres -d postgres -f - \
+            < .github/scripts/provision-test-database.sql
+
+      # As shortkit_migrator (DATABASE_MIGRATION_URL, read by drizzle.config.ts). This is
+      # also the first statement issued over the host port mapping, so a mapping that is
+      # not actually reachable fails here rather than inside the suite.
+      - name: Apply migrations
+        run: pnpm --filter @shortkit/api db:migrate
+
+      # F-122. DATABASE_URL, never DATABASE_MIGRATION_URL: the script inspects the catalog
+      # as shortkit_app, the role whose access the policies exist to constrain, and hard-
+      # fails if DATABASE_URL is unset (docs/architecture/migrations.md).
+      #
+      # ORDER IS LOAD-BEARING. This runs after `db:migrate` and BEFORE the suite.
+      # apps/api/test/support/rls-fixture.ts drops and recreates `tenants` per test and
+      # drops it again on teardown, so after the suite schema `public` holds either an
+      # unprotected fixture table or nothing at all — and the migrator skips an already-
+      # recorded migration, so re-running `db:migrate` would not repair it.
+      - name: Assert row-level security is on for every migrated table
+        run: pnpm --filter @shortkit/api db:check-policies
+
+      # The JSON report is what the next step reads; the default reporter is what a human
+      # reads in the log. Both, not one.
+      - name: Integration suite
+        run: >-
+          pnpm test:integration
+          --reporter=default
+          --reporter=json
+          --outputFile.json="${{ runner.temp }}/integration-results.json"
+
+      # AC-114 / F-064 obligation 2. vitest already fails a run matching zero FILES
+      # (passWithNoTests was removed by TASK-005), but a matched file with no tests inside
+      # it still exits 0 — a job that stands up Postgres and asserts nothing, reporting
+      # green.
+      - name: Assert the integration suite collected tests
+        run: node .github/scripts/assert-integration-collected.mjs "${{ runner.temp }}/integration-results.json"
+
+  # The branch's required check, and the only one that should be (test-strategy.md).
+  # GitHub Actions rejects a workflow whose `needs` names a job that does not exist, so a
+  # job silently dropped or renamed becomes a hard configuration error here instead of a
+  # green pipeline that ran nothing. A `needs` job that fails or is skipped leaves this
+  # job skipped, which is not success.
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    needs: [quality, integration]
+    steps:
+      - name: Both gates passed
+        run: echo 'quality and integration both succeeded.'

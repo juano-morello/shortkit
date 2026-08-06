@@ -17,14 +17,25 @@ table whose `export *` line was forgotten still gets a correct migration.
 
 ## Commands
 
-Both run from the repository root and both need `DATABASE_MIGRATION_URL` — the migrator
-role owns the tables, and `shortkit_app` can run no DDL.
+All three run from the repository root. **They do not take the same connection**, and the
+column below is which variable each one reads.
 
-| Command | What it does |
-| --- | --- |
-| `pnpm --filter @shortkit/api db:generate` | diffs the schema against the last snapshot and writes one new migration |
-| `pnpm --filter @shortkit/api db:migrate` | applies every migration the database has not seen |
-| `pnpm --filter @shortkit/api db:check-policies` | asserts row-level security is on for every table in `public` |
+| Command | Reads | What it does |
+| --- | --- | --- |
+| `pnpm --filter @shortkit/api db:generate` | nothing | diffs the schema against the last snapshot and writes one new migration. It never connects, and `drizzle.config.ts` falls back to an empty DSN so generation works offline |
+| `pnpm --filter @shortkit/api db:migrate` | `DATABASE_MIGRATION_URL` | applies every migration the database has not seen |
+| `pnpm --filter @shortkit/api db:check-policies` | `DATABASE_URL` | asserts row-level security is on for every table in `public` |
+
+`db:migrate` takes the migrator DSN because the migrator role owns the tables and
+`shortkit_app` can run no DDL.
+
+**`db:check-policies` takes `DATABASE_URL`, and that is not an oversight.** It inspects
+the catalog as `shortkit_app` — the role whose access the policies exist to constrain —
+so the check runs over the same connection the API uses rather than over the owner's
+(`apps/api/scripts/check-policies.mts` records the decision). Export only
+`DATABASE_MIGRATION_URL` and it exits 1 naming what is missing. Point `DATABASE_URL` at
+the migrator DSN and it runs as the owner instead, which is not what it was written to
+assert.
 
 For local work, `DATABASE_URL` and `DATABASE_MIGRATION_URL` point at the container in
 `docker-compose.test.yml`; the header of that file has the two exports.
@@ -39,6 +50,11 @@ build will tell you: the grants come from `ALTER DEFAULT PRIVILEGES` and already
 so the feature's own queries work and its tests pass.
 
 `db:check-policies` is what catches it. Run it after `db:migrate`, locally and in CI.
+
+In CI it runs after `db:migrate` and **before** the integration suite, for the reason in
+"Running the integration suite wipes the migrated tables" below: afterwards, schema
+`public` holds the fixture's unprotected `tenants` or no tables at all, and the check
+would be reading a database the migrations no longer describe.
 
 ## The migrator compares timestamps, not contents
 
