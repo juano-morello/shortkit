@@ -1,8 +1,8 @@
 /**
  * `pnpm --filter @shortkit/web assert:no-secrets`
  *
- * Contract: TASK-004.md (F-078's AC-113, F-084's split, and the round 1/2/3 fixes:
- * F-154/F-155/F-156/F-160/F-161/F-163/F-164/F-165/F-167/F-168), ADR-0014,
+ * Contract: TASK-004.md (F-078's AC-113, F-084's split, and the round 1-4 fixes:
+ * F-154/F-155/F-156/F-160/F-161/F-163/F-164/F-165/F-167/F-171/F-172/F-173), ADR-0014,
  * design/contracts/web-api-client.md
  * Produced by: TASK-004
  *
@@ -32,6 +32,22 @@
  * Neither root may be silently skipped when absent, and — as of round 2 (F-163) — neither may
  * silently count as covered when present but empty. See `SCAN_ROOTS` and its handling below.
  *
+ * WHY THE LEAK SCAN STAYS BOUND TO THOSE TWO ROOTS (F-172, round 4 — corrects a false reason
+ * given for the same correct conclusion in round 3). It is NOT because widening would false-
+ * positive on a legitimate server-side read of `BFF_PROXY_SECRET` — verified by building, that
+ * risk does not exist: only `NEXT_PUBLIC_`-prefixed variables get build-time literal
+ * substitution, so a plain `process.env.BFF_PROXY_SECRET` read compiles to a runtime property
+ * access (`"string"==typeof process.env.BFF_PROXY_SECRET`) and the secret's bytes never reach
+ * `.next` at all unless the value is actually rendered, serialised, hardcoded, or aliased
+ * through a `NEXT_PUBLIC_*`/`next.config` `env:` entry — every one of which is already a defect.
+ * The real reason to keep the scan narrow is precision of meaning: `.next/static` and
+ * `.next/server/app` are exactly the artifacts an unauthenticated request can retrieve, so a red
+ * there means "this secret is reachable by anyone right now" — a claim the failure message below
+ * states outright. Widening to all of `.next` would only ever catch a secret baked in somewhere
+ * *not* browser-reachable (one client import away from becoming reachable, but not reachable
+ * yet), which is real hardening but a different, weaker claim ("this was baked in somewhere")
+ * that the current failure message does not make and is not written to make.
+ *
  * KNOWN CEILING, NOT FIXED HERE (F-157, routed to TASK-012/ADR-0014, not this TASK — do not
  * attempt from this file). Per-request dynamic server rendering (any route that reads
  * `cookies()`, which is every authenticated dashboard route under ADR-0014) produces no
@@ -41,42 +57,33 @@
  * ONE LEAK TARGET, DELIBERATELY (F-154, round 1, escalated to and ruled by Juano — see
  * `LEAK_TARGET_VAR` below for why `API_BASE_URL` is not checked).
  *
- * POSITIVE CONTROL, CONDITIONAL ON A SOURCE REFERENCE (F-156 round 1, F-161 round 2). The
- * script reads its search values from its own environment at check time; nothing by itself
- * proves that environment matches the one the build actually ran with. `vercel.json`'s
- * `buildCommand` closes that gap structurally for the deploy path by chaining this script onto
- * the build that just ran, in the same process environment. `POSITIVE_CONTROL_VAR` closes it
- * for any other invocation (e.g. a future CI step that builds and checks separately): if source
- * code references it, its value must show up in the output, or the environments disagreed.
+ * POSITIVE CONTROL — BUILD-DERIVED, NOT SOURCE-DERIVED (F-156 round 1, F-161 round 2, F-167
+ * round 3, F-171 round 4). The script reads its search values from its own environment at check
+ * time; nothing by itself proves that environment matches the one the build actually ran with.
+ * `vercel.json`'s `buildCommand` closes that gap structurally for the deploy path by chaining
+ * this script onto the build that just ran, in the same process environment. The positive
+ * control closes it for any other invocation (e.g. a future CI step that builds and checks
+ * separately).
  *
- * Round 1 asserted the value's presence unconditionally, which fails on today's `apps/web` —
- * nothing yet reads `process.env.NEXT_PUBLIC_API_BASE_URL` (TASK-008 adds the first read), and
- * Next only inlines a `NEXT_PUBLIC_` variable where it is textually referenced, so there was
- * nothing for a real value to produce (F-161, self-identified by `sdlc-security-auditor`: it
- * specified "assert present" assuming a reference already existed and hadn't checked). As of
- * round 2 the control activates only when `hasSourceReference()` finds a real reference under
- * `apps/web`'s own source — see that function and `POSITIVE_CONTROL_VAR` below for the three
- * constraints the auditor called not optional when resolving it this way.
+ * Rounds 1-3 inferred whether the control should be active from SOURCE TEXT (first "always",
+ * then "if some source file mentions the variable"), while the control's evidence always came
+ * from BUILD OUTPUT. Those two things agree only when the reference is actually reachable from
+ * an entrypoint turbopack compiles — and disagree, reproducibly, whenever it is not: a server-
+ * only reference not rendered anywhere (round 3), a spec file Next never compiles (round 3), and
+ * — the one three rounds of narrowing the SOURCE side never closed, because it is not a source-
+ * side problem — a real, correct module under `apps/web/src/lib/api/**` that no page imports yet
+ * (round 4, reproduced on TASK-008's literal shape: TASK-008.md declares exactly that path,
+ * lists this variable as consumed, and puts every screen that would import it out of scope).
+ * Round 4 removes the source scan entirely and derives activation from the same ground truth the
+ * control's evidence always came from — see `POSITIVE_CONTROL_VAR`'s handling in `main()` below
+ * for the three-way discriminator this replaces it with.
  *
- * ROUND 3 (F-167, major): round 2's activation condition and search scope described different
- * sets of builds. Any textual reference activated the control, but the search stayed bound to
- * the two browser-delivery roots — so a server-only reference (turbopack places server
- * application code in `.next/server/chunks`, not under either delivery root) or a test-only
- * reference (a vitest spec naming the variable, never compiled by Next) activated a control that
- * then had nothing to find, reddening a build with nothing wrong with it and printing a false
- * diagnosis. Fixed two ways, both required together: (1) the positive control's search — and
- * only the positive control's, never the leak scan — now covers all of `.next` except
- * `.next/cache` (turbopack's incremental build cache, not deployed output); see
- * `POSITIVE_CONTROL_SCAN_EXCLUDED_DIRS` below. (2) `hasSourceReference` now excludes
- * `*.spec.*`/`*.test.*` files and matches the full `process.env.NEXT_PUBLIC_API_BASE_URL`
- * expression rather than the bare variable name — see `SOURCE_TEST_FILE_PATTERN` and
- * `POSITIVE_CONTROL_REFERENCE` below.
- *
- * Run after `pnpm --filter @shortkit/web build`, with `BFF_PROXY_SECRET` and (once TASK-008
- * lands) `NEXT_PUBLIC_API_BASE_URL` set in the environment to the same real values the build
- * ran with. `vercel.json`'s `buildCommand` does this for the deploy that matters; TASK-002's CI
- * workflow (`.github/**`, outside this TASK's paths, F-084's split) is a second, earlier
- * invocation of the same command.
+ * Run after `pnpm --filter @shortkit/web build`, with `BFF_PROXY_SECRET` always set, and
+ * `NEXT_PUBLIC_API_BASE_URL` set once some compiled module actually reads it (see `main()` — an
+ * unset value only matters once the build shows a reference exists to compare it against).
+ * `vercel.json`'s `buildCommand` does this for the deploy that matters; TASK-002's CI workflow
+ * (`.github/**`, outside this TASK's paths, F-084's split) is a second, earlier invocation of the
+ * same command.
  *
  * NOT TYPECHECKED, by construction rather than by an added exclusion: `apps/web/tsconfig.json`'s
  * `include` list only matches TypeScript globs (`.ts`, `.tsx`, plus a few named files); this file's
@@ -101,11 +108,10 @@ import path from 'node:path';
  * a `.meta`/`.segments` file, or something a future Next version names differently; scanning
  * every file is the only form of this that doesn't need updating when the internal naming does.
  *
- * Deliberately NOT widened to `.next/server/chunks` or the rest of `.next` (F-167's fix touches
- * `POSITIVE_CONTROL_SCAN_ROOT` below instead): widening the leak scan itself would red on any
- * legitimate server-side read of `BFF_PROXY_SECRET`, which is exactly what TASK-012's proxy
- * route will write. These two roots are where a value becomes reachable by a request the API
- * never authenticated; server-side-only code paths are the secret's entire legitimate use.
+ * Deliberately NOT widened to `.next/server/chunks` or the rest of `.next` (F-172 explains why,
+ * above the file header's "WHY THE LEAK SCAN STAYS BOUND" section — not a false-positive risk,
+ * a precision-of-meaning choice). The positive control's separate, wider scan lives at
+ * `POSITIVE_CONTROL_SCAN_ROOT` below.
  */
 const SCAN_ROOTS = [
   { name: '.next/static', dir: path.join(process.cwd(), '.next', 'static') },
@@ -113,14 +119,15 @@ const SCAN_ROOTS = [
 ];
 
 /**
- * F-167's fix, part 1. The positive control's search — never the leak scan's — covers all of
- * `.next`, because proving build/check environment agreement does not require the value to be
- * browser-reachable: a server component or route handler reading
- * `process.env.NEXT_PUBLIC_API_BASE_URL` without rendering it is still real evidence the build
- * saw the variable, and turbopack places that code under `.next/server/chunks`, outside both of
- * `SCAN_ROOTS`. `.next/cache` is excluded — it is turbopack's incremental build cache, never
- * part of what Vercel serves or what "the build ran with real values" means, and can hold tens
- * of megabytes of binary blobs a text search gains nothing from reading.
+ * The positive control's scan root — never the leak scan's. Proving build/check environment
+ * agreement does not require the value to be browser-reachable: a server component or route
+ * handler that reads `process.env.NEXT_PUBLIC_API_BASE_URL` without rendering it is still real
+ * evidence the build saw the variable, and turbopack places that compiled code under
+ * `.next/server/chunks`, outside both of `SCAN_ROOTS` (F-167). `.next/cache` is excluded — it is
+ * turbopack's incremental build cache, never part of what Vercel serves or what "the build ran
+ * with real values" means, and can hold tens of megabytes of binary blobs a text search gains
+ * nothing from reading. Verified across three builds (round 3) that nothing survives there that
+ * doesn't also survive in the non-cache tree, so excluding it costs no real coverage.
  */
 const POSITIVE_CONTROL_SCAN_ROOT = { name: '.next', dir: path.join(process.cwd(), '.next') };
 const POSITIVE_CONTROL_SCAN_EXCLUDED_DIRS = new Set(['cache']);
@@ -144,24 +151,30 @@ const POSITIVE_CONTROL_SCAN_EXCLUDED_DIRS = new Set(['cache']);
 const LEAK_TARGET_VAR = 'BFF_PROXY_SECRET';
 
 /**
- * F-156's positive control, gated as of F-161. `NEXT_PUBLIC_API_BASE_URL` is genuinely public
- * (see `LEAK_TARGET_VAR` above), so its value being present in the output is not itself a
- * finding — it is proof the build ran with the same environment this check is reading, which
- * the check otherwise has no way to confirm. It only makes sense to assert presence once some
- * source file actually reads it; `hasSourceReference()` below decides that at run time instead
- * of assuming it, which is exactly what round 1 got wrong.
+ * F-156's positive control target. `NEXT_PUBLIC_API_BASE_URL` is genuinely public (see
+ * `LEAK_TARGET_VAR` above), so its value being present in the output is not itself a finding —
+ * it is proof the build ran with the same environment this check is reading, which the check
+ * otherwise has no way to confirm.
+ *
+ * F-171 (round 4): activation is derived from the build, not inferred from source text. See the
+ * three-way discriminator in `main()` — `NAME_PATTERN`/the name search below is the mechanism
+ * that makes it possible: a compiled reference to this variable always leaves the bare variable
+ * NAME somewhere under `.next` (emitted literally when the build's own environment lacked a
+ * value to substitute; surviving in the compiled SSR chunk's `.js.map` `sourcesContent` when a
+ * value WAS substituted, because source maps embed the original source Next compiled from), while
+ * a reference that exists in source but was never reached by an entrypoint — the shape three
+ * rounds of narrowing the source scan could not close, because it isn't a source-side problem —
+ * leaves neither the name nor the value anywhere.
+ *
+ * CAVEAT TO RECORD: the "compiled with a real value substituted" branch of this discriminator
+ * relies on the name surviving in server source maps, which Next 16 emits by default
+ * (`productionBrowserSourceMaps` governs only client maps and is unrelated). If server source
+ * maps are ever disabled, that branch degrades from a comparison ("value present in the build →
+ * pass") to a name-only signal, which this script already treats as sufficient evidence of
+ * activation — the FAIL branch (name present, value absent) still requires a real mismatch to
+ * fire, so a disabled source map cannot cause a false FAIL, only a less certain PASS.
  */
 const POSITIVE_CONTROL_VAR = 'NEXT_PUBLIC_API_BASE_URL';
-
-/**
- * F-167's fix, part 2. Round 2 activated the control on the bare variable name appearing
- * anywhere in source, which a code comment, a type export, or (reproduced) a vitest spec title
- * satisfies without the build ever reading the variable. Matching the full expression a real
- * read actually looks like is a tighter, still-conservative signal — it still cannot detect
- * every possible read (a destructured `process.env` access would slip past this too), but a
- * miss there fails closed the same way an unnarrowed bare-name match did, just less often.
- */
-const POSITIVE_CONTROL_REFERENCE = `process.env.${POSITIVE_CONTROL_VAR}`;
 
 /**
  * F-160/F-164/F-165: `BFF_PROXY_SECRET`'s required shape, enforced here and stated in
@@ -225,8 +238,8 @@ function readRequiredValue(name, { minLength, requireBase64Url } = {}) {
 
 /**
  * `excludedDirNames` defaults to empty, which preserves `SCAN_ROOTS`' round-1/2 behaviour
- * exactly — every file, no exclusion. F-167 adds the one caller that passes a non-empty set:
- * the positive control's wider `.next` scan, which excludes `cache` (see
+ * exactly — every file, no exclusion. The one caller that passes a non-empty set is the
+ * positive control's wider `.next` scan, which excludes `cache` (see
  * `POSITIVE_CONTROL_SCAN_EXCLUDED_DIRS` above).
  */
 async function collectFiles(dir, excludedDirNames = new Set()) {
@@ -255,8 +268,8 @@ async function collectFiles(dir, excludedDirNames = new Set()) {
  * covers quote/backslash/control-character escaping, which is what round 2's reproduction
  * showed standalone `.rsc` files use. It does not cover HTML-entity or unicode-escape
  * renderings (F-164) — `BASE64URL_PATTERN` above is what actually closes that gap for
- * `BFF_PROXY_SECRET`. This function stays in place because `POSITIVE_CONTROL_VAR` is a URL, not
- * a charset-gated secret, and the cheap extra pass still costs nothing.
+ * `BFF_PROXY_SECRET`. This function stays in place because `POSITIVE_CONTROL_VAR`'s value is a
+ * URL, not a charset-gated secret, and the cheap extra pass still costs nothing.
  */
 function matchesValue(contents, value) {
   if (contents.includes(value)) {
@@ -265,100 +278,6 @@ function matchesValue(contents, value) {
 
   const jsonEscaped = JSON.stringify(value).slice(1, -1);
   return jsonEscaped !== value && contents.includes(jsonEscaped);
-}
-
-/**
- * F-161, constraint 1. Directories the source scan never enters. `.next` and `node_modules`
- * are build output and dependencies, not this app's source. `scripts` holds this very file,
- * which names `POSITIVE_CONTROL_VAR` repeatedly in its own comments — scanning it would make
- * the positive control activate itself immediately regardless of whether any real code reads
- * the variable, reproducing F-161's failure one layer of indirection down.
- *
- * NOT extended to `../../packages/contracts` (F-168, minor, accepted as documented rather than
- * fixed): `next.config.ts`'s `transpilePackages: ['@shortkit/contracts']` means a read inside
- * that workspace package also gets `NEXT_PUBLIC_` inlining, and this scan would miss it and
- * report the control inactive when it should be active. Crossing into another workspace from a
- * script whose paths are `apps/web/**` blurs a boundary this TASK doesn't own resolving, for a
- * package that is (today) pure zod schema with no reason to read a Vercel env var. The honest
- * fix taken instead: the messages below (`hasSourceReference`'s callers) say exactly what was
- * and was not searched, rather than implying whole-repo coverage.
- */
-const SOURCE_EXCLUDED_DIRS = new Set(['.next', 'node_modules', 'scripts']);
-
-/**
- * F-167, constraint 2. A vitest spec naming `NEXT_PUBLIC_API_BASE_URL` — reproduced by the
- * auditor — is a file Next never compiles, so it cannot possibly be the reference that would
- * cause real inlining. Excluding it (and the `.test.` convention some projects use instead)
- * removes exactly the false-activation shape F-167 reproduced, without narrowing coverage of
- * anything Next actually builds.
- */
-const SOURCE_TEST_FILE_PATTERN = /\.(spec|test)\.[^./]+$/;
-
-/**
- * Only file types Next.js or the test runner actually execute are treated as source. This is
- * what excludes `apps/web/.env.example` and `package.json` without a hardcoded per-file
- * exception list — `.env.example` names both env vars in plain text and would "activate" the
- * positive control the same way the script's own header would, for the same underlying reason.
- *
- * F-170: this set tracks Next's `pageExtensions` (default `['tsx', 'ts', 'jsx', 'js']` as of
- * Next 16.3, plus `.mjs`/`.cjs` for parity with this repo's own module files) — not a fixed
- * list independent of it. If `pageExtensions` is ever widened (the standard case is adding
- * `@next/mdx` for `.mdx`/`.md`), this set needs the same change in the same commit, or a
- * client-reachable `.mdx` read of `NEXT_PUBLIC_API_BASE_URL` becomes invisible to this scan the
- * same way F-168's `transpilePackages` gap is. Not widened speculatively now: `@next/mdx` is not
- * a dependency of this workspace.
- */
-const SOURCE_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
-
-async function collectSourceFiles(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
-
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (SOURCE_EXCLUDED_DIRS.has(entry.name)) {
-        continue;
-      }
-
-      files.push(...(await collectSourceFiles(path.join(dir, entry.name))));
-    } else if (
-      entry.isFile() &&
-      SOURCE_FILE_EXTENSIONS.has(path.extname(entry.name)) &&
-      !SOURCE_TEST_FILE_PATTERN.test(entry.name)
-    ) {
-      files.push(path.join(dir, entry.name));
-    }
-  }
-
-  return files;
-}
-
-/**
- * F-161 (option (a), routed and ruled by `sdlc-security-auditor`, the agent that specified the
- * control and owned getting its wording wrong in round 1 — see `POSITIVE_CONTROL_VAR` above).
- * True only if some non-test source file under `apps/web` (excluding `.next/`, `node_modules/`,
- * `scripts/` — constraint 1 — and `*.spec.*`/`*.test.*` files — F-167 constraint 2) textually
- * references `reference`, which callers pass as `POSITIVE_CONTROL_REFERENCE`
- * (`process.env.NEXT_PUBLIC_API_BASE_URL`), not the bare variable name.
- *
- * Matching the full expression instead of the bare name closes F-167's reproduced false
- * activation (a comment or an unrelated identifier containing the variable's name), but does not
- * make this exhaustive — a destructured `const { NEXT_PUBLIC_API_BASE_URL } = process.env` would
- * still slip past. A residual false "active" here still fails closed rather than vacuously
- * passing, which stays the safe direction to be wrong in.
- */
-async function hasSourceReference(reference) {
-  const files = await collectSourceFiles(process.cwd());
-
-  for (const file of files) {
-    const contents = await readFile(file, 'utf8');
-
-    if (contents.includes(reference)) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 async function main() {
@@ -378,24 +297,7 @@ async function main() {
     return;
   }
 
-  const positiveControlActive = await hasSourceReference(POSITIVE_CONTROL_REFERENCE);
-  let positiveControl = null;
-
-  if (positiveControlActive) {
-    try {
-      positiveControl = {
-        name: POSITIVE_CONTROL_VAR,
-        value: readRequiredValue(POSITIVE_CONTROL_VAR),
-      };
-    } catch (error) {
-      console.error(`FAIL: ${error.message}`);
-      process.exitCode = 1;
-      return;
-    }
-  }
-
-  // --- BFF_PROXY_SECRET leak scan: SCAN_ROOTS only, never widened (F-167's own required
-  // constraint). This loop never reads positiveControl.
+  // --- BFF_PROXY_SECRET leak scan: SCAN_ROOTS only, never widened (F-172).
   const filesByRoot = [];
 
   for (const root of SCAN_ROOTS) {
@@ -462,69 +364,107 @@ async function main() {
         "variable in client code, and reaches .next/server/app/** by being passed — directly " +
         "or as a prop to a 'use client' component — into anything Next prerenders or " +
         `serialises as an RSC flight payload. ${secret.name} must never be reachable by either ` +
-        'path (ADR-0014).',
+        'path (ADR-0014). This scan is deliberately narrow — see the file header for why ' +
+        'widening it would weaken, not strengthen, what a red here means (F-172).',
     );
     process.exitCode = 1;
     return;
   }
 
-  // --- Positive control scan: POSITIVE_CONTROL_SCAN_ROOT only (all of `.next` except
-  // `.next/cache` — F-167's fix, part 1), entirely separate from the leak scan above, and only
-  // run at all when the control is active. `.next` is guaranteed to exist here — the leak scan
-  // above already confirmed both of its subdirectories (SCAN_ROOTS) exist and are non-empty.
+  // --- Positive control: F-171's build-derived, three-way discriminator. Entirely separate
+  // scan from the leak scan above (never widens it), and runs regardless of anything found in
+  // source — there is no source scan left to run. `.next` is guaranteed to exist here — the
+  // leak scan above already confirmed both of its subdirectories (SCAN_ROOTS) exist and are
+  // non-empty.
   const perRootSummary = filesByRoot
     .map(({ root, files }) => `${root} (${String(files.length)})`)
     .join(', ');
 
-  const sourceScanDescription =
-    'apps/web (.ts/.tsx/.js/.jsx/.mjs/.cjs files, excluding .next/, node_modules/, scripts/, ' +
-    'and *.spec.*/*.test.* files — does not include workspace packages such as ' +
-    '@shortkit/contracts, even though next.config.ts transpiles one; F-168)';
+  const rawPositiveControlValue = process.env[POSITIVE_CONTROL_VAR];
+  const hasPositiveControlValue =
+    rawPositiveControlValue !== undefined && rawPositiveControlValue.trim() !== '';
 
-  if (positiveControlActive) {
-    let positiveControlFound = false;
+  const controlFiles = await collectFiles(
+    POSITIVE_CONTROL_SCAN_ROOT.dir,
+    POSITIVE_CONTROL_SCAN_EXCLUDED_DIRS,
+  );
 
-    for (const file of await collectFiles(
-      POSITIVE_CONTROL_SCAN_ROOT.dir,
-      POSITIVE_CONTROL_SCAN_EXCLUDED_DIRS,
-    )) {
-      const contents = await readFile(file, 'utf8');
+  let nameFound = false;
+  let valueFound = false;
 
-      if (matchesValue(contents, positiveControl.value)) {
-        positiveControlFound = true;
-        break;
-      }
+  for (const file of controlFiles) {
+    const contents = await readFile(file, 'utf8');
+
+    if (!nameFound && contents.includes(POSITIVE_CONTROL_VAR)) {
+      nameFound = true;
     }
 
-    if (!positiveControlFound) {
-      console.error(
-        `FAIL: ${positiveControl.name}'s value was not found anywhere under ` +
-          `${POSITIVE_CONTROL_SCAN_ROOT.name} (excluding cache/), even though ${sourceScanDescription} ` +
-          `references \`${POSITIVE_CONTROL_REFERENCE}\`. This is the positive control ` +
-          "(F-156/F-161/F-167): its presence is what proves the build actually ran with this " +
-          'check\'s environment. A reference existing without the value landing anywhere in ' +
-          '.next means the build ran without a real value for this variable, or with a ' +
-          'different one than this check is now reading.',
-      );
-      process.exitCode = 1;
-      return;
+    if (
+      hasPositiveControlValue &&
+      !valueFound &&
+      matchesValue(contents, rawPositiveControlValue)
+    ) {
+      valueFound = true;
     }
 
-    console.log(
-      `OK: checked ${String(totalFiles)} file(s) across ${perRootSummary} for ` +
-        `${secret.name}, no leaked value found; positive control confirmed (${sourceScanDescription} ` +
-        `references \`${POSITIVE_CONTROL_REFERENCE}\`, and its value is present somewhere under ` +
-        `${POSITIVE_CONTROL_SCAN_ROOT.name}).`,
-    );
-  } else {
+    // Nothing more to learn once the name is confirmed and either the value is too (both
+    // maxed out) or there is no value to compare against in the first place (valueFound can
+    // never become true without one).
+    if (nameFound && (valueFound || !hasPositiveControlValue)) {
+      break;
+    }
+  }
+
+  if (valueFound) {
     console.log(
       `OK: checked ${String(totalFiles)} file(s) across ${perRootSummary} for ${secret.name}, ` +
-        `no leaked value found. NOTICE: no reference to \`${POSITIVE_CONTROL_REFERENCE}\` found ` +
-        `in ${sourceScanDescription} — the positive control is inactive, so this run does NOT ` +
-        'prove build/check environment agreement (F-161/F-167). It activates automatically the ' +
-        'first time non-test code under apps/web reads that expression (TASK-008).',
+        `no leaked value found; positive control confirmed (${POSITIVE_CONTROL_VAR}'s value is ` +
+        `present somewhere under ${POSITIVE_CONTROL_SCAN_ROOT.name}, excluding cache/).`,
     );
+    return;
   }
+
+  if (!nameFound) {
+    console.log(
+      `OK: checked ${String(totalFiles)} file(s) across ${perRootSummary} for ${secret.name}, ` +
+        `no leaked value found. NOTICE: ${POSITIVE_CONTROL_VAR} was not found — as a name or a ` +
+        `value — anywhere under ${POSITIVE_CONTROL_SCAN_ROOT.name} (excluding cache/). No ` +
+        'compiled reference means this run has no evidence either way, not evidence of a ' +
+        'mismatch (F-171) — the positive control is inactive, and this run does NOT prove ' +
+        'build/check environment agreement. It activates automatically the first time a module ' +
+        `reachable from an entrypoint reads ${POSITIVE_CONTROL_VAR} (TASK-008).`,
+    );
+    return;
+  }
+
+  // nameFound && !valueFound: a compiled reference exists but its value is missing from the
+  // scan. Requiring the value now (rather than up front) is what keeps this branch from firing
+  // before the build has even shown the reference exists — see the file header's F-171 section.
+  let positiveControlValue;
+
+  try {
+    positiveControlValue = readRequiredValue(POSITIVE_CONTROL_VAR);
+  } catch (error) {
+    console.error(
+      `FAIL: ${error.message} A compiled reference to ${POSITIVE_CONTROL_VAR} was found under ` +
+        `${POSITIVE_CONTROL_SCAN_ROOT.name}, so this check needs a real value to compare ` +
+        'against it.',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  console.error(
+    `FAIL: a compiled reference to ${POSITIVE_CONTROL_VAR} was found under ` +
+      `${POSITIVE_CONTROL_SCAN_ROOT.name} (excluding cache/), but this check's value ` +
+      `(${String(positiveControlValue.length)} character(s)) is not present anywhere in that ` +
+      "scan. This is the positive control (F-156/F-161/F-167/F-171): its match is what proves " +
+      "the build actually ran with this check's environment. The build ran without a real " +
+      `value for ${POSITIVE_CONTROL_VAR}, or with a different one than this check is now ` +
+      'reading — the dominant real-world case is the Vercel project variable not being set for ' +
+      'the environment this build ran in.',
+  );
+  process.exitCode = 1;
 }
 
 await main();
