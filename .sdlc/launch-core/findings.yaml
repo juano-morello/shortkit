@@ -5792,3 +5792,38 @@
 #   early passes a table nobody re-examined. The hardening closes exactly that - each exemption must
 #   ASSERT the relation carries no tenant_id column rather than trusting the name, so an auth table
 #   that lands WITH a tenant_id fails the check instead of being waved through.
+
+- id: F-179
+  phase: implement
+  task: TASK-004
+  source: sdlc-scout
+  round: 6
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/test-strategy.md
+  line: 1
+  summary: >-
+    test-strategy.md still lists API_BASE_URL as a checked leak target for AC-113. Juano's F-154
+    ruling removed it, and the code, the AC and .env.example were all updated - this document was
+    not.
+  failure_scenario: >-
+    Found by sdlc-scout while grounding TASK-002, outside its paths, and reported as a gotcha
+    rather than silently ignored. The document is normative for how this project tests, so a reader
+    reaching it after the ruling gets the pre-ruling answer: that the guard searches for two
+    server-only values rather than one. The consequence is the exact reintroduction F-154's ruling
+    was written to prevent - a future implementer or auditor reads the contract, finds the code
+    checking only BFF_PROXY_SECRET, and "fixes" it back, which reds every correct build the moment
+    anything reads NEXT_PUBLIC_API_BASE_URL. Three separate anti-reintroduction notes were placed
+    in the code, .env.example and the TASK card precisely because that was the anticipated failure;
+    this document is the one surface that did not get one.
+  required_change: >-
+    Update test-strategy.md to match the F-154 ruling: BFF_PROXY_SECRET is the sole leak target,
+    and API_BASE_URL is deliberately excluded because it is public Fly topology rather than a
+    secret. Routing rule 0 - design/** is sdlc-architect's.
+  owner_slot: sdlc-architect
+  status: open
+  ruling: >-
+    DEFERRED to Ship-phase triage rather than opening a round for it. It is documentation drift
+    with no runtime consequence today, and the three anti-reintroduction notes that DO exist sit in
+    the places a person actually edits - the script, .env.example and the TASK card. Recorded here
+    so the Ship review sees it with the full-branch context.
