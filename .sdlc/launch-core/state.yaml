@@ -13,7 +13,7 @@ gates:
   # rather than once for the initiative. TASK-003 onward each get their own red
   # step and their own approval before the wave implements.
   test:      { status: approved, approved_at: 2026-08-05, scope: "wave 1 only — TASK-002, TASK-004, TASK-005, TASK-007" }
-  implement: { status: pending, approved_at: null }
+  implement: { wave_1: approved, approved_at: 2026-08-06, scope: "TASK-002, TASK-004, TASK-005, TASK-007 (TASK-001 was wave 0). Waves 2-12prime and D remain: 53 of 58 TASKs." }
   ship:      { status: pending, approved_at: null }
 
 tasks:
@@ -730,3 +730,6 @@ log:
   - "2026-08-06 implement: I ASKED FOR ITS RULINGS RATHER THAN MORE required_changes AND IT WROTE THEM IN findings.yaml FORM. Persisted as F-210 parked, F-211 routed to Retro, F-212 parked and folded into F-211 - in its words rather than my paraphrase, which is the whole point of having asked. F-208 exists because a paraphrase lost the substance of F-203; I was not going to repeat that at the cap."
   - "2026-08-06 implement: TASK-002 -> DONE at head 2627867. 5 audit rounds, 4 fix rounds, ALL FOUR ACs MET - AC-5, AC-114, AC-113 and AC-14 - with sdlc-product-auditor APPROVED, sdlc-security-auditor CLEAR and sdlc-reviewer CLEAR. WAVE 1 IS COMPLETE."
   - "2026-08-06 implement: WAVE 1 GATE EVIDENCE RUN FRESH AT THE GATE, not quoted from earlier: unit 8 files / 65 passed, integration 21 passed, lint exit 0, typecheck both workspaces Done, build Done, and AC-7 re-verified live by curl at 200 text/html. The one thing I cannot show green is CI ITSELF - cb40694 is pending and every earlier run was cancelled by a superseding push, so no Actions run stands behind the final commits. That is a runner-capacity fact rather than a defect, and the gate should see it as one."
+  - "2026-08-06 implement: WAVE 1 GATE APPROVED BY JUANO. TASK-001 (wave 0), TASK-002, TASK-004, TASK-005 and TASK-007 all done. Evidence presented was run fresh at the gate rather than quoted: unit 8 files / 65 passed, integration 21 passed, lint 0, typecheck both workspaces, build, and AC-7 re-verified live at 200 text/html."
+  - "2026-08-06 ship: I CHECKED WHAT 'MOVE TO SHIP' COULD MEAN BEFORE DOING IT, and the check mattered. plan.md has waves 0 through 12prime plus trailing wave D, 58 TASK cards exist, and FIVE ARE DONE - so the initiative's Ship phase, which ships.md says runs ONCE AFTER EVERY WAVE, would have produced an end-to-end acceptance pass against eight success criteria of which SC-2, SC-3 and SC-7 have no implementing TASK yet. Running it would have generated a release changelog for 9 percent of an initiative."
+  - "2026-08-06 ship: JUANO RULED INTERMEDIATE INTEGRATION rather than the Ship phase - merge wave 1 to main, then continue to wave 2. The payoff is concrete rather than tidy: dependencies.yml HAS NEVER RUN because schedule: only fires from the DEFAULT BRANCH and the file exists only on feat/launch-core; main is still at the scaffold commit, so the branch protection and CI built this session guard nothing real; and a 58-TASK branch stops accumulating unmerged work."
