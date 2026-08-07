@@ -7249,3 +7249,66 @@
   status: fixed
   resolved_by: orchestrator
   resolved_round: 1
+
+- id: F-224
+  phase: test
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 1
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/design/adr-0006-health-and-deploy.md
+  line: 1
+  summary: >-
+    No artifact anywhere names the build-time SHA source that AC-6's `commit` field is supposed to
+    report. Not an ADR, a contract, a workflow, an .env.example or a manifest - so the test had to
+    choose the name in order to exist at all.
+  failure_scenario: >-
+    AC-6 requires `commit` to match the deployed git SHA, and Juano's 2026-08-06 split made the
+    not-a-placeholder clause a tested one specifically because a stale or empty commit makes a deploy
+    unidentifiable and regresses silently. But a test proving the value is not hardcoded must SET the
+    source, and setting it requires naming it. The test architect searched and found no artifact that
+    does, so the spec decided `GIT_COMMIT_SHA` and documented the decision in its own docblock. That is
+    a test making a production decision by default - the exact inversion this workflow exists to
+    prevent - and it is invisible unless someone reads the spec. If TASK-003's implementer picks a
+    different variable the test fails for a reason that looks like a defect and is not.
+  required_change: >-
+    Name the variable in an artifact the implementer reads, and wire it where it is produced: the
+    Dockerfile build arg, fly.toml, and apps/api/.env.example, all of which are in TASK-003's paths.
+    The test's choice of GIT_COMMIT_SHA is a reasonable default and changing it is a single edit in the
+    spec, which is NOT a weakening - but the name must live in the deploy artifacts rather than only in
+    a test. Routing rule 0 - the ADR half belongs to sdlc-architect, the deploy artifacts to TASK-003.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-225
+  phase: test
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: .sdlc/launch-core/design/test-strategy.md
+  line: 1
+  summary: >-
+    A `?? 'unknown'` fallback in the health handler passes the in-process test and still ships an
+    unidentifiable deploy, so the exempt half of AC-6 must be verified by COMPARISON, not existence.
+  failure_scenario: >-
+    The test architect found the residue in its own test and said so rather than leaving it. Its
+    assertion supplies a fixture SHA and demands exact equality, which correctly kills a hardcoded
+    'unknown', an empty string, a truncated value and a wrong variable. What it cannot kill is a
+    fallback that only fires when the build arg is absent - in the test the variable is always set, so
+    the fallback path is never taken. If the Dockerfile forgets the build arg, every gate stays green
+    and the deployed API reports commit 'unknown'. The residue lands squarely on the half Juano
+    exempted, which means it lands on sdlc-product-auditor.
+  required_change: >-
+    State in test-strategy.md's AC-6 entry, and in the product auditor's brief when TASK-003 is
+    audited, that verifying the exempt half means COMPARING the deployed /health commit against the
+    SHA that was actually deployed - not asserting the field is present or non-empty. An auditor
+    checking for presence would sign off on 'unknown'.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null

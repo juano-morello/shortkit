@@ -6,7 +6,7 @@ title: Web typed API client and error surface
 status: todo
 owner_slot: sdlc-implementer-frontend
 depends_on: [TASK-007, TASK-004]
-paths: ["apps/web/src/lib/api/**", "apps/web/src/components/errors/**"]
+paths: ["apps/web/src/lib/api/**", "apps/web/src/components/errors/**", "apps/web/package.json", "pnpm-lock.yaml"]
 contracts: [design/contracts/error-envelope.md, design/contracts/web-api-client.md]
 test_files: []
 acceptance: [AC-15]
@@ -60,3 +60,38 @@ redirect surface rather than the JSON one. And the positive control activates th
 code under `apps/web` reads it, so `pnpm --filter @shortkit/web assert:no-secrets` — chained into
 `vercel.json`'s `buildCommand` — starts requiring the value to actually land in the build output
 from that commit onward. That is intended fail-closed behaviour, not a regression to debug.
+
+## ⚠ zod, the manifest, and the stub (ruled by Juano 2026-08-06)
+
+### `apps/web` declares `zod`, exact-pinned, at the SAME version `packages/contracts` pins
+
+`paths` gained `apps/web/package.json` and `pnpm-lock.yaml`. MEASURED, not inferred: materialising
+the design stub gives `src/lib/api/client.ts(9,24): error TS2307: Cannot find module 'zod'`. Vitest
+does not catch it because esbuild strips `import type`, so it would have surfaced in CI's `quality`
+job rather than locally — which is the worst place to find it.
+
+**The version must match `packages/contracts` exactly.** Two different zod copies produce types that
+do not unify, and the failure reads as an inscrutable assignability error rather than as a version
+skew. Exact pin, no caret and no tilde, per ADR-0018.
+
+The alternative — re-exporting the needed types through `@shortkit/contracts` so the client imports
+no zod — was offered and declined: it amends a normative contract that seventeen TASKs read, and it
+would invalidate the spec already written against the current stub shape.
+
+**You are now the THIRD wave-2 TASK holding `pnpm-lock.yaml`**, alongside TASK-003 (pino) and
+TASK-009 (better-auth). Worktree isolation is load-bearing. **Never merge lockfile hunks — re-run
+the install on the merged manifests**, per F-085.
+
+### A 200 carrying non-JSON is a CONTRACT VIOLATION, not a transport error
+
+`web-api-client.md` step 1 read two ways when a 200 response carries something unparseable as JSON —
+an HTML error page from a proxy, or an empty body. Ruled: **`ContractViolationError`**.
+
+AC-15's own words settle it — "the response body does not validate against the declared contract"
+makes no exception for bodies that fail earlier, at the JSON parse. It also fails safe: a proxy
+returning HTML is exactly the case a caller must distinguish from real data, and retry logic keyed
+on `NetworkError` would otherwise retry something that can never succeed. A third error class was
+considered and declined; AC-15 asks for one distinguishable contract-violation error.
+
+The frozen test `AC-15: raises ContractViolationError when a 200 body is not JSON at all` already
+encodes this. Do not flip it.
