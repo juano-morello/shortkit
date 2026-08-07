@@ -133,6 +133,23 @@ Each of these carries a reason.
   fake sender and assert the message was handed over, not that it arrived.
 - **Deployment itself.** TASK-003 and TASK-004 produce deployed URLs. Hit those URLs to
   confirm Fly and Vercel served them. No test in the suite covers it.
+- **AC-112 as a vitest test (TASK-009).** Ruled by Juano 2026-08-06. AC-112 has two halves and
+  neither belongs in the suite.
+
+  The first is greppable — `apps/api/package.json` must declare `better-auth` with no range
+  character. The second is a property of a **report**: TASK-009 must record the four ADR-0018 Better
+  Auth facts verified against that exact release. A test asserting a report contains four sentences
+  is not a test.
+
+  **`sdlc-product-auditor` verifies both**, which is what AC-112 was minted for. F-050 created it
+  precisely because the product auditor checks ACs verbatim and would otherwise never check the pin —
+  so routing it back to that auditor is the mechanism working as designed, not a gap.
+
+  Testing the manifest half alone was offered and declined: it is a test of a manifest rather than of
+  behaviour, and this initiative already declined that shape once when AC-2's literal reading was
+  amended rather than tested. Folding it into CI was declined because TASK-002 owns `.github/**` and
+  is done, so it would reopen a merged TASK while still leaving the four-facts half to the auditor.
+
 - **AC-6's deployment half only (TASK-003).** Ruled by Juano 2026-08-06, and this one is a **split**
   rather than a whole-AC exemption, which is why it reads differently from the two below.
 
