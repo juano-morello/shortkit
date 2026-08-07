@@ -20,6 +20,18 @@
  * AC-9's re-parenting case. Invariant 4 needs no database and lives in
  * `src/tenancy/tenant-context.spec.ts`; the rest need this harness.
  *
+ * Round 2, 2026-08-07. F-120, F-121 and F-123 were re-dispatched while already closed;
+ * the four tests added this round are the residue their round-1 coverage left, each
+ * verified by mutating the implementation rather than by an arriving red:
+ *   - F-120, the two accessors agreeing ACROSS the transaction boundary, and the
+ *     escaping error's `message` carrying no bound value. Round 1 covered the inside-`fn`
+ *     half only, and the leak — which is the half `sdlc-security-auditor` raised — was
+ *     asserted nowhere.
+ *   - F-121, a continuation escaping a ROLLED BACK transaction. Both round-1 tests
+ *     commit, so a guard set on the success path rather than in `finally` passed them.
+ *   - F-123, the `idle_in_transaction_session_timeout` statement, which is named in the
+ *     finding's required change and had no test at all.
+ *
  * ⚠ ONE INTEGRATION FILE, ON PURPOSE. `test/support/rls-fixture.ts` drops and
  * recreates `tenants` and `rls_fixture_rows` per test, and vitest runs FILES in
  * parallel while running the tests inside one file sequentially. A second
@@ -89,6 +101,22 @@ async function rejectionOf(work: Promise<unknown>): Promise<{ code?: string; mes
   } catch (error) {
     const failure = error as { code?: string; message?: string };
     return { code: failure.code, message: failure.message ?? String(error) };
+  }
+
+  throw new Error('expected the call to reject, but it resolved');
+}
+
+/**
+ * The rejection value itself, unprojected. `rejectionOf` above reads `.code` and
+ * `.message` off the caught value, which is the one thing the tests below must not do:
+ * their subject is what those fields hold on the error that actually escapes, and a
+ * projection taken before the assertion would decide half the answer.
+ */
+async function rejectionValueOf(work: Promise<unknown>): Promise<unknown> {
+  try {
+    await work;
+  } catch (error) {
+    return error;
   }
 
   throw new Error('expected the call to reject, but it resolved');
@@ -332,6 +360,88 @@ describe('a database error caught inside the wrapped function', () => {
     const rows = await withTenantTransaction(TENANT_A, (db) => visibleRows(db));
     expect(labelsOf(rows)).toContain(REDRAWN_LABEL);
   });
+
+  const ESCAPING_ROW_ID = '99999999-9999-4999-8999-999999999999';
+
+  it('F-120: the accessors read the same code and constraint inside fn and after the error escapes the transaction', async () => {
+    // F-120's required_change in its own words: "Make the driver error the same shape at
+    // every catch site inside fn." The two catch sites are different OBJECTS — drizzle's
+    // `DrizzleQueryError` inside, the driver's `pg.DatabaseError` outside, because
+    // `databaseTransaction` unwraps at the transaction boundary — and the whole point of
+    // the accessors is that a caller cannot tell which one it holds. The test above
+    // covers the inside half alone; nothing covered the outside half through the
+    // accessors, and nothing covered the two agreeing.
+    const seenInsideFn: { code?: string; constraint?: string }[] = [];
+
+    const escaped = await rejectionValueOf(
+      withTenantTransaction(TENANT_A, async (db) => {
+        await db.execute(
+          sql`insert into ${table} (id, tenant_id, label)
+              values (${ESCAPING_ROW_ID}::uuid, ${TENANT_A}::uuid, ${'first-draw'})`,
+        );
+
+        try {
+          await db.execute(
+            sql`insert into ${table} (id, tenant_id, label)
+                values (${ESCAPING_ROW_ID}::uuid, ${TENANT_A}::uuid, ${'second-draw'})`,
+          );
+        } catch (error) {
+          seenInsideFn.push({
+            code: postgresErrorCode(error),
+            constraint: postgresErrorConstraint(error),
+          });
+
+          // Rule 4 of "Driver errors inside `fn`": rethrow what you did not handle,
+          // unchanged. This is a collision on a constraint the loop does not retry.
+          throw error;
+        }
+      }),
+    );
+
+    // Hand-derived from the fixture's `id uuid PRIMARY KEY` and from Postgres's
+    // unique_violation SQLSTATE, not read back off either error.
+    const bothSidesOfTheBoundary = { code: '23505', constraint: VIOLATED_CONSTRAINT };
+
+    expect(seenInsideFn).toEqual([bothSidesOfTheBoundary]);
+    expect({
+      code: postgresErrorCode(escaped),
+      constraint: postgresErrorConstraint(escaped),
+    }).toEqual(bothSidesOfTheBoundary);
+  });
+
+  const LEAKED_ROW_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
+  it('F-120: the error that escapes the transaction carries neither the SQL text nor the bound values', async () => {
+    // The security half of F-120. drizzle's wrapper message is the literal
+    // `Failed query: ${query}\nparams: ${params}` (tenant-context.md, "Driver errors
+    // inside `fn`"), so it carries the statement and every bound value — here a tenant
+    // id and a row id, in production a user email, a workspace name or a link
+    // destination. TASK-007's filter logs `message` on an unhandled error, so what this
+    // asserts is that the value reaching the log store is the driver's own summary.
+    const escaped = await rejectionValueOf(
+      withTenantTransaction(TENANT_A, async (db) => {
+        await db.execute(
+          sql`insert into ${table} (id, tenant_id, label)
+              values (${LEAKED_ROW_ID}::uuid, ${TENANT_A}::uuid, ${'first-draw'})`,
+        );
+        await db.execute(
+          sql`insert into ${table} (id, tenant_id, label)
+              values (${LEAKED_ROW_ID}::uuid, ${TENANT_A}::uuid, ${'second-draw'})`,
+        );
+      }),
+    );
+
+    // Stated first: an error that had been swallowed, replaced or emptied would satisfy
+    // every `not.toContain` below without carrying anything.
+    expect(postgresErrorCode(escaped)).toBe('23505');
+
+    const reported = (escaped as Error).message;
+
+    expect(reported).not.toContain('Failed query:');
+    expect(reported).not.toContain('params:');
+    expect(reported).not.toContain(LEAKED_ROW_ID);
+    expect(reported).not.toContain(TENANT_A);
+  });
 });
 
 /**
@@ -369,6 +479,43 @@ describe('the tenant context after its transaction has settled', () => {
     return detached;
   }
 
+  /**
+   * The same shape, but the transaction ROLLS BACK instead of committing. The handle is
+   * back in the pool either way — drizzle releases the client in its `finally` — so the
+   * hazard is identical, while the guard sits in `withTenantTransaction`'s own `finally`
+   * and only that placement covers both. A guard set on the success path passes both
+   * tests above and leaves this one open.
+   */
+  async function afterTheTransactionRollsBack(work: () => Promise<unknown>): Promise<Settled> {
+    const rolledBackBy = 'deliberate failure, after the continuation was registered';
+
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+
+    let detached: Promise<Settled> | undefined;
+
+    const failure = await rejectionOf(
+      withTenantTransaction(TENANT_A, async () => {
+        detached = settle(gate.then(work));
+        throw new Error(rolledBackBy);
+      }),
+    );
+
+    // The premise, not the subject: if the transaction had committed, or had failed for
+    // some other reason, the assertion in the test would be about a different path.
+    expect(failure.message).toBe(rolledBackBy);
+
+    open();
+
+    if (detached === undefined) {
+      throw new Error('the detached continuation was never registered');
+    }
+
+    return detached;
+  }
+
   it('F-121: reading the ambient context from a continuation that resumes after COMMIT throws', async () => {
     // `tenantDb()`, not the `db` argument: F-121's guard belongs on the path
     // everything else uses, since `fn` holds its own handle directly and no flag on
@@ -394,6 +541,22 @@ describe('the tenant context after its transaction has settled', () => {
         return result.rows;
       }),
     );
+
+    expect(outcome).toEqual({
+      status: 'rejected',
+      reason: expect.any(TenantContextMissingError),
+    });
+  });
+
+  it('F-121: a continuation that resumes after ROLLBACK is refused the same as one that resumes after COMMIT', async () => {
+    // AC-11's rollback path reaches F-121's hazard by the same route: the transaction
+    // ended, drizzle released the client, and the pool has handed that physical
+    // connection to another request. A statement issued now runs under whatever
+    // `app.tenant_id` that request set.
+    const outcome = await afterTheTransactionRollsBack(async () => {
+      const result = await tenantDb().execute(sql`select 1 as reached_the_database`);
+      return result.rows;
+    });
 
     expect(outcome).toEqual({
       status: 'rejected',
@@ -708,6 +871,88 @@ describe('the connection pool', () => {
     for (const reason of failures) {
       expect(reason).toBeInstanceOf(Error);
     }
+  }, 60_000);
+});
+
+/**
+ * F-123's third statement. `withTenantTransaction` issues
+ * `set_config('idle_in_transaction_session_timeout', '5000', true)` alongside
+ * `statement_timeout` and `app.tenant_id` (tenant-context.md, "SQL issued by
+ * `withTenantTransaction`"). `statement_timeout` bounds a query that is RUNNING; it does
+ * not bound a gap with no query running, and a third-party call inside `fn` is exactly
+ * that gap. Node's `fetch` has no default timeout, so ten hung calls hold all ten pooled
+ * connections while nothing times out, nothing is logged and the health check passes.
+ * ADR-0002 recorded the ban on that I/O as "a rule, not a mechanism"; this is the
+ * mechanism, and it was the one part of F-123's required change with no coverage.
+ */
+describe('a transaction that sits idle between two statements', () => {
+  const IDLE_ROW_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const IDLE_LABEL = 'written-then-left-idle';
+
+  /**
+   * Past the module's fixed 5000 ms bound, which is deliberately not settable through
+   * `TenantTransactionOptions`, so the wait is real rather than shortened for the test.
+   */
+  const IDLE_GAP_MS = 7000;
+
+  /** Long enough for the closed socket to surface in the client after the backend dies. */
+  const SOCKET_GRACE_MS = 1000;
+
+  beforeEach(() => {
+    createRlsFixture();
+  });
+
+  afterAll(() => {
+    dropRlsFixture();
+  });
+
+  it('F-123: a transaction idle past idle_in_transaction_session_timeout is terminated and commits nothing', async () => {
+    const fatal: string[] = [];
+    const capture = (error: unknown): void => {
+      fatal.push(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+    };
+
+    // Postgres kills the backend while no query is active, so `pg` reaches
+    // `client.emit('error')` on a CHECKED-OUT client, and `pool.on('error')` does not
+    // fire for one. Without `pool.on('connect', ...)` in client.ts there is no listener
+    // and Node takes the process down — which would end this run rather than fail this
+    // test, so the capture below is what makes the assertion writable at all.
+    process.on('uncaughtException', capture);
+
+    try {
+      const failure = await rejectionValueOf(
+        withTenantTransaction(TENANT_A, async (db) => {
+          await db.execute(
+            sql`insert into ${table} (id, tenant_id, label)
+                values (${IDLE_ROW_ID}::uuid, ${TENANT_A}::uuid, ${IDLE_LABEL})`,
+          );
+
+          // The hung mail, DNS or Fly call the rule forbids, in the shape it reaches
+          // Postgres: an open transaction with no statement running.
+          await sleep(IDLE_GAP_MS);
+
+          await db.execute(sql`select 1 as issued_after_the_gap`);
+
+          return 'held the connection across the gap';
+        }),
+      );
+
+      // Nothing branches on this error and the test does not either. Postgres has already
+      // killed the backend, so drizzle's own ROLLBACK fails on a dead client and replaces
+      // the `25P03` (tenant-context.md, "What the caller sees when it fires"). The
+      // guarantee is that the caller is told, not what it is told.
+      expect(failure).toBeInstanceOf(Error);
+
+      await sleep(SOCKET_GRACE_MS);
+      expect(fatal).toEqual([]);
+    } finally {
+      process.off('uncaughtException', capture);
+    }
+
+    // The write is gone: the transaction was ended by Postgres, not merely abandoned by
+    // the client. A run that let the transaction survive the gap would commit this row.
+    const rows = await withTenantTransaction(TENANT_A, (db) => visibleRows(db));
+    expect(labelsOf(rows)).not.toContain(IDLE_LABEL);
   }, 60_000);
 });
 
