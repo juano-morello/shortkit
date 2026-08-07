@@ -7179,3 +7179,73 @@
   status: fixed
   resolved_by: orchestrator
   resolved_round: 2
+
+- id: F-222
+  phase: test
+  task: TASK-009
+  source: orchestrator
+  round: 1
+  severity: minor
+  kind: process
+  file: .sdlc/launch-core/tasks/TASK-009.md
+  line: 5
+  summary: >-
+    TASK-009's front-matter has never parsed as YAML. Its title contains an unquoted ": " which YAML
+    reads as a mapping key, and it is the only one of 58 TASK cards that is broken.
+  failure_scenario: >-
+    Found while machine-validating the card after a paths edit; VERIFIED PRE-EXISTING by parsing the
+    committed version, which fails identically, and VERIFIED UNIQUE by parsing all 58 cards - TASK-009
+    is the only failure. This is the same defect class the ledger already recorded on 2026-08-04, when
+    findings.yaml turned out never to have parsed because four unquoted scalars contained ": ". The
+    reason it survived this long is the shape of my own habit: I machine-validate a card's front-matter
+    after I edit it, so a card nobody had edited was never checked. Any tooling that reads TASK
+    front-matter - a dispatch composer, a coverage report, a wave-table check - would fail or silently
+    skip this card, and TASK-009 is the heaviest TASK in wave 2 with four ACs and three contracts.
+  required_change: >-
+    FIXED - title quoted. The durable fix is a check over ALL cards rather than the one being edited,
+    and it belongs in Retro alongside the 2026-08-04 note about validating every .sdlc/ YAML on write.
+    A one-line node script parsing every front-matter would have caught this the day the card was
+    written.
+  owner_slot: null
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 1
+
+- id: F-223
+  phase: test
+  task: TASK-006
+  source: sdlc-scout
+  round: 1
+  severity: major
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-006.md
+  line: 9
+  summary: >-
+    TASK-006's only deliverable is test code - its entire paths is apps/api/test/isolation/** - while
+    its owner_slot is sdlc-implementer-backend and routing rule 0 sends test files to
+    sdlc-test-architect. Nothing in the ledger had ruled on it.
+  failure_scenario: >-
+    Found by sdlc-scout when asked to check it specifically, and VERIFIED: grep for "task: TASK-006"
+    across findings.yaml returned zero, so this TASK had reached the edge of dispatch with no owner
+    anyone had confirmed. The collision is sharper than F-077's and F-100's, which resolved the same
+    question for apps/api/test/support/**: that directory is in NO TASK's paths, whereas
+    apps/api/test/isolation/** is TASK-006's whole job, so ruling for the test architect means a TASK
+    card names an owner that will not write it. The scout also found isolation-coverage.md:4 gives
+    coverage.ts a NORMATIVE FORM with caller invariants, which reads as contract-register rather than
+    test-register, and that no vitest project collects the directory - so the artifact genuinely sits
+    across the boundary rather than being misfiled.
+  required_change: >-
+    RULED by Juano 2026-08-06. THE TEST ARCHITECT WRITES IT, following F-077 and F-100. AC-12 needs no
+    tests-of-the-harness - a test asserting a test helper works is the shape this initiative has twice
+    called hollow - and is satisfied by the harness existing and reporting correctly, verified by
+    sdlc-product-auditor against isolation-coverage.md's normative form. The split-by-contract-register
+    alternative was declined because a boundary inside one directory is the class this initiative has
+    filed sixteen findings about. THE ACCEPTED RISK IS STATED RATHER THAN HIDDEN: SC-1 rests on this
+    harness and nothing mechanically proves it would DETECT a leak. Separately ruled - build against
+    the tables that exist today rather than blocking on TenantFixture's five later-wave fields, with
+    the coverage boundary stated in the report and at the gate, because "the isolation harness passes"
+    otherwise reads far stronger than it is.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 1

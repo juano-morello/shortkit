@@ -2,11 +2,11 @@
 id: TASK-009
 story: STORY-005
 epic: EPIC-002
-title: Better Auth mounted in NestJS: signup, login, logout, session
+title: "Better Auth mounted in NestJS: signup, login, logout, session"
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-005, TASK-007]
-paths: ["apps/api/src/auth/**", "apps/api/src/main.ts", "packages/contracts/src/auth/**", "apps/api/src/app.module.ts", "apps/api/test/auth/**"]
+paths: ["apps/api/src/auth/**", "apps/api/src/main.ts", "packages/contracts/src/auth/**", "apps/api/src/app.module.ts", "apps/api/test/auth/**", "apps/api/package.json", "pnpm-lock.yaml"]
 contracts: [design/contracts/auth-tokens.md, design/contracts/rate-limit.md, design/contracts/tenant-context.md]
 test_files: []
 acceptance: [AC-16, AC-20, AC-21, AC-112]
@@ -185,3 +185,22 @@ correct and is what F-122 ruled.
 
 It is not a merge blocker today only because the four tables do not exist; the gate reported three
 of them as "not evaluated" in the orchestrator's run. **The moment you create them, it is.**
+
+## ⚠ apps/api/package.json and pnpm-lock.yaml added to paths (F-075/F-085, ruled by Juano 2026-08-06)
+
+**You add `better-auth` and commit the regenerated lockfile in the same commit.** Verified
+2026-08-06: `better-auth` appears in zero manifests and zero times in the lockfile.
+
+This is not bookkeeping for you the way it is for TASK-003 — **AC-112 is stated against this file.**
+It requires `apps/api/package.json` to declare `better-auth` with **no range character**, and it
+requires your report to record the four ADR-0018 facts verified against that exact release. F-040's
+fix moved that obligation here, and AC-112 is the gate that makes it hold: `sdlc-product-auditor`
+verifies ACs verbatim and would otherwise never check the pin.
+
+**STOP AND ESCALATE** rather than improvising if ADR-0018 fact (2) `hooks.before` /
+`createAuthMiddleware` or fact (3) `ctx.body.email` has changed in the release you pin. ADR-0018
+says F-019's and F-021's mechanisms need revisiting if either moved, and that is a design decision
+rather than an implementation detail.
+
+**TASK-003 also holds these two files this wave** — it adds `pino`. Worktree isolation is
+load-bearing. **Never merge lockfile hunks; re-run the install on the merged manifests.**

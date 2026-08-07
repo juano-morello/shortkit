@@ -6,7 +6,7 @@ title: API deployable on Fly.io with a health endpoint
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: ["fly.toml", "Dockerfile", "infra/**", "apps/api/src/health/**", "apps/api/src/app.module.ts", "apps/api/src/main.ts", "apps/api/src/common/errors/**"]
+paths: ["fly.toml", "Dockerfile", "infra/**", "apps/api/src/health/**", "apps/api/src/app.module.ts", "apps/api/src/main.ts", "apps/api/src/common/errors/**", "apps/api/package.json", "pnpm-lock.yaml"]
 contracts: []
 test_files: []
 acceptance: [AC-6]
@@ -42,13 +42,23 @@ gives its Normative form as "`apps/api/src/observability/logger.ts` **and**
 `apps/api/src/main.ts`", and its Consumed-by as "every API TASK. Nothing may opt out" —
 so the contract always assigned you a file your paths excluded.
 
-Concretely: `main.ts`'s `bootstrap().catch()` currently logs through `console.error`, with
+Concretely, and CORRECTED 2026-08-06: `main.ts`'s `bootstrap().catch()` no longer logs through
+`console.error` — TASK-007 replaced it with the error envelope and Nest's `Logger`, and this line
+described the pre-TASK-007 repo. What remains yours is the pino swap itself, on that line and on
+`exception-filter.ts`. The original text follows for the reasoning it carries, with
 a comment saying you will swap it for pino. Do that. Until you do, the API's boot-failure
 log line carries no `level`, no `service`, no `env`, no timestamp and no redaction, which
 is exactly the pipeline the contract says nothing may opt out of.
 
 You share `main.ts` with TASK-009, which owns `assertBffProxySecretConfigured()` there.
-You are in wave 2 and it is in wave 3, so you land first.
+
+**CORRECTED 2026-08-06: TASK-009 is in WAVE 2, not wave 3 — you are concurrent, not sequenced.**
+`plan.md`'s wave table puts 003, 006, 008 and 009 together and prescribes worktree isolation for
+exactly this reason. You do not "land first". The scout mapped the collision precisely: TASK-009
+rewrites `main.ts:42-52` (bodyParser off, the auth mount, the global prefix moving last) while you
+rewrite `:54-81` and insert a boot refusal into the region it restructures. In `app.module.ts` the
+conflict is line `:16` alone. Merge deliberately rather than assuming one of you arrives to a clean
+file.
 
 ## ⚠ common/errors/** added to paths 2026-08-05 (F-090, ruled by Juano)
 
@@ -213,3 +223,19 @@ Found by `sdlc-integrator` during wave 1's integration pass. It matters slightly
 unbuilt endpoint usually would: configuration for a route exists while the route does not, so a
 platform health probe — which is what `fly.toml` will point at — reads a 404 as a broken service
 rather than an unimplemented one.
+
+## ⚠ apps/api/package.json and pnpm-lock.yaml added to paths (F-075/F-085, ruled by Juano 2026-08-06)
+
+**You add `pino`, exact-pinned, no caret and no tilde per ADR-0018, and you commit the regenerated
+lockfile in the same commit.** Verified 2026-08-06: `pino` appears in zero manifests and zero times
+in the lockfile, so ADR-0022's whole logging story has no package behind it.
+
+F-075 settled that the consuming TASK owns its own workspace manifest; F-085 extended that to
+`pnpm-lock.yaml`, because every CI job installs with `--frozen-lockfile` and a manifest change
+without its lockfile fails install for every later TASK.
+
+**TASK-009 also holds these two files this wave** — it adds `better-auth`. That is what makes the
+wave-table's worktree isolation load-bearing rather than precautionary. **Never merge lockfile
+hunks. Re-run the install on the merged manifests and commit the result**, which is the policy
+already written into TASK-005 under the same ruling. Say in your report which version of `pino` you
+chose and why; F-069 is the record of what an unreviewed pin looks like.
