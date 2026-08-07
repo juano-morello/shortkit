@@ -7085,13 +7085,32 @@
     whose author pushes ledger commits frequently - it is correct in principle and it is why six
     runs in a row never completed.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
   ruling: >-
     NOT A MERGE BLOCKER FOR THE MERGED TREE, which is verified locally and thoroughly - unit 65,
     integration 21, lint, typecheck, build, and db:check-policies green on a clean database. It IS a
     blocker for treating CI as evidence: F-218 said no run stands behind these commits, and F-219
     explains why none can while the queue is long. Recorded before any push so the state of the
     world is on the record rather than discovered later.
+    RESOLVED 2026-08-06. Juano ruled in two parts and the fix landed the same day. (1) TIMEOUT RAISED
+    TO 30 on quality and integration, 10 on gate. GitHub offers no separate queue timeout, so the value
+    bounds queue AND execution together; observed execution is 56s and 51s, so anything past a few
+    minutes of real running is already pathological and the extra budget absorbs queue almost entirely.
+    Keep-15-and-accept and raise-to-60 were both offered and declined - 60 stops being a meaningful
+    bound and burns an hour of free-tier minutes against GC-3 on a genuine hang. (2) THE SIGNATURE IS
+    NOW DOCUMENTED IN THE WORKFLOW ITSELF, which is the half that makes this a finding rather than an
+    outage: a queue-cancelled run and a real failure both report failure, and the only discriminator is
+    that gh api .../jobs shows ZERO STEPS EXECUTED on the former. That is written where someone
+    debugging a red run will find it. (3) cancel-in-progress KEPT unchanged - correct in principle and
+    it protects the GC-3 budget; paths-ignore was considered and declined because a required check that
+    never runs can block merge under branch protection. ORCHESTRATOR VERIFIED the diff contains ONLY the
+    three timeout values outside comments - steps, the needs graph and concurrency byte-identical - and
+    re-parsed the workflow independently, since the implementer's stated python-yaml check does not
+    reproduce in this workspace. Commit 4c969cf. RESIDUAL, stated rather than hidden: this does not
+    prove the new bound survives a real queue. First evidence is the next actual run on main, read
+    against the signature now in the file. F-218's residual is unchanged.
 
 - id: F-220
   phase: implement
