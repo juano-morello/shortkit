@@ -7400,7 +7400,7 @@
     per-token random satisfies the ruling as worded and would leave revocation just as broken, because
     sign-out holds no token (sign-out.mjs:20-22) - so it chose jti: session.id, which is what makes
     revocation reachable at all, and recorded the RFC 7519 4.1.7 cost of a non-unique jti. It also
-    removed ADR-0013's inert  line, which sign.mjs:53-61 overwrites, so it no longer
+    removed ADR-0013's inert 'sub: user.id' line, which sign.mjs:53-61 overwrites, so it no longer
     reads as load-bearing while doing nothing. Revocation, the claim table, auth-tokens.md and the
     auth-claims stub all moved together. RESIDUAL SPLIT OUT AS F-231: the fix rests on session ids not
     rotating across an updateAge refresh, which the architect traced only in the delete paths and said
