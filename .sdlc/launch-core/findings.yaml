@@ -7312,3 +7312,236 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-226
+  phase: test
+  task: TASK-009
+  source: sdlc-implementer-backend
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/launch-core/design/adr-0018-dependency-policy.md
+  line: 128
+  summary: >-
+    Pinning better-auth makes `pnpm audit --prod` exit 1, because better-auth declares drizzle-kit as
+    an optional peer and pnpm resolves it into the lockfile's optionalDependencies, which --prod walks
+    as production. ADR-0018's own acceptance argument for that advisory is now false.
+  failure_scenario: >-
+    ORCHESTRATOR REPRODUCED BOTH HALVES. With the pin staged, `pnpm audit --prod --audit-level
+    moderate` - which is verbatim the command ci.yml runs in the quality job - exits 1 on
+    apps__api>better-auth>drizzle-kit>@esbuild-kit/esm-loader>@esbuild-kit/core-utils>esbuild,
+    GHSA-67mh-4wv8-2f99. The implementer reproduced the before state at HEAD: exit 0, no known
+    vulnerabilities. That advisory is ROW 1 of ADR-0018's own register, whose acceptance argument ends
+    "drizzle-kit is a devDependency, so --prod does not see it and it blocks no merge." That sentence
+    is now false, and ADR-0018:128 forbids --ignore or any override, so there is no sanctioned escape.
+    THE SECURITY ASSESSMENT IS UNCHANGED AND STILL CORRECT - grep over better-auth's dist for
+    drizzle-kit returns ZERO matches, confirmed independently, so it is a CLI-only peer never imported
+    at runtime. What changed is what the audit reports, not what the code does. THE WIDER EFFECT IS
+    THE BIGGER HALF: the same optional-peer mechanism also pulls next, react, react-dom and vitest
+    into the API's production graph, so a future moderate advisory in ANY of them blocks a merge for
+    reasons unrelated to what ships.
+  required_change: >-
+    Juano's call, and it is a Design decision rather than a manifest edit - every candidate remedy sits
+    outside TASK-009's paths. The options the implementer identified: a root pnpm.overrides forcing a
+    patched esbuild; relocating drizzle-kit so the optional-peer resolution does not reach it; or
+    amending ADR-0018's register to re-argue acceptance on the grounds that actually hold (CLI-only,
+    never imported at runtime) rather than on the now-false premise that --prod cannot see it. The
+    implementer correctly did not choose.
+  owner_slot: null
+  ruling: >-
+    RULED by Juano 2026-08-06 - amend the register and re-argue acceptance on the grounds that hold.
+    FIXED in design by sdlc-architect. The policy it landed on is --no-optional, and its reasoning is
+    the part that makes it durable: --no-optional is a SCOPE flag of the same kind as --prod, removing
+    an edge class from the graph rather than an advisory id from the report, which is the line ADR-0018
+    already draws and which leaves the ban on --ignore, auditConfig and resolution overrides standing.
+    ORCHESTRATOR REPRODUCED: --prod exits 1, --prod --no-optional exits 0, and still 0 at --audit-level
+    low. It survives the wider half - next, react, react-dom and vitest reach the API's production
+    graph through the same optional-peer edge and never re-raise it. ACCEPTED COST RECORDED: sharp and
+    the @next/swc binaries leave the merge gate, and they run in the Vercel build, so that is real
+    production code downgraded from red check to weekly email. THE CI HALF IS NOT DONE - split out as
+    F-230, because .github/** belongs to TASK-002 which is merged, and the architect correctly named
+    the edit rather than reaching outside design/**.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+
+- id: F-227
+  phase: test
+  task: TASK-009
+  source: sdlc-implementer-backend
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/launch-core/design/adr-0013-better-auth-in-nestjs.md
+  line: 1
+  summary: >-
+    The JWT better-auth 1.6.26 issues carries no `jti`, and ADR-0013's revocation mechanism keys on
+    exactly that claim - so TASK-011's revocation check would silently no-op.
+  failure_scenario: >-
+    Found by probe against the pinned release using ADR-0013's own jwt config, which produced claims
+    aud, email, ev, exp, iat, iss, sub, tid - no jti. Source located at
+    better-auth/dist/plugins/jwt/sign.mjs:49: `if (payload.jti) jwt.setJti(payload.jti)`, so the claim
+    is set only when definePayload returns one, and ADR-0013's config does not. The consequence is the
+    dangerous kind rather than the loud kind: ADR-0013 revokes by writing `revoked:jti:<jti>`, so with
+    no jti to key on, a logout would appear to succeed while the prior credential kept working until
+    natural expiry. AC-21 asserts exactly that a prior credential is rejected after logout, so this is
+    a live AC at risk and not a distant one. The same probe found a second, harmless drift: sign.mjs
+    lines 53-61 overwrite definePayload's `sub` with getSubject() ?? session.user.id, so ADR-0013's
+    `sub: user.id` line is inert - same value, no effect.
+  required_change: >-
+    ADR-0013's mount config must return a jti from definePayload, or the revocation mechanism must key
+    on something the release actually issues. This is design rather than implementation - TASK-009
+    writes the mount but the revocation contract is ADR-0013's, and TASK-011 consumes it. Settle it
+    before TASK-009 implements, because the mount is where the claim would be added.
+  owner_slot: sdlc-architect
+  ruling: >-
+    RULED by Juano 2026-08-06 - definePayload returns a jti. FIXED by sdlc-architect, which then made
+    a call the ruling left open AND FLAGGED THAT IT HAD, which is the behaviour worth recording. A
+    per-token random satisfies the ruling as worded and would leave revocation just as broken, because
+    sign-out holds no token (sign-out.mjs:20-22) - so it chose jti: session.id, which is what makes
+    revocation reachable at all, and recorded the RFC 7519 4.1.7 cost of a non-unique jti. It also
+    removed ADR-0013's inert  line, which sign.mjs:53-61 overwrites, so it no longer
+    reads as load-bearing while doing nothing. Revocation, the claim table, auth-tokens.md and the
+    auth-claims stub all moved together. RESIDUAL SPLIT OUT AS F-231: the fix rests on session ids not
+    rotating across an updateAge refresh, which the architect traced only in the delete paths and said
+    plainly it had not proven.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+
+- id: F-228
+  phase: test
+  task: TASK-058
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0013-better-auth-in-nestjs.md
+  line: 103
+  summary: >-
+    `hooks.before` runs BEFORE zod validation, so ctx.body.email can be an object, a number, or
+    absent entirely - and ADR-0013:103 calls normaliseEmailForKey(ctx.body.email) unguarded.
+  failure_scenario: >-
+    Probed against the pinned release: the hook was delivered ctx.body.email as an object, as a
+    number, and ctx.body entirely undefined. A .trim() on any of those throws, and better-auth's
+    registry SHORT-CIRCUITS ON THROW - so the failure is not one bad request rejected, it is the whole
+    before-hook chain taken out, including the email-keyed rate limit that F-019 exists to provide.
+    An unauthenticated caller posting a malformed body would disable the credential-surface limiter.
+  required_change: >-
+    ADR-0013's hook must guard the shape before normalising - treat a non-string email as absent and
+    fall through rather than throwing. TASK-058 owns the hook implementation and inherits this;
+    recorded against it so the obligation reaches an implementer rather than living in a report.
+  owner_slot: sdlc-architect
+  ruling: >-
+    FIXED by sdlc-architect - the hook now guards the shape before normalising, and rate-limit.md
+    gained an observed-input table, an unknown -> string | null signature and a fourth required test.
+    IT DISPUTED THE FINDING'S BLAST RADIUS AND WAS RIGHT TO. My text said the whole before-hook chain
+    goes and the limiter stops existing; the architect established that the chain which dies serves
+    THAT REQUEST ONLY, limiter state is untouched, and other callers are unaffected - so the real
+    damage is an unmetered 500 generator rather than a disabled limiter. It also corrected the
+    attribution: the registry that short-circuits on throw is OURS at ADR-0013:227, not better-auth's,
+    which rethrows at dispatch.mjs:88. The fix is unchanged; the reasoning behind it is now accurate.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+
+- id: F-229
+  phase: test
+  task: TASK-009
+  source: sdlc-implementer-backend
+  round: 1
+  severity: nit
+  kind: design
+  file: .sdlc/launch-core/design/adr-0013-better-auth-in-nestjs.md
+  line: 1
+  summary: >-
+    Three of ADR-0013's descriptive details about better-auth's built-in rate limiter drifted against
+    the pinned release. The decision is unaffected; the supporting figures are wrong.
+  failure_scenario: >-
+    Verified against 1.6.26 during the four-fact pass. The default window is 10 seconds, not 60; the
+    in-memory store is now capped at 100k entries with pruning, so the ADR's "unbounded" in reason 4
+    is false; and sign-in carries a built-in 3-per-10s special rule, so the "100 per 60 seconds"
+    comparison figure does not describe the release. The DISABLE IS STILL LOAD-BEARING and fact (1)
+    verified unchanged - rateLimit still defaults to enabled-in-production, and X-Retry-After is still
+    the 429 header, which is the reason F-027 wanted it off. So this is a nit rather than a finding
+    against the decision, recorded because an implementer checking the ADR's numbers against the
+    package will find three that do not match and may conclude the section is stale.
+  required_change: >-
+    Correct the three figures in ADR-0013's reasoning, or mark them as written against
+    current-latest-at-design-time rather than against the pin. Same class as F-220 - the rule is
+    right and its stated justification does not survive checking.
+  owner_slot: sdlc-architect
+  ruling: >-
+    FIXED by sdlc-architect, and it was MORE than the figure swap I filed. I called it a nit on the
+    grounds that only three numbers had drifted. The architect found the drift is load-bearing: against
+    1.6.26 the built-in limiter is STRICTER than ours on a 10-second burst - 3 per 10s versus our 10
+    per 5min - and looser over five minutes. 'Our buckets are tighter' was part of the argument for
+    DISABLING A SECURITY DEFAULT and is now only half true. It rewrote the paragraph rather than
+    swapping the number. The decision to disable still stands on fact (1), verified unchanged:
+    rateLimit still defaults to enabled-in-production and X-Retry-After is still the 429 header, which
+    is what F-027 cared about.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+
+- id: F-230
+  phase: test
+  task: TASK-002
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: scope
+  file: .github/workflows/ci.yml
+  line: 137
+  summary: >-
+    F-226's fix requires a one-line change to the quality job's audit command, and .github/** is
+    TASK-002's, which is done and merged. HEAD fails its own quality gate until it lands.
+  failure_scenario: >-
+    ORCHESTRATOR REPRODUCED THE WHOLE THING. `pnpm audit --prod --audit-level moderate`, verbatim what
+    ci.yml:137 runs, exits 1 at HEAD (2a150e8). `pnpm audit --prod --no-optional --audit-level
+    moderate` exits 0, and still exits 0 at --audit-level low. So the ADR amendment is landed and
+    correct, and the gate it describes does not yet exist - meaning the repo is in the exact state
+    F-219 was just fixed to prevent, where a red run is indistinguishable from a broken one. The
+    architect could not make the edit because the file belongs to a merged TASK, and correctly named
+    it rather than reaching outside design/**.
+  required_change: >-
+    One line at .github/workflows/ci.yml:137 - add --no-optional - plus the comment block at 131-135,
+    which currently states the audit blind spot as dev-only and is now wrong. A second edit the
+    architect also could not make: docs/security/known-advisories.md carries the same false sentence
+    at line 31 and stale reproduction output at 34-37; ADR-0018's register is now normative and the
+    doc should copy from it. VERIFIED that file exists. Juano's call on who takes it, since TASK-002
+    is done - the same shape as the F-090 widening.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-231
+  phase: test
+  task: TASK-009
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0013-better-auth-in-nestjs.md
+  line: 1
+  summary: >-
+    F-227's fix keys revocation on `jti: session.id`, and rests on an assumption the architect states
+    it did not prove - that better-auth does not rotate a session row's id on an updateAge refresh.
+  failure_scenario: >-
+    The architect traced the delete paths but not the update path, and said so rather than implying
+    coverage. If a refresh replaced the session id, a pre-rotation token would carry a stale jti and
+    SURVIVE A LOGOUT - which is precisely the failure F-227 exists to close, reintroduced through a
+    different door. It also made a call the ruling left open and flagged that it had: "definePayload
+    returns a jti" is satisfied by a per-token random, which would leave revocation just as broken,
+    because sign-out holds no token (dist/api/routes/sign-out.mjs:20-22). Choosing session.id is what
+    makes revocation reachable at all; the RFC 7519 4.1.7 cost of a non-unique jti is recorded.
+  required_change: >-
+    TASK-009's constraint text already requires a test asserting two tokens across a refresh carry the
+    same jti - that is the right mechanism and it must actually be written rather than assumed. If the
+    id does rotate, revocation moves onto a `sid` claim and TASK-011's step 5 changes with it, which
+    the architect named as the fallback. Verify before TASK-009's tests are written, not after.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
