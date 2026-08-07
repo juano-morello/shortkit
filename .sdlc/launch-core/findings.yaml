@@ -3790,9 +3790,16 @@
     comment and tenant-context.md must stop claiming the wrapper does not leave the module, because
     downstream TASKs read those documents rather than this diff.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    LEDGER CORRECTION 2026-08-06. This finding was FIXED IN TASK-005'S FIX ROUND 1 by commits 2ffa011
+    (red tests) and 9eb654a (fix), and all three round-1 auditors verdicted it ADDRESSED - the header
+    above F-138 records that. Only the status field here was left at open, and that stale field is what
+    caused the orchestrator to dispatch a redundant fourth attempt at it on 2026-08-06.
+    ORCHESTRATOR VERIFIED THE FIX IS PRESENT IN THE MERGED TREE rather than trusting either the commit
+    message or the agent that reported it.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-121
   phase: implement
@@ -3829,9 +3836,16 @@
     path everything else uses, and the nesting branch at :126 is the one that currently degrades
     silently rather than loudly.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    LEDGER CORRECTION 2026-08-06. This finding was FIXED IN TASK-005'S FIX ROUND 1 by commits 2ffa011
+    (red tests) and 9eb654a (fix), and all three round-1 auditors verdicted it ADDRESSED - the header
+    above F-138 records that. Only the status field here was left at open, and that stale field is what
+    caused the orchestrator to dispatch a redundant fourth attempt at it on 2026-08-06.
+    ORCHESTRATOR VERIFIED THE FIX IS PRESENT IN THE MERGED TREE rather than trusting either the commit
+    message or the agent that reported it.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-122
   phase: implement
@@ -3915,9 +3929,16 @@
     in withTenantTransaction, which turns the contract's prohibition on third-party I/O inside fn from
     documentation into enforcement.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    LEDGER CORRECTION 2026-08-06. This finding was FIXED IN TASK-005'S FIX ROUND 1 by commits 2ffa011
+    (red tests) and 9eb654a (fix), and all three round-1 auditors verdicted it ADDRESSED - the header
+    above F-138 records that. Only the status field here was left at open, and that stale field is what
+    caused the orchestrator to dispatch a redundant fourth attempt at it on 2026-08-06.
+    ORCHESTRATOR VERIFIED THE FIX IS PRESENT IN THE MERGED TREE rather than trusting either the commit
+    message or the agent that reported it.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-124
   phase: implement
@@ -7071,3 +7092,71 @@
     blocker for treating CI as evidence: F-218 said no run stands behind these commits, and F-219
     explains why none can while the queue is long. Recorded before any push so the state of the
     world is on the record rather than discovered later.
+
+- id: F-220
+  phase: implement
+  task: TASK-005
+  source: sdlc-test-architect
+  round: 2
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/contracts/tenant-context.md
+  line: 1
+  summary: >-
+    The justification tenant-context.md gives for rule 3's closed allowlist rests on an example that
+    never fires. PostgreSQL suppresses the value description in DatabaseError.detail under RLS, so the
+    cited "Key (slug)=(abc) already exists" leak does not reproduce on any table this system has.
+  failure_scenario: >-
+    Found by sdlc-test-architect while writing coverage, and VERIFIED BY A/B WITH ONE VARIABLE CHANGED:
+    with row-level security off, detail reads "Key (id)=(7) already exists."; with it on, detail is
+    undefined. The claim originated in the TASK-005 security audit as F-120's stated residual and was
+    copied into the contract as the reason rule 3 uses a closed allowlist. THE RULE IS STILL RIGHT and
+    the allowlist must stay - `where` and `internalQuery` are unaffected, this is upstream behaviour
+    that could change between PostgreSQL versions, and ISOLATION_EXCLUSIONS names two tables that are
+    not RLS-protected, where the leak WOULD fire. What is wrong is the justification, and the cost is
+    specific: an implementer who checks the cited example, finds it does not reproduce, and concludes
+    the section is stale may relax the allowlist on that basis.
+  required_change: >-
+    Keep the allowlist. Replace the justification with one that survives checking - name the
+    non-RLS-protected tables in ISOLATION_EXCLUSIONS as the case where detail does carry values, note
+    that RLS suppression is upstream behaviour rather than a guarantee, and cite `where` and
+    `internalQuery` which are unaffected by it. Routing rule 0 - design/** belongs to sdlc-architect.
+    Bundle with F-138, which already has this file open.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-221
+  phase: implement
+  task: TASK-005
+  source: orchestrator
+  round: 2
+  severity: minor
+  kind: process
+  file: .sdlc/launch-core/findings.yaml
+  line: 1
+  summary: >-
+    F-120, F-121 and F-123 were fixed and verdicted ADDRESSED in fix round 1, and their status fields
+    were left at open. The stale fields caused a redundant fourth dispatch against work already done.
+  failure_scenario: >-
+    ORCHESTRATOR'S OWN DEFECT, found by sdlc-test-architect refusing the premise of its dispatch rather
+    than executing it. Resuming this initiative I queried the ledger for open blocker/major findings,
+    got F-120, F-121, F-123 and F-219, and dispatched a test architect to write red tests for the first
+    three. There was no red to write: commits 2ffa011 and 9eb654a had closed all three, the round-1
+    report covers exactly them, and the header above F-138 records all three auditors verdicting them
+    ADDRESSED. The agent measured 21/21 integration green, said the premise was stale, and declined to
+    fake a red - which is the correct behaviour and the reason this cost one dispatch rather than a
+    fabricated test suite. THE LEDGER IS THE RESUME MECHANISM. superpowers-map.md names re-dispatching
+    completed work as the most expensive observed failure mode, and a status field that lags the commit
+    is precisely how it happens.
+  required_change: >-
+    Statuses corrected. The durable fix is procedural and belongs in Retro: a finding's status must be
+    written in the same commit that lands its fix, not in a later bookkeeping pass, and the fix-round
+    close-out should verify no finding it addressed is still open before the round is declared complete.
+    A cheap mechanical check would be a script asserting every finding referenced by a fix commit's
+    message is non-open.
+  owner_slot: null
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 2
