@@ -276,7 +276,9 @@ betterAuth({
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== '/sign-in/email') return;
-      await emailRateLimit.check(sha256(ctx.body.email));   // throws APIError 429
+      const normalised = normaliseEmailForKey(ctx.body?.email);   // unknown -> string | null
+      if (normalised === null) return;                            // F-228. See below.
+      await emailRateLimit.check(sha256(normalised));             // throws APIError 429
     }),
   },
 })
@@ -285,17 +287,57 @@ betterAuth({
 Same Redis client, same key format, same degradation posture. Nothing buffers or
 re-emits a request stream.
 
+### `ctx.body` is unvalidated at hook time
+
+Added 2026-08-07 (F-228), verified by probe against `better-auth@1.6.26`. `hooks.before`
+runs **ahead of the endpoint's zod validation**. Observed inputs at the hook:
+
+| Request | `typeof ctx.body.email` | Endpoint's eventual status |
+|---|---|---|
+| `{"email":{"ne":null},"password":"x"}` | `object` | 400 `VALIDATION_ERROR` |
+| `{"email":12345,"password":"x"}` | `number` | 400 `VALIDATION_ERROR` |
+| no body at all | `ctx.body` is `undefined` | 400 `VALIDATION_ERROR` |
+| form-encoded `email=a@b.com` | `string` | 401 |
+
+**The hook must not throw on any of these.**
+`better-auth/dist/api/dispatch.mjs:86-89` rethrows anything from a before hook that is not
+an `APIError`, so a `TypeError` from `.trim()` aborts the request before the endpoint runs.
+The attempt is then never charged to the bucket, the response is a 500 rather than a 400,
+and no later entry in `beforeHooks` executes. An unauthenticated caller gets an unlimited
+500 generator on the credential surface.
+
+`normaliseEmailForKey` therefore accepts `unknown` and returns `string | null`:
+
+```ts
+export function normaliseEmailForKey(email: unknown): string | null;
+```
+
+| Input | Returns |
+|---|---|
+| a string that trims to non-empty | `email.trim().toLowerCase()` |
+| a string that trims to empty | `null` |
+| any non-string, including `undefined`, `null`, numbers, objects, arrays | `null` |
+
+On `null` the hook **returns without checking or consuming the bucket**, and the request
+continues to the endpoint, which rejects it with the 400 it would have returned anyway. It
+does not throw a 429 and it does not key on a sentinel: a shared sentinel bucket would let
+one caller's malformed traffic exhaust an allowance that other callers fall into. The IP
+bucket in Express still counts these requests, so the volume is bounded.
+
+This corrects a sentence in the paragraph below that read "`ctx.body` being undefined gives
+a 500 on every sign-in, which nobody misses". It gives a 500 only on the requests a caller
+chooses to malform, which nobody notices.
+
 ### The email key is normalised, and both failure modes are tested
 
 Added 2026-08-04 (F-025). Both plausible ways this bucket fails are silent, unlike the
-adjacent ones: `ctx.body` being undefined gives a 500 on every sign-in, which nobody
-misses. These two give a limiter that quietly does not exist.
+adjacent ones. These two give a limiter that quietly does not exist.
 
 **(a) Normalisation.** The key is computed over the **same normalised form Better Auth
 uses for the credential lookup**, not over the raw submitted string:
 
 ```ts
-const normalisedEmail = ctx.body.email.trim().toLowerCase();
+const normalisedEmail = normaliseEmailForKey(ctx.body?.email);   // null-checked above
 const key = authRateLimitKey(env, 'signInPerEmail', sha256(normalisedEmail), now);
 ```
 
@@ -324,6 +366,12 @@ Two more, cheap and covering the rest:
 >
 > A sign-in for a **different** address from the same six IPs succeeds, so the bucket is
 > keyed on the address rather than firing globally.
+
+A fourth, added 2026-08-07 (F-228):
+
+> A sign-in whose `email` is a JSON object rather than a string returns the endpoint's
+> **400**, not a 500, and a following legitimate sign-in for that address is not one
+> attempt closer to its limit.
 
 No AC covers pre-auth limiting, so these tests are the only thing standing between this
 design and F-019's original failure. TASK-009 owns them.

@@ -7,6 +7,11 @@ complete; bodies throw `not implemented`.
 time they were written (TASK-001 creates them), so no typecheck has been run against
 them. Treat the shapes as normative and the syntax as unverified.
 
+Exception, 2026-08-07 (F-227, F-228): `apps/api/src/auth/auth-claims.ts`,
+`apps/api/src/auth/ports/auth-rate-limit.port.ts` and
+`apps/api/src/auth/resolve-rate-limit-principal.ts` were typechecked together under
+`tsc --strict --module nodenext` at the versions the repo pins. They compile.
+
 ## Materialisation
 
 | Stub root | Materialised by | Notes |

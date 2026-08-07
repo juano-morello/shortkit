@@ -62,7 +62,32 @@ export interface AuthRateLimitPort {
  * dot-removal, no +tag removal. Two addresses differing that way may be two real
  * accounts at some providers, and collapsing them would let one user's failed logins
  * lock out another's.
+ *
+ * ============================================================================
+ * F-228. THE PARAMETER IS `unknown` AND THE RETURN IS NULLABLE. DO NOT NARROW IT.
+ * ============================================================================
+ *
+ * The only caller is the `hooks.before` email bucket, and `hooks.before` runs BEFORE
+ * better-auth's zod validation. Probed against better-auth@1.6.26, the hook received
+ * `ctx.body.email` as an object, as a number, and `ctx.body` itself as `undefined` —
+ * each time BEFORE the endpoint returned its 400.
+ *
+ * `.trim()` on any of those throws a TypeError, and
+ * better-auth/dist/api/dispatch.mjs:86-89 RETHROWS anything from a before hook that is
+ * not an APIError. So the request aborts before the endpoint runs, the attempt is never
+ * charged to the bucket, the caller gets a 500 instead of a 400, and no later entry in
+ * `beforeHooks` executes. That hands an unauthenticated caller an unlimited 500
+ * generator on the credential surface with the email bucket charging nothing.
+ *
+ *   non-string, including undefined and null  -> null
+ *   string that trims to empty                -> null
+ *   otherwise                                 -> email.trim().toLowerCase()
+ *
+ * The hook RETURNS on null. It does not throw a 429 and it does not key on a sentinel:
+ * a shared sentinel bucket lets one caller's malformed traffic exhaust an allowance
+ * that legitimate callers fall into. The IP bucket still counts the request and the
+ * endpoint still rejects it with the 400 it would have returned anyway.
  */
-export function normaliseEmailForKey(_email: string): string {
+export function normaliseEmailForKey(_email: unknown): string | null {
   throw new Error('not implemented');
 }

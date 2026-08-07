@@ -71,12 +71,13 @@ puts a young auth library on the critical path.
 | Job | Added step |
 |---|---|
 | every job | `pnpm install --frozen-lockfile` |
-| `quality` | `pnpm audit --prod --audit-level moderate` |
+| `quality` | `pnpm audit --prod --no-optional --audit-level moderate` |
 | `dependencies`, weekly `schedule` only | `pnpm audit --audit-level moderate` |
 
 Without `--frozen-lockfile`, resolution can drift between the tested tree and the
 deployed one. The `quality` audit runs `--prod` so a dev-only advisory in Vitest or
-`unplugin-swc` cannot block a merge.
+`unplugin-swc` cannot block a merge. `--no-optional` was added 2026-08-07 (F-226); the
+paragraph headed "The `quality` audit runs `--no-optional`" below says why.
 
 **The two audits are two obligations, not one gate run twice.** Stated normatively
 2026-08-05 (F-124), because the two commands differ by more than a schedule and a reader
@@ -84,10 +85,10 @@ of the table above could take either as a superset of the other.
 
 | | `quality` | `dependencies` |
 |---|---|---|
-| Command | `pnpm audit --prod --audit-level moderate` | `pnpm audit --audit-level moderate` |
+| Command | `pnpm audit --prod --no-optional --audit-level moderate` | `pnpm audit --audit-level moderate` |
 | Trigger | every push and pull request | weekly `schedule`, plus `workflow_dispatch` |
-| Sees | production dependency graph only | the whole tree, dev dependencies included |
-| Blind to | **every dev-only advisory, at every severity** | nothing at `moderate` or above |
+| Sees | non-optional production dependency edges only | the whole tree, dev dependencies and every optional edge included |
+| Blind to | **every dev-only advisory, at every severity**, and every advisory reachable only through an `optionalDependencies` edge | nothing at `moderate` or above |
 | Effect of a hit | blocks the merge | fails a scheduled run, which emails the repo owner |
 
 `--prod` buys a blind spot on purpose: a dev-only advisory with no fix available must not
@@ -95,6 +96,11 @@ be able to stop a merge. The price is that the `quality` job **can never** surfa
 advisory in `drizzle-kit`, `tsup`, `vitest` or any other devDependency, at any severity.
 The weekly `dependencies` job is the only thing in `launch-core` that looks at that half
 of the tree. Drop it and nothing replaces it. TASK-002 builds both.
+
+That "can never" held until 2026-08-07, when pinning `better-auth` resolved `drizzle-kit`
+into `apps/api`'s production graph as an optional peer and `--prod` started reporting it.
+`--no-optional` restores the sentence. The paragraph headed "The `quality` audit runs
+`--no-optional`" below records the mechanism and what the flag costs.
 
 **The threshold is `moderate`, not `high`.** Lowered 2026-08-04 (F-049). `moderate` is
 the band that carries session fixation, open redirect and timing leaks, which is the
@@ -105,9 +111,11 @@ When this was written on 2026-08-04, `pnpm audit --audit-level low` across the w
 tree returned zero advisories, so lowering the merge gate blocked nothing. **That
 sentence is no longer true and the decision is unaffected.** Corrected 2026-08-05
 (F-124): TASK-005 added `drizzle-kit` and TASK-001 added `tsup`, and the tree now carries
-two dev-only esbuild advisories, recorded below. Neither is visible to `--prod`, so
-neither blocks a merge at any threshold. The `moderate` choice still rests on the
-argument above it rather than on the tree happening to be clean.
+two dev-only esbuild advisories, recorded below. Neither is visible to `--prod
+--no-optional`, so neither blocks a merge at any threshold. Corrected again 2026-08-07
+(F-226): read `--prod` alone and the first of the two is visible and does block, which is
+the reason `--no-optional` exists. The `moderate` choice still rests on the argument above
+it rather than on the tree happening to be clean.
 
 **A `dependencies` job audits the whole tree weekly.** Added 2026-08-04 (F-049). Every
 dependency is exact-pinned and every job installs `--frozen-lockfile`, so an audit that
@@ -130,12 +138,63 @@ TASK-002 creates the file with the two rows below.
 
 | Advisory | Severity | Package and path | Assessment | Clears when |
 |---|---|---|---|---|
-| [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) | moderate | `esbuild <= 0.24.2`, resolved 0.18.20, via `apps__api > drizzle-kit > @esbuild-kit/esm-loader > @esbuild-kit/core-utils > esbuild` | **Not exploitable here. Accepted 2026-08-05, `sdlc-security-auditor`.** The vulnerability is in esbuild's development server, which lets any website send requests to it and read the response. `@esbuild-kit/core-utils` uses only the transform API and `drizzle-kit` never starts a server, so there is no listening socket to reach. `drizzle-kit` is a devDependency, so `--prod` does not see it and it blocks no merge. | `drizzle-kit` publishes a release that drops `@esbuild-kit/esm-loader`. Both `@esbuild-kit` packages are deprecated upstream and superseded by `tsx`, which `drizzle-kit` already depends on, so the pinned-back esbuild will not move on its own. Re-check on every `drizzle-kit` bump. |
+| [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) | moderate | `esbuild <= 0.24.2`, resolved 0.18.20, via `apps__api > drizzle-kit > @esbuild-kit/esm-loader > @esbuild-kit/core-utils > esbuild` **and, since the `better-auth` pin, also via `apps__api > better-auth > drizzle-kit > …`** | **Not exploitable here. Accepted 2026-08-05, `sdlc-security-auditor`. Acceptance re-argued 2026-08-07, `sdlc-architect` (F-226): the assessment was always right and the reason given for it was wrong.** The vulnerability is in esbuild's development server, which lets any website send requests to it and read the response. `@esbuild-kit/core-utils` uses only the transform API and `drizzle-kit` never starts a server, so there is no listening socket to reach. **What holds is that `drizzle-kit` is a CLI-only optional peer of `better-auth`, used by Better Auth's schema-generation command and never imported at runtime**: `grep -rn "drizzle-kit" better-auth/dist --include=*.mjs` returns no matches, and the same grep over `@better-auth/drizzle-adapter/dist` returns no matches. The Fly image installs production dependencies only, so no copy of `drizzle-kit` or of the vulnerable esbuild is deployed. **This row's previous acceptance ended "`drizzle-kit` is a devDependency, so `--prod` does not see it and it blocks no merge." That sentence was true when it was written and became false on the `better-auth` pin**, which resolved `drizzle-kit` into `apps/api`'s production graph as an optional peer. The `quality` gate now reaches it only through that optional edge, which `--no-optional` removes. The weekly `dependencies` audit still reports this row. | `drizzle-kit` publishes a release that drops `@esbuild-kit/esm-loader`. Both `@esbuild-kit` packages are deprecated upstream and superseded by `tsx`, which `drizzle-kit` already depends on, so the pinned-back esbuild will not move on its own. Re-check on every `drizzle-kit` bump, **and on every `better-auth` bump, because `better-auth`'s optional peer range is what put this path in the production graph**. |
 | [GHSA-g7r4-m6w7-qqqr](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr) | low | `esbuild >= 0.27.3 < 0.28.1`, via `apps__api > tsup > esbuild` and `apps__api > tsup > bundle-require > esbuild` | **Not exploitable here. Assessed 2026-08-05, `sdlc-architect`, not reviewed by the security auditor.** Arbitrary file read when running the development server on Windows. `tsup` bundles and does not run esbuild's serve mode, and neither CI nor the Fly image is Windows. Recorded because **neither audit job reports it**: it is below the `moderate` threshold on both, so it is invisible until someone runs `--audit-level low` by hand. | A `tsup` bump to a release resolving `esbuild >= 0.28.1`. A fix exists upstream, unlike the row above. |
 
 Both reproduced on 2026-08-05 against the committed lockfile:
 `pnpm audit --prod --audit-level moderate` exits 0, `pnpm audit --audit-level moderate`
-exits 1 reporting the first row, `pnpm audit --audit-level low` reports both.
+exits 1 reporting the first row, `pnpm audit --audit-level low` reports both. **The first
+of those three exit codes stopped being 0 when `better-auth` was pinned.** See the next
+paragraph; the reproduction line for the current tree is there.
+
+**The `quality` audit runs `--no-optional`.** Added 2026-08-07 (F-226), ruled by Juano.
+
+`better-auth@1.6.26` declares nineteen optional `peerDependencies`, `drizzle-kit` among
+them. pnpm resolves an optional peer whenever a satisfying version exists in the
+workspace and records the resolution in the lockfile snapshot's `optionalDependencies`.
+pnpm documents `-P, --prod` as "only audit `dependencies` and `optionalDependencies`", so
+every resolved optional peer of a production package is audited as production.
+
+Reproduced 2026-08-07 at the TASK-009 pin commit: `pnpm audit --prod --audit-level
+moderate`, verbatim the command `quality` ran, exits 1 on
+`apps__api > better-auth > drizzle-kit > @esbuild-kit/esm-loader > @esbuild-kit/core-utils > esbuild`.
+At the previous commit it exits 0. Nothing about how the code runs changed. `drizzle-kit`
+is still a devDependency and still a CLI, `grep -rn "drizzle-kit" better-auth/dist`
+returns no matches, and the Fly image installs production dependencies only. What changed
+is the audit's idea of the production graph.
+
+**The single advisory is the smaller half.** The same mechanism records `next`, `react`,
+`react-dom` and `vitest` as optional dependencies of `better-auth` in `apps/api`'s
+snapshot. A future moderate advisory in any of them blocks a merge on an API that never
+loads them. A remedy aimed at the esbuild row alone gets re-litigated on the next row, so
+the policy is written against the edge class instead.
+
+```
+pnpm audit --prod --no-optional --audit-level moderate
+```
+
+`--no-optional` is a scope flag of the same kind as `--prod`. It removes an edge class
+from the graph, not an advisory id from the report, which is the line this ADR draws.
+**The prohibition on `--ignore`, on `pnpm.auditConfig`, and on resolution overrides used
+to clear an audit stands unchanged, and all three remain forbidden.**
+
+The `dependencies` job does not change. It keeps no flags, so it still walks every
+optional edge and still reports the esbuild row weekly.
+
+Reproduced 2026-08-07 against the committed lockfile at the pin:
+`pnpm audit --prod --audit-level moderate` exits 1 on GHSA-67mh-4wv8-2f99,
+`pnpm audit --prod --no-optional --audit-level moderate` exits 0, and
+`pnpm audit --prod --no-optional --audit-level low` also exits 0, so the flag is not
+carrying a quieter finding out of view along with the loud one.
+
+**What the flag hides, stated plainly.** No manifest in this workspace declares an
+`optionalDependencies` block, so nothing a manifest asked for leaves the gate. What
+leaves the gate is the optional dependencies of production packages, and two of those are
+real rather than theoretical: `next@16.3.0` optionally depends on `sharp` and on the
+`@next/swc-*` native binaries, and both run in the Vercel build. An advisory in `sharp`
+stops blocking a merge and gets reported by the weekly `dependencies` job instead. That is
+a downgrade from blocking to email, and it is the same downgrade this ADR already accepted
+for the entire devDependency tree.
 
 **Every dependency is pinned to an exact version.** Amended 2026-08-04 (F-055, ruled by
 Juano). TASK-001 pinned all four manifests exactly, against this ADR's earlier wording
@@ -166,6 +225,17 @@ disables it; (2) `hooks.before` / `createAuthMiddleware` signature; (3)
 `ctx.body.email` shape; (4) `ctx.path` being base-path-relative. If (1) has changed the
 disable is harmless; if (2) or (3) has changed, F-019's and F-021's mechanisms need
 revisiting before the pin lands. This travels with TASK-009's pinning step below.
+
+**The check ran on 2026-08-07 against `better-auth@1.6.26`. All four facts hold** and the
+evidence is `.sdlc/launch-core/work/TASK-009-pin-verification-report.md`. It also found
+four things the four facts do not cover, which is worth knowing before the next bump: the
+pin changed what `pnpm audit --prod` reports (F-226, above), the issued JWT carries no
+`jti` unless `definePayload` returns one (F-227), `hooks.before` runs ahead of the
+endpoint's zod validation so `ctx.body` is unvalidated (F-228), and three of ADR-0013's
+figures about the built-in limiter drifted (F-229). ADR-0013 carries all three of the
+latter. **A four-fact check that comes back clean does not mean the release brought
+nothing.** Whoever runs the next one should read the report's section 5 rather than only
+its verdict table.
 
 **Layer 3: the artifact separates the numbers.** `infra/loadtest/baseline.json` carries
 both, and `docs/performance/redirect-baseline.md` says which is which in prose, so
@@ -213,6 +283,16 @@ On the audit threshold and the pinning stance, decided 2026-08-04 (F-049, F-055)
 | Exact pins, `moderate` on both audits, Dependabot weekly | Manifests state what resolves; a bot proposes every bump; a scheduled run catches advisories published after merge | Weekly PR noise on a solo project, and CI minutes spent on bumps nobody asked for | Chosen |
 | Renovate instead of Dependabot | Better pnpm workspace support, richer grouping and automerge rules | Needs a GitHub App installed on the account and a config file with its own dialect to learn | Dependabot is native, needs no install, and grouping is enough at four manifests |
 
+On what the `quality` audit does about optional-peer edges, decided 2026-08-07 (F-226):
+
+| Option | Pros | Cons | Why not |
+|---|---|---|---|
+| Leave the command alone and let the gate fail | Perfectly honest about what the tool reports; no new blind spot | HEAD does not merge. `--ignore` and overrides are already forbidden here, so the only way through is a human bypassing a required check, and the reason is an advisory in a CLI that never ships. A gate that has to be bypassed on a correct change trains the bypass | Turns the merge gate into something a human overrides, which is worse than any blind spot it protects |
+| Root `pnpm.overrides` forcing `esbuild >= 0.24.3` under `@esbuild-kit/core-utils` | The audit goes green with no flag change; the resolution is genuinely patched | Fixes one row. `next`, `react`, `react-dom` and `vitest` come through the same edge, so the next advisory needs the next override and the overrides block becomes the ignore list this ADR refuses. It also forces an esbuild six minors ahead of what the deprecated `@esbuild-kit/core-utils` pinned, and the thing that breaks is `pnpm db:generate`, which no CI job runs | One-advisory scope, and it risks the migration tooling to clear a gate about a dependency that is not deployed |
+| `pnpm.auditConfig.ignoreGhsas` in the root manifest | Native pnpm mechanism, one line | It is an ignore list by another name. This ADR forbids `--ignore` for a stated reason and the reason does not change when the same suppression moves from a flag to a config key | Contradicts an accepted position in this same ADR without superseding it |
+| Move `drizzle-kit` from `apps/api` to the root manifest so the optional peer goes unmet | No flag change, no override | `resolvePeersFromWorkspaceRoot` defaults on, so the root is exactly where pnpm looks; the peer resolves anyway. Turning that setting off changes peer resolution for the whole workspace to fix one edge, and it moves where ADR-0004's `db:generate` runs from | Does not work as stated, and the version that does work changes workspace-wide resolution |
+| `pnpm audit --prod --no-optional --audit-level moderate` | Removes the whole edge class, so `next`, `react` and `vitest` never re-raise it. A documented scope flag rather than a suppression. No manifest in this workspace declares `optionalDependencies`, so nothing a manifest asked for leaves the gate | The optional dependencies of production packages leave the merge gate, and `sharp` under `next` is a real one. The gate now depends on a second pnpm flag's semantics | Chosen |
+
 ## Consequences
 
 ### Positive
@@ -258,6 +338,20 @@ On the audit threshold and the pinning stance, decided 2026-08-04 (F-049, F-055)
   re-reads becomes permission to ignore a weekly failure, which is the failure mode an
   ignore list has, arriving more slowly. Nothing in `launch-core` schedules a review of
   it.
+- **`--no-optional` takes `sharp` and the `@next/swc-*` binaries out of the merge gate.**
+  They run in the Vercel build, so this is production code the gate no longer blocks on.
+  The weekly `dependencies` job still reports them, which makes that detection an email
+  rather than a red check. Accepted because the alternative was a gate humans bypass, and
+  because the same downgrade already applies to every devDependency.
+- The merge gate's meaning now rests on two pnpm scope flags rather than one. A pnpm
+  major that redefines what `--no-optional` excludes changes what the gate sees, with no
+  diff in this repository and nothing failing to announce it. `--prod` already carried
+  that exposure; this doubles it.
+- A register row's acceptance argument can go stale while the row itself stays correct.
+  Row 1 was assessed right and justified on a fact about the dependency graph, and a pin
+  in a different manifest falsified the justification without touching the assessment.
+  Nothing detects that. It surfaced only because TASK-009 ran the gate command by hand
+  before pushing, and the next one may not.
 - Exact pins across all four manifests mean security patches arrive only when someone
   merges a bump. The `quality` audit surfaces the need on any open PR, the weekly
   `dependencies` job surfaces it when no PR is open, and Dependabot proposes the bump.
@@ -288,15 +382,41 @@ On the audit threshold and the pinning stance, decided 2026-08-04 (F-049, F-055)
   and escalates. Re-attributed from TASK-001 on 2026-08-04 (F-040): TASK-001 bootstraps
   the monorepo and excludes auth by name, so the pin had no producer there. The
   implementer that mounts the library is the one that needs the four facts to hold.
-- TASK-002 adds `--frozen-lockfile` to every job, the `pnpm audit --prod --audit-level
-  moderate` step to `quality`, and the `dependencies` job running `pnpm audit
-  --audit-level moderate` on a weekly `schedule` and on `workflow_dispatch`. **These are
-  two obligations, not one gate run twice**; see the table above. Neither command takes
-  `--ignore` or any override.
+- TASK-002 adds `--frozen-lockfile` to every job, the `pnpm audit --prod --no-optional
+  --audit-level moderate` step to `quality`, and the `dependencies` job running `pnpm
+  audit --audit-level moderate` on a weekly `schedule` and on `workflow_dispatch`.
+  **These are two obligations, not one gate run twice**; see the table above. Neither
+  command takes `--ignore` or any override. `--no-optional` on the first was added
+  2026-08-07 (F-226) after TASK-002 shipped; see the two-edit bullet below.
 - TASK-002 creates `docs/security/known-advisories.md` with the two rows from the
   advisory table above, copied with their assessments and clearing conditions intact, and
   names the file in the `dependencies` job's audit step so a failure email points at it.
   Added 2026-08-05 (F-124).
+
+- **Two edits outside `design/**` land this decision, and neither was made by the
+  architect.** Added 2026-08-07 (F-226). TASK-002 owns both files and TASK-002 is done and
+  merged, so these are Juano's to route.
+
+  1. `.github/workflows/ci.yml:137`, in the `quality` job. Exactly:
+
+     ```diff
+     -        run: pnpm audit --prod --audit-level moderate
+     +        run: pnpm audit --prod --no-optional --audit-level moderate
+     ```
+
+     The comment block immediately above it, `.github/workflows/ci.yml:131-135`, states
+     the blind spot as dev-only. It needs the optional-edge half added, or it describes a
+     command that no longer exists. **Until this line changes, `quality` fails on every
+     push carrying the `better-auth` pin**, which is HEAD.
+
+  2. `docs/security/known-advisories.md`. Row 1's assessment cell carries the sentence
+     "`drizzle-kit` is a devDependency, so `--prod` does not see it and it blocks no
+     merge", which is false as of the pin, and the `quality` command appears in the table
+     at line 18 and in the prose at lines 24-25 ("Both rows below are dev-only, so neither
+     blocks a merge"). Replace all three from the register above, which is normative.
+
+  The audit's own reproduction line in that file, lines 34-37, is also stale: it asserts
+  `pnpm audit --prod --audit-level moderate` exits 0.
 - TASK-002 also adds `.github/dependabot.yml`. **Its `paths` currently read
   `.github/workflows/**`, which excludes that file.** Widening them to `.github/**` is
   Juano's edit, not the implementer's. Flagged 2026-08-04 (F-055).

@@ -10,11 +10,11 @@
 
 ```ts
 export interface ShortkitJwtClaims {
-  sub: string;      // user id
+  sub: string;      // user id. SET BY BETTER AUTH, not by definePayload (F-227).
   tid: string;      // tenant id (uuid). ADR-0015: exactly one per user.
   email: string;
   ev: boolean;      // email verified
-  jti: string;
+  jti: string;      // Better Auth SESSION id. Revocation handle. NOT unique per token.
   iat: number;
   exp: number;      // iat + 300
   iss: string;      // API base URL
@@ -23,7 +23,22 @@ export interface ShortkitJwtClaims {
 ```
 
 Issued by Better Auth's `jwt` plugin with `expirationTime: '5m'` and a `definePayload`
-returning `{ sub, tid, email, ev }`.
+returning `{ jti, tid, email, ev }`.
+
+**`definePayload` must return `jti`.** Corrected 2026-08-07 (F-227). `better-auth@1.6.26`
+sets the claim only when the payload carries it (`dist/plugins/jwt/sign.mjs:49`,
+`if (payload.jti) jwt.setJti(payload.jti)`). A probe with the previous config returned
+`aud, email, ev, exp, iat, iss, sub, tid` and no `jti`, which would leave the revocation
+step below reading `undefined` and matching nothing.
+
+**`definePayload` must NOT return `sub`.** `sign.mjs:53-61` spreads the returned object
+and then overwrites `sub` with `getSubject?.(session) ?? session.user.id`. A `sub` in
+`definePayload` is inert. `sub` is still in the claim set above; Better Auth sets it.
+
+**`jti` is `session.id`, so every token minted for one session carries the same `jti`.**
+This is deliberate (ADR-0013): sign-out holds a session and no token, so a per-token
+random `jti` would be unrevokable. Callers may not treat `jti` as a per-token nonce and
+may not use it for replay detection.
 
 ## Endpoints
 
@@ -31,7 +46,7 @@ returning `{ sub, tid, email, ev }`.
 |---|---|---|---|
 | `POST` | `/api/auth/sign-up/email` | public | body `{ email, password, name?, invitationToken? }` |
 | `POST` | `/api/auth/sign-in/email` | public | |
-| `POST` | `/api/auth/sign-out` | session | revokes `jti` (below) |
+| `POST` | `/api/auth/sign-out` | session | deletes the session, which fires the revocation write (below) |
 | `GET` | `/api/auth/get-session` | session | |
 | `GET` | `/api/auth/token` | session | mints a JWT |
 | `GET` | `/api/auth/jwks` | public | public key set |
@@ -80,9 +95,46 @@ through a capability-token entry point (ADR-0021); TASK-056 asserts that.
 
 ## Revocation
 
-`POST /api/auth/sign-out` sets `sk:{env}:revoked:jti:<jti>` with
-`EX = max(1, exp - now)`. The environment segment is F-015's rule; see
+Rewritten 2026-08-07 (F-227). The previous form read "`POST /api/auth/sign-out` sets
+`sk:{env}:revoked:jti:<jti>` with `EX = max(1, exp - now)`", which assumed a token at the
+write site. There is none.
+
+**Write.** `databaseHooks.session.delete.after` sets `sk:{env}:revoked:jti:<session.id>`
+with `EX = 300`, the full `JWT_LIFETIME_S`. The environment segment is F-015's rule; see
 `redirect-cache.md`.
+
+```ts
+// apps/api/src/auth/auth.config.ts, TASK-009.
+databaseHooks: {
+  session: {
+    delete: {
+      after: async (session: { id: string }): Promise<void> => {
+        // MUST NOT THROW. The session row is already deleted and the hook is queued
+        // after the transaction. A Redis failure degrades to the 300s window; it does
+        // not fail the sign-out response. Increments auth_revocation_degraded_total.
+      },
+    },
+  },
+}
+```
+
+**`EX` is 300, not `exp - now`.** The hook receives a session, not a token. A token minted
+one second before the delete still has 299 seconds of life, so any shorter TTL lets a live
+token outlive its own revocation entry.
+
+**The hook fires on every session deletion, not only sign-out.** `deleteWithHooks` and
+`deleteManyWithHooks` (`better-auth/dist/db/with-hooks.mjs:115-190`) read the rows before
+deleting and invoke `delete.after` once per row, so `POST /api/auth/sign-out`,
+`revoke-session`, `revoke-other-sessions`, delete-user and expired-session cleanup all
+revoke. A caller may rely on this: **if a session no longer exists, its tokens are revoked
+within the write's latency, or Redis was unavailable.**
+
+**Read.** Step 5 of verification below, `EXISTS sk:{env}:revoked:jti:<jti>`. Unchanged.
+
+| Failure at the write site | Shape |
+|---|---|
+| Redis unreachable or errors | Swallowed. `auth_revocation_degraded_total` increments. The sign-out response is still 200. Tokens for that session stay valid until `exp`, at most 300 s. |
+| `session.id` absent from the hook payload | Cannot happen: `with-hooks.mjs` passes the row it read. If it is absent the hook logs and returns; it does not throw into a completed deletion. |
 
 ## Web cookies (Vercel origin, ADR-0014)
 
@@ -106,6 +158,10 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
    is the correct response. `unauthenticated` means it is not, and re-login is.
 5. Maximum token lifetime is 300 seconds, so the worst-case revocation gap with Redis
    unavailable is 300 seconds.
+5a. `jti` identifies the **session**, not the token. Every token minted for one session
+   carries the same value, and one revocation entry covers all of them, including tokens
+   minted before the entry was written. `jti` is not a nonce and callers may not use it
+   for replay detection or as a per-token cache key.
 6. Public routes in `launch-core`, each with a recorded justification:
    `GET /:slug` (anonymous visitor), `GET /health` (platform probe),
    `GET /api/invitations/:token` and `POST /api/invitations/:token/accept`
@@ -124,6 +180,9 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
 ## Versioning
 
 Adding a claim is additive; `AuthGuard` ignores unknown claims. Removing or repurposing
-`tid`, `sub` or `ev` breaks `AuthGuard` and requires an ADR superseding ADR-0013.
+`tid`, `sub`, `ev` or `jti` breaks `AuthGuard` and requires an ADR superseding ADR-0013.
+Making `jti` unique per token is such a change: it breaks revocation silently rather than
+loudly, because the guard keeps working and sign-out stops covering earlier tokens. The
+supported route is to add `sid` and move step 5 onto it in the same change.
 Rolling the signing key is handled by JWKS: publish the new key, wait 600 s for caches
 to expire, then start signing with it.

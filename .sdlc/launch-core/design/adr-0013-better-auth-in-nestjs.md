@@ -99,8 +99,10 @@ betterAuth({
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== '/sign-in/email') return;
-      const principal = sha256(normaliseEmailForKey(ctx.body.email));
-      await authRateLimit.check('signInPerEmail', principal);  // throws APIError 429
+      // ctx.body is UNVALIDATED here. See below.
+      const principal = normaliseEmailForKey(ctx.body?.email);
+      if (principal === null) return;
+      await authRateLimit.check('signInPerEmail', sha256(principal));  // throws APIError 429
     }),
   },
 })
@@ -109,13 +111,40 @@ betterAuth({
 Same Redis client, same key format, same degradation posture, and nothing buffers or
 re-emits a request stream.
 
+**`hooks.before` runs ahead of the endpoint's zod validation, so `ctx.body` is whatever
+the client sent.** Added 2026-08-07 (F-228). Probes against 1.6.26 delivered
+`ctx.body.email` as an object, as a number, and `ctx.body` itself as `undefined`, each
+time reaching the hook before the endpoint returned its 400. This ADR previously wrote
+`normaliseEmailForKey(ctx.body.email)` with no guard, and `rate-limit.md` claimed an
+absent body "gives a 500 on every sign-in, which nobody misses". Neither holds: the 500
+happens only on the requests an attacker chooses to send.
+
+`normaliseEmailForKey` therefore takes `unknown` and returns `string | null`. It returns
+`null` for anything that is not a string, and for a string that normalises to empty. The
+hook returns on `null` and the request continues to the endpoint, which rejects it with
+the same 400 `VALIDATION_ERROR` it would have returned anyway.
+
+**Falling through is deliberate and it is not a bypass.** A request with no usable address
+cannot be attributed to an account, so there is no email bucket to charge it to, and
+inventing a shared sentinel bucket would let one attacker's malformed requests exhaust a
+bucket that legitimate traffic falls into. The IP bucket in Express still counts the
+request, so the volume is bounded, and the endpoint still rejects it.
+
+**Throwing instead is the failure this guard exists to prevent.** `dist/api/dispatch.mjs:
+86-89` rethrows anything from a before hook that is not an `APIError`, aborting the
+request before the endpoint runs. A `TypeError` from `.trim()` on a number means the
+attempt is never recorded against the bucket, the response is a 500 rather than a 400, and
+`beforeHooks` never reaches the later entries. An unauthenticated caller would get an
+unlimited 500 generator against the credential surface with the email bucket charging
+nothing.
+
 Two details this bucket lives or dies on, both silent when wrong (F-025). The key is
 hashed over `email.trim().toLowerCase()`, matching the form Better Auth uses for its
 account lookup, so a case-varied address cannot mint a fresh allowance. And the
 `ctx.path` predicate assumes a base-path-relative value; if that is wrong the hook
-returns on every request and the bucket does not exist. Three integration tests in
-`rate-limit.md` pin the key, the predicate and the 429 together, because no AC covers
-pre-auth limiting and nothing else would notice.
+returns on every request and the bucket does not exist. Four integration tests in
+`rate-limit.md` pin the key, the predicate, the 429 and the malformed-body guard
+together, because no AC covers pre-auth limiting and nothing else would notice.
 
 Both the Express middlewares and the hook reach Redis through `AUTH_RATE_LIMIT_PORT`
 rather than through `redisClient` directly, which is what lets TASK-058 build them
@@ -139,11 +168,18 @@ GC-5 exception and ADR-0015 explains where the tenant relation lives instead.
 betterAuth({ rateLimit: { enabled: false }, /* ... */ })
 ```
 
-Added 2026-08-04 (F-030). **Verified against the Better Auth documentation rather than
-assumed**: the built-in limiter is disabled in development and **enabled in production
-by default**, at 60 seconds and 100 requests, backed by an in-memory store, and it
-returns `X-Retry-After` on a 429. Nothing in this design had disabled, configured or
-accounted for it.
+Added 2026-08-04 (F-030). **Figures re-read against the pinned `better-auth@1.6.26`
+rather than against the documentation, 2026-08-07 (F-229).** The original wording was
+verified against current-latest docs at design time, and three of its numbers did not
+survive the pin. The decision did not move; the numbers below are the release's.
+
+The built-in limiter is disabled in development and **enabled in production by default**
+(`dist/context/create-context.mjs:171`, `enabled: options.rateLimit?.enabled ??
+isProduction`), at **10 seconds** and 100 requests
+(`create-context.mjs:172-173`), backed by an in-memory store, and it returns
+`X-Retry-After` on a 429 (`dist/api/rate-limiter/index.mjs:64-69`). An explicit
+`enabled: false` still wins. Nothing in this design had disabled, configured or accounted
+for it.
 
 Four reasons, and the last two are worse than the debugging-trap argument:
 
@@ -155,16 +191,33 @@ Four reasons, and the last two are worse than the debugging-trap argument:
    and falls back to a `retryAfterSeconds` body field (F-027), and its body carries no
    `code: "rate_limited"`. So a 429 from it maps to `internal_error` and the login
    screen shows the generic error, which is exactly the outcome F-027 was filed to
-   prevent.
-4. **It is IP-keyed and its store is in-memory and unbounded**, which is F-028's defect
-   inside a dependency where we cannot add the cap. Under the BFF topology its key would
-   also be Vercel's egress address rather than the visitor's (see below), so it would
-   limit the entire product to 100 requests per 60 seconds collectively.
+   prevent. Verified unchanged in 1.6.26.
+4. **It is IP-keyed**, and under the BFF topology its key would be Vercel's egress
+   address rather than the visitor's (see below), so it would limit the entire product
+   collectively. That is the load-bearing half and it is unchanged.
+
+   This reason previously also read "its store is in-memory and unbounded, which is
+   F-028's defect inside a dependency where we cannot add the cap". **That half is false
+   for 1.6.26.** `dist/api/rate-limiter/index.mjs:6-18` caps the map at
+   `MEMORY_STORE_MAX_ENTRIES = 1e5` and `pruneMemoryStore()` drops expired entries first,
+   then evicts in insertion order on overflow. Corrected rather than deleted, because a
+   reader who checks reason 4 against the package should find the record of the check.
 
 Disabling a framework's security default deserves the explicit note: we are not removing
 a protection, we are removing a **second** one that is weaker, mis-keyed, and shaped
-wrong for our client. Our buckets are tighter (10 per 5 minutes on sign-in against its
-100 per 60 seconds across everything) and correctly keyed.
+wrong for our client.
+
+Our buckets are correctly keyed, and on sign-in they are tighter over the window that
+matters. The comparison figure here used to read "10 per 5 minutes on sign-in against its
+100 per 60 seconds across everything", which does not describe 1.6.26:
+`getDefaultSpecialRules()` (`rate-limiter/index.mjs:370-384`) gives any path starting
+`/sign-in`, `/sign-up`, `/change-password` or `/change-email` its own 3-per-10-seconds
+rule, and password-reset and verification-email paths 3 per 60 seconds. **The built-in
+sign-in rule is stricter per burst than ours and looser per five minutes**: 3 per 10 s
+sustains 90 attempts in five minutes where our bucket allows 10. Ours still binds on the
+attack that matters, which is sustained guessing, and it is keyed on the address as well
+as the address's source. The 100-per-60-seconds figure applied to everything else and does
+not apply here.
 
 **Plugins: `jwt` and `bearer`.** Claim set, fixed here because ADR-0002's `AuthGuard`
 reads it without a database query:
@@ -173,8 +226,10 @@ reads it without a database query:
 jwt({
   jwt: {
     expirationTime: '5m',
-    definePayload: async ({ user }) => ({
-      sub: user.id,
+    definePayload: async ({ user, session }) => ({
+      // `jti` is the session id, not a per-token random. See below: it is the
+      // revocation handle, and sign-out holds a session rather than a token.
+      jti: session.id,
       email: user.email,
       ev: user.emailVerified,
       tid: await tenantIdForUser(user.id),
@@ -188,21 +243,90 @@ jwt({
 | `sub` | user id | `RequestContext.userId` |
 | `tid` | tenant id | `RequestContext.tenantId`, then `set_config('app.tenant_id', ...)` |
 | `ev` | email verified | AC-17's 403 `email_not_verified` |
-| `jti`, `exp`, `iat`, `iss`, `aud` | standard | signature and revocation checks |
+| `jti` | Better Auth session id, and the revocation handle | `AuthGuard`'s revocation check |
+| `exp`, `iat`, `iss`, `aud` | standard | signature and expiry checks |
 
 `tid` is what removes the guard's chicken-and-egg problem: the guard needs a tenant to
 open the transaction, and a database lookup for it would have to run outside tenant
 context.
 
+**`definePayload` returns `jti`, because Better Auth does not issue one on its own.**
+Added 2026-08-07 (F-227), ruled by Juano. `dist/plugins/jwt/sign.mjs:49` reads `if
+(payload.jti) jwt.setJti(payload.jti)`, so the claim exists only when `definePayload`
+puts it there. A probe against 1.6.26 using this ADR's own config returned `aud, email,
+ev, exp, iat, iss, sub, tid` and no `jti`. Revocation below keys on `jti`, so without this
+line sign-out would write a key nobody looks up, `AuthGuard` would read `undefined`, and
+the prior credential would keep working for its remaining lifetime while the logout
+reported success. AC-21 asserts the opposite.
+
+**`jti` is the Better Auth session id, not a fresh random per token.** Both are
+implementable and the choice decides whether revocation works at all. A random `jti`
+changes on every mint, and the web app mints roughly twelve per hour per session
+(ADR-0014), so a random one can only be revoked by whoever holds that exact token.
+Sign-out does not: `dist/api/routes/sign-out.mjs:20-22` reads the session cookie and
+deletes the session row, and no token is presented. Every token minted before the sign-out
+would survive it. Keying on the session id means one entry revokes every token the session
+ever issued, past and future, which is what "log out" is understood to mean.
+
+The cost is that `jti` is no longer unique per token, which is what RFC 7519 §4.1.7
+describes it as. Nothing here uses it for replay detection, and adding a second `sid`
+claim to keep `jti` unique would add a claim no code reads. The session id is a row id,
+not the session token in the cookie, so this exposes no credential. **If a later change
+needs per-token replay detection, `jti` is taken and that change adds `sid` and moves
+revocation onto it.**
+
+The claim also does not need `sub`. `sign.mjs:53-61` spreads `definePayload`'s return and
+**then overwrites `sub`** with `getSubject?.(session) ?? session.user.id`. This ADR
+previously wrote `sub: user.id` inside `definePayload`, which resolved to the same value
+and had no effect. Removed 2026-08-07 (F-227) so the line does not read as load bearing.
+`sub` is still in the claim table and still `user.id`; Better Auth sets it.
+
 **Verification is stateless, against cached JWKS.** `AuthGuard` fetches
 `/api/auth/jwks` once and caches the key set in process for 10 minutes. No database
 read, no Redis read on the happy path.
 
-**Revocation.** Sign-out pushes `jti` into Redis at `revoked:jti:<jti>` with a TTL
-equal to the token's remaining life. `AuthGuard` checks it. With Redis unavailable the
-check is skipped, matching ADR-0012's posture, so a captured token stays usable for at
-most its remaining 5 minutes. Bounded, stated, and the reason the lifetime is 5 minutes
-rather than the library default of 15.
+**Revocation.** Deleting a session pushes its id into Redis at `revoked:jti:<jti>` with a
+TTL of the **full** token lifetime, 300 seconds, counted from the write. `AuthGuard`
+checks it. With Redis unavailable the check is skipped, matching ADR-0012's posture, so a
+captured token stays usable for at most its remaining 5 minutes. Bounded, stated, and the
+reason the lifetime is 5 minutes rather than the library default of 15.
+
+Two details corrected 2026-08-07 (F-227), both consequences of `jti` being the session id:
+
+**The TTL is 300 seconds, not the presented token's remaining life.** The write site holds
+a session, not a token, so there is no `exp` to subtract from. A token minted one second
+before sign-out has 299 seconds left, so anything shorter than the full lifetime lets a
+live token outlive its own revocation entry. 300 seconds from the write covers every token
+the session can have outstanding.
+
+**The write site is `databaseHooks.session.delete.after`, not a `/sign-out` handler.**
+
+```ts
+betterAuth({
+  databaseHooks: {
+    session: {
+      delete: {
+        after: async (session) => {
+          await revocationStore.revoke(session.id);   // TTL 300s. Best-effort.
+        },
+      },
+    },
+  },
+})
+```
+
+`dist/db/with-hooks.mjs:115-147` reads the row before deleting it and passes the whole row
+to `delete.after`, so `session.id` is available even though
+`internalAdapter.deleteSession` is called with the session token. `deleteManyWithHooks`
+does the same per row, so this one hook covers sign-out, `revoke-session`,
+`revoke-other-sessions`, delete-user, and any bulk session deletion, rather than sign-out
+alone. Hooking `/sign-out` would have left the other four paths issuing no revocation.
+
+`delete.after` is queued to run after the transaction commits, so a Redis failure cannot
+roll back the session deletion. It must not throw: the session is already gone, and
+failing the sign-out response because Redis is down contradicts ADR-0012's posture. A
+failed revocation write degrades to the same 5-minute window as a failed revocation read,
+and increments `auth_revocation_degraded_total`.
 
 **`onUserCreated` is a Better Auth `databaseHooks.user.after` hook,** which TASK-013
 attaches tenant creation to. It runs **after** the user row commits, so the membership is
@@ -230,7 +354,7 @@ hooks: { before: createAuthMiddleware(async (ctx) => {
 Rate limiting runs first, so an attacker cannot use invitation-token probing to bypass
 it. A hook that does not apply to `ctx.path` returns immediately.
 
-TASK-058's three integration tests fail loudly if a later author replaces the array,
+TASK-058's four integration tests fail loudly if a later author replaces the array,
 which is why this is a stated rule rather than a mechanism. They land before TASK-013
 appends, so the protection is in place when the second appender arrives.
 
@@ -294,6 +418,22 @@ appends, so the protection is in place when the second appender arrives.
 - Revocation is best-effort. With Redis down, a stolen token works for up to 5 minutes
   after sign-out. AC-21 passes because the browser's cookies are cleared; a test that
   replays a captured bearer token would see the gap.
+- **`jti` carries the session id, so it is not unique per token and cannot later be used
+  for replay detection.** A change that needs that has to add a `sid` claim and move
+  revocation onto it, touching TASK-009's mint and TASK-011's guard together. Accepted
+  because the alternative was a revocation mechanism that sign-out cannot reach.
+- The session id appears in a JWT the BFF holds and passes to the API. It is a row id
+  rather than the session token, so it grants nothing, and it is one more identifier that
+  must never reach a log body under GC-9.
+- Revocation writes now happen on every session deletion, including expired-session
+  cleanup, so Redis takes a write per deleted row where before it took one per sign-out.
+  The keys are 300-second TTLs on a small value, and the trade buys revocation coverage on
+  `revoke-session`, `revoke-other-sessions` and delete-user, which a sign-out-only hook
+  would have missed entirely.
+- The email bucket ignores requests whose body carries no usable address. That is the
+  right call for a bucket keyed on an address, and it means the email bucket contributes
+  nothing against a caller sending deliberately malformed bodies. Only the IP bucket
+  bounds that traffic.
 
 ### Follow-ups this creates
 
@@ -314,7 +454,7 @@ inside `apps/api/src/auth/**`, and it is not TASK-051.
   IP-keyed bucket collapses onto Vercel's egress address.
 - **TASK-058 owns `authBodyCap`, `authRateLimit`, the `hooks.before` email bucket,
   `resolveRateLimitPrincipal`, the `AUTH_RATE_LIMIT_PORT` declaration, and
-  `LocalAuthRateLimiter`**, plus the three integration tests in `rate-limit.md` that pin
+  `LocalAuthRateLimiter`**, plus the four integration tests in `rate-limit.md` that pin
   the email bucket's key, predicate and 429 together. The port is required at boot
   rather than `@Optional()`: an unbound token fails startup, because a missing limiter
   opens the credential surface where a missing branding port only degrades a 404.
@@ -328,7 +468,21 @@ inside `apps/api/src/auth/**`, and it is not TASK-051.
   `design/stubs/apps/api/src/auth/ports/auth-rate-limit.port.ts`, which still says
   "platform-trusted client IP" where the rule is `resolveRateLimitPrincipal(headers)`.
 - TASK-011 owns `AuthGuard`, the revocation check, and the mapping from claims to
-  `RequestContext`.
+  `RequestContext`. It reads `jti` as an opaque revocation handle and must not assume it
+  is unique per token (F-227).
+- **TASK-009 owns the `jti` claim and the `databaseHooks.session.delete.after` revocation
+  write**, both in `apps/api/src/auth/auth.config.ts`, plus a unit test asserting the
+  composed config's `definePayload` returns a `jti` equal to the session id. Added
+  2026-08-07 (F-227). The claim and the write are two halves of one mechanism and they
+  live in the same file; splitting them across TASK-009 and TASK-011 would let the mint
+  land without the write, and the symptom is a logout that reports success and revokes
+  nothing. The revocation write reaches Redis through the same port pattern the buckets
+  use, so it does not depend on TASK-030's `redisClient` existing in wave 2.
+- **TASK-058's `normaliseEmailForKey` takes `unknown` and returns `string | null`**, and
+  the hook returns rather than throwing when it gets `null` (F-228). `rate-limit.md` gains
+  a fourth required integration test for it: a sign-in body whose `email` is a JSON object
+  returns the endpoint's 400 and not a 500, and does not consume the bucket. The set that
+  pins this hook is now four tests, not three.
 - TASK-008 maps Better Auth's native error bodies onto `ErrorEnvelope` at the client
   boundary, **including reading `retryAfterSeconds` from a 429 body when the header is
   absent** (F-027).
@@ -339,7 +493,7 @@ inside `apps/api/src/auth/**`, and it is not TASK-051.
   owns a unit test asserting the composed `betterAuth` config carries
   `rateLimit.enabled === false`**. Of the four verified Better Auth facts this design
   leans on, this is the only one that degrades silently and only in production. The hook
-  signature and `ctx.body.email` fail loudly, and TASK-058's three integration tests pin
+  signature and `ctx.body.email` fail loudly, and TASK-058's four integration tests pin
   the `ctx.path` predicate, so those three need no separate assertion. This one gets its
   own pin.
 
