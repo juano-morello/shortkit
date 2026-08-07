@@ -133,6 +133,26 @@ Each of these carries a reason.
   fake sender and assert the message was handed over, not that it arrived.
 - **Deployment itself.** TASK-003 and TASK-004 produce deployed URLs. Hit those URLs to
   confirm Fly and Vercel served them. No test in the suite covers it.
+- **AC-6's deployment half only (TASK-003).** Ruled by Juano 2026-08-06, and this one is a **split**
+  rather than a whole-AC exemption, which is why it reads differently from the two below.
+
+  AC-6 asserts that the API *deployed to Fly.io* answers `GET /health` over HTTPS with `status: "ok"`
+  and a `commit` matching the deployed git SHA. Part of that is genuinely testable in process and
+  part is not, and the two halves fail in different ways.
+
+  **Tested, with a real red step:** the app boots, `GET /health` returns 200, the body carries
+  `status: "ok"`, and `commit` is read from the build-time SHA source rather than being empty,
+  hardcoded, or a placeholder. That last clause is the one worth the test — a health endpoint
+  reporting a stale or empty commit is precisely what makes a deploy unidentifiable, it regresses
+  silently, and no other gate would notice.
+
+  **Exempt, no red step available:** "deployed to Fly.io" and "over HTTPS". A test against the live
+  URL reports green or red for reasons unrelated to the code — Fly being down, DNS, deployment
+  protection — and cannot go red before the first deploy exists, which is the same reasoning that
+  exempted AC-7. `sdlc-product-auditor` verifies this half against the deployed URL.
+
+  TASK-003 is therefore **not** `test_exempt`. It carries a real failing test for the handler.
+
 - **AC-7 as a vitest test (TASK-004 `test_exempt`).** Ruled by Juano 2026-08-05. The entry
   above anticipated this, but the decisive reason is sharper than "deployment is hard":
   **there is no red step available.** The tempting in-process proxy — render `app/page.tsx`,

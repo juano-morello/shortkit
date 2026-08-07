@@ -34,3 +34,16 @@ Auth routes, `AuthUser`, `onUserCreated` (TASK-009); `db` (TASK-005).
 **Produces**
 
 `MailSender.send({ to, template, data })` — provider-agnostic dispatch; `FakeMailSender` capturing sent messages for tests; verification token issue/consume endpoints; `verificationContract`.
+
+## ⚠ You inherit AC-16's email half (ruled by Juano 2026-08-06)
+
+TASK-009 lands signup in wave 2 and **cannot** assert AC-16's second clause, because the fake mail
+sender is yours and arrives here in wave 3.
+
+**You own the assertion that signup sends EXACTLY ONE verification email.** Not at-least-one — the
+AC says exactly one, and a retry loop or a duplicated hook that sends two satisfies a sloppier
+reading while being a real defect a user sees twice in their inbox.
+
+TASK-009's red tests cover account creation, the duplicate-email rejection and the password policy.
+The email count is the piece left, and it is recorded here rather than in a report so an implementer
+meets it where the work is.

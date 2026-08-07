@@ -204,3 +204,27 @@ rather than an implementation detail.
 
 **TASK-003 also holds these two files this wave** — it adds `pino`. Worktree isolation is
 load-bearing. **Never merge lockfile hunks; re-run the install on the merged manifests.**
+
+## ⚠ AC-16 is split across two waves (ruled by Juano 2026-08-06)
+
+AC-16 requires that signup creates an unverified account **and** sends exactly one verification
+email. **The email half cannot be asserted in this wave.** The fake mail sender is produced by
+TASK-010, which is wave 3 and in this same STORY, so the fixture AC-16's second clause needs arrives
+a wave after you do.
+
+**Your half, and it gets real failing tests:** signup creates an account in an unverified state; a
+duplicate email is rejected; a password failing the stated policy is rejected. That is the product's
+front door and it is fully testable now against the live database wave 1 delivered.
+
+**TASK-010's half:** "exactly one verification email is sent." Recorded as an explicit obligation on
+that TASK rather than left to be rediscovered — an obligation living only in a report is the F-064
+failure this initiative has filed four times.
+
+**This must be said at the gate.** AC-16 is jointly satisfied across two TASKs in two waves, so
+TASK-009 reporting "AC-16 met" without that qualification would be claiming coverage that does not
+exist yet. `sdlc-product-auditor` should be told the same thing when it verifies this TASK.
+
+Declined alternatives, recorded so they are not re-proposed: declaring a minimal mail port here (the
+F-024 pattern) was rejected because your paths do not reach the mail contract and it would design a
+boundary TASK-010 owns; moving AC-16 wholesale to TASK-010 was rejected because it would leave the
+signup path shipping a whole wave with no AC covering account creation.
