@@ -43,12 +43,23 @@ jobs:
   quality:
     name: quality
     runs-on: ubuntu-latest
-    # Observed 56s on the first green run (31113561948). 15 minutes is roughly sixteen
-    # times that, which absorbs a slow registry or a cold Next build and still bounds the
-    # job: `pull_request` on a public repo runs an attacker's `pnpm-workspace.yaml`,
-    # lockfile and package scripts, so the six-hour default is three jobs' worth of free
-    # compute per PR, repeatable. A wrong-but-present bound beats 360.
-    timeout-minutes: 15
+    # Observed 56s on the first green run (31113561948). GitHub Actions offers no
+    # separate queue timeout — `timeout-minutes` bounds queue time and execution time
+    # together, counted from `started_at`. 30 minutes is roughly thirty times observed
+    # execution, which absorbs a slow registry, a cold Next build and a congested runner
+    # pool, and still bounds the job: `pull_request` on a public repo runs an attacker's
+    # `pnpm-workspace.yaml`, lockfile and package scripts, so the six-hour default is
+    # three jobs' worth of free compute per PR, repeatable. A wrong-but-present bound
+    # beats 360.
+    #
+    # F-219 (2026-08-06): a run can be CANCELLED at exactly this bound with every step
+    # unexecuted — GitHub's queue congested for over an hour and cancelled three jobs
+    # before any of them started. That run and a genuine failure both report `failure` /
+    # `cancelled` at a glance. THE SIGNATURE: `gh api .../actions/runs/<id>/jobs` shows
+    # ZERO STEPS EXECUTED on a queue-cancelled job, and at least one step on a job that
+    # actually ran and then failed or hung. Read zero-steps as "the queue was long,"
+    # not as a defect in this workflow or the tree it ran against.
+    timeout-minutes: 30
     # JOB-LEVEL, NOT STEP-LEVEL, AND THAT IS THE POINT (F-156). AC-113's guard searches
     # the built output for the VALUE of BFF_PROXY_SECRET, so it only means anything if
     # the build it inspects ran with the same value the check reads. A build in one step
@@ -157,10 +168,13 @@ jobs:
     name: integration
     runs-on: ubuntu-latest
     # Observed 51s on run 31113561948, of which 14s was pulling and starting the service
-    # container. Same 15-minute bound and the same reasoning as `quality`, with one extra
-    # margin: `test/support/psql.ts` falls back to `docker run … psql` per statement if the
-    # runner image ever stops shipping a client, which took 24s locally against 10s here.
-    timeout-minutes: 15
+    # container. Same 30-minute bound and the same reasoning as `quality` — see its
+    # comment for why the bound covers queue time as well as execution, and for the
+    # zero-steps-executed signature that tells the two apart (F-219) — with one extra
+    # margin here: `test/support/psql.ts` falls back to `docker run … psql` per statement
+    # if the runner image ever stops shipping a client, which took 24s locally against
+    # 10s here.
+    timeout-minutes: 30
     env:
       # The same DSNs docker-compose.test.yml documents in its header, down to the port,
       # so the commands below read identically to the local ones. Fixture credentials for
@@ -289,7 +303,11 @@ jobs:
     # This job checks nothing out and calls no API. `{}` grants the GITHUB_TOKEN no scope
     # at all, rather than inheriting the workflow's `contents: read`.
     permissions: {}
-    timeout-minutes: 5
+    # 10 minutes, up from 5 (F-219): `gate` waits on `needs:`, so its own `started_at`
+    # can sit in the same queue `quality` and `integration` do before this job's single
+    # step ever runs. The step itself is a few seconds of shell; the budget above that is
+    # entirely queue absorption, not expected execution.
+    timeout-minutes: 10
     steps:
       - name: Assert quality and integration both succeeded
         env:
