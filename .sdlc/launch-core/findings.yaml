@@ -8024,3 +8024,154 @@
   status: escalated
   resolved_by: null
   resolved_round: null
+
+- id: F-244
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: apps/api/src/observability/logger.ts
+  line: 64
+  summary: >-
+    The shared logger leaves pino's default `err` serializer active and no REDACT_PATHS entry reaches
+    it, so one idiomatic log.error({ err }, ...) writes every own enumerable property of the error -
+    including body-parser's `err.body`, the RAW REQUEST BODY.
+  failure_scenario: >-
+    ORCHESTRATOR REPRODUCED IT against the repo's own installed pino 10.3.1: an error carrying
+    body = '{"password":"hunter2","token":"sk_live_DEADBEEF"' emitted through log.error({err}) leaks
+    hunter2 verbatim. Confirmed the shipped logger sets redact at :66 and NO serializers override.
+    body-parser 2.3.0 attaches the verbatim request body to the 400 it raises, so the attacker path is
+    an unauthenticated POST to any /api route with a malformed JSON body carrying a credential. THIS
+    IS F-108 IN A WORSE FORM - the full body rather than a quoted fragment - and it is the one field
+    shape the new policy does not defend, because the policy is a CONVENTION inside errorLogFields
+    while the serializer is CONFIGURATION on the logger every later TASK imports. No current call site
+    does it; the distance is one line, and this diff decides the surface for every later TASK. The
+    auditor also measured that on Node 24.19 JSON.parse no longer quotes the offending bytes at all,
+    so TASK-003.md:108's stated mechanism no longer reproduces - the chosen remedy is nonetheless
+    stronger because it does not depend on a V8 message format, and the raw body was always on
+    err.body rather than in the message.
+  required_change: >-
+    Close it at the logger rather than by comment. Override serializers: { err: (e) => errorLogFields(e,
+    { includeMessage: false }) } so the err key routes through the same policy - the durable option,
+    because it makes the misuse impossible instead of enumerating the fields it leaks. Appending
+    err.body, err.message, err.stack and err.raw to REDACT_PATHS is the weaker alternative.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-245
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/api/src/main.ts
+  line: 74
+  summary: >-
+    assertBootPreconditions treats "the database could not be reached" identically to "the runtime
+    role can bypass RLS", so transient Postgres unavailability at boot makes the process refuse to
+    start, with no retry and no distinction.
+  failure_scenario: >-
+    RAISED BY BOTH AUDITORS INDEPENDENTLY. VERIFIED at main.ts:71-75 - it awaits
+    assertRuntimeRoleCannotBypassRls(), which rejects for every reason pg can reject. db/client.ts
+    sets connectionTimeoutMillis 2000 and F-149 establishes pg-pool applies that to ESTABLISHMENT, not
+    only queue wait. GC-3 pins Neon's free tier, which scales to zero, so a cold wake exceeding 2s
+    exits 1 and /health never binds. THE RESTART CASE IS THE ONE THAT WAS NEVER ANALYSED: the
+    architect's "a failed deploy leaves the old version serving" holds for a deploy, where deploy.sh
+    has just migrated so the database is warm, and does NOT hold for a restart, where there is no
+    previous version. VERIFIED fly.toml:49 auto_start_machines = false, so once Fly's restart budget
+    is spent nothing brings the machine back on an incoming request - recovery needs a human even
+    after the database is healthy. Before this diff main.ts opened no database connection at boot at
+    all, so the same outage left the process up with /health answering 200 and it self-recovered. Not
+    a literal GC-8 violation - a process that never binds returns no 5xx - but it removes the branded
+    404 path's only survival mode during a database outage. Both auditors confirmed nothing
+    attacker-controlled reaches either precondition.
+  required_change: >-
+    Boot must refuse when the check ANSWERS and the answer is unsafe, and must not refuse merely
+    because the check could not be ANSWERED. Either a bounded retry with backoff on the reachability
+    half, or a connect timeout distinct from the per-request one - and the two conditions must be
+    distinguishable in the log line. F-116 ruled on the unsafe-answer case only. Settle the
+    interaction with auto_start_machines = false at the same time. Leave precondition 1 alone; it does
+    no I/O and cannot flake.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-246
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: infra/deploy.sh
+  line: 25
+  summary: >-
+    deploy.sh migrates BEFORE it deploys, and accepts any non-empty DATABASE_MIGRATION_URL - so a
+    failed image build leaves the schema ahead of the code, and a shell left over from the integration
+    suite migrates localhost then ships code to production.
+  failure_scenario: >-
+    TWO MAJORS THAT SHARE A LINE, raised separately by the two auditors. VERIFIED: db:migrate at :37,
+    exec fly deploy at :39, no build or test between. (a) ORDERING - the Dockerfile COPYs an explicit
+    file list, so a commit adding a file it does not name builds green locally and fails inside docker
+    build, leaving the DDL applied and the OLD image serving against a schema that no longer matches.
+    ADR-0004's release_command could not do this because Fly builds first and runs the command inside
+    the built image; build-before-migrate was a THIRD property, dropped rather than argued, while
+    fly.toml:35-37 claims "ADR-0004's two actual requirements survive". (b) TARGET - docker-compose.
+    test.yml:9 and rls-fixture.ts:107 both instruct the operator to export DATABASE_MIGRATION_URL
+    pointing at localhost for the integration suite. Running deploy.sh from that shell migrates the
+    local container, set -e sees success, and fly deploy ships to production against an UNMIGRATED
+    schema - and /health answers 200 without touching the database, so Fly's check passes while every
+    DB-backed request 500s, which on the redirect path is GC-8. The dirty-tree guard exists to stop
+    exactly this class of silent-wrong-target deploy for the SHA; the more privileged input got no
+    equivalent. Third, smaller: the script never anchors to the repo root, and git and pnpm walk up
+    while flyctl does not - so running it from a subdirectory migrates and then fails at fly deploy,
+    reaching the same state by a likelier route.
+  required_change: >-
+    Prove the image buildable before any DDL is applied, or state in fly.toml beside the absent
+    release_command that a failed build can leave a migrated schema and why that is acceptable.
+    Refuse a migration target that is not the intended one - reject loopback, or require an explicit
+    environment-naming opt-in, or echo host and database and require confirmation. cd to
+    git rev-parse --show-toplevel first. And record that this settlement of F-119 relocates the
+    table-owning shortkit_migrator credential from Fly secrets onto a developer workstation.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-247
+  phase: implement
+  task: TASK-011
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 247
+  summary: >-
+    RE-GRADE OF F-243 CLAUSE 3. It is filed as minor/scope - "two stale logger comments now unowned".
+    One of the two writes an arbitrary error's RAW MESSAGE on a per-request tenant path, outside pino
+    and outside redaction.
+  failure_scenario: >-
+    The auditor split what I had graded as one scope note and it was right to. tenant-context.ts:247
+    logs `afterCommit hook failed: ${error.name}: ${error.message}` through Nest's Logger - the exact
+    field this TASK's policy makes default-deny everywhere else. A pg error there carries the DSN; an
+    application hook's error can carry row data; and the line has no request_id, no level, service or
+    env, no timestamp and no redaction. So logging-and-headers.md's "every API TASK, nothing may opt
+    out" is still false AFTER this diff, and the exception is on the tenant path rather than in a
+    corner. db/client.ts:93 is the benign half - name and SQLSTATE only - which is what makes grading
+    them together wrong. The implementer could not fix either: tenancy/** is outside TASK-003's paths,
+    and its disclosure was correct and complete.
+  required_change: >-
+    Route the tenant-context.ts:247 line to a TASK holding apps/api/src/tenancy/** - TASK-011 - with
+    the same default-deny message policy the shared logger now enforces. Leave F-243 clause 3's
+    db/client.ts half at its current grade; it is gated on F-144 and leaks nothing.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
