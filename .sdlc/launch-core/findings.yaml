@@ -7990,9 +7990,18 @@
     show a stranger. Truncation was rejected because a cap does not remove a credential at the start
     of a slice. Routing rule 0 - design/** belongs to sdlc-architect.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 2 by sdlc-architect, alongside F-249 in the same file. The false sentence was
+    REMOVED AND QUOTED IN ITS OWN CORRECTION rather than silently deleted, so a reader who remembers the
+    old claim can see it was struck and why - the same discipline this initiative applied to ADR-0005's
+    alternatives table. It re-measured the correction rather than transcribing it: with redact paths
+    err.message and err.stack, pino emits both as [redacted] once a serialiser has turned the error into
+    an object. The consequence the implementer drew stands; the reason it gave was wrong. Third time on
+    this initiative that a correct rule rested on a justification that did not survive checking, after
+    F-220 and F-229.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
 
 - id: F-243
   phase: implement
@@ -8303,6 +8312,61 @@
     optional. Fold in F-242's correction (the false "REDACT_PATHS cannot help either way" sentence)
     and the reviewer's note that the list is keyed to camelCase ipHash while the contract states the
     prohibition in snake_case. Routing rule 0 - design/** belongs to sdlc-architect.
+  owner_slot: sdlc-architect
+  ruling: >-
+    FIXED in fix round 2 by sdlc-architect, which READ THE SHIPPED CODE rather than the three reports
+    describing it - and that mattered, because one of them had the ordering backwards. It ran the module
+    itself and measured: formatter-before-serialiser at pino tools.js 162 vs 169; a plain object under
+    err emits 'non-error throwable (object)', which is the COUNTERFACTUAL PROVING the depth-1 skip is
+    required rather than stylistic; bare pino leaks err.body and copies the message into msg; the
+    wildcard misses top level and depth 2; depth 5 leaks body verbatim while depth 4 is replaced; and
+    ipHash is censored while ip_hash is not.
+    
+    The contract now carries the three mechanisms WITH their reasoning, the partition table, both
+    rejected alternatives, the depth-5 residual with its emitted line, and which casing the list is
+    keyed to and why. It also marked the wave-1 stub superseded and unsafe to copy, and corrected two
+    further sentences in error-envelope.md that still said 'name and message, not the stack, and not yet
+    the request_id' - all three clauses false after this round.
+    
+    IT FOUND A THIRD DOOR NOBODY HAD COUNTED. F-249 named the contract; the architect found the design
+    STUB carried the same 17-path list and that the contract header pointed at it as current, so it
+    fixed that too - and then found ADR-0022 still fences the same stale literal. It correctly did NOT
+    amend an accepted ADR inside an F-249 dispatch and flagged it instead, which is filed as F-250.
+    
+    It also named three things about the code it now describes and thinks are wrong: MAX_ERROR_SCAN_DEPTH
+    is argued from wave-1 call sites only and nothing fails when a later record exceeds it; the exception
+    filter spreads errorLogFields at the record root while log.error({ err }) nests it, so one fact has
+    two shapes - a dashboard trap rather than a leak; and hooks.logMethod discards a caller-supplied
+    message, which is intended and is now stated.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
+
+- id: F-250
+  phase: implement
+  task: TASK-003
+  source: sdlc-architect
+  round: 2
+  severity: minor
+  kind: design
+  file: .sdlc/launch-core/design/adr-0022-log-redaction.md
+  line: 1
+  summary: >-
+    ADR-0022 still fences the stale 17-path logger literal with no serializers, hook or formatter -
+    F-249's hazard surviving in a third artifact after the contract and the stub were fixed.
+  failure_scenario: >-
+    F-249 named the contract. The architect found the design STUB carried the same stale list and that
+    the contract header pointed at it as current, fixed both, and then found ADR-0022 fences it too.
+    VERIFIED: zero occurrences of `serializers` in ADR-0022. So a TASK re-deriving the logger from the
+    ADR rather than the contract still reintroduces F-244 - a live credential leak - with every gate
+    green. THE PATTERN IS THE FINDING: one stale configuration reached three artifacts, and each was
+    found only by someone reading the next one along. The architect correctly declined to amend an
+    accepted ADR inside an F-249 dispatch and flagged it instead.
+  required_change: >-
+    Either bring ADR-0022's literal up to what ships, or replace it with a pointer to
+    logging-and-headers.md as the single normative source - the second is better, because three copies
+    of one configuration is what produced this finding. Whichever, state that the contract wins a
+    disagreement.
   owner_slot: sdlc-architect
   status: open
   resolved_by: null
