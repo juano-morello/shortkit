@@ -116,6 +116,8 @@ const LINE = {
   nonErrorUnderErrKey: 14,
   chainedErrorUnderErrorKey: 15,
   errorAtTheDeepestScannedLevel: 16,
+  bindingsSetUnderErrKey: 17,
+  bindingsSetUnderOtherKeys: 18,
 } as const;
 
 const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
@@ -244,6 +246,17 @@ logger.error({ error: chained }, 'an error chained to the leaking one, under the
 //     hand rather than built from \`MAX_ERROR_SCAN_DEPTH\`, which would agree with the
 //     source whatever the source says.
 logger.error({ a: { b: { c: { err: parseFailure } } } }, 'an error four levels into the record');
+
+// 17-18. F-258: \`setBindings\` is the OTHER door onto \`asChindings\`, and it is not the one
+//        \`child\` was wrapped for. THESE TWO CALLS ARE LAST ON PURPOSE: \`setBindings\`
+//        appends to the singleton's chindings permanently, so every line after them would
+//        carry their bindings too. The \`err\` shape is bound FIRST, while it is the only
+//        binding, so that its line is not polluted by the leak the next call adds.
+logger.setBindings({ err: parseFailure });
+logger.error('an error bound under the err key by setBindings');
+
+logger.setBindings({ error: parseFailure, ctx: { err: parseFailure } });
+logger.error('an error bound under other keys by setBindings');
 `;
 }
 
@@ -574,5 +587,48 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
     expect(fields.err_name).toBe('SyntaxError');
     expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+  });
+
+  it('F-258: an error bound through `setBindings` is covered under a key other than `err`', () => {
+    // The second door onto `asChindings`, and the one `child` was not wrapped for.
+    // `setBindings` hands its argument to the same function child bindings go through, so the
+    // shapes leak identically — and it needs no child logger, so a call site reaches it with
+    // one line. Both shapes are read off the same line because one `setBindings` call carries
+    // them; a fix that re-keyed only the top level would still leave `ctx.err` here.
+    const line = lines[LINE.bindingsSetUnderOtherKeys];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    // Not bought by binding nothing: the operator still gets the name and the frames under
+    // each key.
+    const shapes = [
+      line.record.error as Record<string, unknown>,
+      (line.record.ctx as Record<string, unknown>).err as Record<string, unknown>,
+    ];
+
+    for (const fields of shapes) {
+      expect(fields.err_name).toBe('SyntaxError');
+      expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual(
+        [],
+      );
+    }
+  });
+
+  it('F-258: an error under `err` in `setBindings` still reports the policy fields, not `non-error throwable`', () => {
+    // THE SEAM, on the `setBindings` path — MEASURED to exist here, not assumed to carry over
+    // from `child`: `asChindings` consults `serializers[key]` for these bindings too, so this
+    // shape is already covered and already carries frames. A scan added for the line above
+    // that replaced the top-level `err` would hand `serializers.err` an ordinary object and
+    // degrade this line to `non-error throwable (object)` with nothing to debug from.
+    const line = lines[LINE.bindingsSetUnderErrKey];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    const fields = line.record.err as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(fields.err_stack).toBeTypeOf('string');
   });
 });
