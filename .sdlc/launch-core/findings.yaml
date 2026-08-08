@@ -8349,7 +8349,7 @@
   round: 2
   severity: minor
   kind: design
-  file: .sdlc/launch-core/design/adr-0022-log-redaction.md
+  file: .sdlc/launch-core/design/adr-0022-logging-cors-and-security-headers.md
   line: 1
   summary: >-
     ADR-0022 still fences the stale 17-path logger literal with no serializers, hook or formatter -
