@@ -7512,9 +7512,20 @@
     doc should copy from it. VERIFIED that file exists. Juano's call on who takes it, since TASK-002
     is done - the same shape as the F-090 widening.
   owner_slot: null
-  status: escalated
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    RULED by Juano 2026-08-06 - WIDEN TASK-002 and dispatch, the F-090 precedent for reopening a merged
+    TASK rather than minting work elsewhere. paths gained docs/security/**. Folding it into TASK-003 and
+    leaving HEAD failing until the wave gate were both offered and declined; the second would have
+    reintroduced, one day later, the exact red-indistinguishable-from-broken state F-219 was fixed to
+    remove. FIXED by sdlc-implementer-backend and VERIFIED BY THE ORCHESTRATOR: pnpm audit --prod exits
+    1 and --prod --no-optional exits 0; the workflow still parses with three jobs, gate needs
+    [quality, integration] unchanged, step counts 11/7/1 unchanged; and a non-comment diff of ci.yml
+    shows EXACTLY ONE changed line, the audit command. The comment block and known-advisories.md were
+    corrected from ADR-0018's now-normative register rather than re-derived. No --ignore, no
+    auditConfig, no resolution override - the ADR ban holds. HEAD passes its own quality gate again.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-231
   phase: test
