@@ -44,15 +44,160 @@ may not use it for replay detection.
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| `POST` | `/api/auth/sign-up/email` | public | body `{ email, password, name?, invitationToken? }` |
-| `POST` | `/api/auth/sign-in/email` | public | |
-| `POST` | `/api/auth/sign-out` | session | deletes the session, which fires the revocation write (below) |
-| `GET` | `/api/auth/get-session` | session | |
-| `GET` | `/api/auth/token` | session | mints a JWT |
+| `POST` | `/api/auth/sign-up/email` | public | body `{ email, password, name, invitationToken? }`. `name` is **required** (F-234). Requires `Origin` (F-233). |
+| `POST` | `/api/auth/sign-in/email` | public | body `{ email, password }`. Requires `Origin` (F-233). |
+| `POST` | `/api/auth/sign-out` | session | deletes the session, which fires the revocation write (below). Requires `Origin` (F-233). |
+| `GET` | `/api/auth/get-session` | session | no `Origin` required; Better Auth skips the origin check on `GET` |
+| `GET` | `/api/auth/token` | session | mints a JWT. No `Origin` required |
 | `GET` | `/api/auth/jwks` | public | public key set |
 
 These are mounted outside Nest (ADR-0013). **Their error bodies are Better Auth's
 native shape, not `ErrorEnvelope`.** TASK-008 maps them at the client boundary.
+
+Session-authenticated routes accept `Authorization: Bearer <better-auth session token>`
+through the `bearer` plugin. That is the session token from the sign-in response, held by
+the BFF as `sk_rt`, and not the JWT.
+
+### The sign-up body: `name` is required
+
+Corrected 2026-08-08 (F-234). This table previously wrote `name?`. `better-auth@1.6.26`
+declares the endpoint body as `z.object({ name: z.string(), email: z.email(),
+password: z.string().nonempty(), ... }).and(z.record(z.string(), z.any()))`
+(`dist/api/routes/sign-up.mjs:14-21`). A body without `name` is rejected before the
+handler runs:
+
+```
+400 {"message":"[body.name] Invalid input: expected string, received undefined","code":"VALIDATION_ERROR"}
+```
+
+**The mount cannot relax this.** `name: z.string()` is written into the endpoint's own
+schema, not derived from configuration, so no `betterAuth` option makes it optional. The
+choice is where the value comes from, and it is the signup form: TASK-012's `/signup`
+screen collects a display name and sends it. See ADR-0014 for why the alternative, a
+default supplied inside the proxy, was rejected.
+
+The trailing `.and(z.record(z.string(), z.any()))` is what lets `invitationToken` ride
+along on the same body without failing validation (TASK-013).
+
+`name: ""` is accepted and returns 200. It is not a valid value for this product; the
+signup form must reject an empty name client-side before the request is sent.
+
+### Password policy
+
+Stated 2026-08-08, ruled by Juano (F-235). AC-16 requires "a password meeting the stated
+policy" and this is the stated policy:
+
+> **Minimum 8 characters. No composition requirement: no mandatory uppercase, digit,
+> or symbol. Maximum 128 characters.**
+
+These are `better-auth@1.6.26`'s own defaults, not overrides. `dist/context/create-context.mjs:185-186`
+reads `minPasswordLength: options.emailAndPassword?.minPasswordLength || 8` and
+`maxPasswordLength: options.emailAndPassword?.maxPasswordLength || 128`, and
+`dist/api/routes/sign-up.mjs:152-158` enforces both. Probed against the pin: 7 characters
+returns 400, 8 returns 200, 128 returns 200, 129 returns 400.
+
+**`auth.config.ts` sets neither key.** The contract states the library's default so that
+the two agree. Setting a stricter value here would require the mount to configure it as
+well, and a contract that states one number while the mount leaves another in force is
+exactly the divergence F-234 records.
+
+Length-only matches current NIST guidance. Composition rules push users toward
+predictable substitutions and buy little.
+
+**What `sdlc-product-auditor` verifies AC-16's "stated policy" clause against:** this
+section. A password of 8 or more characters and 128 or fewer, with any composition, is
+policy-compliant. A password of 7 or fewer characters is not, and signup rejects it with
+`400 PASSWORD_TOO_SHORT`. TASK-009's test 4 uses a one-character password, which is below
+this floor, so it verifies the clause as stated.
+
+### `Origin` is required on state-changing auth routes
+
+Added 2026-08-08 (F-233). `better-auth@1.6.26` rejects a state-changing request to
+`/api/auth/*` that carries no `Origin` header:
+
+```
+403 {"message":"Missing or null Origin","code":"MISSING_OR_NULL_ORIGIN"}
+```
+
+and rejects one whose `Origin` is not in `trustedOrigins`:
+
+```
+403 {"message":"Invalid origin","code":"INVALID_ORIGIN"}
+```
+
+`GET` requests short-circuit before the check (`dist/api/middlewares/origin-check.mjs:43`),
+so `GET /api/auth/token`, `GET /api/auth/get-session` and `GET /api/auth/jwks` need no
+`Origin`. Every `POST` under `/api/auth/*` does.
+
+**The API side.** `auth.config.ts` passes `trustedOrigins`, read from `WEB_APP_ORIGINS`:
+
+```ts
+// apps/api/src/auth/auth.config.ts, TASK-009.
+// Comma-separated list of every origin the dashboard is served from.
+// Server-only. Required configuration in production. Never NEXT_PUBLIC_*.
+const webAppOrigins = (process.env.WEB_APP_ORIGINS ?? '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter((o) => o.length > 0);
+
+betterAuth({ trustedOrigins: webAppOrigins, /* ... */ })
+```
+
+An array passed here **extends** the default rather than replacing it
+(`dist/context/helpers.mjs:74-77`): the resolved list is `[new URL(baseURL).origin,
+...webAppOrigins]`. The API's own origin stays trusted whatever `WEB_APP_ORIGINS`
+contains, which is what lets the integration suite pass with the variable unset.
+
+Entries are matched by `matchesOriginPattern` (`dist/auth/trusted-origins.mjs:13-26`).
+An entry with no `*` is an exact origin match including scheme. An entry containing `*`
+is a wildcard over the origin. Verified against the pin:
+
+| Entry | Matches | Does not match |
+|---|---|---|
+| `https://shortkit.vercel.app` | `https://shortkit.vercel.app` | `http://shortkit.vercel.app`, any preview host |
+| `https://shortkit-*.vercel.app` | `https://shortkit-git-feat-x-juano.vercel.app` | `https://shortkit.vercel.app`, `https://evil.vercel.app` |
+| `https://*.vercel.app` | every `*.vercel.app` host, **including ones we do not own** | `http://` hosts |
+
+**Production and preview need two entries**, because a prefix wildcard does not match the
+bare production host. `https://*.vercel.app` is not an acceptable entry: it trusts every
+application on the platform.
+
+`http://localhost:3000` is **not** trusted by default and must be listed in
+`WEB_APP_ORIGINS` for local development. Without it a local signup returns
+`403 INVALID_ORIGIN`.
+
+**The BFF side** is normative in `web-api-client.md`: the proxy forwards the browser's
+`Origin` verbatim on mutating methods, having already required it to equal the deployment
+origin.
+
+**`BETTER_AUTH_TRUSTED_ORIGINS` is read by the library on its own**
+(`helpers.mjs:83-84`, comma-split and appended). Nothing in this design sets it. Anyone
+with access to the API's environment can widen the trusted list through it without
+touching `auth.config.ts`.
+
+### Error bodies, verbatim from 1.6.26
+
+Recorded 2026-08-08 so TASK-008's mapping and TASK-012's screens have exact shapes rather
+than inferred ones. Every row was produced by probing the pinned release. All carry
+`{ message, code }` and no `ErrorEnvelope` fields.
+
+| Condition | Status | Body |
+|---|---|---|
+| sign-up body missing `name` | 400 | `{"message":"[body.name] Invalid input: expected string, received undefined","code":"VALIDATION_ERROR"}` |
+| sign-up password shorter than 8 | 400 | `{"message":"Password too short","code":"PASSWORD_TOO_SHORT"}` |
+| sign-up password longer than 128 | 400 | `{"message":"Password too long","code":"PASSWORD_TOO_LONG"}` |
+| sign-up password empty string | 400 | `{"message":"[body.password] Too small: expected string to have >=1 characters","code":"VALIDATION_ERROR"}` |
+| sign-up email already has an account | **422** | `{"message":"User already exists. Use another email.","code":"USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"}` |
+| sign-in wrong password or unknown address | 401 | `{"message":"Invalid email or password","code":"INVALID_EMAIL_OR_PASSWORD"}` |
+| state-changing request with no `Origin` | 403 | `{"message":"Missing or null Origin","code":"MISSING_OR_NULL_ORIGIN"}` |
+| state-changing request with an untrusted `Origin` | 403 | `{"message":"Invalid origin","code":"INVALID_ORIGIN"}` |
+
+**Duplicate signup answers 422, not 409 and not 400.** A caller branching on status alone
+will miss it. Branch on `code`.
+
+`INVALID_EMAIL_OR_PASSWORD` is returned for both a wrong password and an address with no
+account, which is deliberate on Better Auth's part and is the behaviour AC-20's 401 rests
+on.
 
 ## Verification, performed by `AuthGuard`
 
@@ -166,6 +311,14 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
    `GET /:slug` (anonymous visitor), `GET /health` (platform probe),
    `GET /api/invitations/:token` and `POST /api/invitations/:token/accept`
    (the invitee may have no account yet).
+7. A `POST` to `/api/auth/*` carrying an `Origin` that is the API's own origin or one of
+   `WEB_APP_ORIGINS` passes the origin check. One carrying no `Origin`, or an origin
+   outside that list, gets a 403 with `code` `MISSING_OR_NULL_ORIGIN` or `INVALID_ORIGIN`
+   and never reaches the handler. No account is created, no session is issued, no rate
+   limit bucket is charged by the endpoint (F-233).
+8. A signup that returns 200 created a user whose `name` is exactly the string the caller
+   sent and whose password was 8 to 128 characters. Nothing else about the password is
+   guaranteed (F-234, F-235).
 
 ## What the implementer must guarantee
 
@@ -176,6 +329,14 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
   over the public internet.
 - The JWT is never logged, never placed in a URL, and never returned in a response body
   read by client JavaScript.
+- `auth.config.ts` passes `trustedOrigins` from `WEB_APP_ORIGINS` and sets neither
+  `emailAndPassword.minPasswordLength` nor `maxPasswordLength`. A unit test asserts the
+  composed config's `trustedOrigins` contains every entry in `WEB_APP_ORIGINS`, in the
+  same place as the existing `rateLimit.enabled === false` assertion (ADR-0013).
+- `WEB_APP_ORIGINS` is server-only on the API. It is never `NEXT_PUBLIC_*` and it is not
+  a secret, so it may be logged. The API logs the resolved trusted-origin list once at
+  boot, which is the only cheap way to catch a mis-set value before a user hits a 403 on
+  the login screen.
 
 ## Versioning
 

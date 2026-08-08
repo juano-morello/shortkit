@@ -90,6 +90,51 @@ asserts at boot that `BFF_PROXY_SECRET` is set — "set" is locally checkable, "
 is not, and failing boot on a mismatch would take down the redirect surface (GC-8).
 Details and the reason this does not weaken F-009 are in `rate-limit.md`.
 
+**The proxy forwards the browser's `Origin` on mutating requests, and the API trusts the
+dashboard's origins explicitly.** Added 2026-08-08, found by TASK-009's red-test probes
+(F-233). `better-auth@1.6.26` answers `403 MISSING_OR_NULL_ORIGIN` to a state-changing
+request to `/api/auth/*` that carries no `Origin`, and a server-side `fetch` from a route
+handler carries none. Under this topology every signup, sign-in and sign-out is such a
+request. The whole credential surface would return 403 in production while every test
+that speaks to the API directly passed, and the code names the auth library while the
+cause is the proxy.
+
+Two lines close it, one on each side.
+
+The proxy adds `origin` to its forwarded-header allowlist **for mutating methods only**,
+forwarding the inbound value verbatim. It already refuses a mutating request whose
+`Origin` is not the deployment's own origin, so the value that reaches Fly is the
+deployment origin or the request never left Vercel. The proxy never synthesises or
+defaults the header. `GET` needs none: Better Auth skips the check on `GET`, which covers
+the refresh path and `GET /api/auth/token`.
+
+The API passes `trustedOrigins` from `WEB_APP_ORIGINS`, a comma-separated server-only
+variable listing every origin the dashboard is served from. An array passed there extends
+the default rather than replacing it, so the API's own origin stays trusted and the
+integration suite keeps passing with the variable unset. Production and each preview host
+are separate entries; a bare `https://*.vercel.app` is not acceptable because it trusts
+every application on the platform.
+
+Exact matching semantics, the resolved-list behaviour, the error bodies and the
+verification record are in `auth-tokens.md`. The header rule is normative in
+`web-api-client.md`.
+
+**The signup form collects a name, because the library requires one.** Added 2026-08-08
+(F-234). `better-auth@1.6.26` declares the sign-up body with `name: z.string()` inside the
+endpoint's own schema, so a body without it returns 400 and no `betterAuth` option relaxes
+it. Somebody has to supply the value. The signup screen does: TASK-012 adds a display-name
+field to `/signup`, and the invitation-accept screen that also creates an account adds the
+same field.
+
+The alternative was a default invented inside the proxy, `name: ''` or the email's local
+part. It keeps the form to the two fields AC-16 names, and `name: ""` is accepted by the
+pin. It was rejected because it puts a value the user never entered into the user row, and
+because a contract that says `name` is optional while the wire requires it is exactly the
+divergence F-234 was filed against. Nothing in `launch-core` reads `user.name`:
+`SessionUser` is `{ id, email, emailVerified }`. So this buys no feature today, and the
+reason to do it is that the API contract and the library's real contract are the same
+document.
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not |
@@ -99,6 +144,15 @@ Details and the reason this does not weaken F-009 are in `rate-limit.md`.
 | Next.js server actions for every mutation, no proxy route | Idiomatic App Router; no manual header copying | Server actions cannot express arbitrary REST verbs cleanly and would need one action per endpoint, so the shared `apiClient` TASK-008 produces disappears and fifteen frontend TASKs each write their own | Discards the single call path the plan built |
 | NextAuth or Auth.js in the web app, Better Auth in the API | Mature session handling on the Next side | Two auth systems and a mapping between them | Absurd complexity for the problem |
 | Longer-lived JWT (24 h) with no refresh path | No refresh machinery at all | A stolen token is valid for a day and revocation becomes mandatory rather than best-effort | Trades the entire security posture for less code |
+
+Four more, all for the `Origin` question (F-233):
+
+| Option | Pros | Cons | Why not |
+|---|---|---|---|
+| Proxy sets `Origin: <API_BASE_URL>`, its own upstream target | No new environment variable at all: the API's own origin is trusted by default, so this works with zero configuration. Verified 200 against the pin | The proxy asserts an origin that is not the request's. Better Auth's check then validates a value the proxy invented, so it stops being an independent check and degrades to "trust whatever the proxy says". A bug in the proxy's CSRF check would no longer be caught anywhere | Forwarding the real value costs one environment variable and keeps a second, genuine check |
+| `advanced.disableCSRFCheck: true` on the mount | One line, no header plumbing, no variable | Turns the origin check off for **every** caller, not just the proxy, including anything that reaches `/api/auth/*` directly. It removes a framework security default rather than configuring it, and ADR-0013's own standard for that is a four-reason argument | Disabling a check is not the same as satisfying it, and here satisfying it is two lines |
+| `trustedOrigins` as a function of the request, echoing back whatever `Origin` arrives | Preview deployments need no configuration and never break | Trusts every origin, which is the disable above wearing a configuration's clothes | Same objection, less visibly |
+| Proxy sends `Origin` on every method including `GET` | One rule, no method branch to get wrong | The proxy's CSRF check does not run on `GET`, so a `GET` would forward an unvalidated attacker-chosen `Origin`. Better Auth ignores it today, which makes it a header we forward for no reason and that a future release may start reading | Forwarding an unchecked value upstream is the shape F-009 exists to forbid |
 
 ## Consequences
 
@@ -131,6 +185,28 @@ Details and the reason this does not weaken F-009 are in `rate-limit.md`.
   devtools when debugging a login problem.
 - `sk_rt` holds the Better Auth session token, so anyone who obtains it has a 30-day
   credential. `httpOnly` and `Secure` are the whole defence.
+- **`WEB_APP_ORIGINS` is a deploy-time list that has to be kept in step with where the
+  dashboard is served from.** Get it wrong and every signup and sign-in returns 403
+  `INVALID_ORIGIN` while the redirect surface, the API and the dashboard's read paths all
+  look healthy. There is no boot assertion on it, unlike `BFF_PROXY_SECRET`, because an
+  unset `BFF_PROXY_SECRET` degrades **silently** into one shared rate-limit bucket while
+  an unset `WEB_APP_ORIGINS` fails loudly on the first login. Failing boot would take the
+  redirect surface down for a fault the login screen already announces, which GC-8 exists
+  to prevent. The cost accepted is that the announcement happens in production rather
+  than at startup. A boot log of the resolved list and a unit test on the composed config
+  are what narrow the gap.
+- **Vercel preview deployments each have their own origin, so each needs an entry or a
+  prefix wildcard.** Anyone opening a preview and trying to sign in without one gets a
+  403. This is new operational work that did not exist when the browser talked to Fly
+  directly, and it is a direct cost of the proxy topology.
+- **Better Auth's origin check no longer protects `/api/auth/*` against anything the
+  proxy lets through.** The proxy validates `Origin` and then forwards it, so the two
+  checks read the same value and the proxy's is the one that decides. It is still a real
+  second check against a request that reaches Fly by some other route, which is why the
+  value is forwarded rather than synthesised, but nobody should count it twice.
+- **The signup form has a third field that no acceptance criterion asks for**, and the
+  invitation-accept screen has it too. That is scope TASK-012 and TASK-014 carry so the
+  contract can match the library exactly.
 - **The BFF hides every user behind one address**, so anything the API wants to key on
   the client has to be forwarded and authenticated explicitly. Rate limiting is the case
   this design found; any future per-client control inherits the same problem. A
@@ -150,6 +226,22 @@ Details and the reason this does not weaken F-009 are in `rate-limit.md`.
   server-only `API_BASE_URL` **and server-only `BFF_PROXY_SECRET`** (required
   configuration on both deployables; never `NEXT_PUBLIC_*`, never logged). Nothing
   authenticated uses the public one.
+- TASK-004 also registers **`WEB_APP_ORIGINS` on the API deployable**, comma-separated,
+  server-only, not a secret, listing the production dashboard origin, every preview
+  origin or a prefix wildcard covering them, and `http://localhost:3000` in local
+  development. Added 2026-08-08 (F-233).
+- **TASK-009 passes `trustedOrigins` from `WEB_APP_ORIGINS`** in `auth.config.ts`, logs
+  the resolved list once at boot, and owns a unit test asserting the composed config's
+  `trustedOrigins` contains every configured entry. It sets neither
+  `emailAndPassword.minPasswordLength` nor `maxPasswordLength`; the contract states the
+  library's defaults and the mount leaves them alone (F-235).
+- **TASK-012 forwards `origin` on mutating proxied requests** and owns a test asserting a
+  proxied `POST` arrives upstream with it set and a proxied `GET` does not. It also adds
+  the display-name field to `/signup` (F-234), and the password field's client-side
+  validation states the policy in `auth-tokens.md`: 8 to 128 characters, no composition
+  requirement.
+- **TASK-014's invitation-accept screen carries the same name field**, because it creates
+  an account through the same endpoint (F-234).
 - TASK-052's 429 handling lives in `apiClient`, which sees the proxied response
   unchanged including `Retry-After`.
 - Contract: `design/contracts/web-api-client.md`.

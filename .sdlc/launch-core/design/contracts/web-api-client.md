@@ -79,7 +79,7 @@ Ordered. Normative.
 | upstream URL | see the normative construction below |
 | auth | `Authorization: Bearer <sk_at cookie>` |
 | cookies upstream | **never forwarded** |
-| request headers forwarded | `content-type`, `accept`, `x-request-id` only. **Inbound `x-shortkit-*` headers are never forwarded**; the proxy sets both of its own afresh on every request |
+| request headers forwarded | `content-type`, `accept`, `x-request-id`, and **`origin` on mutating methods only** (see below). **Inbound `x-shortkit-*` headers are never forwarded**; the proxy sets both of its own afresh on every request |
 | headers the proxy **adds** | `x-shortkit-client-ip` (the browser's address — see the rule below) and `x-shortkit-proxy-auth` (`BFF_PROXY_SECRET`) |
 | response headers returned | `content-type`, `retry-after`, `x-request-id` only |
 | CSRF | mutating methods require `Origin` to equal the deployment origin, else 403 |
@@ -117,6 +117,41 @@ if (upstream.origin !== base.origin) return badRequest();
 Step 1 runs on the **decoded** segments, because that is the form traversal arrives in.
 Step 3 is not redundant with steps 1 and 2; it is the assertion that makes any future
 change to them safe.
+
+### The `Origin` header the proxy forwards
+
+Added 2026-08-08 (F-233). Normative.
+
+**On a mutating method the proxy forwards the inbound `Origin` verbatim. On `GET` and
+`HEAD` it forwards none.**
+
+```ts
+// after the CSRF check below has already run and passed
+if (method !== 'GET' && method !== 'HEAD') {
+  upstreamHeaders.set('origin', request.headers.get('origin')!);
+}
+```
+
+The CSRF row above already refuses any mutating request whose `Origin` is not the
+deployment's own origin, so the value forwarded is the deployment origin or the request
+never left Vercel. The proxy does not synthesise, rewrite, or default this header. There
+is exactly one place `Origin` is decided, and it is the browser.
+
+**Why the header is needed at all.** `better-auth@1.6.26` answers
+`403 {"code":"MISSING_OR_NULL_ORIGIN"}` to a state-changing request to `/api/auth/*` that
+carries no `Origin`, and a server-side `fetch` from a Vercel route handler carries none.
+Without this rule every signup, sign-in and sign-out through the proxy returns 403 in
+production while every test that speaks to the API directly passes. Mechanism, the
+matching API-side `trustedOrigins` configuration, and the verification record are in
+`auth-tokens.md`.
+
+`GET` requests need no `Origin`; Better Auth skips the check on `GET`. That covers the
+refresh path, `GET /api/auth/token`, and `GET /api/auth/get-session`.
+
+**`serverApiClient` sends no `Origin`** and therefore must not be used for a `POST` to
+`/api/auth/*`. Server components read; sign-in, sign-up and sign-out go through the proxy
+route handler. An implementer who routes a server-side mutation at the auth surface
+directly to Fly gets a 403 whose code names the origin and whose cause is the call site.
 
 ### The browser address the proxy forwards
 
@@ -186,6 +221,12 @@ token is ever exposed to the client**, in any form.
    every user (`rate-limit.md`). A client-supplied `x-shortkit-client-ip` arriving
    without a valid secret is ignored, so this does not reintroduce F-009's trust
    problem, and inbound `x-shortkit-*` headers are never forwarded upstream.
+9. **A mutating request that reaches Fly carries an `Origin` equal to the deployment
+   origin.** The CSRF check runs before the header is forwarded, so no other value can
+   reach the API and the header is never absent on a mutating proxied request. This is
+   what keeps `/api/auth/*` from answering 403 `MISSING_OR_NULL_ORIGIN` (F-233). The API's
+   `WEB_APP_ORIGINS` must list that origin; production and each preview host are separate
+   entries (`auth-tokens.md`).
 
 ## What the implementer must guarantee
 
@@ -201,6 +242,10 @@ token is ever exposed to the client**, in any form.
   the enforcement point (TASK-015).
 - `NEXT_PUBLIC_API_BASE_URL` is not used for anything authenticated. Authenticated
   traffic uses the same-origin `/api/bff` path or the server-only `API_BASE_URL`.
+- **A test that a proxied `POST` arrives upstream with `Origin` set.** Assert against a
+  stubbed upstream, and assert the `GET` case sends none. Without it the `Origin` line is
+  one an implementer can drop while every other proxy test still passes, and the symptom
+  appears only against a real Better Auth mount (F-233).
 
 ## Versioning
 

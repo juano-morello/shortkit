@@ -135,6 +135,40 @@ export const RETURNED_RESPONSE_HEADERS = ['content-type', 'retry-after', 'x-requ
 
 /**
  * ============================================================================
+ * F-233. `Origin` on mutating requests, and why dropping it breaks all of auth.
+ * ============================================================================
+ *
+ * better-auth@1.6.26 answers 403 {"code":"MISSING_OR_NULL_ORIGIN"} to a state-changing
+ * request to /api/auth/* carrying no Origin, and a server-side fetch sends none. Without
+ * this header every signup, sign-in and sign-out through the proxy returns 403 in
+ * production while every test that speaks to the API directly passes.
+ *
+ * Forward the INBOUND value VERBATIM. Never synthesise it, never default it. The CSRF
+ * check below has already required it to equal the deployment origin, so the value that
+ * reaches the API is that origin or the request never left Vercel.
+ *
+ * Mutating methods ONLY. The CSRF check does not run on GET, so a GET would forward an
+ * unvalidated attacker-chosen value; and Better Auth skips the origin check on GET
+ * anyway (dist/api/middlewares/origin-check.mjs:43), so GET /api/auth/token and
+ * /get-session need none.
+ *
+ * API side: trustedOrigins from WEB_APP_ORIGINS. See auth-tokens.md.
+ */
+export const FORWARDED_REQUEST_HEADERS_MUTATING_ONLY = ['origin'] as const;
+
+/** Methods on which the proxy runs the CSRF check and forwards `Origin`. */
+export const MUTATING_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'] as const;
+
+/**
+ * True when the proxy must require `Origin` to equal the deployment origin (403
+ * otherwise) and then forward it upstream.
+ */
+export function isMutatingMethod(_method: string): boolean {
+  throw new Error('not implemented');
+}
+
+/**
+ * ============================================================================
  * F-035. The client address the proxy forwards, and where it comes from.
  * ============================================================================
  *
