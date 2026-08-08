@@ -160,7 +160,7 @@ export const logger = pino({
 
 /**
  * ============================================================================
- * CHILD BINDINGS GO THROUGH THE SAME SCAN, BECAUSE PINO WILL NOT RUN IT (F-251).
+ * BINDINGS GO THROUGH THE SAME SCAN, BECAUSE PINO WILL NOT RUN IT (F-251, F-258).
  * ============================================================================
  *
  * `formatters.log` above is applied by `_asJson` to the record a log call passes. Child
@@ -188,8 +188,14 @@ export const logger = pino({
  * ordinary object and `logger.child({ err: e })` would degrade to
  * `non-error throwable (object)` with no frames. `logger.spec.ts` fails on that.
  *
- * `setBindings` is the other door onto `asChindings` and is NOT wrapped: nothing in the API
- * calls it, and it is listed with the residuals on `MAX_ERROR_SCAN_DEPTH` below.
+ * `setBindings` IS THE SECOND DOOR ONTO `asChindings`, AND IT IS WRAPPED TOO (F-258). It
+ * needs no child logger — `logger.setBindings({ error: e })` is one line from anywhere that
+ * imports this module — and it appends to the SINGLETON's chindings permanently, so a
+ * throwable bound there leaks on that line and on every line the process writes afterwards.
+ * The two paths do differ, and the difference was measured rather than reasoned across:
+ * `child()` swaps the bindings formatter for the identity function first and `setBindings`
+ * (`proto.js:189-192`) does not. Neither touches `serializers[key]`, so the `err` seam above
+ * holds on this path as well and both wrappers scan at the same depth.
  *
  * COST, MEASURED the same way the scan below was — one million calls, pino 10.3.1, Node
  * 24.19, on the binding `exception-filter.ts` actually creates: 609 ns per child through
@@ -202,19 +208,45 @@ type ChildFactory = (
   options?: pino.ChildLoggerOptions,
 ) => pino.Logger;
 
+type BindingsSetter = (this: pino.Logger, bindings: pino.Bindings) => void;
+
 const inheritedChild: ChildFactory = logger.child;
+const inheritedSetBindings: BindingsSetter = logger.setBindings;
 
 const childWithErrorsReplaced: ChildFactory = function childWithErrorsReplaced(bindings, options) {
-  // A missing `bindings` is pino's own error to raise, with pino's own message.
-  return inheritedChild.call(this, bindings ? errorsReplaced(bindings, 1) : bindings, options);
+  return inheritedChild.call(this, bindingsScanned(bindings), options);
 };
 
-// Installed as an own property, shadowing the one on pino's prototype, with the descriptor a
+const setBindingsWithErrorsReplaced: BindingsSetter = function setBindingsWithErrorsReplaced(
+  bindings,
+) {
+  inheritedSetBindings.call(this, bindingsScanned(bindings));
+};
+
+/**
+ * Depth 1, so the top-level `err` key stays exempt and `serializers.err` keeps it — the
+ * partition below, on the bindings path. A falsy `bindings` is handed straight back so that
+ * each method still answers for it the way pino does: `child` raises its own "missing
+ * bindings for child Pino", `setBindings` no-ops.
+ */
+function bindingsScanned(bindings: pino.Bindings): pino.Bindings {
+  return bindings ? errorsReplaced(bindings, 1) : bindings;
+}
+
+// Installed as own properties, shadowing the ones on pino's prototype, with the descriptor a
 // prototype method has. `defineProperty` rather than assignment because pino declares `child`
 // generic over the custom levels a child may add and this wrapper is indifferent to them —
 // assigning would take a double type assertion to say something neither honest nor checked.
+// `setBindings` is installed the same way for one idiom rather than two.
 Object.defineProperty(logger, 'child', {
   value: childWithErrorsReplaced,
+  writable: true,
+  enumerable: false,
+  configurable: true,
+});
+
+Object.defineProperty(logger, 'setBindings', {
+  value: setBindingsWithErrorsReplaced,
   writable: true,
   enumerable: false,
   configurable: true,
@@ -271,9 +303,10 @@ function messageWouldBeTakenFromTheError(record: unknown): record is object {
  * path already pays for, against GC-1's 25 ms budget. The bound also makes a self-referential
  * record terminate, which a walk without one would not.
  *
- * THE RESIDUALS, STATED RATHER THAN LEFT TO BE FOUND. Three shapes reach a line with a
- * library's assigned properties on them, and all three carry the same escalation rule: the
- * TASK that first builds one closes it here, in the same commit, rather than living with it.
+ * THE RESIDUALS, STATED RATHER THAN LEFT TO BE FOUND. Two shapes reach a line with a
+ * library's assigned properties on them, and both carry the same escalation rule: the TASK
+ * that first builds one closes it here, in the same commit, rather than living with it.
+ * (A third was listed here and is now CLOSED: `setBindings` is wrapped, F-258.)
  *
  *   1. AN ERROR AT DEPTH 5 OR DEEPER is not replaced — the bound above. Same limit
  *      `REDACT_PATHS` has for a nested secret, same answer: raise it.
@@ -283,10 +316,11 @@ function messageWouldBeTakenFromTheError(record: unknown): record is object {
  *      body on the line even at depth 1. The answer for a TASK that needs it is to log the
  *      fields it wants rather than the instance, or to widen `isWalkable` deliberately and
  *      pay the `Buffer` cost it exists to avoid.
- *   3. `logger.setBindings(bindings)` IS NOT SCANNED. It is the other door onto
- *      `asChindings`; `logger.child` is wrapped above and this is not, because nothing in
- *      the API calls it and no test covers it. A TASK that reaches for it wraps it the same
- *      way `child` is wrapped, in the same commit.
+ *
+ * NOT A RESIDUAL, AND THE REASON IT IS WORTH SAYING SO: BOTH BINDINGS PATHS ARE COVERED.
+ * `logger.child` and `logger.setBindings` are the two entries to `asChindings` and both are
+ * wrapped above. A shape that leaks through a THIRD entry, should pino ever grow one, belongs
+ * on this list — not in a comment saying the two known ones are handled.
  */
 const MAX_ERROR_SCAN_DEPTH = 4;
 
