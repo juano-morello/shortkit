@@ -3,12 +3,12 @@ id: TASK-009
 story: STORY-005
 epic: EPIC-002
 title: "Better Auth mounted in NestJS: signup, login, logout, session"
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-005, TASK-007]
 paths: ["apps/api/src/auth/**", "apps/api/src/main.ts", "packages/contracts/src/auth/**", "apps/api/src/app.module.ts", "apps/api/test/auth/**", "apps/api/package.json", "pnpm-lock.yaml"]
 contracts: [design/contracts/auth-tokens.md, design/contracts/rate-limit.md, design/contracts/tenant-context.md]
-test_files: []
+test_files: ["apps/api/test/auth/credential-auth.int-spec.ts"]
 acceptance: [AC-16, AC-20, AC-21, AC-112]
 rework_count: 0
 ---

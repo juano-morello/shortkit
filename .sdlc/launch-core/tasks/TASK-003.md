@@ -3,12 +3,12 @@ id: TASK-003
 story: STORY-002
 epic: EPIC-001
 title: API deployable on Fly.io with a health endpoint
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
 paths: ["fly.toml", "Dockerfile", "infra/**", "apps/api/src/health/**", "apps/api/src/app.module.ts", "apps/api/src/main.ts", "apps/api/src/common/errors/**", "apps/api/package.json", "pnpm-lock.yaml"]
 contracts: []
-test_files: []
+test_files: ["apps/api/src/health/health.spec.ts"]
 acceptance: [AC-6]
 rework_count: 0
 ---

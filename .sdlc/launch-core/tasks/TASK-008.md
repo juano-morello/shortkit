@@ -3,12 +3,12 @@ id: TASK-008
 story: STORY-004
 epic: EPIC-001
 title: Web typed API client and error surface
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-frontend
 depends_on: [TASK-007, TASK-004]
 paths: ["apps/web/src/lib/api/**", "apps/web/src/components/errors/**", "apps/web/package.json", "pnpm-lock.yaml"]
 contracts: [design/contracts/error-envelope.md, design/contracts/web-api-client.md]
-test_files: []
+test_files: ["apps/web/src/lib/api/client.spec.ts"]
 acceptance: [AC-15]
 rework_count: 0
 ---
