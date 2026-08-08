@@ -7553,6 +7553,128 @@
     id does rotate, revocation moves onto a `sid` claim and TASK-011's step 5 changes with it, which
     the architect named as the fallback. Verify before TASK-009's tests are written, not after.
   owner_slot: sdlc-test-architect
+  ruling: >-
+    RESOLVED IN THE DESIGN'S FAVOUR 2026-08-06 by sdlc-test-architect, verified THREE independent ways
+    rather than one: better-auth 1.6.26's updateSession matches on token and writes only expiresAt and
+    updatedAt, confirmed in source; a memory-adapter probe; and a Postgres probe using the exact refresh
+    path the test uses under default session config. The session row id does NOT rotate on an updateAge
+    refresh, so jti: session.id is safe and ADR-0013, auth-tokens.md invariant 5a and TASK-011 step 5
+    all stand unchanged. The architect's stated assumption was correct; what it flagged as unproven is
+    now proven. Test 9 asserts jti equal ACROSS the refresh AND equal to the session row id - the second
+    clause is what stops it being vacuous, since an omitted jti yields two undefineds that satisfy
+    equality on their own. Confirmed by mutation: omitting jti and substituting a per-token random each
+    fail exactly that test.
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+
+- id: F-232
+  phase: test
+  task: TASK-009
+  source: sdlc-test-architect
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/api/scripts/check-policies.mts
+  line: 1
+  summary: >-
+    better-auth's jwt plugin creates a FIFTH table, `jwks`, holding the private key set, and
+    check-policies exempts only four. The gate goes red the moment TASK-009 migrates.
+  failure_scenario: >-
+    ORCHESTRATOR VERIFIED the exemption list holds exactly user, session, account and verification -
+    no jwks. db:check-policies runs before the integration suite in CI, so TASK-009's migration turns
+    the whole job red for a reason unrelated to TASK-009's own correctness, and the failure names a
+    table nobody has heard of. Worth noting what the check is doing here is CORRECT: jwks holds
+    private key material and is not tenant-scoped, so it genuinely needs a decision rather than a
+    silent pass - which is exactly the behaviour F-122 was built to produce. The finding is that the
+    decision has not been made and the gate will make it loudly at the worst moment.
+  required_change: >-
+    Decide whether jwks is exempt, and add it to the list with the reason if so. It lands in the same
+    file as F-213's fix, so bundle them. This must land BEFORE TASK-009's implementer migrates, not
+    after the red appears.
+  owner_slot: sdlc-implementer-backend
   status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-233
+  phase: test
+  task: TASK-012
+  source: sdlc-test-architect
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/launch-core/design/adr-0014-bff-topology.md
+  line: 1
+  summary: >-
+    better-auth 1.6.26 answers 403 MISSING_OR_NULL_ORIGIN to a state-changing auth request carrying no
+    Origin header - and a server-side BFF fetch sends none. Neither ADR-0014 nor web-api-client.md
+    mentions it.
+  failure_scenario: >-
+    Found by probe against the pinned release. Under ADR-0014's topology the browser never reaches the
+    API directly; the Next.js BFF proxies. A server-side fetch does not set Origin, so every signup,
+    sign-in and sign-out routed through the BFF would answer 403 with a code no artifact predicts. It
+    is not reachable today because TASK-012 builds the auth pages in wave 3, which is precisely why it
+    is worth settling now rather than as a wave-3 debugging session - the symptom points at auth while
+    the cause is the proxy.
+  required_change: >-
+    ADR-0014 or web-api-client.md must say what the BFF sends as Origin for auth routes, or how
+    better-auth is configured to accept the proxied origin - trustedOrigins is the likely mechanism but
+    the architect should confirm against 1.6.26 rather than assume. Settle before TASK-012.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-234
+  phase: test
+  task: TASK-009
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/auth-tokens.md
+  line: 47
+  summary: >-
+    auth-tokens.md marks `name` optional on the signup body; better-auth 1.6.26 rejects a body without
+    it with 400.
+  failure_scenario: >-
+    Probed against the pinned release. An implementer following the contract literally would build a
+    signup path that the library refuses, and the 400 would read as a validation defect in our own
+    code rather than as a contract-versus-library disagreement. Same class as the three drifted
+    rate-limiter figures in F-229 - the contract was written against docs, not against the pin.
+  required_change: >-
+    Make `name` required in auth-tokens.md, or state how the mount supplies a default. Bundle with
+    whatever else touches that contract.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-235
+  phase: test
+  task: TASK-009
+  story: STORY-005
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/stories/STORY-005.md
+  line: 1
+  summary: >-
+    AC-16 requires a password "meeting the stated policy" and no artifact in the repo states one.
+  failure_scenario: >-
+    The test architect searched and found no referent - not an ADR, a contract, a STORY or a TASK. It
+    handled this well rather than inventing a boundary: its rejection test uses a ONE-CHARACTER
+    password, below better-auth 1.6.26's own floor of 8 and below any policy anyone could plausibly
+    state, so the test is correct under every candidate policy. But the AC cannot be fully verified
+    against an unstated standard, and sdlc-product-auditor checks ACs verbatim.
+  required_change: >-
+    State the password policy - minimum length at least, and whether anything else is required - in
+    STORY-005 or in auth-tokens.md. Juano's call under routing rule 0 since it amends an approved
+    artifact. Until then the AC is met only in the weak sense that an obviously-bad password is
+    rejected.
+  owner_slot: null
+  status: escalated
   resolved_by: null
   resolved_round: null
