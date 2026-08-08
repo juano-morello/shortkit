@@ -6920,13 +6920,26 @@
     Verified by both parties in the same session: pg_attribute is not privilege-filtered and
     returns the column where information_schema returns nothing. Keep the runtime-role connection.
   owner_slot: sdlc-implementer-backend
-  status: routed
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
   ruling: >-
     NOT A MERGE BLOCKER, and the integrator's reasoning is the one I am taking: the four exempt
     tables DO NOT EXIST YET, so the blind spot has nothing to hide behind today - the gate reported
     three of them as "not evaluated" in my own run. FIX BEFORE TASK-009, which creates exactly those
     four tables and is the moment the defect becomes reachable. Recorded on TASK-009's card rather
     than left in the ledger.
+
+    FIXED 2026-08-06 by sdlc-implementer-backend, AND THE BLINDNESS WAS DEMONSTRATED rather than the fix
+    asserted. It built this finding's exact scenario - a table named session, an exempt name, carrying
+    tenant_id, with row security OFF and all privilege revoked from shortkit_app - then queried both
+    sources on the same connection at the same instant: information_schema.columns returned ZERO ROWS,
+    pg_attribute returned ONE. The old script printed 'confirmed: no tenant_id column' and exited 0 over
+    a tenant-bearing unprotected table; the fixed script fails it and exits 1. ORCHESTRATOR VERIFIED no
+    live query remains - the three surviving information_schema.columns mentions are all commentary
+    explaining why it is NOT used. The output wording changed too, from 'confirmed' to 'confirmed
+    against pg_attribute, which is not privilege-filtered', so the claim the gate makes is now the claim
+    it can support.
 
 - id: F-214
   phase: ship
@@ -7593,9 +7606,19 @@
     file as F-213's fix, so bundle them. This must land BEFORE TASK-009's implementer migrates, not
     after the red appears.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED 2026-08-06 by sdlc-implementer-backend - jwks added to the exemption Map with its reason
+    beside it, in the form the file already used for the other four. Nothing weakened. It verified the
+    exemption POSITIVELY rather than only by the gate going green: created jwks in better-auth's shape
+    with all privilege revoked, confirmed the check skips it and exits 0, then dropped it and ran a full
+    down -v / up / migrate cycle to confirm no artefact survived. IT THEN DREW THE DISTINCTION THE
+    EXEMPTION LIST CANNOT, filed as F-239: RLS is not the control protecting jwks, because ALTER DEFAULT
+    PRIVILEGES hands shortkit_app full DML on it the moment it is migrated. The exemption is correct on
+    its own terms and silent on that one, and saying so is what stops it being read as coverage it does
+    not provide.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-233
   phase: test
@@ -7803,6 +7826,71 @@
   required_change: >-
     Correct or remove the comment next time ci.yml is open. Not worth a dispatch of its own.
   owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-239
+  phase: implement
+  task: TASK-009
+  source: sdlc-implementer-backend
+  round: 1
+  severity: major
+  kind: security
+  file: docker-compose.test.yml
+  line: 111
+  summary: >-
+    ALTER DEFAULT PRIVILEGES grants shortkit_app full DML on every table the migrator creates - so the
+    moment TASK-009 migrates `jwks`, the application role gets read and write on the JWT SIGNING KEY
+    SET. Exempting it from the RLS check does not address this and must not be read as having.
+  failure_scenario: >-
+    Raised by sdlc-implementer-backend while adding the jwks exemption, and it drew the distinction the
+    exemption list cannot: RLS IS NOT THE CONTROL PROTECTING jwks. The grant is at
+    docker-compose.test.yml:111 - ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+    grants DML on future tables to shortkit_app with no per-table action. jwks holds the private key
+    set better-auth signs sessions with. An application role that can SELECT it can mint a token for
+    any user; one that can UPDATE it can replace the keys. Neither is a tenant-isolation question, so
+    no policy and no exemption addresses it - the control is revoking that grant on that table. The
+    exemption is correct on its own terms and silent on this one, which is why it was flagged rather
+    than assumed covered.
+  required_change: >-
+    TASK-009's migration must REVOKE shortkit_app's access to jwks rather than rely on the RLS
+    exemption. Decide whether that is a revoke in the migration, a narrower ALTER DEFAULT PRIVILEGES,
+    or an explicit grant model that stops defaulting to full DML - the third is the durable answer and
+    the largest. Also check whether any other better-auth table holds material the app role should not
+    read: `account` carries password hashes and is on the same default grant.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-240
+  phase: implement
+  task: TASK-005
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: apps/api/scripts/check-policies.mts
+  line: 1
+  summary: >-
+    No test covers check-policies.mts at all. Its logic is verified only by hand, and F-213 is exactly
+    what that costs - a hardening shipped in a state where it could not work.
+  failure_scenario: >-
+    The implementer named this against its own fix. F-213 was a blindness bug in the very gate F-122
+    built to catch blindness elsewhere, and it survived from the day it was written until someone
+    happened to reason about privilege filtering. Two further weaknesses in the same file were named
+    and deliberately not fixed: the script connects as shortkit_app and never reads
+    pg_roles.rolbypassrls, so a bypassing role would make relrowsecurity and relforcerowsecurity prove
+    nothing and the gate would be green over a fully open database; and its scope is schema public
+    only, unstated, so a tenant-scoped table in another schema passes silently - F-213's shape one
+    level out, unreachable only while Drizzle puts everything in public.
+  required_change: >-
+    A test that plants a leaking table and asserts the script exits non-zero, which is precisely the
+    demonstration the implementer performed by hand and then discarded. Add the BYPASSRLS assertion and
+    state the schema scope while the file is open. Routing rule 0 sends the test to
+    sdlc-test-architect; the two hardenings are the implementer's.
+  owner_slot: sdlc-test-architect
   status: open
   resolved_by: null
   resolved_round: null
