@@ -7270,7 +7270,7 @@
   round: 1
   severity: major
   kind: scope
-  file: .sdlc/launch-core/design/adr-0006-health-and-deploy.md
+  file: .sdlc/launch-core/design/adr-0027-build-commit-provenance.md
   line: 1
   summary: >-
     No artifact anywhere names the build-time SHA source that AC-6's `commit` field is supposed to
@@ -7292,9 +7292,42 @@
     spec, which is NOT a weakening - but the name must live in the deploy artifacts rather than only in
     a test. Routing rule 0 - the ADR half belongs to sdlc-architect, the deploy artifacts to TASK-003.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED 2026-08-06 by sdlc-architect in a new ADR-0027, after Juano ruled the name must be settled
+    BEFORE TASK-003 dispatches so its implementer transcribes a decision rather than inheriting one
+    from a test docblock. THE NAME: GIT_COMMIT_SHA, adopted from the spec, full 40 lowercase hex,
+    matching /^[0-9a-f]{40}$/. GITHUB_SHA lost on a specific mechanism rather than taste - Actions
+    populates it in EVERY job including quality and integration, which deploy nothing, so a boot guard
+    reading it would be satisfied by ambient CI env rather than by the image's build arg. Full length
+    rather than abbreviated so ONE predicate rejects unknown, empty, an unexpanded command
+    substitution, a branch name, HEAD, uppercase, and a 7-char abbreviation.
+    
+    THE SOURCE: a Docker build arg promoted to ENV in the RUNTIME stage, supplied by infra/deploy.sh.
+    Fly injects nothing usable - the eleven documented Machine vars carry no commit. The build arg wins
+    because the value is BAKED INTO THE IMAGE, so image and reported SHA cannot disagree across a
+    rollback, an --image reuse, a restart or a clone. The script matters because CI DOES NOT DEPLOY -
+    ci.yml has only quality, integration and gate, and no Fly credentials - so every deploy is a
+    hand-typed command and a remembered flag eventually gets forgotten.
+    
+    ABSENCE: REFUSE, three layers, no fallback anywhere - the build fails, the boot refuses, the read
+    throws. The obviously-wrong sentinel was rejected for a reason worth keeping: it keeps /health
+    answering 200, keeps the Fly check green, lets the deploy succeed, and is visible only to a human
+    who reads the response. A NODE_ENV gate was rejected because it reintroduces a branch that never
+    runs under test, which is F-225's exact shape.
+    
+    ORCHESTRATOR REPRODUCED ITS LOAD-BEARING DOCKER CLAIM independently: a global ARG not re-declared
+    inside the runtime stage expands to EMPTY and the build SUCCEEDS, shipping GIT_COMMIT_SHA= with only
+    an UndefinedVar warning. That is F-225's silent failure demonstrated rather than argued, and it is
+    why the ADR makes the re-declaration and the RUN guard mandatory rather than stylistic.
+    
+    IT SEPARATED VERIFIED FROM INFERRED without being asked twice: Docker behaviour was RUN, while every
+    Fly claim is inferred from docs because flyctl is not installed here - and it named TASK-003's
+    implementer as the first person who can confirm any of it. It also corrected the finding's own file:
+    field, which pointed at adr-0006-health-and-deploy.md, a filename that has never existed. I wrote
+    that field. Repointed at ADR-0027.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
 
 - id: F-225
   phase: test
