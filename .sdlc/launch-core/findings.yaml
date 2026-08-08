@@ -8248,9 +8248,34 @@
     with no implementer assigned and break the round's definition of done - and says it is a
     three-line addition to the existing emitter once a fix lands.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED in fix round 2, AND THE IMPLEMENTER CORRECTED THE FINDING'S MECHANISM. Both this finding and
+    the test architect's report say formatters.log runs AFTER serializers. It runs BEFORE - measured in
+    pino 10.3.1 lib/tools.js _asJson, where the formatters.log call precedes the per-key serializer
+    loop. That is load-bearing rather than pedantic: had the scan also replaced the top-level err,
+    serializers.err would have received a plain object and emitted 'non-error throwable (object)', and
+    FROZEN TESTS 4 AND 6 WOULD HAVE GONE RED. So the two mechanisms PARTITION the record - serializers.err
+    owns top-level err including its non-error case, and the formatter owns every other key at every
+    depth including a nested err. serializers.error and serializers.cause were correctly not added,
+    since that is the enumeration F-244 rejected and it would have left the nested shape open anyway.
+    
+    DEPTH BOUND 4, argued from today's call sites rather than picked: every log record in apps/api/src
+    is flat, and the deepest shape named anywhere is req.headers.authorization at 3. It MEASURED the
+    cost against the shipped instance - 40ns flat, 115ns five deep, 500ns with an error present, against
+    5.8-9 microseconds for a whole log call, so under 2 percent of a line against GC-1's 25ms budget.
+    The residual is written into the source rather than left implicit: an error at depth 5 or deeper is
+    not replaced, reproduced deliberately. The bound also makes a self-referential record terminate.
+    
+    err.cause did NOT start being walked - cause is non-enumerable and the scan descends into nothing it
+    replaces, because an Error becomes errorLogFields output which is never a container. Locked by a
+    test that is green before AND after by design, guarding a property that already held.
+    
+    ORCHESTRATOR VERIFIED: 11 tests pass, the nine frozen ones untouched with a sorted name diff showing
+    nothing removed, unit 79 passed with the same 6 TASK-008 reds, and typecheck, lint, build and the
+    audit gate all 0. New test red-before green-after was shown verbatim.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
 
 - id: F-249
   phase: implement
