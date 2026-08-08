@@ -8642,3 +8642,302 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-260
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.ts
+  line: 139
+  summary: >-
+    DOOR SIX. pino builds msg from the call's ARGUMENTS via quick-format-unescaped before write(),
+    and hooks.logMethod only inspects args[0] and args[1]. A format-string call puts F-244's
+    payload into msg.
+  failure_scenario: >-
+    REPRODUCED BY THE ORCHESTRATOR: logger.error('parse failed: %o', e) emitted
+    "msg":"parse failed: {\"body\":\"{\\\"email\\\"...\\\"password\\\":\\\"DOOR6-MARKER\\\"\",\"status\":400}"
+    and the object-first form logger.error({ request_id }, 'parse failed: %o', e) did the same. %j,
+    %s and an Error in the message position are the same door. This is a mechanism DISTINCT from
+    every door closed so far - it is neither the record, nor bindings, nor pino's msg-from-err
+    shortcut - so none of F-244, F-248, F-251, F-252 or F-258's defences are on this path.
+  required_change: >-
+    The hook must cover every argument position, not the first two - replace Errors in all args
+    before pino interpolates them. Plus a test on emitted bytes for the format-string shapes.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-261
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.ts
+  line: 35
+  summary: >-
+    A request-shaped record emits remoteAddress, remotePort and the concrete url verbatim - none
+    are in REDACT_PATHS. Contract invariant 1 measured false.
+  failure_scenario: >-
+    REPRODUCED BY THE ORCHESTRATOR: a req-shaped object emitted
+    "remoteAddress":"203.0.113.7","remotePort":44321,"url":"/l/abc?token=SEKRIT" in the clear. The
+    raw client IP is exactly what GC-9 forbids - click events store ip_hash, never raw IP - and the
+    url carries whatever the query string carries. The auditor additionally reports pino auto-maps
+    a request-shaped first argument through mapHttpRequest, which widens rather than creates this.
+  required_change: >-
+    Cover the request shape - remoteAddress, remotePort and url - or decide that no request-shaped
+    object may be logged and enforce that. This is a REDACT_PATHS completeness question and may be
+    larger than TASK-003.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-262
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.ts
+  line: 49
+  summary: >-
+    The ip redact paths match ONLY a key spelled exactly `ip`. clientIp, trustedClientIp,
+    remoteAddress and ipAddress all emit a raw IP verbatim. GC-9.
+  failure_scenario: >-
+    REPRODUCED BY THE ORCHESTRATOR in one line: {"clientIp":"203.0.113.9","ip":"[redacted]"}. One
+    spelling censored, the neighbouring one in the clear. trustedClientIp is ALREADY NAMED in a
+    design stub, so the spelling this system will actually use is the one that leaks.
+  required_change: >-
+    Same completeness question as F-261. Enumerating spellings is the pattern F-244 rejected; an
+    allowlist decides the class instead of the instance.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-263
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.ts
+  line: 216
+  summary: >-
+    The child wrapper passes `options` through unexamined, and pino's child options REPLACE redact,
+    serializers and formatters.log. All three bypasses reproduced by the auditor; the redact one is
+    the plausible accident.
+  failure_scenario: >-
+    logger.child(bindings, { redact: [...] }) silently replaces the 25-path list with the caller's,
+    and the same for serializers and formatters.log - so a TASK adding one child-scoped redact path
+    removes every other defence on that child without a diagnostic. The wrapper scans the bindings
+    and then hands the options straight to pino.
+  required_change: >-
+    Refuse or merge child options that touch redact, serializers or formatters, rather than passing
+    them through. A test on emitted bytes for each of the three.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-264
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor, sdlc-reviewer
+  round: 4
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.spec.ts
+  line: 1
+  summary: >-
+    Grandchild coverage rests entirely on pino's Object.create(this) and NO TEST BUILDS A
+    GRANDCHILD. Both auditors found this independently.
+  failure_scenario: >-
+    The reviewer's version is the sharper one: changing .call(this, ...) to .call(logger, ...)
+    leaves ALL TWENTY TESTS GREEN while every grandchild loses its request_id. The security
+    auditor measured that a child has zero own properties, so coverage is inherited rather than
+    installed - a pino minor bump that stops using Object.create(this) removes it silently, and
+    dependabot groups minor bumps.
+  required_change: >-
+    A test that builds a grandchild and asserts both the inherited coverage and the preserved
+    binding. Owner is sdlc-test-architect for the test.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-265
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: implementation
+  file: apps/api/src/observability/logger.ts
+  line: 325
+  summary: >-
+    toJSON is a THIRD residual outside both stated ones - a plain object carrying toJSON is walked
+    by the scan and still leaks, because JSON.stringify calls toJSON after the scan has passed.
+  failure_scenario: >-
+    The residual list names depth 5+ and Error-inside-a-class-instance. This is neither: the scan
+    walks the object happily and the leak happens at stringify time.
+  required_change: State it as a third residual, or handle it. No behaviour change if deliberate.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-266
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: implementation
+  file: apps/api/src/observability/logger.ts
+  line: 44
+  summary: >-
+    sessionToken, apiKey, api_key, passwordHash and bare authorization/cookie are uncensored by
+    REDACT_PATHS.
+  failure_scenario: >-
+    Same class as F-262 - the list covers the spellings someone thought of. authorization and
+    cookie are covered only under req.headers, not bare.
+  required_change: Part of the same completeness decision as F-261 and F-262.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-267
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: implementation
+  file: apps/api/src/observability/logger.ts
+  line: 241
+  summary: >-
+    Both wrappers are writable and configurable and pino's originals stay reachable through the
+    prototype, while the contract's versioning rules claim they are not removable.
+  failure_scenario: >-
+    Object.getPrototypeOf(logger).child reaches the unwrapped original. A claim the artifact makes
+    that the code does not enforce - the fourth of that shape in this TASK.
+  required_change: >-
+    Either make the claim true - non-writable, non-configurable - or correct the versioning rules.
+    Note the originals stay reachable via the prototype either way.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-268
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: nit
+  kind: implementation
+  file: eslint.config.mjs
+  line: 21
+  summary: >-
+    "Never a second pino instance" and "no opt out" are enforced by nothing. The test architect
+    declined to approximate this as a test in round 2 and routed it here as a lint rule; no rule
+    exists.
+  failure_scenario: A later TASK builds its own pino instance and every gate stays green.
+  required_change: Write the rule, or stop claiming enforcement.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-269
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: nit
+  kind: behavior
+  file: apps/api/src/observability/logger.ts
+  line: 139
+  summary: A trailing argument with no matching placeholder is silently dropped - one character from F-260's leaking shape.
+  failure_scenario: >-
+    logger.error('parse failed', e) drops e entirely; adding %o to the string leaks it. The
+    difference between silence and a credential in msg is one character.
+  required_change: Covered by F-260's fix if the hook scans every argument position.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-270
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 4
+  severity: minor
+  kind: implementation
+  file: apps/api/src/observability/logger-contract-drift.spec.ts
+  line: 1
+  summary: >-
+    The drift test's region is UNANCHORED AT BOTH ENDS. Dropping the trailing declaration from the
+    contract fence, or adding one to the source after it, both stay green.
+  failure_scenario: >-
+    Demonstrated by the reviewer on copies. Interior deletion correctly reds - which is the F-251
+    and F-258 shape - but the boundaries are open, so the test under-covers exactly at the edge
+    where new declarations get added.
+  required_change: Anchor both ends of the region rather than asserting an unanchored substring.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-271
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 4
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/logging-and-headers.md
+  line: 1
+  summary: >-
+    The sentinel-rejection reasoning says a sentinel "covers the first two rows and not the last
+    two". Measurably false - both cloneSelectively and asChindings read the scan's OWN OUTPUT, so a
+    sentinel would cover all four within the depth bound. The RULING is unaffected.
+  failure_scenario: A correct decision resting on a stated reason that does not hold, which the next reader inherits.
+  required_change: Correct the sentence. The residual ruling stands on its other grounds.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-272
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 4
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/adr-0022-logging-cors-and-security-headers.md
+  line: 1
+  summary: >-
+    ADR-0022 still says TASK-003 ships the x-shortkit-* entries "in wave 1, before TASK-009".
+    TASK-003.md:55 says wave 2, concurrent, and the contract's twin sentence was corrected in the
+    same commit.
+  failure_scenario: >-
+    The architect corrected the contract and deliberately left the ADR alone to keep the F-250
+    amendment minimal, and said so. Filed rather than left implicit.
+  required_change: Correct it, or state in the amendment that wave claims in the ADR body are superseded by the TASK cards.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
