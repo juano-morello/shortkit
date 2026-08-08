@@ -7927,3 +7927,100 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-241
+  phase: implement
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/auth/credential-auth.int-spec.ts
+  line: 1
+  summary: >-
+    A throwing `beforeAll` in Vitest 3.2.7 reports its tests as SKIPPED, never as failed - so a boot
+    failure in the integration harness produced nine quiet skips and a suite that looked healthier
+    while proving strictly less.
+  failure_scenario: >-
+    Surfaced when TASK-003's ADR-0027 boot refusal met a harness that spawned the built process with
+    no GIT_COMMIT_SHA. The nine TASK-009 tests went from failed to SKIPPED, and the only signal was a
+    count changing - 30 passed | 9 skipped reads better than 30 passed | 9 failed while asserting
+    nothing at all. The test architect MEASURED the mechanism against this repo's pinned Vitest rather
+    than assuming it: a throwing beforeAll yields N skipped with the real error tucked into a separate
+    Failed Suites block. startApiServer was already throwing loudly; the defect was that the spec only
+    awaited it inside beforeAll.
+  required_change: >-
+    FIXED. Boot is split - beforeAll kicks the promise off, beforeEach awaits the same promise - so
+    the process still builds and spawns exactly once while a boot failure now fails EVERY test
+    individually with the diagnostic attached to each. VERIFIED BY SIMULATION before being relied on:
+    a deliberately malformed GIT_COMMIT_SHA produced 9 failed, each named, each carrying ADR-0027's
+    message. Generic by construction - a boot failure from Postgres being down or a port collision
+    behaves identically. The pattern is documented in api-server.ts's docblock because TASK-058 is a
+    named future consumer of the same harness.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+
+- id: F-242
+  phase: implement
+  task: TASK-003
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/logging-and-headers.md
+  line: 1
+  summary: >-
+    Two contracts state that REDACT_PATHS "cannot help either way" for an error's message and stack.
+    Measured false - once serialised they are ordinary paths and pino censors them. The all-or-nothing
+    consequence is real; the stated reason is wrong.
+  failure_scenario: >-
+    Found by TASK-003's implementer while landing the pino swap, and it is the third time on this
+    initiative that a correct rule has rested on a justification that does not survive checking -
+    F-220 and F-229 are the others. The risk is identical each time: an implementer who checks the
+    cited reason, finds it false, and concludes the rule is stale. Also measured while there:
+    pino.stdSerializers.err puts the RAW stack in `stack`, whose first line is name: message - which
+    is F-111's unverified question answered, and the reason the implementer used neither that
+    serialiser nor an err key.
+  required_change: >-
+    Correct the reason in logging-and-headers.md and error-envelope.md, and record TASK-003's
+    stack-versus-message decision there: frames yes via err_stack with the header stripped by prefix
+    AND by shape, message only for a DomainError whose message the contract already asserts is safe to
+    show a stranger. Truncation was rejected because a cap does not remove a credential at the start
+    of a slice. Routing rule 0 - design/** belongs to sdlc-architect.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-243
+  phase: implement
+  task: TASK-003
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: scope
+  file: .sdlc/launch-core/tasks/TASK-003.md
+  line: 9
+  summary: >-
+    Three obligations the contracts assign to TASK-003 have no owner able to discharge them, and one
+    file it had to create was outside its paths despite the contract naming it by name.
+  failure_scenario: >-
+    (1) apps/api/src/observability/logger.ts is named as Normative form with "Produced by: TASK-003"
+    and has a stub, but the paths list never carried it. It is STRUCTURALLY FORCED - main.ts imports
+    app.module.ts imports exception-filter.ts, so a logger living in main.ts closes a cycle - and
+    rejecting the excursion makes F-090 and F-108 unimplementable. VERIFIED: TASK-003.md:41 quotes the
+    contract naming that exact path. (2) helmet and HSTS are assigned to TASK-003 by
+    logging-and-headers.md with no AC, no test and no finding, so invariant 4 of that contract is
+    false today and nothing tracks it. (3) db/client.ts:54 and tenancy/tenant-context.ts:135 still say
+    "TASK-003 replaces this with the pino logger"; F-144 gates client.ts on a test nobody can write
+    yet, so both comments are now unowned.
+  required_change: >-
+    Ratify the observability path into TASK-003's paths, the same transcription-gap class as F-053 and
+    F-076. Route helmet/HSTS to a TASK or rule it out of launch-core. Decide who owns the two stale
+    logger comments now that TASK-003 has closed. All three are Juano's under routing rule 0.
+  owner_slot: null
+  status: escalated
+  resolved_by: null
+  resolved_round: null
