@@ -129,12 +129,15 @@ jobs:
           echo 'OK: BFF_PROXY_SECRET is present.'
 
       # ADR-0018: the merge gate audits the PRODUCTION graph only, so a dev-only advisory
-      # with no fix available cannot block a merge. The price is that this step is blind
-      # to every dev-only advisory at every severity — the weekly `dependencies` workflow
-      # is the only thing that looks at that half of the tree. Two obligations, not one
-      # gate run twice.
+      # with no fix available cannot block a merge. The price is not only dev-only
+      # advisories: `--no-optional` (F-226, F-230) also takes every optional-peer edge out
+      # of the graph, and that now includes `sharp` and the `@next/swc-*` binaries, which
+      # run in the Vercel build and are real production code. That is an accepted cost,
+      # not an oversight — the weekly `dependencies` workflow still reports everything
+      # this step is blind to, which downgrades detection from a red check to an email.
+      # Two obligations, not one gate run twice.
       - name: Audit production dependencies
-        run: pnpm audit --prod --audit-level moderate
+        run: pnpm audit --prod --no-optional --audit-level moderate
 
       - name: Lint
         run: pnpm lint

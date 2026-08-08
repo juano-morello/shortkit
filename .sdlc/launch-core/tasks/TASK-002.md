@@ -16,7 +16,7 @@ test_exempt_reason: >-
   AC-114 are verified by the workflow running in CI and by sdlc-product-auditor reading it.
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: [".github/**", "apps/api/scripts/**", "docs/**"]
+paths: [".github/**", "apps/api/scripts/**", "docs/**", "docs/security/**"]
 contracts: []
 test_files: []
 acceptance: [AC-5, AC-114, AC-113, AC-14]
@@ -208,3 +208,43 @@ pnpm's own failure line, and that asserting occurrence counts *before* the edit 
 silently-stale mutation into a loud failure instead of a false "AC-14 failing".
 
 `sdlc-product-auditor` can now verdict it, which it could not do while the AC was absent.
+
+## ⚠ F-230 — the audit gate must scope out optional peers (ruled by Juano 2026-08-06)
+
+`paths` gained `docs/security/**`. This TASK is done and merged; it is reopened for one command
+change and two prose corrections, the same shape as the F-090 widening.
+
+**HEAD fails this TASK's own `quality` gate.** Pinning `better-auth` (TASK-009) made
+`pnpm audit --prod --audit-level moderate` exit 1. The cause is not a new vulnerability: `better-auth`
+declares `drizzle-kit` as an **optional peer**, pnpm resolves it into the lockfile's
+`optionalDependencies`, and `--prod` walks those as production. Verified independently — grep over
+`better-auth`'s `dist` for `drizzle-kit` returns **zero** matches, so it is a CLI-only peer never
+imported at runtime. The advisory is real, the exposure is not, and what changed is what the audit
+reports.
+
+**The change, at `.github/workflows/ci.yml:137`:**
+
+```
+- run: pnpm audit --prod --audit-level moderate
++ run: pnpm audit --prod --no-optional --audit-level moderate
+```
+
+`--no-optional` is a **scope** flag of the same kind as `--prod` — it removes an edge class from the
+graph rather than suppressing an advisory id. That distinction is the whole reason it is permitted
+while ADR-0018's ban on `--ignore`, `pnpm.auditConfig` and resolution overrides stands. Reproduced:
+`--prod` exits 1, `--prod --no-optional` exits 0, and still exits 0 at `--audit-level low`.
+
+**Also correct the comment block at 131-135.** It states the audit's blind spot as dev-only, which is
+now wrong — the blind spot is optional peers, and it now includes `sharp` and the `@next/swc-*`
+binaries, which run in the Vercel build and are therefore real production code. That is an accepted
+cost recorded in ADR-0018, not an oversight: the weekly `dependencies` job still reports them, which
+downgrades detection from a red check to an email.
+
+**And `docs/security/known-advisories.md`**, which carries the same false claim: line 18's command
+cell, lines 24-25 ("Both rows below are dev-only, so neither blocks a merge"), line 31's row-1
+sentence, and the stale reproduction output at 34-37. **ADR-0018's register is now normative — copy
+from it rather than rewriting from scratch.**
+
+The wider point, worth keeping: the same optional-peer mechanism also pulls `next`, `react`,
+`react-dom` and `vitest` into the API's production graph. The fix has to survive a future advisory in
+any of those, which is why it is a scope change rather than a one-advisory exception.
