@@ -27,22 +27,22 @@ This costs nothing now and three TASK reworks later.
 
 **Redaction is an allowlist of paths, applied at the logger, not at each call site.**
 
-```ts
-pino({
-  redact: {
-    paths: [
-      'req.headers.authorization', 'req.headers.cookie', 'req.headers["fly-client-ip"]',
-      'req.headers["x-forwarded-for"]', 'req.headers["x-shortkit-client-ip"]',
-      'req.headers["x-shortkit-proxy-auth"]', 'res.headers["set-cookie"]',
-      '*.password', '*.token', '*.secret', '*.rawToken', '*.tokenDigest',
-      '*.verificationToken', '*.ip', '*.ipHash',
-      'req.body.password', 'req.body.confirmation',
-    ],
-    censor: '[redacted]',
-  },
-  base: { service: 'shortkit-api' },
-})
-```
+> **Amended 2026-08-08 (F-250).** This block used to fence the pino configuration itself: a
+> 17-path `redact` list, no serialisers, no hook, no formatters. That copy went stale the day
+> F-244 added the `err` serialiser, and a TASK re-deriving the logger from it would have
+> reintroduced a credential leak with every gate green. The literal is **removed rather than
+> synced**. Three copies of one configuration in three artifacts is what produced F-244,
+> F-248, F-249 and F-250 in sequence, so the remedy deletes the third copy instead of adding
+> a fourth thing to keep in step.
+>
+> **`design/contracts/logging-and-headers.md` § "Logger" is the single normative source for
+> the logger's configuration, and it wins any disagreement with this ADR.** It carries the
+> redact list, the `err` serialiser, the `logMethod` hook, the error-replacing `log`
+> formatter and the two bindings wrappers, each with its reasoning, and a drift test compares
+> its fenced block against `apps/api/src/observability/logger.ts`.
+>
+> What this ADR still decides is below and is unchanged: redaction is an allowlist of paths
+> applied at the logger, the list is append-only, and which classes of value are on it.
 
 `*.ip` and the two IP headers are redacted because GC-9 says click events store
 `ip_hash` and never a raw IP, and a log line carrying the raw IP defeats that. `ipHash`

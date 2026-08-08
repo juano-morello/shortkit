@@ -8612,3 +8612,33 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-259
+  phase: implement
+  task: TASK-003
+  source: sdlc-architect
+  round: 3
+  severity: minor
+  kind: implementation
+  file: apps/api/src/observability/logger.ts
+  line: 409
+  summary: >-
+    readIndexedProperty's docblock claims the scan cannot throw out of the log call. Measured
+    false - when another key in the same container changes, the `{ ...container }` spread at
+    logger.ts:398 re-invokes the hostile getter OUTSIDE the guard.
+  failure_scenario: >-
+    The guard catches a throwing getter while reading, then the copy is built by spreading the
+    container, which reads every enumerable key again - including the hostile one - with no guard
+    around it. The throw's top frame after the getter is errorsReplaced itself. The OBSERVABLE
+    outcome matches bare pino, which throws from _asJson anyway, so this is a wrong claim rather
+    than a regression or a new hazard. It matters because the docblock is what a later TASK reads
+    before deciding whether it needs its own try/catch.
+  required_change: >-
+    Either correct the docblock to say the scan does not ADD a throw beyond what pino already
+    does, or build the copy key-by-key so the spread never re-invokes a getter. The architect
+    measured that the second is the real fix and is more than one line; the first is honest and
+    free.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null

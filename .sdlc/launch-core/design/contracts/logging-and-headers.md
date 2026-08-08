@@ -1,24 +1,49 @@
 # Contract: structured logging, redaction, CORS, and security headers
 
 - **Boundary:** every log line the API emits; every response header it sets.
-- **Normative form:** `apps/api/src/observability/logger.ts` and `apps/api/src/main.ts`. The wave-1 stub at `design/stubs/apps/api/src/observability/logger.ts` is **superseded** (F-249) and its config is unsafe to copy.
+- **Normative form:** `apps/api/src/observability/logger.ts` and `apps/api/src/main.ts`. This contract's § "Logger" fence is the single normative statement of the logger's configuration and is compared to the shipped file by a drift test. The wave-1 stub at `design/stubs/apps/api/src/observability/logger.ts` is **superseded** (F-249) and its config is unsafe to copy; ADR-0022 no longer carries a copy at all (F-250).
 - **Produced by:** TASK-003.
 - **Consumed by:** every API TASK. Nothing may opt out.
 - **ADRs:** ADR-0022. Enforces GC-9.
 
 ## Logger
 
-Amended 2026-08-08 (F-249, F-244, F-248, F-242). The block below now matches the shipped
-`apps/api/src/observability/logger.ts` on pino 10.3.1. The version it replaced had 17
-redact paths against the shipped 25, no `serializers`, no `hooks` and no `formatters.log`.
-A TASK re-deriving the logger from that version would have reintroduced a credential leak
-with every gate green, which is what F-249 was filed for.
+Amended 2026-08-08 (F-242, F-244, F-248, F-249), and again 2026-08-08 fix round 3 (F-250,
+F-251, F-252, F-253, F-255, F-258). The block below matches the shipped
+`apps/api/src/observability/logger.ts` on pino 10.3.1.
 
-**Four mechanisms, and every one of them is load-bearing.** `redact` covers named fields.
-`serializers.err` covers the `err` key. `hooks.logMethod` covers the positional
-`log.error(err)` call. `formatters.log` covers every other key at depth. Read "Why each
-mechanism is here" below before editing any of them. Removing one reopens a leak that
-already shipped once, and `apps/api/src/observability/logger.spec.ts` fails on each.
+**This contract is the single normative source for the logger's configuration.** ADR-0022
+used to fence a copy of it and no longer does (F-250); the wave-1 stub at
+`design/stubs/apps/api/src/observability/logger.ts` is superseded and unsafe to copy
+(F-249). One configuration living in three artifacts is what produced F-244, F-248, F-249
+and F-250 in sequence.
+
+**Four mechanisms in the literal, plus two wrappers the literal cannot express, and every
+one of them is load-bearing.** `redact` covers named fields. `serializers.err` covers the
+`err` key. `hooks.logMethod` covers both call shapes that would otherwise put an error's
+message into `msg`. `formatters.log` covers every other key at depth. The wrappers on
+`logger.child` and `logger.setBindings` run the same scan on the other path a line is built
+by, because no pino option reaches it. Read "Why each mechanism is here" and "The two
+wrappers" below before editing any of them. Removing one reopens a leak that already
+shipped once, and `apps/api/src/observability/logger.spec.ts` fails on each.
+
+### The block below is machine-checked against the shipped file
+
+The fence is the **normative region**: `apps/api/src/observability/logger.ts` from its
+`import` through the end of `isWalkable`, which is the whole logger configuration and the
+scan. Everything after `isWalkable` in that file — `RequestLogFields`, `ErrorLogFields`,
+`errorLogFields` and its helpers — belongs to `error-envelope.md` and is deliberately not
+reproduced here.
+
+The comparison is: strip comments from both sides, collapse each run of whitespace to a
+single space, and the normalised fence must appear as a **contiguous substring** of the
+normalised source. Comments are stripped on both sides, so the explanatory comments inside
+the fence are free and may differ from the source's docblocks. Anything else — a reordered
+declaration, a changed redact path, a dropped wrapper, a different depth bound — fails.
+
+**When this block and the shipped file disagree, the shipped file wins and the divergence
+is a finding.** A TASK that changes the logger updates this block in the same commit, and
+the drift test is what stops it shipping without doing so.
 
 ```ts
 import pino from 'pino';
@@ -59,12 +84,6 @@ export const REDACT_CENSOR = '[redacted]';
 /** What `msg` says when a call site logged an error and nothing else. */
 const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
 
-/** How far into a log record the error scan looks. See "The residual" below. */
-const MAX_ERROR_SCAN_DEPTH = 4;
-
-/** The key pino files a positional `Error` under, and the one key `serializers.err` owns. */
-const ERROR_KEY = 'err';
-
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
   redact: { paths: [...REDACT_PATHS], censor: REDACT_CENSOR },
@@ -78,9 +97,18 @@ export const logger = pino({
     logMethod(args, method) {
       const [thrown, context] = args as [unknown, unknown];
 
-      if (thrown instanceof Error && typeof context !== 'string') {
-        method.call(this, { err: thrown }, POSITIONAL_ERROR_MESSAGE);
-        return;
+      // Both call shapes (F-252): a positional `Error`, and a record pino would take the
+      // message out of. See "Why each mechanism is here".
+      if (typeof context !== 'string') {
+        if (thrown instanceof Error) {
+          method.call(this, { [ERROR_KEY]: thrown }, POSITIONAL_ERROR_MESSAGE);
+          return;
+        }
+
+        if (messageWouldBeTakenFromTheError(thrown)) {
+          method.call(this, thrown, POSITIONAL_ERROR_MESSAGE);
+          return;
+        }
       }
 
       method.apply(this, args);
@@ -88,6 +116,69 @@ export const logger = pino({
   },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
+
+// The bindings path (F-251, F-258). No pino option reaches it; see "The two wrappers".
+type ChildFactory = (
+  this: pino.Logger,
+  bindings: pino.Bindings,
+  options?: pino.ChildLoggerOptions,
+) => pino.Logger;
+
+type BindingsSetter = (this: pino.Logger, bindings: pino.Bindings) => void;
+
+const inheritedChild: ChildFactory = logger.child;
+const inheritedSetBindings: BindingsSetter = logger.setBindings;
+
+const childWithErrorsReplaced: ChildFactory = function childWithErrorsReplaced(bindings, options) {
+  return inheritedChild.call(this, bindingsScanned(bindings), options);
+};
+
+const setBindingsWithErrorsReplaced: BindingsSetter = function setBindingsWithErrorsReplaced(
+  bindings,
+) {
+  inheritedSetBindings.call(this, bindingsScanned(bindings));
+};
+
+// Depth 1, so the top-level `err` key stays exempt on this path too. A falsy `bindings` is
+// handed straight back so each method still answers for it the way pino does.
+function bindingsScanned(bindings: pino.Bindings): pino.Bindings {
+  return bindings ? errorsReplaced(bindings, 1) : bindings;
+}
+
+Object.defineProperty(logger, 'child', {
+  value: childWithErrorsReplaced,
+  writable: true,
+  enumerable: false,
+  configurable: true,
+});
+
+Object.defineProperty(logger, 'setBindings', {
+  value: setBindingsWithErrorsReplaced,
+  writable: true,
+  enumerable: false,
+  configurable: true,
+});
+
+/** The key pino files a positional `Error` under, and the one key `serializers.err` owns. */
+const ERROR_KEY = 'err';
+
+/** Where pino puts a log call's message. Its presence on a record stops `write` deriving one. */
+const MESSAGE_KEY = 'msg';
+
+/** pino `proto.js:223`: `msg === undefined && _obj[messageKey] === undefined && _obj[errorKey]`. */
+function messageWouldBeTakenFromTheError(record: unknown): record is object {
+  if (typeof record !== 'object' || record === null || record instanceof Error) {
+    return false;
+  }
+
+  return (
+    readIndexedProperty(record, MESSAGE_KEY) === undefined &&
+    Boolean(readIndexedProperty(record, ERROR_KEY))
+  );
+}
+
+/** How far into a log record the error scan looks. See "The residuals" below. */
+const MAX_ERROR_SCAN_DEPTH = 4;
 
 function errorsReplaced<T extends object>(container: T, depth: number): T {
   let replacement: T | undefined;
@@ -148,10 +239,6 @@ function isWalkable(value: unknown): value is object {
 who owns changing it". It returns `err_name`, an `err_stack` of frames with the
 `${name}: ${message}` header stripped, and `err_message` only when the caller opts in.
 
-**When this block and the shipped file disagree, the shipped file wins and the divergence
-is a finding.** No test in the repository compares them, which is how F-249 survived two
-fix rounds. A TASK that changes the logger updates this block in the same commit.
-
 ### Why each mechanism is here
 
 **`redact` covers fields you can name.** It is a path allowlist and it reaches exactly the
@@ -173,13 +260,38 @@ library to decorate an error picks a different name.
 '…' } })` emits `{"err":{"err_name":"non-error throwable (object)"}}`. `errorsReplaced`
 deliberately does not do that, because it replaces `Error` instances only.
 
-**`hooks.logMethod` closes the same hole by its other door (F-244).** `log.error(err)` with
-no context string routes the error through the serialiser, and then pino copies
-`err.message` into `msg`. `msg` is a top-level key, and no redact path can censor it without
-censoring every log line's text. Measured on pino 10.3.1: `bare.error(err)` emits
-`"msg":"boom DSNMARK"`. The message is the one field the policy withholds everywhere else,
-so the hook rewrites that call shape into the one the serialiser fully covers.
-`log.error(err, 'context')` and every non-Error first argument pass through untouched.
+**`hooks.logMethod` closes the same hole by its other door (F-244, F-252).** A log call with
+no context string leaves pino to derive one, and where it derives it from is the error's
+message. `msg` is a top-level key, and no redact path can censor it without censoring every
+log line's text, so the message is the one field the policy withholds everywhere else.
+Measured on pino 10.3.1: `bare.error(err)` emits `"msg":"boom DSNMARK"`.
+
+**Both call shapes are covered, not only the positional one.** `write` (`proto.js:223`)
+fills `msg` from `_obj[errorKey].message` for a record too, so `log.error({ err })` landed
+the same message in the same uncensorable field while the `err` object itself came out
+clean. The hook's second branch supplies the context string pino would otherwise take from
+the error, and hands the caller's own record through unchanged so its fields survive.
+
+The coverage condition on the record branch is **the record has an `err` key and no own
+`msg`** — not that `err` holds an `Error`. That is deliberate and it is what pino reads:
+`proto.js:223` does not check `instanceof`, so a decorated plain object under `err`, which
+is the shape `catch (err)` binds and the shape `serializers.err` reduces to `err_name`,
+puts its own `message` in `msg` by the same route. Testing for `Error` would be the
+enumeration F-244 rejected, one throwable shape later. Measured against the shipped logger
+2026-08-08:
+
+| call | `msg` on the line |
+|---|---|
+| `logger.error(e)` | `an error was logged with no context string` |
+| `logger.error({ err: e })` | `an error was logged with no context string` |
+| `logger.error({ err: { message: 'postgres://user:pw@host/db' } })` | `an error was logged with no context string` |
+| `logger.error({ err: e, msg: 'callers own msg' })` | `callers own msg`, written once |
+| `logger.error({ err: null, k: 1 })` | no `msg` key at all |
+| `logger.error(e, 'context')`, `logger.error({ err: e }, 'context')` | `context` |
+
+A record that already carries its own `msg` is left alone: pino would use that one, and
+supplying a second writes the key twice into the line. `log.error(err, 'context')` and every
+first argument pino would not have taken a message from pass through untouched.
 
 **`formatters.log` covers every other key, at depth (F-248).** A serialiser is keyed by
 field name, so `serializers.err` covers exactly one key. That is the same enumeration
@@ -226,26 +338,147 @@ There is no key between them. Drop the `depth === 1 && key === ERROR_KEY` skip a
 `err` key starts emitting `non-error throwable (object)`; drop `serializers.err` and the
 non-error case under `err` stops being covered at all.
 
-### The residual: depth 5
+**What the suite pins, exactly (F-254).** Measured by striking each half and running
+`logger.spec.ts` against the 18-test suite of 2026-08-08: dropping `serializers.err` alone
+failed 12 tests, dropping the depth-1 `err` skip alone failed 6, and dropping **both
+together** failed exactly one — the non-`Error` under the top-level `err` key. The counts
+move as tests are added; the shape is what matters. That single case is what makes this a
+partition rather than a redundancy, and it is the only thing standing between the "these two
+overlap, let me unify them" refactor and F-244's shape coming back under `err`. A contract reader who wants to
+know why one record needs two mechanisms needs that case.
 
-The scan is bounded at 4. Every log call site in `apps/api/src` builds a flat record today,
-and the deepest shape named anywhere is `req.headers.authorization` at 3, so 4 is that plus
-one level of slack. It was measured against the shipped instance's own formatter on pino
-10.3.1 and Node 24.19, one million calls per figure: 40 ns on a flat record, 95 ns on one
-carrying `req.headers`, 115 ns five deep, 500 ns when the record holds an error, where
-`errorLogFields` rather than the walk is the cost. A whole log call is 5.8 µs to 9 µs, so
-the scan costs under 2% of a line against GC-1's 25 ms budget. The bound also makes a
-self-referential record terminate.
+### The two wrappers: `logger.child` and `logger.setBindings`
 
-**An error at depth 5 or deeper is not replaced, and its assigned properties reach the
-line.** Verified 2026-08-08 against the shipped logger:
+**This is the part of the normative form the `pino({…})` literal cannot express, and it is
+the thing a future reader most needs from this section.** Re-deriving the logger from the
+fenced literal alone, without the two `Object.defineProperty` installations under it,
+reopens F-251 and F-258 with every gate green.
+
+`formatters.log` is applied by `_asJson` to the record a log call passes. Child bindings
+never reach it: they are serialised once, at `logger.child(…)` or `logger.setBindings(…)`,
+by `asChindings` (`tools.js:238`). So `logger.child({ error: e })` wrote F-244's payload —
+body-parser's verbatim request body — under a key one character away from the one key that
+was covered, and `exception-filter.ts:125` already builds a child logger per request.
+
+**`formatters.bindings` reaches neither path on pino 10.3.1.** Measured, not assumed. It is
+the documented seam and it does not work: `child(bindings)` called with no `options`
+argument replaces the instance's bindings formatter with the identity function
+`resetChildingsFormatter` before calling `asChindings` (`proto.js:84`, `:98-104`), so a root
+`formatters.bindings` runs on `base` at construction and never again. Only a formatter
+passed in a child's own `options` reaches that child's bindings, which is a rule every call
+site would have to remember. Wrapping the two methods is therefore the only mechanism
+available. **An implementer who "simplifies" the wrappers into a `formatters.bindings`
+entry reopens both findings and every gate stays green.**
+
+**The seam is the same on both paths, and it was measured on each rather than inferred from
+one.** `asChindings` applies the bindings formatter at `tools.js:247` and `serializers[key]`
+at `:258`, the same order `_asJson` uses, so the partition above holds identically here and
+both wrappers scan at **depth 1, keeping the top-level `err` exemption**. The two paths do
+differ in one respect — `child()` swaps the bindings formatter for the identity function
+first and `setBindings` (`proto.js:189-192`) does not — and they agree only on
+`serializers[key]`, which is why the exemption had to be checked twice.
+
+**Depth 2 is the plausible wrong fix on both paths.** A wrapper that scanned from depth 2
+turns the leak assertions green while degrading `logger.child({ err: e })` and
+`setBindings({ err: e })` to `{"err_name":"non-error throwable (object)"}` — the error's
+name and every frame gone. `logger.spec.ts` fails on that for each path.
+
+**`setBindings` was worth wrapping despite having no call site.** It needs no child logger,
+`logger.setBindings({ error: e })` is one line from anywhere that imports the module, and it
+appends to the **singleton's** chindings permanently (`proto.js:189-192`), so a throwable
+bound there would have leaked on that line and on every line the process wrote afterwards.
+
+Children of children are covered: `child` returns `Object.create(this)`, so a grandchild
+inherits the own property from the root and `.call(this, …)` preserves the receiver, which
+is what keeps a grandchild parented to its parent rather than to the root. A falsy
+`bindings` is handed straight back, so `logger.child()` still raises pino's own "missing
+bindings for child Pino" and `setBindings(undefined)` still no-ops.
+
+Cost, measured on pino 10.3.1 and Node 24.19 against the binding `exception-filter.ts`
+actually creates: 609 ns per child through the wrapper against 581 ns through pino's own
+`child`. 28 ns on a per-request path against GC-1's 25 ms budget. The redirect hot path
+imports nothing from this module and creates no child logger.
+
+### The residuals
+
+**Two shapes reach a line with a library's assigned properties still on them.** Both carry
+the same escalation rule, and it is the rule that keeps this list short: **the TASK that
+first builds one of these shapes closes it here, in the same commit, rather than living with
+it.** A third residual was listed here and is closed — `setBindings` is wrapped (F-258).
+
+**1. An error at depth 5 or deeper is not replaced.** The scan is bounded at 4. Every log
+call site in `apps/api/src` builds a flat record today, and the deepest shape named anywhere
+is `req.headers.authorization` at 3, so 4 is that plus one level of slack. The bound also
+makes a self-referential record terminate. Verified 2026-08-08 against the shipped logger:
 
 ```
 {"…","a":{"b":{"c":{"d":{"err":{"body":"{\"password\":\"BODYMARK\"","status":400}}}}},"msg":"depth 5 - beyond the bound"}
 ```
 
-This is the same limit `REDACT_PATHS` has for a nested secret, with the same answer: a TASK
-that builds a record that deep raises `MAX_ERROR_SCAN_DEPTH` in the same commit and says so.
+Same limit `REDACT_PATHS` has for a nested secret, same answer: raise
+`MAX_ERROR_SCAN_DEPTH` in the same commit and say so.
+
+**2. An error held inside a class instance is not replaced (F-255).** `isWalkable` declines
+to walk one, because `Object.keys` on a `Buffer` is thousands of index strings, but
+`JSON.stringify` writes a class instance's own enumerable properties out anyway — so the
+payload reaches the line even at depth 1. Reproduced:
+`logger.error({ ctx: new Ctx(parseFailure) }, '…')` emits
+`"ctx":{"err":{"body":"{\"password\":\"BODYMARK\"}"}}`. The answer for a TASK that needs it
+is to log the fields it wants rather than the instance, or to widen `isWalkable`
+deliberately and pay the `Buffer` cost it exists to avoid.
+
+**Cost of the scan, and the one figure not to repeat.** Measured against the shipped
+instance's own formatter on pino 10.3.1 and Node 24.19, one million calls per figure: 40 ns
+on a flat record, 95 ns on one carrying `req.headers`, 115 ns five deep, 500 ns when the
+record holds an error, where `errorLogFields` rather than the walk is the cost. An
+independent re-measurement got 54 ns and 135 ns for the first two, same order. The claim
+that this is "under 2% of a log call" rests on a 5.8–9 µs whole-call baseline that nobody
+has reproduced; a second measurement of the same baseline to `/dev/null` came out at 909 ns,
+which makes it closer to 6%. **Use the absolute numbers, not the percentage.** 135 ns
+against GC-1's 25 ms ceiling is six orders of magnitude of headroom either way.
+
+### A log call can still throw, and the scan does not stop it (F-253)
+
+**A log record whose own property has a throwing getter takes the log call with it: the call
+throws and no line is emitted.** This is stated as a residual rather than claimed as an
+invariant, and the decision is recorded here because the 2026-08-08 version of this contract
+claimed the opposite and was measured false.
+
+Measured 2026-08-08 against the shipped module. There are four throw sites, and the scan
+covers none of them completely:
+
+| shape | throws from | in bare pino too |
+|---|---|---|
+| hostile getter at depth 1, no error elsewhere in the record | `_asJson`, `tools.js:167`, pino's own `value = obj[key]` | yes |
+| hostile getter at depth 1 **and** an error under another key | the scan's own copy, `{ ...container }` | no — the throw moves earlier, the outcome does not change |
+| hostile getter at depth 2 or deeper | `@pinojs/redact`'s `cloneSelectively`, reached through a wildcard path | yes, with this redact list |
+| hostile getter in `child()` or `setBindings()` bindings | `asChindings`, `tools.js:250` | yes |
+
+`readIndexedProperty` catches its own read and skips the key, which leaves the key in the
+record for pino to read again. That is what the source docblock means by "leaves pino's own
+stringify to handle it exactly as it did before this function existed", and it is accurate.
+
+**Why a sentinel was rejected.** Making `readIndexedProperty` write a placeholder into the
+copy would cover the first two rows and not the last two: fast-redact's clone and
+`asChindings` run over containers the scan does not reach, at depths past the bound and
+inside class instances it declines to walk. A safety guarantee bounded at depth 4 is worse
+than a stated residual, because the two call sites that need it — the exception filter's
+`headersSent` arm, outside the try/catch F-092 added, and `main.ts`'s last-chance boot
+handler — have no way to check the bound before they call. It would also cost the copy:
+`{ ...container }` re-invokes the getter, so the sentinel forces a key-by-key copy on the
+path every log line carrying an error takes.
+
+**What is guaranteed, and it is the half these two call sites actually meet.** A hostile
+**error** is survivable. An accessor that throws on `name`, `message` or `stack` is caught by
+`errorLogFields`, under `err` and under every other key. Verified 2026-08-08: both
+`logger.error({ err: hostile }, '…')` and `logger.error({ error: hostile }, '…')` emit a line
+carrying `err_name` and do not rethrow. Those two arms log an unknown *throwable*, not an
+unknown *record*.
+
+**What a caller must therefore do.** A record built by spreading caller-controlled data —
+a parsed body, a request object, anything a library handed over — may carry a hostile getter,
+and a log call on it may throw. In a place with nowhere left to escape to, wrap the log call.
+That is unbounded, local, and it is the pattern F-092 already established in the same file.
 
 ### Which casing `REDACT_PATHS` is keyed to
 
@@ -300,16 +533,17 @@ Normative. GC-9.
 - Any property a library assigned to an error. `body-parser` puts the raw request body on
   `err.body`; `pg` puts colliding column values on `detail`.
 
-The redact list is one of four mechanisms, and it is the one that only covers fields you
+The redact list is one of six mechanisms, and it is the one that only covers fields you
 can name. **It is an allowlist of paths and it does not reach arbitrary nesting**:
 `*.token` matches exactly one level, so it covers `req.token` and covers neither `token` at
 the top level nor `payload.data.credentials.token` two levels down. That is why every
 `*.x` entry is paired with a bare `x`. A TASK introducing a nested secret adds a path in
 the same commit.
 
-The other three mechanisms cover what a path list cannot: `serializers.err`,
-`hooks.logMethod` and `formatters.log` keep an error's own properties and its message off
-the line under every key, whatever they are named. See "Why each mechanism is here".
+The other five cover what a path list cannot: `serializers.err`, `hooks.logMethod` and
+`formatters.log` keep an error's own properties and its message off the line under every
+key, whatever they are named, and the `logger.child` and `logger.setBindings` wrappers do
+the same on the bindings path. See "Why each mechanism is here" and "The two wrappers".
 
 **The two `x-shortkit-*` entries are in the list now, ahead of the headers existing**
 (F-032). `x-shortkit-client-ip` carries a raw client IP on every browser-originated API
@@ -317,9 +551,11 @@ request (GC-9 forbids a raw IP in any field from any header), and
 `x-shortkit-proxy-auth` carries `BFF_PROXY_SECRET` verbatim — a leaked log line would
 let anyone forge `X-Shortkit-Client-IP` against Fly directly and defeat every IP-keyed
 auth bucket. The `'*.secret'` wildcard matches a property one level deep and **does not
-reach a header key**. **TASK-003 owns these entries** and ships them in wave 1 with the
-rest of the list, eight waves before TASK-009 introduces the headers; redacting a
-not-yet-sent header is free, and appending later would have no owner. The
+reach a header key**. **TASK-003 owns these entries** and ships them with the rest of the
+list. TASK-003 and TASK-009 are both in wave 2 and run concurrently (`TASK-003.md`,
+corrected 2026-08-06), so the entries land before or beside the headers rather than eight
+waves ahead of them as this paragraph used to say; redacting a not-yet-sent header is free,
+and appending later would have no owner. The
 `BFF_PROXY_SECRET` value is never logged on the Vercel side either
 (`web-api-client.md`).
 
@@ -401,12 +637,26 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 5. Logging an `Error` under any key, at any depth up to 4, emits `err_name`, an
    `err_stack` of frames, and nothing else. Not `message`, not `body`, not `detail`, not
    any property a library assigned. Holds for `{ err: e }`, `{ error: e }`, `{ cause: e }`,
-   `{ ctx: { err: e } }`, `[e, e]`, `log.error(e)` and `log.error(e, 'context')`.
-6. A hostile error does not take the process with it. An accessor that throws on `name`,
-   `message` or `stack`, and a record property whose getter throws, are both survivable:
-   the log call emits a line and does not rethrow. This matters at the exception filter's
-   `headersSent` arm and in `main.ts`'s last-chance boot handler, which have nowhere left
-   to escape to.
+   `{ ctx: { err: e } }`, `[e, e]`, `log.error(e)` and `log.error(e, 'context')`, and it
+   holds whether the error arrived in the log record or in **logger bindings**, through
+   either `logger.child(bindings)` or `logger.setBindings(bindings)`. Bounded by the two
+   residuals above: depth 5, and an error held inside a class instance.
+6. **An error's message never lands in `msg`.** A log call with no context string gets the
+   fixed string `an error was logged with no context string`, for the positional
+   `log.error(e)` and for a record `log.error({ err })` alike; the record's own fields
+   survive, and a record that supplies its own `msg` keeps it. The coverage condition is
+   *the record has an `err` key and no own `msg`*, not that `err` holds an `Error`. What
+   this invariant does **not** cover is a message a call site interpolated into the context
+   string itself, which no mechanism here can reach.
+7. **A hostile error does not take the process with it.** An accessor that throws on
+   `name`, `message` or `stack` is survivable under `err` and under every other key: the log
+   call emits a line carrying `err_name` and does not rethrow. This is what the exception
+   filter's `headersSent` arm and `main.ts`'s last-chance boot handler need, and it is the
+   shape they meet, since both log an unknown throwable.
+
+   **A record property whose getter throws is not covered by this invariant.** The log call
+   throws and no line is emitted. See "A log call can still throw" above for the four
+   measured throw sites and for what a caller with nowhere to escape to must do instead.
 
 ## What the implementer must guarantee
 
@@ -419,13 +669,25 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 - **Assert the bytes, not the configuration.** `apps/api/src/observability/logger.spec.ts`
   spawns a Node process, imports the shipped singleton, emits one line per call shape and
   reads stdout. A test that inspected `logger.options.serializers` passes against a config
-  that emits the wrong bytes, which is how F-244 and F-248 both reached the branch. Eleven
+  that emits the wrong bytes, which is how F-244 and F-248 both reached the branch. Twenty
   tests defend this today, each proven by a mutation that fails exactly it.
+- **Always pass a fixed context string**: `logger.error({ err }, 'what was being done')`.
+  The hook supplies one when a call omits it, so an omission is not a leak — but the string
+  it supplies names the call shape and not the failure, which costs the operator the only
+  human-written field on the line.
 - **Never pass `includeMessage: true` without a reason at the call site.** Two call sites
   do, both named in `error-envelope.md`. A third needs the same treatment there.
-- Never introduce a second pino instance. The redaction and the three error mechanisms are
-  configuration on one logger, so a second instance built anywhere is a hole with none of
-  them. Import `logger` from `apps/api/src/observability/logger.ts`.
+- Never introduce a second pino instance. The redaction, the three literal error mechanisms
+  and the
+  two bindings wrappers are all configuration on one logger, so a second instance built
+  anywhere is a hole with none of them. Import `logger` from
+  `apps/api/src/observability/logger.ts`, and do not re-derive it from ADR-0022, which
+  records the decision and deliberately carries no literal (F-250).
+- **Wrap the log call where there is nowhere left to escape to.** A record spread from
+  caller-controlled data may carry a property whose getter throws, and that throws out of the
+  log call with no line emitted. See "A log call can still throw" (F-253). The exception
+  filter's `headersSent` arm and `main.ts`'s last-chance boot handler are the two places
+  where that converts a logged failure into an unhandled one.
 - **Never interpolate an error's message into a log message string.**
   `` logger.error(`failed: ${e.message}`) `` puts the message into `msg`, which no
   serialiser, formatter or redact path reaches. Pass `{ err: e }` and a fixed context
@@ -446,15 +708,21 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 `REDACT_PATHS` is append-only. Removing a path needs a reason in the commit message.
 Changing the header table requires amending ADR-0022.
 
-`serializers.err`, `hooks.logMethod` and `formatters.log` are not removable by a TASK.
-Each closes a leak that shipped once, each is defended by tests in `logger.spec.ts`, and
-a change to any of them needs a finding and an ADR amendment before the code moves.
-Raising `MAX_ERROR_SCAN_DEPTH` is additive and needs neither; lowering it is a removal.
+`serializers.err`, `hooks.logMethod`, `formatters.log` and the two bindings wrappers are
+not removable by a TASK. Each closes a leak that shipped once, each is defended by tests in
+`logger.spec.ts`, and a change to any of them needs a finding and an ADR amendment before
+the code moves. Raising `MAX_ERROR_SCAN_DEPTH` is additive and needs neither; lowering it
+is a removal. Replacing either wrapper with a `formatters.bindings` entry is a removal, not
+a refactor — see "The two wrappers".
 
 `ErrorLogFields` grows by adding an optional field. Renaming `err_name`, `err_message` or
 `err_stack` breaks every saved log query, so it needs the same amendment.
 
-**ADR-0022's Decision block still shows the 17-path literal with no serialisers, no hook
-and no formatter.** It has not been amended, and the code fenced there predates F-244 and
-F-248. This contract is normative for the logger configuration; treat that block as the
-2026-08-04 decision it records, not as something to copy.
+**Where the logger's configuration lives.** This contract, and nowhere else. ADR-0022 fenced
+a copy of the `pino({…})` call until 2026-08-08; that copy went stale the day F-244 landed
+and is now removed rather than synced (F-250), because three copies in three artifacts is
+what produced F-244, F-248, F-249 and F-250 in sequence. ADR-0022 still owns the *decision*
+— redaction by allowlist, applied at the logger, append-only, and which classes of value are
+on the list — and changing the header table still requires amending it. The wave-1 stub at
+`design/stubs/apps/api/src/observability/logger.ts` is superseded and carries a banner
+saying so. **A fourth artifact carrying this configuration is a finding, not a convenience.**

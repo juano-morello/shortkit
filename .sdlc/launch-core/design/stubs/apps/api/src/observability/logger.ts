@@ -5,10 +5,12 @@
  * This stub is kept as the wave-1 scaffold it was. It is now wrong in three ways that
  * matter: its REDACT_PATHS has 17 entries against the shipped 25, it exports
  * `createLogger()` where the shipped module exports a `logger` singleton, and it has none
- * of the three error mechanisms F-244 and F-248 forced (`serializers.err`,
- * `hooks.logMethod`, `formatters.log`). Deriving a logger from this file reintroduces a
+ * of the five error mechanisms F-244, F-248, F-251, F-252 and F-258 forced —
+ * `serializers.err`, `hooks.logMethod`, `formatters.log`, and the wrappers on
+ * `logger.child` and `logger.setBindings`. Deriving a logger from this file reintroduces a
  * credential leak. `design/contracts/logging-and-headers.md` carries the current
- * configuration and the reasoning.
+ * configuration and the reasoning, and a drift test compares its fenced block against the
+ * shipped file.
  *
  * Contract: design/contracts/logging-and-headers.md
  * ADR: adr-0022-logging-cors-and-security-headers.md
