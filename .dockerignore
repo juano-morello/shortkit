@@ -1,0 +1,37 @@
+# The Dockerfile copies explicit paths rather than the tree, so this file is about the
+# size of the context BuildKit uploads, not about correctness. `node_modules` in a pnpm
+# workspace is a forest of symlinks into `.pnpm`; sending it costs a gigabyte and is never
+# read, because every stage runs its own `pnpm install`.
+node_modules
+**/node_modules
+
+# Build output. The image builds its own; a stale local `dist` must never win.
+dist
+**/dist
+.next
+**/.next
+coverage
+**/coverage
+*.tsbuildinfo
+
+.git
+.github
+.sdlc
+.superpowers
+.vercel
+docs
+infra
+
+# Never into an image, and this repository is public so anything that lands there is
+# rotated rather than deleted.
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+
+Dockerfile
+.dockerignore
+docker-compose.test.yml
+README.md

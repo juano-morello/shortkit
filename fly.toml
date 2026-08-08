@@ -1,0 +1,66 @@
+# The one backend deployable (GC-7).
+# ADR: adr-0027-build-commit-provenance.md, adr-0006-http-surface-partitioning.md
+# Produced by: TASK-003
+#
+# Deploy through `infra/deploy.sh`, never through bare `fly deploy`. The image refuses to
+# build without a `GIT_COMMIT_SHA` build argument (ADR-0027) and the script is the only
+# place that argument comes from.
+
+app = 'shortkit-api'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+# NO `[env]` AND NO `[build.args]` ENTRY FOR `GIT_COMMIT_SHA`, deliberately (ADR-0027).
+# Both are static values in a committed file, so the file would be correct for exactly one
+# commit and wrong for every commit after it — which manufactures the failure AC-6 exists
+# to catch. The SHA arrives on the command line.
+
+# NO `release_command`, and that settles F-119.
+#
+# ADR-0004 and `docs/architecture/migrations.md` describe the Fly release command running
+# `pnpm --filter @shortkit/api db:migrate`. The release command runs inside THIS image, and
+# `drizzle-kit` is a devDependency that the runtime stage's `pnpm install --prod` does not
+# install — so that command would fail at deploy time rather than at build time.
+#
+# The two ways out were promoting `drizzle-kit` to a dependency or moving migrations out of
+# the image. Promotion loses on two counts: it puts GHSA-67mh-4wv8-2f99 into the production
+# dependency graph through a non-optional edge, which fails `pnpm audit --prod --no-optional
+# --audit-level moderate` and so blocks every merge; and it falsifies the accepted
+# assessment in `docs/security/known-advisories.md`, whose reason for accepting that
+# advisory is that no copy of `drizzle-kit` is deployed.
+#
+# So `infra/deploy.sh` runs the migration from the working copy, as `shortkit_migrator`,
+# before it calls `fly deploy`. ADR-0004's two actual requirements survive: migrations do
+# not run from application boot, so machines starting together cannot race, and a failed
+# migration blocks the deploy — `set -e` in the script stops before `fly deploy` is reached.
+# What is lost is that the deploy no longer fails closed if someone bypasses the script,
+# which is the same exposure ADR-0027 already accepts for the build argument.
+
+# One machine, always running. `refinement.md` calls SC-2 "a single-machine commitment", and
+# GC-1's p99 ceiling is on the cache-hit path — a suspended machine pays a cold start on the
+# first redirect after any quiet period, which is the request most likely to be a real
+# visitor. One `shared-cpu-1x` sits well inside GC-3's $25/month.
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = false
+  min_machines_running = 1
+  processes = ['app']
+
+# AC-6 fixes the method and the path; ADR-0006 keeps `/health` at the root, outside the
+# `/api` global prefix, so the probe never depends on the API surface. The three durations
+# are starting values.
+[[http_service.checks]]
+  grace_period = '10s'
+  interval = '15s'
+  method = 'GET'
+  path = '/health'
+  timeout = '2s'
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1

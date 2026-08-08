@@ -20,9 +20,11 @@
  *
  * BRANCH 4 PUTS NOTHING OF THE ORIGINAL ERROR IN THE BODY. A Postgres error naming a
  * connection string, a Redis timeout naming an internal host and an assertion quoting a
- * row all land there. Name and message reach the log, at `error` level; the stack does
- * not, and TASK-003's pino error serialiser is the permanent answer (GC-9, error-envelope.md
- * "What the 500 log line carries, and who owns changing it").
+ * row all land there. What reaches the LOG is decided by TASK-003's stack-versus-message
+ * policy, written out in `observability/logger.ts`: the error's name and its stack FRAMES
+ * go on the line, its message does not, and every line carries `request_id`. That closes
+ * `error-envelope.md` invariant 9 — debugging a 500 means finding its `request_id` in the
+ * logs — which was false for every 500 this filter answered before now.
  *
  * THE FILTER DOES NOT WALK `cause`. A DomainError re-thrown inside a plain Error is a
  * 500 (ADR-0024).
@@ -35,7 +37,9 @@
  * client are strings written in this file and shapes validated against a schema in
  * `packages/contracts`. No message an HttpException carried reaches a body.
  */
-import { Catch, HttpException, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+
+import { Catch, HttpException } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import {
   ERROR_CODE_STATUS,
@@ -44,7 +48,9 @@ import {
   toValidationDetails,
 } from '@shortkit/contracts';
 import type { ErrorEnvelope } from '@shortkit/contracts';
+import type { Logger } from 'pino';
 
+import { errorLogFields, logger } from '../../observability/logger';
 import { INTERNAL_ERROR_MESSAGE, isDomainError } from './domain-error';
 import { errorResponse, narrowEnvelope } from './error-envelope';
 import type { ErrorResponse } from './error-envelope';
@@ -61,6 +67,22 @@ interface HttpResponseLike {
   json(body: unknown): void;
   end(): void;
 }
+
+/** Same reasoning as `HttpResponseLike`: only what this filter reads. */
+interface HttpRequestLike {
+  readonly headers: Readonly<Record<string, string | string[] | undefined>>;
+}
+
+/** `logging-and-headers.md`: the `x-request-id` header, or a generated uuid. */
+const REQUEST_ID_HEADER = 'x-request-id';
+
+/**
+ * A caller-supplied `x-request-id` is untrusted input on its way into a log aggregator.
+ * pino JSON-encodes it, so a newline cannot split the record, but nothing bounds its
+ * length — 128 characters is longer than any correlation id anyone issues and short enough
+ * that a megabyte header cannot be replayed into the log on every request.
+ */
+const MAX_REQUEST_ID_LENGTH = 128;
 
 /**
  * The envelope message for both validation branches. A client renders per code and
@@ -94,23 +116,24 @@ interface FilterOutcome extends ErrorResponse {
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
-  // TASK-003 replaces this with the pino logger, which adds `request_id` to these
-  // lines. Until then a 500 is correlated by timestamp only.
-  private readonly logger = new Logger(ApiExceptionFilter.name);
-
   catch(exception: unknown, host: ArgumentsHost): void {
-    const response = host.switchToHttp().getResponse<HttpResponseLike>();
+    const http = host.switchToHttp();
+    const response = http.getResponse<HttpResponseLike>();
+
+    // Bound to a local, never to `this`: the filter is a singleton and per-request state
+    // on the instance would attribute one request's id to another's failure.
+    const log = logger.child({ request_id: requestId(http.getRequest<HttpRequestLike>()) });
 
     // The redirect surface streams a 302 outside /api. Writing a body over a started
     // response corrupts it, so the failure goes to the log and the response is ended.
     if (response.headersSent) {
-      this.logError('after the response started', exception);
+      logError(log, 'after the response started', exception);
       response.end();
       return;
     }
 
     try {
-      this.write(response, exception);
+      this.write(log, response, exception);
     } catch (failure: unknown) {
       // F-092. This filter is the one component that answers for every throwable, and
       // resolving or writing can itself throw: `details` carrying a BigInt or a circular
@@ -118,7 +141,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       // `setHeader` throw ERR_INVALID_CHAR. Without this, the throw escapes into Nest's
       // error layer or finalhandler and the client gets a 500 with the wrong code — or,
       // outside production, HTML carrying a stack.
-      this.logError('while writing the error response', failure);
+      logError(log, 'while writing the error response', failure);
 
       // A header may already have gone out, in which case there is nothing left to
       // write but the end of the response.
@@ -133,8 +156,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
   }
 
   /** Classify, write the headers, write the body. Everything that may throw. */
-  private write(response: HttpResponseLike, exception: unknown): void {
-    const outcome = this.resolve(exception);
+  private write(log: Logger, response: HttpResponseLike, exception: unknown): void {
+    const outcome = this.resolve(log, exception);
 
     // Before the body: this is how a 429 carries `Retry-After` (invariant 7) without
     // the throwing guard reaching for the response object.
@@ -142,26 +165,26 @@ export class ApiExceptionFilter implements ExceptionFilter {
       response.setHeader(name, value);
     }
 
-    response.status(outcome.status).json(this.narrow(outcome.body));
+    response.status(outcome.status).json(this.narrow(log, outcome.body));
   }
 
   /**
    * ADR-0026, applied once to the body the filter is about to write, so branch 1's
    * `toEnvelope()` output passes through it along with branches 2 to 4.
    */
-  private narrow(body: ErrorEnvelope): ErrorEnvelope {
+  private narrow(log: Logger, body: ErrorEnvelope): ErrorEnvelope {
     const narrowed = narrowEnvelope(body);
 
     if (body.details !== undefined && narrowed.details === undefined) {
       // The code and nothing else. The dropped value is the one suspected of carrying
       // another tenant's data, and a log is not a safe place for it (GC-9).
-      this.logger.warn(`dropped details from a ${body.code} envelope: no shape is named for it`);
+      log.warn({ code: body.code }, 'dropped details from an envelope: no shape is named for it');
     }
 
     return narrowed;
   }
 
-  private resolve(exception: unknown): FilterOutcome {
+  private resolve(log: Logger, exception: unknown): FilterOutcome {
     // 1. The only way application code asks for a status other than 500.
     if (isDomainError(exception)) {
       const status = exception.status;
@@ -169,7 +192,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       // Unreachable by type, reachable through a cast: a code with no row in
       // ERROR_CODE_STATUS. Never answer with `undefined` as a status.
       if (!Number.isInteger(status)) {
-        this.logger.error(`domain error code has no status: ${exception.code}`);
+        log.error({ code: exception.code }, 'domain error code has no status');
         return errorResponse('internal_error', INTERNAL_ERROR_MESSAGE);
       }
 
@@ -188,15 +211,15 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     // 3. What the framework raises on its own. Application code throws a DomainError.
     if (exception instanceof HttpException) {
-      return this.resolveHttpException(exception);
+      return this.resolveHttpException(log, exception);
     }
 
     // 4. Everything else, and the body says nothing about it.
-    this.logError('unhandled', exception);
+    logError(log, 'unhandled', exception);
     return errorResponse('internal_error', INTERNAL_ERROR_MESSAGE);
   }
 
-  private resolveHttpException(exception: HttpException): FilterOutcome {
+  private resolveHttpException(log: Logger, exception: HttpException): FilterOutcome {
     const status = exception.getStatus();
 
     if (status === ERROR_CODE_STATUS.not_found) {
@@ -204,11 +227,17 @@ export class ApiExceptionFilter implements ExceptionFilter {
     }
 
     if (status === ERROR_CODE_STATUS.validation_failed) {
-      // The exception's own message never reaches the body (F-094, ADR-0026): the
-      // framework builds it out of the raw request bytes. It goes to the log instead,
-      // through the same helper branch 4 uses. What the caller gets is a fixed string,
-      // under `_form` because it belongs to the request as a whole rather than a field.
-      this.logError('framework exception with a 400 status', exception);
+      // F-108, and the reason this arm now logs through the shared helper like every
+      // other. The exception's own message never reaches the BODY (F-094, ADR-0026)
+      // because the framework builds it out of the raw request bytes — and it does not
+      // reach the LOG either, for the same reason and a stronger one: an unauthenticated
+      // POST carrying a credential puts a fragment of it in Nest's
+      // `BadRequestException(err.message)`, and `REDACT_PATHS` is a path list that cannot
+      // reach inside a string. Hard-truncating it was considered and rejected: a cap does
+      // not remove a credential sitting at the start of the quoted slice. What is left is
+      // the exception's name, its frames and the `request_id`, which is what the operator
+      // can act on anyway. See `observability/logger.ts` for the full policy.
+      logError(log, 'framework exception with a 400 status', exception);
       return errorResponse('validation_failed', VALIDATION_FAILED_MESSAGE, {
         fieldErrors: { [FORM_ERROR_KEY]: [FRAMEWORK_BAD_REQUEST_FORM_MESSAGE] },
       });
@@ -216,27 +245,52 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     // No code maps to any other framework status, and a code carries exactly one
     // status, so there is nothing to answer with but a 500. The original is logged.
-    this.logError(`framework exception with unmapped status ${status}`, exception);
+    logError(log, 'framework exception with an unmapped status', exception, { status });
     return errorResponse('internal_error', INTERNAL_ERROR_MESSAGE);
   }
+}
 
-  /**
-   * The only place anything of the original error is recorded. Nothing from here reaches
-   * a body.
-   *
-   * The stack is deliberately not logged, which is the policy `main.ts` already carries
-   * under F-064's ruling: ADR-0022 redacts by path at the logger and no path reaches
-   * into a stack, so it would be the one field on the line outside the redaction
-   * pipeline. Name and message are the summary. F-093 exists because these two files
-   * said opposite things; the stack returns when TASK-003 lands the pino error
-   * serialiser, which is the TASK that owns the permanent answer for both files.
-   */
-  private logError(context: string, exception: unknown): void {
-    if (exception instanceof Error) {
-      this.logger.error(`${context}: ${exception.name}: ${exception.message}`);
-      return;
-    }
+/**
+ * The only place anything of the original error is recorded. Nothing from here reaches a
+ * body.
+ *
+ * `includeMessage` is `isDomainError(...)` and nothing else. Constructing a `DomainError`
+ * asserts its message is safe to show a stranger (`error-envelope.md`), so it is a
+ * fortiori safe to log; every other throwable's message is the field that carries a DSN,
+ * an internal host or a fragment of a request body. The frames go on the line either way —
+ * that is TASK-003's answer to `error-envelope.md` § "What the 500 log line carries", and
+ * it reverses F-093's interim rather than restoring what F-093 removed: the frames come
+ * back only because the header line carrying `name: message` is stripped out of them.
+ */
+function logError(
+  log: Logger,
+  context: string,
+  exception: unknown,
+  fields: Readonly<Record<string, unknown>> = {},
+): void {
+  log.error(
+    { ...fields, ...errorLogFields(exception, { includeMessage: isDomainError(exception) }) },
+    context,
+  );
+}
 
-    this.logger.error(`${context}: non-error throwable: ${String(exception)}`);
+/**
+ * The `x-request-id` the caller sent, or a fresh uuid. Nothing upstream sets the header
+ * today, so most ids are generated and correlate the lines of one failure with each other
+ * and with nothing else. That is still `error-envelope.md` invariant 9's floor — a 500 now
+ * has an id at all — and it becomes end-to-end correlation the moment the BFF forwards one
+ * (TASK-012).
+ */
+function requestId(request: HttpRequestLike | undefined): string {
+  // Optional throughout: `getRequest()` is a cast, and this runs before the try/catch that
+  // F-092 wrapped `write` in, so a throw here would escape the one component that answers
+  // for every throwable.
+  const supplied = request?.headers[REQUEST_ID_HEADER];
+  const value = Array.isArray(supplied) ? supplied[0] : supplied;
+
+  if (typeof value !== 'string' || value.trim() === '') {
+    return randomUUID();
   }
+
+  return value.trim().slice(0, MAX_REQUEST_ID_LENGTH);
 }
