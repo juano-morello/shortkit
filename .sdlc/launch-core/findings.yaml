@@ -8058,9 +8058,20 @@
     because it makes the misuse impossible instead of enumerating the fields it leaks. Appending
     err.body, err.message, err.stack and err.raw to REDACT_PATHS is the weaker alternative.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    PARTIALLY ADDRESSED in fix round 1 and REOPENED AS F-248 for the half the fix does not reach. The
+    err key is genuinely closed - serializers.err routes through errorLogFields, and a hooks.logMethod
+    block closes the positional log.error(err) door that the serializer alone left open, which the
+    implementer measured and sdlc-test-architect independently reproduced as mutation M2. sdlc-reviewer
+    judged the hook EARNS ITS PLACE rather than being scope creep: the serializer alone leaves msg,
+    which is the one field no redact path can censor without censoring every line, and msg carries the
+    exact field the message policy makes default-deny everywhere else. NINE TESTS NOW DEFEND IT, each
+    proven by a mutation that fails exactly it and reverted with a sha256 check. But the fix is keyed by
+    FIELD NAME, so { error: e } and { ctx: { err: e } } still leak the raw body - reproduced by me. That
+    is F-248, and it is the same enumeration weakness this finding rejected, one level up.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-245
   phase: implement
@@ -8098,9 +8109,26 @@
     interaction with auto_start_machines = false at the same time. Leave precondition 1 alone; it does
     no I/O and cannot flake.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    ADDRESSED in fix round 1, verdicted by sdlc-reviewer (r2, APPROVED). The implementer DECIDED rather
+    than escalating and the reviewer judged that its call to make - the dispatch said decide-and-record
+    or escalate, the decision sits inside this finding's own option set, and it settles the
+    auto_start_machines interaction the finding required in the same round. Reachability now retries
+    with backoff over a 20s budget, separated from the RLS verdict, with boot_precondition on the
+    refusal line; auto_start_machines flipped false to true and grace_period 10s to 30s. Transcript: an
+    unsafe role refuses in 1s, an unreachable one retries nine times then exits, and a paused Postgres
+    unpaused at t+7s now BOOTS AND SERVES where it previously exited on attempt 1. THE PROPERTY THE
+    REVIEWER CHECKED HARDEST: structurally the loop can only return on a clean answer, so no
+    classification error in either direction can boot with RLS unverified - which is F-116's actual
+    requirement and holds independent of string drift. FOUR RESIDUALS, all minor or nit, none extending
+    the loop: an unset DATABASE_URL is misclassified as unreachable and retried 20s under the wrong
+    precondition (VERIFIED by me); the budget bounds waits between attempts rather than a single hung
+    attempt; the Fly recovery semantic is asserted as settled fact in fly.toml and main.ts when it is
+    inferred; and the classifier reads error.message unguarded in the same round that hardened that
+    read three files away.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-246
   phase: implement
@@ -8140,9 +8168,22 @@
     git rev-parse --show-toplevel first. And record that this settlement of F-119 relocates the
     table-owning shortkit_migrator credential from Fly secrets onto a developer workstation.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    ADDRESSED in fix round 1, verdicted by sdlc-reviewer (r2). All four required_change clauses met:
+    repo-root anchor, loopback refusal with typed confirmation, docker build BEFORE db:migrate, and the
+    shortkit_migrator credential relocation recorded in fly.toml. ORCHESTRATOR VERIFIED THE ORDERING
+    DIRECTLY - docker build at :133 precedes db:migrate at :141, anchor at :41, loopback refusal at :84.
+    The reviewer tested the guards INDIVIDUALLY rather than in aggregate: guard 1 cannot be skipped,
+    guard 4 refuses on a non-tty so yes-piping fails and a bypass needs a deliberately allocated pty,
+    guard 5 refuses when docker is absent. It also judged the build proof worth what it CLAIMS - the
+    Dockerfile COPYs an explicit file list, so the exact failure this finding named is what a local
+    docker build catches, with the Fly-builder residual recorded as accepted. ONE RESIDUAL, minor: the
+    loopback refusal runs on a best-effort DSN parse, so a password containing a slash misparses and
+    silently disarms that guard, leaving only the human confirmation - reproduced by the reviewer with
+    the script's own expansions.
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
 
 - id: F-247
   phase: implement
@@ -8172,6 +8213,72 @@
     the same default-deny message policy the shared logger now enforces. Leave F-243 clause 3's
     db/client.ts half at its current grade; it is gated on F-144 and leaks nothing.
   owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-248
+  phase: implement
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 2
+  severity: major
+  kind: security
+  file: apps/api/src/observability/logger.ts
+  line: 120
+  summary: >-
+    F-244's fix is keyed by FIELD NAME, so only `err` is guarded. The raw request body still leaks
+    under `error`, `cause`, or any nested key - which is the same enumeration weakness F-244 rejected,
+    one level up.
+  failure_scenario: >-
+    ORCHESTRATOR REPRODUCED all three shapes against the shipped serializer configuration: under `err`
+    the marker is absent; under `error` and under `ctx.err` it leaks verbatim. `message` and `stack`
+    are non-enumerable and do not survive pino's ordinary object path, but body-parser ASSIGNS `body`,
+    so it is own and enumerable and travels under any key. Why this is a finding rather than a
+    footnote, in the test architect's framing: logger.ts claims the misuse is IMPOSSIBLE, which is
+    true for `err` and false for `error`; `{ error: e }` is as idiomatic as `{ err: e }` and nothing
+    distinguishes them; and it survives the exact reasoning the serializer was chosen for - "a path
+    list defends the one property already found by name" applies verbatim to a serializer keyed by one
+    field name. Only `err.cause` is safe, because pino never walks it.
+  required_change: >-
+    `formatters.log(record)` runs AFTER serializers and sees the merged record, so replacing every
+    Error it finds at any key closes all three shapes at once. Adding serializers.error and
+    serializers.cause is the enumeration F-244 already rejected and should not be taken. The test
+    architect deliberately did NOT write a red test for this - it would fail against current source
+    with no implementer assigned and break the round's definition of done - and says it is a
+    three-line addition to the existing emitter once a fix lands.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-249
+  phase: implement
+  task: TASK-003
+  source: sdlc-test-architect, sdlc-reviewer
+  round: 2
+  severity: major
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/logging-and-headers.md
+  line: 34
+  summary: >-
+    The contract calls itself normative and its logger code block has NO serializers, NO hooks, and 17
+    redact paths against the shipped 25. A TASK re-deriving the logger from the contract reintroduces
+    F-244 with every gate green.
+  failure_scenario: >-
+    Raised by the test architect and independently noted by sdlc-reviewer, which said it could not
+    judge divergence against a contract that has not been updated to have an opinion. The asymmetry is
+    the point: a short redact list leaks a NAMED FIELD, a missing serializer leaks the WHOLE BODY. The
+    implementer flagged the REDACT_PATHS half; the serializer half is unflagged and worse. The
+    contract is marked "consumed by every API TASK. Nothing may opt out", so it is the artifact a
+    later TASK reads rather than the shipped file.
+  required_change: >-
+    Bring the normative logger literal up to what ships - serializers, hooks, the full redact list -
+    and record F-244's reasoning beside it so the next reader knows why the serializer is not
+    optional. Fold in F-242's correction (the false "REDACT_PATHS cannot help either way" sentence)
+    and the reviewer's note that the list is keyed to camelCase ipHash while the contract states the
+    prohibition in snake_case. Routing rule 0 - design/** belongs to sdlc-architect.
+  owner_slot: sdlc-architect
   status: open
   resolved_by: null
   resolved_round: null
