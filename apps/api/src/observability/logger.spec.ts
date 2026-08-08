@@ -71,6 +71,16 @@ const FAKE_FRAME_MARKER = 'fake-frame-marker';
 const TOP_LEVEL_SECRET_MARKER = 'top-level-secret-marker';
 
 /**
+ * A library-assigned field on a NON-`Error` thrown value, logged under `err`. `catch (err)`
+ * binds `unknown`, so `logger.error({ err }, '…')` — the most idiomatic shape in the
+ * codebase — reaches this arm whenever the thrown value is a plain object. F-254.
+ */
+const NON_ERROR_BODY_MARKER = 'nonerror-body-marker';
+
+/** A field the CALL SITE put on the record, which no fix for `msg` may discard. F-252. */
+const CALLER_FIELD_MARKER = 'caller-field-marker';
+
+/**
  * `logging-and-headers.md`, "What the implementer must guarantee": the serialised output
  * contains neither value and contains `[redacted]`. Hand-copied from the contract rather
  * than imported from `logger.ts` — an expected value read out of the code under test
@@ -99,6 +109,13 @@ const LINE = {
   frameworkErrorUnderCauseKey: 7,
   frameworkErrorOneLevelDown: 8,
   errorChainedThroughCause: 9,
+  childBindingUnderErrorKey: 10,
+  childBindingOneLevelDown: 11,
+  childBindingUnderErrKey: 12,
+  errorRecordWithoutContext: 13,
+  nonErrorUnderErrKey: 14,
+  chainedErrorUnderErrorKey: 15,
+  errorAtTheDeepestScannedLevel: 16,
 } as const;
 
 const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
@@ -189,10 +206,44 @@ logger.error({ cause: parseFailure }, 'the same error under the cause key');
 // 8. F-248: one level down, under a key the call site chose.
 logger.error({ ctx: { err: parseFailure } }, 'the same error one level down');
 
-// 9. F-248: reached ONLY through \`err.cause\`. Safe before the fix because nothing walked
-//    it; asserted so a walk added for the shapes above cannot start.
+// 9. F-248: reached ONLY through \`err.cause\`, under the TOP-LEVEL \`err\` key — so this line
+//    is built by \`serializers.err\`, and what it locks is that \`errorLogFields\` does not
+//    descend. The walk's own non-descent is ordinal 15 (F-256).
 const chained = new Error('a wrapper around the parse failure', { cause: parseFailure });
 logger.error({ err: chained }, 'an error chained to the leaking one');
+
+// 10-12. F-251: the same three shapes again, as CHILD-LOGGER BINDINGS rather than as the
+//        record handed to a log method. pino builds bindings through \`asChindings\`, a
+//        different code path, and the exception filter already creates a child logger per
+//        request — so this is the same door with a different handle on it.
+logger.child({ error: parseFailure }).error('a child binding under the error key');
+logger.child({ ctx: { err: parseFailure } }).error('a child binding one level down');
+logger.child({ err: parseFailure }).error('a child binding under the err key');
+
+// 13. F-252: the record form with NO context string. \`hooks.logMethod\` fires on a
+//     POSITIONAL Error, so this shape walks past it, and pino then copies the error's
+//     message into \`msg\`. The caller's own field is on the record so that a fix cannot buy
+//     a clean \`msg\` by throwing the record away.
+logger.error({ request_id: '${CALLER_FIELD_MARKER}', err: parseFailure });
+
+// 14. F-254: a NON-\`Error\` under the top-level \`err\` key. \`catch (err)\` binds \`unknown\`,
+//     and a library is free to throw a decorated plain object. This is the one shape that
+//     needs BOTH halves of the partition: \`serializers.err\` reduces it, and it only reaches
+//     that serialiser because the scan skips the top-level \`err\` key.
+logger.error(
+  { err: { body: '${NON_ERROR_BODY_MARKER}', status: 400 } },
+  'a non-error throwable under the err key',
+);
+
+// 15. F-256: the chained error under a key the WALK owns. Ordinal 9 never reaches
+//     \`errorsReplaced\` at all, so a walk that started following \`cause\` would leave it
+//     green; this line is the one that goes red.
+logger.error({ error: chained }, 'an error chained to the leaking one, under the error key');
+
+// 16. F-257: an error at the deepest level the scan is documented to reach. Written out by
+//     hand rather than built from \`MAX_ERROR_SCAN_DEPTH\`, which would agree with the
+//     source whatever the source says.
+logger.error({ a: { b: { c: { err: parseFailure } } } }, 'an error four levels into the record');
 `;
 }
 
@@ -391,10 +442,137 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     // reached it before this round and the chained error's body never leaked. A fix that
     // replaces errors wherever it finds them must not START walking it: `errorLogFields`
     // is the boundary, and it descends into nothing.
+    //
+    // WHAT THIS LINE DOES AND DOES NOT LOCK (F-256). A top-level `err` is skipped by the
+    // scan and handled by `serializers.err`, so the boundary this line holds is
+    // `errorLogFields`' — which is worth holding: pino-std-serializers, the default this
+    // serialiser displaced, DOES follow `cause` and appends the chained error to the stack,
+    // so dropping the override reopens the leak here. The walk's own non-descent is a
+    // different line; see the F-256 test below.
     const line = lines[LINE.errorChainedThroughCause];
 
     expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
     expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
     expect(errorFields(LINE.errorChainedThroughCause).err_name).toBe('Error');
+  });
+
+  it('F-256: an error the walk replaced is not descended into through `cause` either', () => {
+    // The line above is built by the SERIALISER. This one is built by the WALK: `error` is
+    // a key `errorsReplaced` owns, so a change that made the walk follow a replaced error's
+    // `cause` — the plausible "improve the error serialiser" edit — shows up here and only
+    // here. Same property, aimed at the other mechanism.
+    const line = lines[LINE.chainedErrorUnderErrorKey];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    const fields = line.record.error as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('Error');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+  });
+
+  it("F-251: an error in a child logger's bindings is covered under a key other than `err`", () => {
+    // A child logger is a second door onto the same line, through a different pino code
+    // path: bindings are serialised once at `logger.child(…)` by `asChindings`, which
+    // applies `formatters.bindings` and `serializers[key]` and never `formatters.log`. The
+    // exception filter already builds a child logger per request, so the shape is one
+    // idiomatic edit away, and what it writes today is F-244's payload verbatim.
+    const line = lines[LINE.childBindingUnderErrorKey];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    // Not bought by binding nothing: the operator still gets the name and the frames.
+    const fields = line.record.error as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+  });
+
+  it("F-251: an error nested inside a child logger's bindings is covered too", () => {
+    // The nested shape, asserted separately from the flat one because a fix that only
+    // re-keyed the top level of the bindings would pass the test above and leak here.
+    const line = lines[LINE.childBindingOneLevelDown];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    const fields = (line.record.ctx as Record<string, unknown>).err as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+  });
+
+  it('F-251: an error under `err` in child bindings still reports the policy fields, not `non-error throwable`', () => {
+    // THE SEAM, on the bindings path. `asChindings` applies `formatters.bindings` BEFORE
+    // `serializers[key]`, exactly as `_asJson` applies `formatters.log` before them — so a
+    // bindings-side scan that replaced the top-level `err` would hand `serializers.err` an
+    // ordinary object, and this line would degrade to `non-error throwable (object)` with
+    // no frames. This shape is the one child binding that is safe today; it must stay safe.
+    const line = lines[LINE.childBindingUnderErrKey];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    const fields = line.record.err as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(fields.err_stack).toBeTypeOf('string');
+  });
+
+  it('F-252: log.error({ err }) with no context string does not put the message into msg', () => {
+    // The third door. `hooks.logMethod` rewrites the POSITIONAL form, but pino also fills
+    // `msg` from the record's own `err.message` when a log call carries no message of its
+    // own — so the record form walks past the hook and lands the message in the one
+    // top-level field no redact path can censor without censoring every line's text. On the
+    // framework-400 arm that message quotes raw request bytes (F-108).
+    const line = lines[LINE.errorRecordWithoutContext];
+
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+
+    // Still a usable line, and the caller's own fields survive: a fix that emptied the
+    // record, or dropped the error, would satisfy the two assertions above.
+    expect(line.record.msg).toBeTypeOf('string');
+    expect(String(line.record.msg).length).toBeGreaterThan(0);
+    expect(line.record.request_id).toBe(CALLER_FIELD_MARKER);
+    expect(errorFields(LINE.errorRecordWithoutContext).err_name).toBe('SyntaxError');
+  });
+
+  it('F-254: a non-Error under the top-level `err` key is still reduced to the policy fields', () => {
+    // THE ONE PROPERTY THAT NEEDS BOTH HALVES OF THE PARTITION. `serializers.err` reduces a
+    // non-`Error` under `err` to `err_name`, and it only ever receives that value because
+    // the scan skips the top-level `err` key. Drop either half alone and another test goes
+    // red; drop BOTH — "these two mechanisms overlap, let me unify them", the one refactor a
+    // later reader is most likely to propose — and this is the only test that fires. What
+    // ships instead is the value verbatim, with `password` censored by name, which is the
+    // enumeration F-244 rejected.
+    const line = lines[LINE.nonErrorUnderErrKey];
+
+    expect(line.raw).not.toContain(NON_ERROR_BODY_MARKER);
+
+    const fields = errorFields(LINE.nonErrorUnderErrKey);
+
+    expect(fields.err_name).toBe('non-error throwable (object)');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+  });
+
+  it('F-257: an error four levels into the record is still replaced', () => {
+    // The FLOOR of the documented guarantee, which the rest of the suite defends only to
+    // depth 2 — so the bound can be narrowed to 3 or to 2 today with every gate green, and
+    // the docblock would still claim 4. Only the floor is asserted: a test that the level
+    // BELOW leaks would encode the residual as a requirement and fire red on a security
+    // improvement.
+    const line = lines[LINE.errorAtTheDeepestScannedLevel];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    const nested = line.record.a as Record<string, Record<string, Record<string, unknown>>>;
+    const fields = nested.b.c.err as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
   });
 });
