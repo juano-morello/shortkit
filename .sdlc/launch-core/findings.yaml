@@ -7622,9 +7622,26 @@
     better-auth is configured to accept the proxied origin - trustedOrigins is the likely mechanism but
     the architect should confirm against 1.6.26 rather than assume. Settle before TASK-012.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED by sdlc-architect, AND IT CORRECTED THE FINDING'S MECHANISM rather than only fixing it.
+    My text said the 403 fires because a server-side fetch sends no Origin. The architect ran the
+    package and established the real trigger: sec-fetch-mode: cors, which UNDICI SETS ON EVERY fetch
+    with no client involvement, is what makes origin-check.mjs:137 call validateOrigin with
+    forceValidate, reaching the throw at :107. A Cookie header triggers it independently. Its words:
+    the incomplete version yields a fix that works by accident. THE DECISION: the proxy forwards the
+    inbound Origin verbatim on MUTATING METHODS ONLY, and the API sets trustedOrigins from a new
+    server-only WEB_APP_ORIGINS. Verified against the installed 1.6.26: GET is exempt; a
+    trustedOrigins array EXTENDS the baseURL default rather than replacing it; and the wildcard
+    shortkit-*.vercel.app matches previews but NOT bare shortkit.vercel.app, so production and preview
+    need two entries while *.vercel.app would trust every app on the platform and is ruled out.
+    THE SHARPEST FINDING WAS ONE NOBODY ASKED FOR: POST sign-out with bearer and no Origin returns 200
+    TODAY, by a coincidence of middleware coverage and the bearer plugin writing its cookie to
+    ctx.headers rather than ctx.request.headers - which is why the rule covers all mutating auth
+    routes rather than the two that visibly 403. Inferred and stated as inferred: that a Vercel route
+    handler sends sec-fetch-mode the way local Node 24 undici does.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
 
 - id: F-234
   phase: test
@@ -7647,9 +7664,20 @@
     Make `name` required in auth-tokens.md, or state how the mount supplies a default. Bundle with
     whatever else touches that contract.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    FIXED by sdlc-architect, which also ESTABLISHED THAT HALF MY required_change WAS NOT AVAILABLE.
+    I wrote 'make name required, OR state how the mount supplies a default'. There is no such option:
+    name: z.string() sits in the endpoint's own schema at sign-up.mjs:14 and no betterAuth option
+    relaxes it. Recorded in the contract so nobody hunts for it. IT THEN FLAGGED ITS OWN CHOICE FOR A
+    SECOND LOOK, which is the disclosure worth keeping: requiring the signup form to collect a name
+    adds a field to /signup and to invitation-accept that NO AC ASKS FOR, and nothing in launch-core
+    reads user.name - SessionUser is { id, email, emailVerified } - so it buys no feature today. The
+    cheap alternative, proxy sends name: '', was verified to return 200 and rejected because the
+    contract would then say one thing and the wire another. Reversal is one paragraph in ADR-0014 and
+    one line in the contract if Juano wants it.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
 
 - id: F-235
   phase: test
@@ -7675,6 +7703,18 @@
     artifact. Until then the AC is met only in the weak sense that an obviously-bad password is
     rejected.
   owner_slot: null
-  status: escalated
-  resolved_by: null
-  resolved_round: null
+  ruling: >-
+    RULED by Juano 2026-08-06 - state it in auth-tokens.md, minimum 8 characters, no composition
+    requirement, matching better-auth 1.6.26's own default so the contract and the library agree
+    rather than one silently overriding the other. Stricter-than-default was declined because it must
+    then be configured in the mount as well as stated or the library wins silently, which is F-234's
+    shape arriving twice in one contract; amending AC-16 to drop the clause was also declined. FIXED
+    by sdlc-architect at auth-tokens.md:90, verified against the source it cites -
+    minPasswordLength || 8 and maxPasswordLength || 128. IT WENT BEYOND THE RULING AND SAID SO: it
+    also stated a 128-character MAXIMUM, because the library enforces one on the same path and 129
+    characters returns 400 PASSWORD_TOO_LONG. An unstated ceiling the library enforces is F-234's
+    shape exactly, so the addition is consistent with the ruling's own reasoning rather than a
+    departure from it. One sentence to strike if Juano judges it oversteps.
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
