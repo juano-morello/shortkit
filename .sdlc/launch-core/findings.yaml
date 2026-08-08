@@ -8371,3 +8371,215 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-251
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 3
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.ts
+  line: 126
+  summary: >-
+    formatters.log does not run on CHILD-LOGGER BINDINGS, so an Error placed in a child binding
+    under any key other than `err` still writes body-parser's raw request body verbatim. F-248's
+    exact leak, unclosed, through a pino API this repository already uses.
+  failure_scenario: >-
+    pino builds child bindings through asChindings, which applies formatters.bindings and
+    serializers[key] - never formatters.log. REPRODUCED BY THE ORCHESTRATOR against the shipped
+    module, not taken from the report: `logger.child({ error: e }).error('...')` emitted
+    "error":{"body":"{\"email\":\"a@b.test\",\"password\":\"PROBE-CHILD-LEAK-MARKER\"","status":400}
+    while the same shape in the log RECORD rather than the bindings came out clean
+    err_name/err_stack. Only `logger.child({ err: e })` is covered, and only because asChindings
+    consults serializers[key]. exception-filter.ts:125 already creates a child logger per request,
+    binding a request_id string - so no call site leaks today and the next one can. Contract
+    invariant 5 says "under any key, at any depth up to 4" and carves out neither bindings nor the
+    "There is no key between them" sentence.
+  required_change: >-
+    Either run the same scan on bindings via formatters.bindings, which pino applies at child
+    creation, or name the residual as loudly as the depth-5 one is - source docblock, contract
+    partition section, and invariant 5 - with the rule that a TASK must not put a throwable into
+    child bindings. A test on emitted bytes for the child path either way; the suite has none.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-252
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 3
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.ts
+  line: 131
+  summary: >-
+    `logger.error({ err: e })` with NO context string copies the error's message into `msg`.
+    hooks.logMethod fires only when the FIRST argument is an Error, so the object-first form walks
+    past it. Contract invariant 5 tells later TASKs this shape is covered.
+  failure_scenario: >-
+    pino proto.js:223 - if msg is undefined and the record has no messageKey and does have
+    errorKey, msg becomes _obj[errorKey].message. REPRODUCED BY THE ORCHESTRATOR: the err object
+    came out clean err_name/err_stack and "msg":"Unexpected token" carried the message anyway.
+    msg is the one top-level field no redact path can censor without censoring every line, which
+    is the entire reason hooks.logMethod exists for the positional form. On the F-108
+    framework-400 arm that message quotes raw request bytes, so this is the same GC-9 exposure
+    F-244 was filed for, by a third door. No current call site omits the context string.
+  required_change: >-
+    Either extend the hook's condition to cover a record whose errorKey holds an Error and whose
+    second argument is not a string, or carve the case out explicitly in invariant 5 AND require a
+    fixed context string on every error log call in the contract's implementer-guarantee list. The
+    architect's own TASK-009 constraint text already writes `logger.error({ err }, 'fixed context
+    string')`; the contract body does not say it.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-253
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 3
+  severity: major
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/logging-and-headers.md
+  line: 405
+  summary: >-
+    New invariant 6 asserts a record property whose getter throws is survivable and the log call
+    "emits a line and does not rethrow". MEASURED FALSE - the log call throws and no line is
+    emitted.
+  failure_scenario: >-
+    errorsReplaced catches and SKIPS the hostile key, leaving it in the record; pino's _asJson then
+    reads obj[key] at tools.js:167 and the getter throws from there. REPRODUCED BY THE
+    ORCHESTRATOR against the shipped module - "THREW OUT OF THE LOG CALL: getter exploded", top
+    frame the getter itself, no line emitted. The invariant names the two places it matters: the
+    exception filter's headersSent arm, which is OUTSIDE the try/catch F-092 added, and main.ts's
+    last-chance boot handler. A later TASK trusting it there converts a logged failure into an
+    unhandled one, which is a GC-8 surface. A bare pino behaves the same way, so the CODE is not a
+    regression from this round - the CLAIM is new in this diff.
+  required_change: >-
+    Either the invariant stops claiming it and states it as a residual the way depth 5 is stated,
+    or readIndexedProperty stops skipping and writes a sentinel into the copy so the key pino later
+    reads is safe. Whichever, contract and source docblock must agree - the docblock's "leaves
+    pino's own stringify to handle it exactly as it did before this function existed" is accurate
+    and is precisely what makes the invariant false.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-254
+  phase: implement
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 3
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.spec.ts
+  line: 1
+  summary: >-
+    The suite pins each half of the partition alone but not BOTH TOGETHER. Dropping
+    serializers.err and the depth-1 `err` skip in the same edit - the exact alternative the
+    implementer says it rejected - passes ALL ELEVEN TESTS and leaks a non-Error under `err`
+    verbatim. logger.ts:195-197 claims removing either half fails a test.
+  failure_scenario: >-
+    Mutation M12 from the test architect's r3 report: with both halves removed, the suite is green
+    and `{"err":{"body":"nonerror-BODYMARK",...}}` reaches the line. The docblock's claim is true
+    for EITHER half alone - M6 reddens the F-248 test, M7 reddens nine, M8 reddens four - and false
+    for both. So the one refactor a future implementer is most likely to attempt, "these two
+    mechanisms overlap, let me unify them", is the one the suite does not catch. Same shape as
+    F-244 and F-248: a control that is one edit from gone with every gate green.
+  required_change: >-
+    One emitter line plus one `it` asserting a NON-Error under the top-level `err` key still emits
+    err_name only - the property that requires both halves. The test architect owns the file, is
+    green today, and did not write it because I scoped its dispatch verdict-only. Correct
+    logger.ts:195-197 to state what actually holds.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-255
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 3
+  severity: minor
+  kind: implementation
+  file: apps/api/src/observability/logger.ts
+  line: 268
+  summary: >-
+    isWalkable excludes class instances, so an Error held inside one is never replaced - the same
+    class of residual as depth 5, recorded nowhere.
+  failure_scenario: >-
+    `logger.error({ ctx: new Ctx(parseFailure) }, '...')` emits the raw body nested under ctx.
+    JSON.stringify serialises a class instance's own enumerable properties happily, so the value
+    reaches the line even though the scan declined to walk it. The docblock explains WHY class
+    instances are skipped - Buffer index strings - but never states the consequence, while the
+    strictly less likely depth-5 residual is stated in the source, the contract and the versioning
+    rules.
+  required_change: >-
+    State the residual beside the depth-5 one, in the same two places, with the same escalation
+    rule. No behaviour change required if the trade-off is deliberate.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-256
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 3
+  severity: minor
+  kind: implementation
+  file: apps/api/src/observability/logger.spec.ts
+  line: 389
+  summary: >-
+    The err.cause regression guard exercises the SERIALIZER path, not the walk it says it guards,
+    so a walk that started following cause would leave it green.
+  failure_scenario: >-
+    The test reads the line from `logger.error({ err: chained }, '...')`. A top-level `err` is
+    skipped by errorsReplaced and handled by serializers.err, so errorsReplaced never receives the
+    chained error - yet the comment says the test exists "so a walk added for the shapes above
+    cannot start". A mutation making errorsReplaced descend into a replaced Error's cause would not
+    touch this line. NOT a test that cannot fail - the test architect reddened it with two distinct
+    mutations - so this is mis-aimed coverage rather than a vacuous test. The two auditors reached
+    opposite-looking conclusions from the same test because they mutated different things; both
+    results stand.
+  required_change: >-
+    Aim the guard at a line built THROUGH the walk - the chained error under a non-`err` key, or
+    nested under ctx. Keeping the existing line as well is fine; it locks errorLogFields'
+    non-descent, which is worth locking.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-257
+  phase: implement
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 3
+  severity: minor
+  kind: behavior
+  file: apps/api/src/observability/logger.spec.ts
+  line: 1
+  summary: >-
+    The depth bound is documented as 4 and defended only at 2 - MAX_ERROR_SCAN_DEPTH 4->3 and 4->2
+    both pass every test, so a silent narrowing of the guarantee is invisible.
+  failure_scenario: >-
+    A later edit lowering the bound for cost reasons reopens F-248 for records at depths 3 and 4
+    with the suite green, and the docblock would still say 4.
+  required_change: >-
+    Assert the POSITIVE half only - an error at depth 4 IS replaced. The test architect is explicit
+    that the negative half must NOT be written: asserting depth 5 leaks, or
+    expect(MAX_ERROR_SCAN_DEPTH).toBe(4), encodes the residual as a requirement, fires red on a
+    security improvement and catches no bug.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
