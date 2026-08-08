@@ -44,6 +44,43 @@
  * so: no ADR, contract, `.env.example` or workflow in this repository names the
  * variables the auth mount will read. If an implementer picks different names, the
  * caller's `env` callback is the single edit and no assertion weakens.
+ *
+ * ## Await this from `beforeEach`, not only from `beforeAll` — or a boot refusal skips
+ * ## the file instead of failing it
+ *
+ * `startApiServer` rejects loudly on a boot failure — the error names the exit code,
+ * the signal and the process's full captured output. But if a caller's only await of
+ * it is inside `beforeAll` (`server = await startApiServer(...)`), Vitest turns that
+ * rejection into `Test Files 1 failed | Tests N skipped`, not `N failed` — measured
+ * against this repository's pinned Vitest (3.2.7): a throwing `beforeAll` marks every
+ * test in the file "skipped", with the loud error visible only in a separate "Failed
+ * Suites" block a reader can miss beside a summary line that still says "N passed".
+ * This is exactly how ADR-0027's boot refusal, meeting a fixture with no
+ * `GIT_COMMIT_SHA`, read as "30 passed, 9 skipped" instead of a red run.
+ *
+ * The fix costs no extra boot: kick the promise off in `beforeAll` without awaiting
+ * it, and await the *same* promise again in `beforeEach`:
+ *
+ * ```ts
+ * let serverBoot: Promise<ApiServer>;
+ * let server: ApiServer;
+ *
+ * beforeAll(() => {
+ *   serverBoot = startApiServer({ env: authServerEnv });
+ *   serverBoot.catch(() => undefined); // silence the unhandled-rejection warning only
+ * });
+ *
+ * beforeEach(async () => {
+ *   server = await serverBoot;
+ * }, 120_000);
+ * ```
+ *
+ * A promise can be awaited more than once; the child process is still built and
+ * spawned exactly once. A rejection now surfaces from every test's own `beforeEach`,
+ * so each one fails individually with the boot error's message, whether the cause is
+ * ADR-0027's refusal or anything else that can make the process exit before it
+ * accepts a connection. `test/auth/credential-auth.int-spec.ts` is the reference
+ * implementation.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer, connect } from 'node:net';

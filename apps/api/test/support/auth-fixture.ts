@@ -69,11 +69,18 @@ export const SIGNUP_NAME = 'Integration Fixture';
  * `design/contracts/rate-limit.md:129` and is here because TASK-009 adds
  * `assertBffProxySecretConfigured()` to `main.ts`, which refuses to boot without it.
  * If an implementer picks other names, this function is the single edit.
+ *
+ * `GIT_COMMIT_SHA` is here for the same reason `BFF_PROXY_SECRET` is: ADR-0027 makes
+ * `main.ts` refuse to boot without a full 40-character lowercase hex value, one refusal
+ * earlier than `assertBffProxySecretConfigured()` in the boot sequence. The value below
+ * is not this repository's HEAD and does not need to be — ADR-0027 only requires the
+ * *format*, and nothing in the spawned process computes a SHA to compare it against.
  */
 export function authServerEnv(baseUrl: string): Record<string, string> {
   return {
     NODE_ENV: 'test',
     DATABASE_URL: appDsnOrThrow(),
+    GIT_COMMIT_SHA: '3d1f7a0c94b25e68af31c07d5b8e4a2196fd0c7b',
     BETTER_AUTH_URL: baseUrl,
     BETTER_AUTH_SECRET: 'integration-fixture-better-auth-secret-not-a-real-key',
     /**

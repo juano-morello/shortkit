@@ -34,7 +34,7 @@
  * request actually lands today.
  * ---------------------------------------------------------------------------
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { ApiServer } from '../support/api-server';
 import { startApiServer } from '../support/api-server';
@@ -77,9 +77,27 @@ const REFRESH_WINDOW_SECONDS = 60;
 
 let server: ApiServer;
 
-beforeAll(async () => {
+/**
+ * Kicked off here but not awaited here — awaited by every test individually in
+ * `beforeEach` below. See `api-server.ts`'s "Await this from `beforeEach`" section:
+ * awaiting a boot failure only inside `beforeAll` reports the whole file "skipped"
+ * rather than failing each test, which is how ADR-0027's boot refusal (a fixture
+ * supplying no `GIT_COMMIT_SHA`) hid as "30 passed, 9 skipped" instead of a red run.
+ * The build and spawn still happen exactly once regardless of how many times this
+ * promise is awaited.
+ */
+let serverBoot: Promise<ApiServer>;
+
+beforeAll(() => {
   clearAuthTables();
-  server = await startApiServer({ env: authServerEnv });
+  serverBoot = startApiServer({ env: authServerEnv });
+  // Observed only to silence Node's "unhandled rejection" warning before the first
+  // test's `beforeEach` runs below; the rejection itself still reaches every test.
+  serverBoot.catch(() => undefined);
+}, 120_000);
+
+beforeEach(async () => {
+  server = await serverBoot;
 }, 120_000);
 
 afterAll(async () => {
