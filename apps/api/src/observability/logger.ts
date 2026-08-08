@@ -105,7 +105,8 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
  * and `stack` do not survive — they are non-enumerable — but `body` does, because
  * body-parser ASSIGNED it. So F-244's exact payload came back under a key one character
  * away. `formatters.log` below closes every key at once; see it for what the two mechanisms
- * each own.
+ * each own, and the `child` wrapper under this literal for the same closure on the OTHER
+ * path a line is built by (F-251).
  *
  * `includeMessage: false` here and no way to pass `true`: an error reaching a log call
  * under the `err` key has no call-site reason attached to it, and the two places that DO
@@ -116,8 +117,15 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
  * `err.message` into `msg`, which is a top-level key no redact path may censor without
  * censoring every log line's text. Measured on pino 10.3.1, and it is the field the policy
  * below withholds everywhere else. The hook rewrites that one call shape into the one the
- * serialiser fully covers. `log.error(err, 'context')` and every non-Error first argument
- * pass through untouched.
+ * serialiser fully covers. `log.error(err, 'context')` passes through untouched.
+ *
+ * BOTH CALL SHAPES, NOT ONLY THE POSITIONAL ONE (F-252). `write` (`proto.js:223`) fills
+ * `msg` from `_obj[errorKey].message` for a RECORD too, so `log.error({ err })` with no
+ * context string landed the same message in the same uncensorable field while the `err`
+ * object itself came out clean — the hook fired only on a positional `Error` and this shape
+ * walked past it. The second branch below supplies the context string pino would otherwise
+ * take from the error, and hands the caller's own record through unchanged so its fields
+ * survive.
  */
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -132,9 +140,16 @@ export const logger = pino({
     logMethod(args, method) {
       const [thrown, context] = args as [unknown, unknown];
 
-      if (thrown instanceof Error && typeof context !== 'string') {
-        method.call(this, { err: thrown }, POSITIONAL_ERROR_MESSAGE);
-        return;
+      if (typeof context !== 'string') {
+        if (thrown instanceof Error) {
+          method.call(this, { [ERROR_KEY]: thrown }, POSITIONAL_ERROR_MESSAGE);
+          return;
+        }
+
+        if (messageWouldBeTakenFromTheError(thrown)) {
+          method.call(this, thrown, POSITIONAL_ERROR_MESSAGE);
+          return;
+        }
       }
 
       method.apply(this, args);
@@ -144,10 +159,100 @@ export const logger = pino({
 });
 
 /**
+ * ============================================================================
+ * CHILD BINDINGS GO THROUGH THE SAME SCAN, BECAUSE PINO WILL NOT RUN IT (F-251).
+ * ============================================================================
+ *
+ * `formatters.log` above is applied by `_asJson` to the record a log call passes. Child
+ * bindings never reach it: they are serialised once, at `logger.child(…)`, by `asChindings`
+ * (`tools.js:238`). So `logger.child({ error: e })` wrote F-244's payload — the verbatim
+ * request body — under a key one character away from the one key that is covered, and
+ * `exception-filter.ts:125` already builds a child logger per request, which is the call
+ * site one edit away from it.
+ *
+ * WHY THE CONFIGURED WAY DOES NOT WORK, MEASURED ON pino 10.3.1. `formatters.bindings` is
+ * the documented seam and it does not reach child bindings: `child(bindings)` called with no
+ * `options` argument REPLACES the instance's bindings formatter with the identity function
+ * `resetChildingsFormatter` before calling `asChindings` (`proto.js:84`, `:98-104`), so a
+ * root `formatters.bindings` runs on `base` at construction and never again. Only a
+ * formatter passed in a child's OWN `options` reaches its bindings — which is a rule every
+ * call site has to remember, and this file exists so that none of them has to. Wrapping
+ * `child` is therefore the only mechanism available; it changes no signature, returns pino's
+ * own child instance, and children of children inherit this property through the prototype
+ * chain `Object.create(this)` builds, so the scan applies at every level.
+ *
+ * DEPTH 1, KEEPING THE TOP-LEVEL `err` EXEMPTION, FOR THE SAME REASON THE RECORD PATH KEEPS
+ * IT. `asChindings` applies the bindings formatter at `tools.js:247` and `serializers[key]`
+ * at `:258` — the same order `_asJson` uses — so the partition below holds identically here:
+ * a scan that replaced the top-level `err` in bindings would hand `serializers.err` an
+ * ordinary object and `logger.child({ err: e })` would degrade to
+ * `non-error throwable (object)` with no frames. `logger.spec.ts` fails on that.
+ *
+ * `setBindings` is the other door onto `asChindings` and is NOT wrapped: nothing in the API
+ * calls it, and it is listed with the residuals on `MAX_ERROR_SCAN_DEPTH` below.
+ *
+ * COST, MEASURED the same way the scan below was — one million calls, pino 10.3.1, Node
+ * 24.19, on the binding `exception-filter.ts` actually creates: 609 ns per child through
+ * this wrapper against 581 ns through pino's own `child` reached past it. 28 ns on a
+ * per-request path against GC-1's 25 ms budget.
+ */
+type ChildFactory = (
+  this: pino.Logger,
+  bindings: pino.Bindings,
+  options?: pino.ChildLoggerOptions,
+) => pino.Logger;
+
+const inheritedChild: ChildFactory = logger.child;
+
+const childWithErrorsReplaced: ChildFactory = function childWithErrorsReplaced(bindings, options) {
+  // A missing `bindings` is pino's own error to raise, with pino's own message.
+  return inheritedChild.call(this, bindings ? errorsReplaced(bindings, 1) : bindings, options);
+};
+
+// Installed as an own property, shadowing the one on pino's prototype, with the descriptor a
+// prototype method has. `defineProperty` rather than assignment because pino declares `child`
+// generic over the custom levels a child may add and this wrapper is indifferent to them —
+// assigning would take a double type assertion to say something neither honest nor checked.
+Object.defineProperty(logger, 'child', {
+  value: childWithErrorsReplaced,
+  writable: true,
+  enumerable: false,
+  configurable: true,
+});
+
+/**
  * The key pino files a positional `Error` under, and the one key `serializers.err` above
  * owns. Pino's `errorKey` option is left at its default; this is that default, named.
  */
 const ERROR_KEY = 'err';
+
+/**
+ * Where pino puts a log call's message, and the key whose presence on a record stops
+ * `write` reaching into `_obj[errorKey]` for one. Pino's `messageKey` option is left at its
+ * default; this is that default, named.
+ */
+const MESSAGE_KEY = 'msg';
+
+/**
+ * Whether pino would build this log call's `msg` out of the error the record carries —
+ * `proto.js:223`, `msg === undefined && _obj[messageKey] === undefined && _obj[errorKey]`.
+ *
+ * The condition is on the ERROR KEY'S PRESENCE, not on the value being an `Error`, because
+ * that is what pino reads: a decorated plain object under `err` — the shape `catch (err)`
+ * binds and the shape `serializers.err` reduces to `err_name` — puts its own `message` in
+ * `msg` by the same route. A record that already carries its own `msg` is left alone; pino
+ * would use that one, and supplying a second would write the key twice.
+ */
+function messageWouldBeTakenFromTheError(record: unknown): record is object {
+  if (typeof record !== 'object' || record === null || record instanceof Error) {
+    return false;
+  }
+
+  return (
+    readIndexedProperty(record, MESSAGE_KEY) === undefined &&
+    Boolean(readIndexedProperty(record, ERROR_KEY))
+  );
+}
 
 /**
  * How far into a log record the scan below looks for an `Error`.
@@ -166,10 +271,22 @@ const ERROR_KEY = 'err';
  * path already pays for, against GC-1's 25 ms budget. The bound also makes a self-referential
  * record terminate, which a walk without one would not.
  *
- * THE RESIDUAL, STATED RATHER THAN LEFT TO BE FOUND: an error at depth 5 or deeper is not
- * replaced and its assigned properties reach the line. That is the same limit `REDACT_PATHS`
- * has for a nested secret, and the same answer — a TASK that builds a record that deep raises
- * the bound in the same commit.
+ * THE RESIDUALS, STATED RATHER THAN LEFT TO BE FOUND. Three shapes reach a line with a
+ * library's assigned properties on them, and all three carry the same escalation rule: the
+ * TASK that first builds one closes it here, in the same commit, rather than living with it.
+ *
+ *   1. AN ERROR AT DEPTH 5 OR DEEPER is not replaced — the bound above. Same limit
+ *      `REDACT_PATHS` has for a nested secret, same answer: raise it.
+ *   2. AN ERROR HELD INSIDE A CLASS INSTANCE is not replaced (F-255), because `isWalkable`
+ *      declines to walk one — see it for why. `JSON.stringify` serialises a class instance's
+ *      own enumerable properties happily, so `{ ctx: new Ctx(parseFailure) }` puts the raw
+ *      body on the line even at depth 1. The answer for a TASK that needs it is to log the
+ *      fields it wants rather than the instance, or to widen `isWalkable` deliberately and
+ *      pay the `Buffer` cost it exists to avoid.
+ *   3. `logger.setBindings(bindings)` IS NOT SCANNED. It is the other door onto
+ *      `asChindings`; `logger.child` is wrapped above and this is not, because nothing in
+ *      the API calls it and no test covers it. A TASK that reaches for it wraps it the same
+ *      way `child` is wrapped, in the same commit.
  */
 const MAX_ERROR_SCAN_DEPTH = 4;
 
@@ -197,8 +314,17 @@ const MAX_ERROR_SCAN_DEPTH = 4;
  *   - this function owns every other key, at every depth up to `MAX_ERROR_SCAN_DEPTH` —
  *     including `err` nested below the root.
  *
- * There is no key between them. Removing either half reopens F-244 or F-248, and
- * `logger.spec.ts` fails on each.
+ * There is no key between them.
+ *
+ * WHAT THE SUITE PINS, EXACTLY (F-254 — this paragraph used to claim more). MEASURED by
+ * striking each half of the partition and running `logger.spec.ts`: dropping
+ * `serializers.err` alone fails 12 tests, dropping the `depth === 1 && key === ERROR_KEY`
+ * skip alone fails 6 — so neither half can be removed on its own. Removing BOTH TOGETHER,
+ * which is the "these two mechanisms overlap, let me unify them" refactor and the one a
+ * later reader is most likely to attempt, fails exactly ONE test: the non-`Error` under the
+ * top-level `err` key. That single case is what makes this a partition rather than a
+ * redundancy, and it is the only thing standing between that refactor and F-244's shape
+ * coming back under `err`.
  *
  * ONLY `Error` INSTANCES ARE REPLACED. A plain object a call site chose to log is its own
  * decision and passes through — the hazard here is the properties a LIBRARY hangs off a
@@ -264,6 +390,11 @@ function readIndexedProperty(container: object, key: string): unknown {
  * Plain records and arrays only — the shapes a log call site builds by hand. A class
  * instance is not walked: `Object.keys` on a `Buffer` is thousands of index strings, and an
  * `Error` subclass is already caught by the `instanceof` above.
+ *
+ * THE CONSEQUENCE, WHICH IS A RESIDUAL AND NOT ONLY A COST DECISION (F-255): an `Error` a
+ * class instance holds is never replaced, and `JSON.stringify` writes that instance's own
+ * enumerable properties out, so the raw request body reaches the line through it. Stated
+ * with the other two on `MAX_ERROR_SCAN_DEPTH`, under the same escalation rule.
  */
 function isWalkable(value: unknown): value is object {
   if (typeof value !== 'object' || value === null) {

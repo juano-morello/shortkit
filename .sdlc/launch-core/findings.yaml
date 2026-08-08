@@ -8583,3 +8583,32 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-258
+  phase: implement
+  task: TASK-003
+  source: sdlc-implementer-backend
+  round: 3
+  severity: major
+  kind: behavior
+  file: apps/api/src/observability/logger.ts
+  line: 1
+  summary: >-
+    logger.setBindings(bindings) is the OTHER door onto asChindings and it leaks identically to
+    F-251. Disclosed by the implementer that fixed F-251, which wrapped child() but not
+    setBindings().
+  failure_scenario: >-
+    REPRODUCED BY THE IMPLEMENTER against the shipped module after its own fix landed:
+    setBindings with an Error under a non-err key emits "error":{"body":"{\"password\":
+    \"BODYMARK\"}","status":400}. Same asChindings path, same payload, same distance to a call
+    site - nothing in apps/api/src calls setBindings today. The implementer did not close it
+    because no test demands it and it may not write its own test, so it asked for a red or a
+    ruling rather than shipping an untested wrapper or staying quiet.
+  required_change: >-
+    Same six-line wrapper as child(), preceded by a red test on emitted bytes from
+    sdlc-test-architect. Alternative is a documented residual, which Juano's F-251 ruling already
+    weighed and declined for this exact shape.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
