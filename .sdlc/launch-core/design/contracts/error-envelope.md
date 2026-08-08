@@ -199,10 +199,11 @@ Branch 4 puts nothing from the original error in the body. That default is the s
 on purpose: a Postgres error naming a connection string, a Redis timeout naming an
 internal host and an assertion quoting a row all land here.
 
-The log gets the error's name and its message, at `error` level. Not the stack, and not
-yet the `request_id`. Amended 2026-08-05 (F-093, F-106): this paragraph required "name,
-message and stack" and the filter stopped logging a stack. Read "What the 500 log line
-carries, and who owns changing it" below before you touch that call.
+The log gets `err_name` and `err_stack`, at `error` level, on a child logger carrying
+`request_id`. `err_message` only for a `DomainError`. Amended 2026-08-05 (F-093, F-106)
+and again 2026-08-08 (TASK-003): this paragraph first required "name, message and stack",
+then name and message with no stack. Read "What the 500 log line carries, and who owns
+changing it" below, which is the decided version, before you touch that call.
 
 `isZodError` and `toValidationDetails` come from `@shortkit/contracts` (ADR-0025). The
 filter imports zod nowhere, value or type, so TASK-007 needs no entry in
@@ -233,45 +234,60 @@ the log through the same helper branch 4 uses.
 
 ### What the 500 log line carries, and who owns changing it
 
-Amended 2026-08-05 (F-093, F-106). Read this before writing anything into the filter's
-log call. Two places in this contract asked for the stack until today, and the filter has
-not logged one since F-093.
+Amended 2026-08-05 (F-093, F-106). **Decided and landed 2026-08-08** by TASK-003 under the
+F-090 ruling, with F-108, F-111 and F-242 answered here. Read this before writing anything
+into the filter's log call. This section is normative for what an error contributes to a
+log line; `logging-and-headers.md` is normative for the logger that carries it.
 
-**What ships today.** One string through Nest's `Logger` at `error`:
-`${context}: ${name}: ${message}`. No frames. No `request_id`. Invariant 9 below ends
-"debugging one means finding its `request_id` in the logs", and that sentence is false
-until TASK-003 lands, because the field is not on the line.
+**The policy.** Every error goes through `errorLogFields(thrown, { includeMessage })` in
+`apps/api/src/observability/logger.ts`, which builds three fields and no fourth:
 
-**Why the frames came out.** `main.ts` already carried F-064's ruling that a stack is the
-one field on a log line that path-based redaction cannot reach. The filter said the
-opposite in the same repo, so F-093 made the filter match. That bought agreement between
-two files. It did not reduce exposure, and nobody should read this contract as claiming
-it did.
+```ts
+export interface ErrorLogFields {
+  readonly err_name: string;
+  readonly err_message?: string;
+  readonly err_stack?: string;
+}
+```
 
-**TASK-003 owns the permanent answer for both files**, in the commit that moves this line
-onto pino (`tasks/TASK-003.md`, F-090 ruling; F-108 is on the same line). Three facts it
-needs:
+- **`err_stack` carries frames only.** The `${name}: ${message}` header is stripped by
+  prefix and then by shape, so a message containing a literal newline leaves no remnant
+  behind. F-108's framework-400 message quotes raw request bytes, which is the input that
+  needs both halves of the strip: a filter keeping only frame-shaped lines would keep a
+  message line beginning `    at `. The frames name files and functions in our own source
+  and in `node_modules`, and carry no request data, no PII and no credential.
+- **`err_message` is withheld by default.** It carries a URL-style Postgres DSN on a
+  connection failure, an internal host on a Redis timeout, and a fragment of an
+  unauthenticated request body on the framework-400 arm.
+- **`includeMessage` is opt-in at two call sites, each with a stated reason.** The
+  exception filter passes `isDomainError(exception)`: constructing a `DomainError` asserts
+  its message is safe to show a stranger, so it is a fortiori safe to log. `main.ts` passes
+  `true` on boot failures, which run before any request exists and where the message is the
+  diagnosis, as in `GIT_COMMIT_SHA is not set`. Accepted cost: a `pg` connect failure at
+  boot puts the database host and port on the line. That is infrastructure rather than a
+  click stream, and the operator needs it.
+- **Truncation was rejected as F-108's remedy.** A cap does not remove a credential sitting
+  at the start of the quoted slice, so it buys a shorter line and no less exposure.
 
-- `err.stack` starts with `${err.name}: ${err.message}` and the frames follow (verified on
-  Node 24.19). The line already carries everything the stack's first line carries, so
-  F-093 dropped the frames and nothing else.
-- The frames name files and functions in our own source and in `node_modules`. No request
-  data, no PII, no credential. The **message** is the field that carries those: a
-  URL-style Postgres DSN in a connection failure, an internal host in a Redis timeout, a
-  fragment of the request body on the framework-400 arm (F-108).
-- `REDACT_PATHS` is a list of paths and no path reaches inside a string, so pino redacts
-  neither field by content. What pino changes is that each becomes a named field on the
-  record instead of text concatenated into one, which is what makes truncating or
-  redacting either of them possible at all.
+This reverses F-093's interim rather than undoing it. F-093 removed the frames because the
+stack's first line repeats `${name}: ${message}`, verified on Node 24.19. The frames come
+back only because that header is now stripped at construction. `exception.stack` still
+never reaches a log line raw.
 
-On that reading, `sdlc-security-auditor` recommends the inverse of the interim: log the
-frames in their own field and treat the message as the risky one. The reasoning holds and
-the contract records it so TASK-003 decides rather than inherits. TASK-003 is free to
-reject it, and if it does, the reason belongs in its ADR or in this section.
+**Correction, 2026-08-08 (F-242).** Both contracts said `REDACT_PATHS` "cannot help either
+way" with a message or a stack, and the reason was wrong. Once a serialiser turns an error
+into an object, `err.message` and `err.stack` are ordinary paths and pino censors them.
+Verified on pino 10.3.1 with `redact: { paths: ['err.message', 'err.stack'] }`, which emits
+`{"err":{"type":"SyntaxError","message":"[redacted]","stack":"[redacted]",…}}`. What
+redaction cannot do is reach **inside** a string, so a path censors a field whole or leaves
+it whole. That is why the answer is which fields `errorLogFields` builds rather than which
+paths to censor. The rule was right; the justification would not survive an implementer
+checking it, and this is the third time on this initiative that has happened (F-220, F-229).
 
-**What this section does not say is that the stack goes to the log.** Restoring
-`exception.stack` because a contract line asked for it undoes F-093 in the one file F-093
-was filed about, and no test in the suite asserts a log field.
+**Two things a later TASK must not do.** Do not pass an `Error` to a log call expecting the
+message to appear: `logging-and-headers.md` states the four logger mechanisms that strip it
+under every key. Do not interpolate `error.message` into a log message string either, which
+puts it in `msg` where nothing reaches it.
 
 ### Message constants
 
@@ -459,10 +475,11 @@ TASK-007's spec covers the four branches; nobody else re-covers them.
 - The exception filter is registered as `APP_FILTER` in `AppModule` and catches every
   thrown error, including non-`HttpException` throwables, which become 500
   `internal_error` carrying `INTERNAL_ERROR_MESSAGE` and nothing of the original error.
-  The original goes to the log, as its name and message and **not** its stack. Amended
-  2026-08-05 (F-106): this bullet asked for the stack. See "What the 500 log line
-  carries, and who owns changing it" above, which is the only place this contract states
-  that policy and names its owner.
+  The original goes to the log through `errorLogFields`, as `err_name` and an `err_stack`
+  of frames, with `err_message` only for a `DomainError`. Amended 2026-08-05 (F-106) and
+  2026-08-08 (TASK-003, F-242): this bullet first asked for the stack, then forbade it.
+  See "What the 500 log line carries, and who owns changing it" above, which is the only
+  place this contract states that policy.
 - The four branches run in the order above, and `DomainError` is tested first.
 - A `ZodError` becomes 400 `validation_failed` with `details` from
   `toValidationDetails(err)`. Do not call `err.flatten()`: it drops every issue with an

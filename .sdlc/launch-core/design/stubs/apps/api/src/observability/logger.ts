@@ -1,4 +1,15 @@
 /**
+ * SUPERSEDED 2026-08-08 (F-249). TASK-003 has shipped
+ * `apps/api/src/observability/logger.ts`. READ THAT FILE, NOT THIS ONE.
+ *
+ * This stub is kept as the wave-1 scaffold it was. It is now wrong in three ways that
+ * matter: its REDACT_PATHS has 17 entries against the shipped 25, it exports
+ * `createLogger()` where the shipped module exports a `logger` singleton, and it has none
+ * of the three error mechanisms F-244 and F-248 forced (`serializers.err`,
+ * `hooks.logMethod`, `formatters.log`). Deriving a logger from this file reintroduces a
+ * credential leak. `design/contracts/logging-and-headers.md` carries the current
+ * configuration and the reasoning.
+ *
  * Contract: design/contracts/logging-and-headers.md
  * ADR: adr-0022-logging-cors-and-security-headers.md
  * Produced by: TASK-003
