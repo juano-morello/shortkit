@@ -20,9 +20,12 @@ import pino from 'pino';
  * APPEND-ONLY (`logging-and-headers.md`, "Versioning"). Removing a path needs a reason in
  * the commit message.
  *
- * NOTE THE LIMIT: these are pino redact paths and `*.token` matches ONE level, so
- * `payload.data.credentials.token` is not covered. A TASK introducing a nested secret adds
- * its path here in the same commit.
+ * NOTE THE LIMIT, IN BOTH DIRECTIONS. A pino wildcard path matches EXACTLY ONE level, so
+ * `*.token` covers `req.token` and covers NEITHER `token` at the top level NOR
+ * `payload.data.credentials.token` two levels down. That is why every `*.x` entry below is
+ * paired with a bare `x`: F-244's minor half measured that a top-level `password` was not
+ * censored at all. Depth beyond one is still uncovered — a TASK introducing a nested secret
+ * adds its own path here in the same commit.
  *
  * The two `x-shortkit-*` entries ship here in wave 2, ahead of the headers themselves
  * (F-032): `x-shortkit-client-ip` carries a raw client IP on every browser-originated
@@ -47,9 +50,27 @@ export const REDACT_PATHS = [
   '*.ipHash',
   'req.body.password',
   'req.body.confirmation',
+  // The top-level halves of the wildcards above (F-244). `*.password` does not match a
+  // `password` key on the record itself, and the record itself is where a call site that
+  // spreads a parsed body reaches first.
+  'password',
+  'token',
+  'secret',
+  'rawToken',
+  'tokenDigest',
+  'verificationToken',
+  'ip',
+  'ipHash',
 ] as const;
 
 export const REDACT_CENSOR = '[redacted]';
+
+/**
+ * What `msg` says when a call site logged an error and nothing else. It names the call
+ * shape rather than the error, because naming the error is what leaks — and the fields the
+ * `err` serialiser built are on the same record.
+ */
+const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
 
 /**
  * The one logger in the API. Every line the process writes goes through it, which is what
@@ -60,12 +81,55 @@ export const REDACT_CENSOR = '[redacted]';
  * immediately before `process.exit(1)` still arrives, and still arrives after 5000
  * preceding lines. `main.ts`'s boot-failure line depends on that — before this file
  * existed it hand-rolled a promise around `process.stderr.write` for exactly this reason.
+ *
+ * ============================================================================
+ * THE `err` SERIALISER IS OVERRIDDEN, AND THAT IS A SECURITY CONTROL (F-244).
+ * ============================================================================
+ *
+ * pino's default `err` serialiser copies EVERY OWN ENUMERABLE PROPERTY of the error onto
+ * the record. body-parser attaches the verbatim request body to `err.body` on the 400 it
+ * raises for malformed JSON, so `log.error({ err }, '…')` — one idiomatic line, in any
+ * later TASK — wrote an unauthenticated POST's credentials in the clear. Reproduced on
+ * this repository's own pino 10.3.1 before the override, and `REDACT_PATHS` did not reach
+ * it: `err.body` is a string, and a path list cannot reach inside one.
+ *
+ * Routing the key through `errorLogFields` makes that misuse IMPOSSIBLE rather than
+ * enumerating the fields to censor: the record carries the three fields the policy below
+ * builds and no fourth, whatever the error happens to hang off itself. Appending
+ * `err.body` to `REDACT_PATHS` was the alternative and is weaker — it defends the one
+ * property that has already been found, and the next library to decorate an error gets a
+ * new name.
+ *
+ * `includeMessage: false` here and no way to pass `true`: an error reaching a log call
+ * under the `err` key has no call-site reason attached to it, and the two places that DO
+ * have one call `errorLogFields` directly.
+ *
+ * THE HOOK CLOSES THE SAME HOLE BY ITS OTHER DOOR. `log.error(err)` with no context
+ * string routes the error through the serialiser above — and then pino copies
+ * `err.message` into `msg`, which is a top-level key no redact path may censor without
+ * censoring every log line's text. Measured on pino 10.3.1, and it is the field the policy
+ * below withholds everywhere else. The hook rewrites that one call shape into the one the
+ * serialiser fully covers. `log.error(err, 'context')` and every non-Error first argument
+ * pass through untouched.
  */
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
   redact: { paths: [...REDACT_PATHS], censor: REDACT_CENSOR },
   base: { service: 'shortkit-api', env: process.env.NODE_ENV },
   formatters: { level: (label) => ({ level: label }) },
+  serializers: { err: (thrown: unknown) => errorLogFields(thrown, { includeMessage: false }) },
+  hooks: {
+    logMethod(args, method) {
+      const [thrown, context] = args as [unknown, unknown];
+
+      if (thrown instanceof Error && typeof context !== 'string') {
+        method.call(this, { err: thrown }, POSITIONAL_ERROR_MESSAGE);
+        return;
+      }
+
+      method.apply(this, args);
+    },
+  },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
 
@@ -145,11 +209,13 @@ const STACK_FRAME = /^\s+at /;
 
 export function errorLogFields(thrown: unknown, options: ErrorLogOptions): ErrorLogFields {
   if (thrown instanceof Error) {
-    const frames = stackFrames(thrown);
+    const name = readStringProperty(thrown, 'name');
+    const message = readStringProperty(thrown, 'message');
+    const frames = stackFrames(thrown, name, message);
 
     return {
-      err_name: thrown.name,
-      ...(options.includeMessage ? { err_message: thrown.message } : {}),
+      err_name: name ?? UNREADABLE,
+      ...(options.includeMessage && message !== undefined ? { err_message: message } : {}),
       ...(frames === undefined ? {} : { err_stack: frames }),
     };
   }
@@ -160,20 +226,52 @@ export function errorLogFields(thrown: unknown, options: ErrorLogOptions): Error
   };
 }
 
+/** What is reported for a field whose accessor threw or gave a non-string. */
+const UNREADABLE = 'unreadable';
+
+/**
+ * `name`, `message` and `stack` are ordinary properties and an error is free to define any
+ * of them as a THROWING GETTER (F-244's second minor). This function is called from the
+ * exception filter's `headersSent` arm, which sits OUTSIDE the try/catch F-092 added, and
+ * from `main.ts`'s last-chance boot handler — two places with nowhere left to escape to.
+ * Its sibling `describeNonError` already guarded `String()` for exactly this hazard; these
+ * three reads did not.
+ */
+function readStringProperty(
+  error: Error,
+  property: 'name' | 'message' | 'stack',
+): string | undefined {
+  try {
+    const value: unknown = error[property];
+
+    return typeof value === 'string' ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The frames, with the `${name}: ${message}` header removed twice over: by prefix, and
  * then by keeping only lines that look like frames. Both halves are needed. The prefix
  * strip alone leaves the tail of a multi-line message behind, and the shape filter alone
  * would keep a message line that happens to begin with `    at `.
+ *
+ * `name` and `message` are passed in already read rather than read again here: the header
+ * has to be built from the same values the caller reported, and a getter is free to answer
+ * differently on a second call.
  */
-function stackFrames(error: Error): string | undefined {
-  const { stack } = error;
+function stackFrames(
+  error: Error,
+  name: string | undefined,
+  message: string | undefined,
+): string | undefined {
+  const stack = readStringProperty(error, 'stack');
 
-  if (typeof stack !== 'string') {
+  if (stack === undefined) {
     return undefined;
   }
 
-  const header = `${error.name}: ${error.message}`;
+  const header = `${name ?? UNREADABLE}: ${message ?? ''}`;
   const body = stack.startsWith(header) ? stack.slice(header.length) : stack;
   const frames = body.split('\n').filter((line) => STACK_FRAME.test(line));
 

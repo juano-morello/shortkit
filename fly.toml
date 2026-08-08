@@ -37,24 +37,61 @@ primary_region = 'iad'
 # migration blocks the deploy — `set -e` in the script stops before `fly deploy` is reached.
 # What is lost is that the deploy no longer fails closed if someone bypasses the script,
 # which is the same exposure ADR-0027 already accepts for the build argument.
+#
+# THREE COSTS OF THIS SETTLEMENT, STATED HERE RATHER THAN DISCOVERED (F-246).
+#
+# 1. THE MIGRATOR CREDENTIAL MOVES OFF THE PLATFORM AND ONTO A WORKSTATION. A
+#    `release_command` would have read `DATABASE_MIGRATION_URL` from Fly secrets, where it
+#    is held by the platform, never printed, and reachable only by a machine inside the
+#    deploy. Running the migration from the working copy means the DSN of
+#    `shortkit_migrator` — the role that OWNS every table and can run any DDL, including
+#    DROP — lives in a developer's shell instead. That is a strictly larger blast radius
+#    than the runtime `shortkit_app` DSN, and it is the price of not shipping `drizzle-kit`
+#    in the image. Keep it out of shell history and out of any committed `.env`; the
+#    integration suite's copy points at a throwaway container and `infra/deploy.sh` now
+#    refuses a loopback target so the two cannot be confused.
+#
+# 2. ORDERING. Migrating before deploying means a failed image build could leave DDL
+#    applied with the OLD image still serving. `infra/deploy.sh` therefore builds the image
+#    locally, from the same Dockerfile and the same tree, BEFORE it applies any DDL. The
+#    residual gap is a build that succeeds locally and fails on Fly's builder — a registry
+#    or builder-side failure rather than a missing `COPY` — and that gap is accepted.
+#
+# 3. Nothing but the script sequences the two. `fly deploy` run by hand deploys code
+#    against whatever schema is live, which is the same class of exposure as bypassing the
+#    build argument.
 
 # One machine, always running. `refinement.md` calls SC-2 "a single-machine commitment", and
 # GC-1's p99 ceiling is on the cache-hit path — a suspended machine pays a cold start on the
 # first redirect after any quiet period, which is the request most likely to be a real
 # visitor. One `shared-cpu-1x` sits well inside GC-3's $25/month.
+#
+# `auto_stop_machines = 'off'` with `min_machines_running = 1` is what keeps it up.
+# `auto_start_machines = true` is the RECOVERY path, and it changed from `false` for F-245.
+# The machine is not meant to be stopped — but `main.ts` refuses to boot when it cannot
+# establish that the runtime role is subject to RLS, and a long enough database outage
+# spends Fly's restart budget and leaves the machine stopped. With auto-start off, nothing
+# brings it back after the database recovers and the site stays down until a human notices.
+# With it on, the next incoming request starts it, and by then the boot preconditions pass.
+# It costs nothing while the machine is running, which is the normal state.
 [http_service]
   internal_port = 3001
   force_https = true
   auto_stop_machines = 'off'
-  auto_start_machines = false
+  auto_start_machines = true
   min_machines_running = 1
   processes = ['app']
 
 # AC-6 fixes the method and the path; ADR-0006 keeps `/health` at the root, outside the
-# `/api` global prefix, so the probe never depends on the API surface. The three durations
-# are starting values.
+# `/api` global prefix, so the probe never depends on the API surface.
+#
+# `grace_period` is 30s rather than 10s and that number is coupled to one in `main.ts`
+# (F-245): boot retries an unreachable database for `DATABASE_REACHABLE_BUDGET_MS` (20s)
+# before refusing, and a check that starts failing at 10s would kill a machine in the
+# middle of riding out exactly the cold wake the retry exists to survive. Raising one
+# without the other reintroduces the failure. The other two durations are starting values.
 [[http_service.checks]]
-  grace_period = '10s'
+  grace_period = '30s'
   interval = '15s'
   method = 'GET'
   path = '/health'
