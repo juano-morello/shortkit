@@ -3,12 +3,12 @@ id: TASK-006
 story: STORY-003
 epic: EPIC-001
 title: Cross-tenant isolation test harness
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-005]
 paths: ["apps/api/test/isolation/**"]
 contracts: [design/contracts/isolation-coverage.md, design/contracts/tenant-context.md]
-test_files: []
+test_files: ["apps/api/test/isolation/cross-tenant-isolation.int-spec.ts"]
 acceptance: [AC-12]
 rework_count: 0
 ---

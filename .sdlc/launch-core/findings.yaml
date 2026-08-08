@@ -7718,3 +7718,91 @@
   status: fixed
   resolved_by: sdlc-architect
   resolved_round: 1
+
+- id: F-236
+  phase: test
+  task: TASK-054
+  source: sdlc-test-architect
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/launch-core/design/contracts/rls-policy-template.md
+  line: 1
+  summary: >-
+    `PrivilegedTenantEraser.erase` written the obvious way erases NOTHING and reports success.
+    Postgres applies SELECT policies to any DELETE that references a column, and the erase policy
+    grants no read - so a WHERE clause silently matches zero rows.
+  failure_scenario: >-
+    MEASURED by sdlc-test-architect, not reasoned: DELETE FROM <t> WHERE tenant_id = A under
+    app.privileged_erase gives DELETE 0, while the same statement with NO WHERE clause gives DELETE 1.
+    The template states the erase policy "grants no read", and that is exactly what makes the WHERE
+    unusable. So a GDPR erasure implemented the natural way - scope the delete to the tenant being
+    erased - deletes nothing, returns success, and passes any assertion that checks for absence of an
+    error. THIS IS F-002'S CLASS RETURNING BY A DIFFERENT ROUTE. F-002 was the design-phase blocker
+    where the erasure sequence was denied by its own policy set and reported success over an empty
+    set; that was fixed, and this is the same silent-success shape reappearing at the statement level
+    rather than the policy level. SC-6 and the GDPR erasure ACs rest on this working.
+  required_change: >-
+    Decide how the eraser scopes its deletes given that it cannot read. The candidates the architect
+    should weigh: a policy that grants read under the privileged flag; collecting ids in a prior
+    read-capable transaction; or an unqualified DELETE inside a transaction whose tenant context makes
+    the scope implicit. State it in rls-policy-template.md with the measurement above, because the
+    natural implementation is the broken one and nothing about it looks wrong. Must land before
+    TASK-054.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-237
+  phase: test
+  task: TASK-006
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/launch-core/design/contracts/isolation-coverage.md
+  line: 1
+  summary: >-
+    `IsolationReport`'s declared shape cannot express AC-12, which requires a pass/fail verdict per
+    repository method. Resolved additively with `attempts` and `failed`, and the contract should gain
+    them.
+  failure_scenario: >-
+    AC-12 asks for per-surface reporting and the contract's report shape has no per-surface verdict,
+    so the harness could satisfy the contract's literal type while failing the AC it exists to serve.
+    The architect resolved it ADDITIVELY rather than by redefining anything - every declared field
+    keeps its meaning and two fields were added - which is the right call, but it leaves the contract
+    describing a shape narrower than the artifact.
+  required_change: >-
+    Add `attempts` and `failed` to IsolationReport in isolation-coverage.md so the contract and the
+    harness agree. Low urgency, no behaviour depends on it, but leaving it is the artifact-disagrees-
+    with-artifact class this initiative has filed seventeen times.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-238
+  phase: test
+  task: TASK-002
+  source: sdlc-test-architect
+  round: 1
+  severity: nit
+  kind: implementation
+  file: .github/workflows/ci.yml
+  line: 1
+  summary: >-
+    ci.yml's "ORDER IS LOAD-BEARING" comment about running db:check-policies before the integration
+    suite is now stale, because the suite no longer leaves an unprotected `tenants` behind.
+  failure_scenario: >-
+    TASK-006 changed rls-fixture.ts so `tenants` comes from db:migrate with its four real policies
+    instead of raw DDL with none. A side effect is that db:check-policies now passes AFTER the suite
+    as well as before, so the comment's stated reason no longer holds. Harmless today - the order is
+    still fine, just no longer load-bearing for the reason given - and worth correcting so nobody
+    treats the ordering as immovable when rearranging the job.
+  required_change: >-
+    Correct or remove the comment next time ci.yml is open. Not worth a dispatch of its own.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
