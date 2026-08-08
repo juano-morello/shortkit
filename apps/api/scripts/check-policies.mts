@@ -43,10 +43,14 @@ import pg from 'pg';
  * exempt and pass unchecked. `Map#get` carries no such inheritance.
  *
  * Naming a table here is not enough to exempt it (F-147): `main()` below cross-checks
- * every entry against `information_schema.columns` before honouring it. An entry for a
- * table that carries a `tenant_id` column fails the check instead of skipping it — the
- * name is a claim, not a fact, and the reason recorded next to each entry is exactly that
- * claim: "no tenant_id".
+ * every entry against the system catalogue before honouring it. An entry for a table
+ * that carries a `tenant_id` column fails the check instead of skipping it — the name is
+ * a claim, not a fact, and the reason recorded next to each entry is exactly that claim:
+ * "no tenant_id".
+ *
+ * That cross-check reads `pg_attribute`, NOT `information_schema.columns` (F-213). See
+ * TENANT_ID_COLUMNS below for why the difference decides whether the cross-check works
+ * at all.
  */
 const EXEMPT: ReadonlyMap<string, string> = new Map([
   // ADR-0003 and ADR-0015 put the Better Auth tables outside the tenancy contract: they
@@ -58,6 +62,18 @@ const EXEMPT: ReadonlyMap<string, string> = new Map([
   ['session', 'Better Auth. No tenant_id (ADR-0003, ADR-0015)'],
   ['account', 'Better Auth. No tenant_id (ADR-0003, ADR-0015)'],
   ['verification', 'Better Auth. No tenant_id (ADR-0003, ADR-0015)'],
+
+  // The fifth table (F-232). Better Auth's `jwt` plugin creates `jwks` to hold the
+  // instance's signing key set, which ADR-0013 serves at GET /api/auth/jwks and the
+  // guard caches for ten minutes. It is server-instance state, not tenant data: there
+  // is no tenant_id and therefore no predicate to write, so it is exempt on the same
+  // ground as the four above and the same cross-check verifies the same claim.
+  //
+  // Recorded here rather than discovered when TASK-009 migrates. RLS is not the control
+  // that protects this table's contents — key material is protected by not granting the
+  // runtime role access to it at all, which is a TASK-009 decision this list does not
+  // make and must not be read as having made.
+  ['jwks', 'Better Auth jwt plugin. Instance signing keys, no tenant_id (ADR-0013, F-232)'],
 ]);
 
 interface TableRow {
@@ -89,12 +105,37 @@ interface TenantIdColumnRow {
  * Every table in `public` that actually carries a `tenant_id` column. This is what an
  * exemption is checked against (F-147) — the entry in `EXEMPT` is a claim that the table
  * has no such column, and this query is how that claim gets verified rather than trusted.
+ *
+ * READS `pg_attribute`, NOT `information_schema.columns` (F-213). The two answer
+ * different questions and only one of them is the question being asked here.
+ * `information_schema` is privilege-filtered by the SQL standard: it shows a column only
+ * where the connected role holds some privilege on it. This check connects as the
+ * runtime role deliberately (F-122) — checking as the migrator would prove nothing about
+ * the DSN the API actually uses — so a table `shortkit_app` has no grant on returns
+ * ZERO ROWS from `information_schema.columns` whether or not it carries a `tenant_id`.
+ * Under the old query, `REVOKE ALL ON session FROM shortkit_app` was enough to make a
+ * tenant-bearing table with row security off print "confirmed: no tenant_id column" and
+ * exit 0. That is the same shape of false green this whole script exists to catch, one
+ * level up: "I found nothing" reported as "nothing is there".
+ *
+ * `pg_attribute` is not privilege-filtered. Every role can read the catalogue, so the
+ * absence of a row here means the column does not exist rather than that this connection
+ * cannot see it — which is the only reading that makes an exemption safe to honour.
+ *
+ * `attnum > 0` drops the system columns; `not attisdropped` drops columns removed by
+ * `ALTER TABLE ... DROP COLUMN`, whose catalogue rows survive under a mangled name. The
+ * `relkind` filter matches TABLES so the two queries describe the same set of relations.
  */
 const TENANT_ID_COLUMNS = `
-  select table_name
-    from information_schema.columns
-   where table_schema = 'public'
-     and column_name = 'tenant_id'`;
+  select c.relname as table_name
+    from pg_attribute a
+    join pg_class c on c.oid = a.attrelid
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public'
+     and c.relkind in ('r', 'p')
+     and a.attname = 'tenant_id'
+     and a.attnum > 0
+     and not a.attisdropped`;
 
 function connectionString(): string {
   const value = process.env.DATABASE_URL;
@@ -143,7 +184,13 @@ async function main(): Promise<void> {
 
     if (exemption !== undefined) {
       if (!tenantIdTables.has(row.table_name)) {
-        console.log(`skip  ${row.table_name} — exempt: ${exemption} (confirmed: no tenant_id column)`);
+        // "no tenant_id in pg_attribute" and not merely "no tenant_id I can see" — the
+        // distinction is the whole of F-213, so the line that claims it says which
+        // catalogue was read and that the reading does not depend on this role's grants.
+        console.log(
+          `skip  ${row.table_name} — exempt: ${exemption} (confirmed against pg_attribute, ` +
+            'which is not privilege-filtered: no tenant_id column exists)',
+        );
         continue;
       }
 
@@ -151,8 +198,8 @@ async function main(): Promise<void> {
       // tenant_id column, so it falls through to the same check as every other table
       // instead of being waved through on its name (F-147).
       console.log(
-        `      ${row.table_name} — exemption ("${exemption}") does not apply: this table ` +
-          'has a tenant_id column, so it is checked like any other table.',
+        `      ${row.table_name} — exemption ("${exemption}") does not apply: pg_attribute ` +
+          'shows this table has a tenant_id column, so it is checked like any other table.',
       );
     }
 
