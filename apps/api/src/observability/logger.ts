@@ -93,12 +93,19 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
  * this repository's own pino 10.3.1 before the override, and `REDACT_PATHS` did not reach
  * it: `err.body` is a string, and a path list cannot reach inside one.
  *
- * Routing the key through `errorLogFields` makes that misuse IMPOSSIBLE rather than
- * enumerating the fields to censor: the record carries the three fields the policy below
- * builds and no fourth, whatever the error happens to hang off itself. Appending
- * `err.body` to `REDACT_PATHS` was the alternative and is weaker — it defends the one
- * property that has already been found, and the next library to decorate an error gets a
+ * Routing the key through `errorLogFields` makes that misuse impossible UNDER THAT KEY
+ * rather than enumerating the fields to censor: the record carries the three fields the
+ * policy below builds and no fourth, whatever the error happens to hang off itself.
+ * Appending `err.body` to `REDACT_PATHS` was the alternative and is weaker — it defends the
+ * one property that has already been found, and the next library to decorate an error gets a
  * new name.
+ *
+ * `serializers` IS KEYED BY FIELD NAME, AND THAT WAS THE SAME WEAKNESS ONE LEVEL UP (F-248).
+ * `{ error: e }` and `{ ctx: { err: e } }` reach pino's ordinary object path, where `message`
+ * and `stack` do not survive — they are non-enumerable — but `body` does, because
+ * body-parser ASSIGNED it. So F-244's exact payload came back under a key one character
+ * away. `formatters.log` below closes every key at once; see it for what the two mechanisms
+ * each own.
  *
  * `includeMessage: false` here and no way to pass `true`: an error reaching a log call
  * under the `err` key has no call-site reason attached to it, and the two places that DO
@@ -116,7 +123,10 @@ export const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
   redact: { paths: [...REDACT_PATHS], censor: REDACT_CENSOR },
   base: { service: 'shortkit-api', env: process.env.NODE_ENV },
-  formatters: { level: (label) => ({ level: label }) },
+  formatters: {
+    level: (label) => ({ level: label }),
+    log: (record) => errorsReplaced(record, 1),
+  },
   serializers: { err: (thrown: unknown) => errorLogFields(thrown, { includeMessage: false }) },
   hooks: {
     logMethod(args, method) {
@@ -132,6 +142,138 @@ export const logger = pino({
   },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
+
+/**
+ * The key pino files a positional `Error` under, and the one key `serializers.err` above
+ * owns. Pino's `errorKey` option is left at its default; this is that default, named.
+ */
+const ERROR_KEY = 'err';
+
+/**
+ * How far into a log record the scan below looks for an `Error`.
+ *
+ * Four. `{ ctx: { err: e } }` — F-248's third shape — puts the error at depth 2, so one
+ * level is not enough, and an unbounded walk runs on every line the process writes. Four
+ * covers every nesting a call site in this repository builds — every one is flat today, and
+ * `req.headers.authorization` in `REDACT_PATHS` is the deepest shape named anywhere, at 3 —
+ * with a level of slack, and it bounds the work whatever a call site hands the logger.
+ *
+ * MEASURED on this repository, pino 10.3.1 and Node 24.19, one million calls per figure,
+ * against the shipped instance's own formatter: 40 ns on a flat request-log record, 95 ns on
+ * one carrying `req.headers`, 115 ns on a record nested five deep, and 500 ns when the record
+ * actually holds an error — where `errorLogFields`, not the walk, is the cost. The whole log
+ * call is 5.8 µs to 9 µs on the same machine, so the scan is under 2% of a line the redirect
+ * path already pays for, against GC-1's 25 ms budget. The bound also makes a self-referential
+ * record terminate, which a walk without one would not.
+ *
+ * THE RESIDUAL, STATED RATHER THAN LEFT TO BE FOUND: an error at depth 5 or deeper is not
+ * replaced and its assigned properties reach the line. That is the same limit `REDACT_PATHS`
+ * has for a nested secret, and the same answer — a TASK that builds a record that deep raises
+ * the bound in the same commit.
+ */
+const MAX_ERROR_SCAN_DEPTH = 4;
+
+/**
+ * ============================================================================
+ * EVERY `Error` IN THE RECORD GOES THROUGH THE SAME POLICY, UNDER EVERY KEY (F-248).
+ * ============================================================================
+ *
+ * `serializers` is keyed by field name, so the override above covers `err` and nothing
+ * else. That was F-244 one level up: `{ error: e }`, `{ cause: e }` and `{ ctx: { err: e } }`
+ * all reach pino's ordinary object path, and what survives it is exactly what a library
+ * ASSIGNED to the error — `message` and `stack` are non-enumerable, `body-parser`'s `body`
+ * is not. All three leaked the verbatim request body; reproduced before this change.
+ * Adding `serializers.error` and `serializers.cause` is the enumeration F-244 rejected, and
+ * it would not reach the nested shape at all.
+ *
+ * WHAT EACH MECHANISM OWNS, AND WHY THE SPLIT. MEASURED, pino 10.3.1 `lib/tools.js`
+ * `_asJson`: `formatters.log` runs BEFORE the per-key serialisers, on the same merged
+ * record. So an error this function replaced at the top-level `err` key would then be
+ * handed to `serializers.err` as an ordinary object and come out
+ * `non-error throwable (object)`. The two therefore partition the record:
+ *
+ *   - `serializers.err` owns the top-level `err` key. It also covers a NON-error under that
+ *     key, which this function deliberately does not.
+ *   - this function owns every other key, at every depth up to `MAX_ERROR_SCAN_DEPTH` —
+ *     including `err` nested below the root.
+ *
+ * There is no key between them. Removing either half reopens F-244 or F-248, and
+ * `logger.spec.ts` fails on each.
+ *
+ * ONLY `Error` INSTANCES ARE REPLACED. A plain object a call site chose to log is its own
+ * decision and passes through — the hazard here is the properties a LIBRARY hangs off a
+ * throwable without the call site knowing.
+ *
+ * IT DESCENDS INTO NOTHING IT REPLACES, WHICH IS WHY `err.cause` STAYS SHUT. A chained
+ * error is reachable only through `cause`, which is own but non-enumerable when set through
+ * the `Error` constructor, so nothing walked it before this change. `errorLogFields` is the
+ * boundary: it reads `name`, `message` and `stack` and returns, so an error replaced here is
+ * never a container to walk. Asserted in `logger.spec.ts`.
+ *
+ * The record is not mutated: a container is copied only if one of its values changed, so a
+ * line with no error in it allocates nothing and the caller's object is never touched.
+ */
+function errorsReplaced<T extends object>(container: T, depth: number): T {
+  let replacement: T | undefined;
+
+  for (const key of Object.keys(container)) {
+    if (depth === 1 && key === ERROR_KEY) {
+      continue;
+    }
+
+    const value = readIndexedProperty(container, key);
+
+    if (value === UNREADABLE_PROPERTY) {
+      continue;
+    }
+
+    const replaced =
+      value instanceof Error
+        ? errorLogFields(value, { includeMessage: false })
+        : depth < MAX_ERROR_SCAN_DEPTH && isWalkable(value)
+          ? errorsReplaced(value, depth + 1)
+          : value;
+
+    if (replaced !== value) {
+      replacement ??= (Array.isArray(container) ? [...container] : { ...container }) as T;
+      (replacement as Record<string, unknown>)[key] = replaced;
+    }
+  }
+
+  return replacement ?? container;
+}
+
+/** A property whose getter threw. The scan leaves that key exactly as it found it. */
+const UNREADABLE_PROPERTY = Symbol('unreadable property');
+
+/**
+ * A log record's own values are free to be hostile getters, the same way an error's are
+ * (F-244's second minor). Reading one must not throw out of the log call, and must not
+ * change what pino writes for that key either — so the scan skips it and leaves pino's own
+ * stringify to handle it exactly as it did before this function existed.
+ */
+function readIndexedProperty(container: object, key: string): unknown {
+  try {
+    return (container as Record<string, unknown>)[key];
+  } catch {
+    return UNREADABLE_PROPERTY;
+  }
+}
+
+/**
+ * Plain records and arrays only — the shapes a log call site builds by hand. A class
+ * instance is not walked: `Object.keys` on a `Buffer` is thousands of index strings, and an
+ * `Error` subclass is already caught by the `instanceof` above.
+ */
+function isWalkable(value: unknown): value is object {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  return Array.isArray(value) || prototype === Object.prototype || prototype === null;
+}
 
 /**
  * `route` is the matched PATTERN (`/api/links/:id`), never the concrete path. A concrete

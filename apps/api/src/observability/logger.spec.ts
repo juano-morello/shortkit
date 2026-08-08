@@ -95,6 +95,10 @@ const LINE = {
   topLevelSecrets: 3,
   messageSpanningLines: 4,
   hostileAccessors: 5,
+  frameworkErrorUnderErrorKey: 6,
+  frameworkErrorUnderCauseKey: 7,
+  frameworkErrorOneLevelDown: 8,
+  errorChainedThroughCause: 9,
 } as const;
 
 const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
@@ -174,6 +178,21 @@ try {
 } catch (thrown) {
   logger.error({ logging_the_error_threw: String(thrown) }, 'an error whose accessors throw');
 }
+
+// 6. F-248: the same error under \`error\` rather than \`err\`. A serialiser is keyed by
+//    field name, so nothing about this shape distinguishes it at the call site.
+logger.error({ error: parseFailure }, 'the same error under the error key');
+
+// 7. F-248: under \`cause\`, which is ES2022's own name for a chained error.
+logger.error({ cause: parseFailure }, 'the same error under the cause key');
+
+// 8. F-248: one level down, under a key the call site chose.
+logger.error({ ctx: { err: parseFailure } }, 'the same error one level down');
+
+// 9. F-248: reached ONLY through \`err.cause\`. Safe before the fix because nothing walked
+//    it; asserted so a walk added for the shapes above cannot start.
+const chained = new Error('a wrapper around the parse failure', { cause: parseFailure });
+logger.error({ err: chained }, 'an error chained to the leaking one');
 `;
 }
 
@@ -332,5 +351,50 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
     expect(line.record.logging_the_error_threw).toBeUndefined();
     expect(errorFields(LINE.hostileAccessors).err_name).toBeTypeOf('string');
+  });
+
+  it('F-248: the same error under any other key, or one level down, is covered the same way', () => {
+    // A serialiser is keyed by FIELD NAME, so `serializers.err` covers exactly `err`.
+    // `message` and `stack` are non-enumerable and do not survive pino's ordinary object
+    // path — but body-parser ASSIGNS `body`, so it is own and enumerable and travels under
+    // whatever key the call site picked. `{ error: e }` is as idiomatic as `{ err: e }`,
+    // `cause` is ES2022's own name for a chained error, and `{ ctx: { err: e } }` is the
+    // same key one level down. Adding `serializers.error` and `serializers.cause` is the
+    // enumeration F-244 rejected — one key name later it is back — so what is asserted here
+    // is the property: no error's incidental fields reach a line, under any key.
+    const shapes = [
+      [LINE.frameworkErrorUnderErrorKey, (record: Record<string, unknown>) => record.error],
+      [LINE.frameworkErrorUnderCauseKey, (record: Record<string, unknown>) => record.cause],
+      [
+        LINE.frameworkErrorOneLevelDown,
+        (record: Record<string, unknown>) => (record.ctx as Record<string, unknown>).err,
+      ],
+    ] as const;
+
+    for (const [ordinal, read] of shapes) {
+      expect(lines[ordinal].raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+      expect(lines[ordinal].raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+      // Not bought by logging nothing: the operator still gets the name and the frames,
+      // and nothing outside the three fields the policy builds.
+      const fields = read(lines[ordinal].record) as Record<string, unknown>;
+
+      expect(fields.err_name).toBe('SyntaxError');
+      expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual(
+        [],
+      );
+    }
+  });
+
+  it('F-248: an error reached only through `err.cause` is still not walked into', () => {
+    // `cause` is own but NON-ENUMERABLE when set through the Error constructor, so nothing
+    // reached it before this round and the chained error's body never leaked. A fix that
+    // replaces errors wherever it finds them must not START walking it: `errorLogFields`
+    // is the boundary, and it descends into nothing.
+    const line = lines[LINE.errorChainedThroughCause];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+    expect(errorFields(LINE.errorChainedThroughCause).err_name).toBe('Error');
   });
 });
