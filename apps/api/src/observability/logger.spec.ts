@@ -81,6 +81,32 @@ const NON_ERROR_BODY_MARKER = 'nonerror-body-marker';
 const CALLER_FIELD_MARKER = 'caller-field-marker';
 
 /**
+ * The binding a PARENT child logger carries, read off a GRANDCHILD's line. F-264: the
+ * wrapper is installed as an own property of the singleton and a child receives it only
+ * through the prototype chain, so nothing about a grandchild is installed — and nothing
+ * has ever built one.
+ */
+const GRANDCHILD_PARENT_BINDING_MARKER = 'grandchild-parent-binding-marker';
+
+/**
+ * A value the ROOT logger censors today, logged through the root and through a child that
+ * brought its own `redact` (F-263). Nothing below asserts that this key is censored — the
+ * two lines are compared with each other, so the property holds whatever `REDACT_PATHS`
+ * becomes.
+ */
+const REDACT_PROBE_MARKER = 'redact-probe-marker';
+
+/** The key the redact probe sits under. See `REDACT_PROBE_MARKER` for why it is not asserted directly. */
+const REDACT_PROBE_KEY = 'password';
+
+/**
+ * What the emitter writes when a child-options call REFUSED rather than emitted. F-263's
+ * required change is "refuse or merge", and the tests below accept either — asserting one
+ * of the two would pick the implementation instead of the property.
+ */
+const CHILD_OPTIONS_REFUSED = 'child_options_refused';
+
+/**
  * `logging-and-headers.md`, "What the implementer must guarantee": the serialised output
  * contains neither value and contains `[redacted]`. Hand-copied from the contract rather
  * than imported from `logger.ts` — an expected value read out of the code under test
@@ -116,8 +142,20 @@ const LINE = {
   nonErrorUnderErrKey: 14,
   chainedErrorUnderErrorKey: 15,
   errorAtTheDeepestScannedLevel: 16,
-  bindingsSetUnderErrKey: 17,
-  bindingsSetUnderOtherKeys: 18,
+  objectPlaceholder: 17,
+  jsonPlaceholder: 18,
+  stringPlaceholder: 19,
+  placeholderAfterACallerRecord: 20,
+  errorInTheMessagePosition: 21,
+  argumentWithNoPlaceholder: 22,
+  redactProbeThroughTheRoot: 23,
+  redactProbeThroughAChildWithItsOwnRedact: 24,
+  childWithItsOwnErrSerialiser: 25,
+  childWithItsOwnLogFormatter: 26,
+  grandchildBinding: 27,
+  // `setBindings` stays LAST. See the emitter.
+  bindingsSetUnderErrKey: 28,
+  bindingsSetUnderOtherKeys: 29,
 } as const;
 
 const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
@@ -247,7 +285,81 @@ logger.error({ error: chained }, 'an error chained to the leaking one, under the
 //     source whatever the source says.
 logger.error({ a: { b: { c: { err: parseFailure } } } }, 'an error four levels into the record');
 
-// 17-18. F-258: \`setBindings\` is the OTHER door onto \`asChindings\`, and it is not the one
+// 17-19. F-260, DOOR SIX. pino builds \`msg\` out of the call's ARGUMENTS, through
+//        quick-format-unescaped, BEFORE \`write()\` runs — so a format placeholder
+//        interpolates whatever the argument is into the one top-level field no redact path
+//        may censor. \`hooks.logMethod\` reads only args[0] and args[1], and neither
+//        \`serializers.err\`, nor \`formatters.log\`, nor either bindings wrapper is on this
+//        path at all. %o and %j reach the properties a library hung off the error; %s
+//        reaches its message.
+logger.error('parse failed: %o', parseFailure);
+logger.error('parse failed: %j', parseFailure);
+logger.error('parse failed: %s', parseFailure);
+
+// 20. F-260, the object-first shape. The caller's own field is on the record so that a fix
+//     cannot buy a clean \`msg\` by discarding what the call site supplied.
+logger.error({ request_id: '${CALLER_FIELD_MARKER}' }, 'parse failed: %o', parseFailure);
+
+// 21. F-260, an Error in the MESSAGE position. pino writes the second argument as \`msg\`
+//     with no placeholder involved, so the whole error lands there as a JSON object.
+logger.error({ request_id: '${CALLER_FIELD_MARKER}' }, parseFailure);
+
+// 22. F-269: a trailing argument with NO matching placeholder. quick-format drops it today,
+//     so nothing leaks and nothing is reported either — one character from the line above.
+//     Asserted so that a fix for F-260 that folds stray arguments into the record cannot
+//     reopen the leak here.
+logger.error('parse failed', parseFailure);
+
+// 23-24. F-263: pino's child OPTIONS replace the instance's \`redact\` outright
+//        (\`proto.js:157-165\`, "redact must place before asChindings and only replace if
+//        exist"). The wrapper installed for F-251 scans the bindings and hands \`options\`
+//        to pino unexamined, so one child-scoped redact path removes every path the root
+//        censors, on that child, with no diagnostic.
+//
+//        THE PAIR IS THE ASSERTION: the same record goes through the root and through the
+//        child, and the test compares the two lines rather than naming which keys are
+//        censored.
+const redactProbe = { ${REDACT_PROBE_KEY}: '${REDACT_PROBE_MARKER}' };
+
+logger.error(redactProbe, 'the redact probe through the root logger');
+try {
+  logger
+    .child({ scope: 'redact-probe' }, { redact: { paths: ['nothing.the.root.censors'], censor: 'x' } })
+    .error(redactProbe, 'the redact probe through a child with its own redact');
+} catch {
+  logger.error({ ${CHILD_OPTIONS_REFUSED}: true }, 'the redact probe through a child with its own redact');
+}
+
+// 25. F-263: child options merge serialisers PER KEY (\`proto.js:118-134\`), so a child that
+//     supplies its own \`err\` serialiser replaces the one that owns the top-level \`err\` key —
+//     the half of the partition the scan deliberately does not cover.
+try {
+  logger
+    .child({ request_id: '${CALLER_FIELD_MARKER}' }, { serializers: { err: (thrown) => thrown } })
+    .error({ err: parseFailure }, 'a child with its own err serialiser');
+} catch {
+  logger.error({ ${CHILD_OPTIONS_REFUSED}: true }, 'a child with its own err serialiser');
+}
+
+// 26. F-263: child options replace \`formatters.log\` (\`proto.js:136-143\`), which is the scan
+//     that owns every key OTHER than the top-level \`err\`.
+try {
+  logger
+    .child({ request_id: '${CALLER_FIELD_MARKER}' }, { formatters: { log: (record) => record } })
+    .error({ error: parseFailure }, 'a child with its own log formatter');
+} catch {
+  logger.error({ ${CHILD_OPTIONS_REFUSED}: true }, 'a child with its own log formatter');
+}
+
+// 27. F-264: a GRANDCHILD, which nothing has ever built. Both halves are on this one line —
+//     the parent's binding survives the wrapper's receiver, and the grandchild's own
+//     bindings are still scanned.
+logger
+  .child({ request_id: '${GRANDCHILD_PARENT_BINDING_MARKER}' })
+  .child({ error: parseFailure })
+  .error('a grandchild binding under the error key');
+
+// 28-29. F-258: \`setBindings\` is the OTHER door onto \`asChindings\`, and it is not the one
 //        \`child\` was wrapped for. THESE TWO CALLS ARE LAST ON PURPOSE: \`setBindings\`
 //        appends to the singleton's chindings permanently, so every line after them would
 //        carry their bindings too. The \`err\` shape is bound FIRST, while it is the only
@@ -630,5 +742,176 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
     expect(fields.err_name).toBe('SyntaxError');
     expect(fields.err_stack).toBeTypeOf('string');
+  });
+
+  it('F-260: a format placeholder never interpolates an error into `msg`', () => {
+    // DOOR SIX, and a mechanism distinct from every one above it. pino builds `msg` from
+    // the call's ARGUMENTS through quick-format-unescaped before `write()` is reached, so
+    // none of `serializers.err`, `formatters.log`, the `child` wrapper or the `setBindings`
+    // wrapper is on this path — they all act on the RECORD or on BINDINGS, and this is
+    // neither. `hooks.logMethod` is the only thing that sees the arguments and it reads
+    // args[0] and args[1] only.
+    //
+    // %o and %j reach the properties a library assigned to the error — body-parser's
+    // verbatim request body among them. %s reaches `String(error)`, which is
+    // `${name}: ${message}`, and the message is the field the policy withholds everywhere
+    // else.
+    // Every shape is reported together rather than one assertion each, so a failure names
+    // ALL the placeholders that leak instead of stopping at the first.
+    const shapes = [
+      ['%o', LINE.objectPlaceholder],
+      ['%j', LINE.jsonPlaceholder],
+      ['%s', LINE.stringPlaceholder],
+    ] as const;
+
+    const leaking = shapes
+      .filter(
+        ([, ordinal]) =>
+          lines[ordinal].raw.includes(RAW_REQUEST_BODY_MARKER) ||
+          lines[ordinal].raw.includes(ERROR_MESSAGE_MARKER),
+      )
+      .map(([placeholder]) => placeholder);
+
+    expect(leaking).toEqual([]);
+
+    // Not bought by dropping the line's text: the call site's own words survive.
+    for (const [, ordinal] of shapes) {
+      expect(String(lines[ordinal].record.msg)).toContain('parse failed');
+    }
+  });
+
+  it("F-260: the object-first format shape is covered, and the caller's own fields survive", () => {
+    // `log.error({ request_id }, 'parse failed: %o', err)` — the shape a request-scoped
+    // call site writes. pino takes args[0] as the record and formats args[1..] into `msg`,
+    // so the hook's second argument is the format STRING and the error is never inspected.
+    const line = lines[LINE.placeholderAfterACallerRecord];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+    expect(line.record.request_id).toBe(CALLER_FIELD_MARKER);
+    expect(String(line.record.msg)).toContain('parse failed');
+  });
+
+  it('F-260: an Error in the message position never becomes the message', () => {
+    // No placeholder involved: pino writes args[1] as `msg` directly, so the whole error —
+    // every own enumerable property a library hung off it — lands in the one top-level
+    // field no redact path may censor.
+    const line = lines[LINE.errorInTheMessagePosition];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    // Still a usable line: the caller's field survives and `msg` is a string an aggregator
+    // can index, not an object.
+    expect(line.record.request_id).toBe(CALLER_FIELD_MARKER);
+    expect(line.record.msg).toBeTypeOf('string');
+  });
+
+  it('F-269: an argument with no matching placeholder puts no fragment of the error on the line', () => {
+    // GREEN TODAY, and named anyway: quick-format DROPS a trailing argument that no
+    // placeholder consumes, so `log.error('parse failed', err)` reports nothing at all —
+    // one character from the leaking shape above. This asserts the security half only. A
+    // fix for F-260 that folds stray arguments into the record instead of discarding them
+    // is a legitimate answer to the silence, and this is what stops that answer from
+    // reopening the leak here.
+    const line = lines[LINE.argumentWithNoPlaceholder];
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+  });
+
+  it('F-263: a child that supplies its own `redact` still censors what the root censors', () => {
+    // pino's child options REPLACE the instance's redact list outright — `proto.js` says
+    // so in a comment, "replace redact directly" — and the wrapper installed for F-251
+    // scans the bindings and then hands `options` to pino unexamined. So a TASK adding one
+    // child-scoped redact path silently removes every path the root censors, on that
+    // child, with nothing in the output to say so.
+    //
+    // THE ASSERTION IS DIFFERENTIAL, ON PURPOSE. The same record goes through the root and
+    // through the child, and what is compared is the two lines' treatment of it — never
+    // which spellings `REDACT_PATHS` happens to hold, which is being decided elsewhere.
+    // The property survives that decision whatever it lands on.
+    //
+    // KNOWN LIMIT: if the redaction policy ever stops censoring this probe's key, both
+    // sides emit the raw value and this test quietly stops covering the redact vector. It
+    // cannot go red for the wrong reason, but it can go quiet, and the probe's key has to
+    // be re-chosen when that happens.
+    const child = lines[LINE.redactProbeThroughAChildWithItsOwnRedact];
+
+    // Refusing the options outright is the other half of F-263's required change, and it
+    // closes this door as completely as merging does.
+    if (child.record[CHILD_OPTIONS_REFUSED] === true) {
+      return;
+    }
+
+    const root = lines[LINE.redactProbeThroughTheRoot];
+
+    expect(child.record[REDACT_PROBE_KEY]).toEqual(root.record[REDACT_PROBE_KEY]);
+    expect(child.raw.includes(REDACT_PROBE_MARKER)).toBe(root.raw.includes(REDACT_PROBE_MARKER));
+  });
+
+  it('F-263: a child that supplies its own `err` serialiser still reduces the error to the policy fields', () => {
+    // Child options merge serialisers PER KEY, so a child supplying `serializers.err`
+    // displaces the one that owns the top-level `err` key — the half of the partition the
+    // record scan deliberately skips. Nothing else covers that key, so the error arrives
+    // at `JSON.stringify` with every property a library assigned to it.
+    const line = lines[LINE.childWithItsOwnErrSerialiser];
+
+    if (line.record[CHILD_OPTIONS_REFUSED] === true) {
+      return;
+    }
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    // Not bought by dropping the error: the operator still gets the name and the frames.
+    const fields = line.record.err as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+  });
+
+  it('F-263: a child that supplies its own `formatters.log` still covers an error under any other key', () => {
+    // The third replacement vector, and the widest: `formatters.log` is the scan that owns
+    // every key other than the top-level `err`, at every depth. A child that supplies one —
+    // to add a field to every line, say — removes F-248's entire mechanism on that child.
+    const line = lines[LINE.childWithItsOwnLogFormatter];
+
+    if (line.record[CHILD_OPTIONS_REFUSED] === true) {
+      return;
+    }
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    const fields = line.record.error as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+  });
+
+  it("F-264: a grandchild keeps its parent's bindings and still covers an error in its own", () => {
+    // NOTHING HAS EVER BUILT ONE. Both wrappers are installed as OWN properties of the
+    // singleton, and a child has zero own properties — it receives them through the
+    // prototype chain `Object.create(this)` builds. So grandchild coverage is inherited
+    // rather than installed, and the two ways it disappears are both silent: a wrapper
+    // that called pino's `child` on the SINGLETON rather than on its own receiver would
+    // strip the parent's bindings off every grandchild with the whole suite green, and a
+    // pino release that stops deriving a child from its parent would strip the scan.
+    //
+    // Both halves are read off the one line, because one line is where a call site meets
+    // both: the request-scoped parent's `request_id`, and an error in the grandchild's own
+    // bindings.
+    const line = lines[LINE.grandchildBinding];
+
+    expect(line.record.request_id).toBe(GRANDCHILD_PARENT_BINDING_MARKER);
+
+    expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
+
+    const fields = line.record.error as Record<string, unknown>;
+
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
   });
 });

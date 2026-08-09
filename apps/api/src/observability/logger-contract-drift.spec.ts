@@ -32,6 +32,16 @@ import { describe, expect, it } from 'vitest';
  * THE NORMATIVE REGION is the fence's own claim: `logger.ts` from `import pino from 'pino';`
  * through the end of `isWalkable`. Everything after it — `errorLogFields` and its helpers —
  * belongs to `error-envelope.md` and the fence does not reproduce it.
+ *
+ * AND THE REGION IS ANCHORED AT BOTH ENDS (F-270). Contiguity alone is a SUBSTRING check,
+ * and a substring is open at both ends: dropping the last declaration from the fence leaves
+ * a shorter needle that is still found, and adding a declaration to the source just after
+ * the region leaves the needle found in a longer haystack. Both stayed green, and both are
+ * the edge where new declarations actually get added. So the region is CUT from the source
+ * between two anchors and compared for EQUALITY. The end anchor is the first declaration
+ * after the region — `export interface RequestLogFields` — because "the end of `isWalkable`"
+ * is not something a text comparison can locate on its own, and anything inserted between
+ * the two is inside the region by the contract's definition and must appear in the fence.
  */
 
 const SOURCE_PATH = new URL('./logger.ts', import.meta.url);
@@ -52,6 +62,41 @@ const CONTRACT_PATH = new URL(
  * different block.
  */
 const FENCE_MARKER = 'export const REDACT_PATHS';
+
+/**
+ * The two ends of the normative region, in NORMALISED form, as they appear in the shipped
+ * source. The region runs from the first up to — and not including — the second.
+ *
+ * `RequestLogFields` is the first declaration `error-envelope.md` owns rather than this
+ * contract, so it is the boundary, and a declaration inserted before it is inside the
+ * region and belongs in the fence.
+ */
+const REGION_START = "import pino from 'pino';";
+const REGION_END = 'export interface RequestLogFields';
+
+/**
+ * The region, cut out of the normalised source. Throws rather than returning something
+ * approximate: an anchor that has moved makes every comparison below meaningless, and a
+ * silent `-1` would turn that into a passing test.
+ */
+function normativeRegion(normalisedSource: string): string {
+  const start = normalisedSource.indexOf(REGION_START);
+  const end = normalisedSource.indexOf(REGION_END);
+
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error(
+      `the normative region's anchors are not both in the shipped source in order: ` +
+        `'${REGION_START}' at ${String(start)}, '${REGION_END}' at ${String(end)}. ` +
+        'One of them was renamed; re-anchor this test against the contract.',
+    );
+  }
+
+  if (normalisedSource.indexOf(REGION_START, start + 1) !== -1) {
+    throw new Error(`'${REGION_START}' occurs more than once, so the region's start is ambiguous.`);
+  }
+
+  return normalisedSource.slice(start, end).trim();
+}
 
 /**
  * A redact path with a DOUBLE quote inside a SINGLE-quoted string. It is here because it is
@@ -207,6 +252,31 @@ describe("the contract's logger block against the shipped logger", () => {
       normalisedSource.includes(normalisedFence),
       divergence(normalisedSource, normalisedFence),
     ).toBe(true);
+  });
+
+  it('F-270: the fence covers the whole normative region and nothing outside it', () => {
+    // The test above is a SUBSTRING check and a substring is open at both ends. Measured on
+    // copies by `sdlc-reviewer`: dropping the trailing declaration from the FENCE leaves a
+    // shorter needle that is still found, and adding a declaration to the SOURCE after the
+    // region leaves the same needle found in a longer haystack. Both stayed green, and the
+    // end of the region is exactly where a new wrapper gets appended — which is the shape
+    // F-251 and F-258 both had.
+    //
+    // So the region is cut between its two anchors and compared for equality. The comparison
+    // is asserted as a BOOLEAN, like the one above and for the same reason: `toBe` on two
+    // multi-kilobyte strings prints both of them in full, and the divergence report is the
+    // part an author can act on.
+    const normalisedSource = normalised(source);
+    const normalisedFence = normalised(loggerFences[0]);
+    const region = normativeRegion(normalisedSource);
+
+    const report = [
+      `the contract's fence and the shipped logger's normative region are not the same text ` +
+        `(fence ${String(normalisedFence.length)} characters, region ${String(region.length)}).`,
+      divergence(region, normalisedFence),
+    ].join('\n');
+
+    expect(region === normalisedFence, report).toBe(true);
   });
 
   it('the redact path with an inner double quote survives the strip on both artifacts', () => {
