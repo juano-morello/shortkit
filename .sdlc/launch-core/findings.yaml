@@ -8066,6 +8066,21 @@
     { includeMessage: false }) } so the err key routes through the same policy - the durable option,
     because it makes the misuse impossible instead of enumerating the fields it leaks. Appending
     err.body, err.message, err.stack and err.raw to REDACT_PATHS is the weaker alternative.
+  correction: >-
+    CORRECTED 2026-08-09, ruled by Juano, after the first end-to-end measurement anyone in this
+    chain performed. THE STATED ATTACKER PATH DOES NOT OCCUR. body-parser 2.3.0 read.js does
+    attach the raw body - createError(400, err, { body: str, type }), own and enumerable, exactly
+    as claimed - BUT @nestjs/core routes-resolver.js:94-101 mapExternalException replaces every
+    SyntaxError with new BadRequestException(err.message) before any filter sees it, so the error
+    carrying `body` never reaches application code. What the shipped filter receives has ownKeys
+    stack, response, status, options, message, name; body and cause are undefined. No application
+    seam observes the original - an express error middleware before init() sits ahead of the
+    parsers, one after sits behind Nest's handler, and both were tried. THE REMEDY STANDS AND THE
+    CONTROL IS STILL NEEDED: the leak shapes are reachable without body-parser at all (F-260 and
+    F-263 both leak with none involved), and the real framework-400 exposure is the MESSAGE, into
+    which V8 quotes the first ten characters of the body. That is F-108, now confirmed live. Only
+    the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
+    shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
   ruling: >-
     PARTIALLY ADDRESSED in fix round 1 and REOPENED AS F-248 for the half the fix does not reach. The
@@ -8256,6 +8271,21 @@
     architect deliberately did NOT write a red test for this - it would fail against current source
     with no implementer assigned and break the round's definition of done - and says it is a
     three-line addition to the existing emitter once a fix lands.
+  correction: >-
+    CORRECTED 2026-08-09, ruled by Juano, after the first end-to-end measurement anyone in this
+    chain performed. THE STATED ATTACKER PATH DOES NOT OCCUR. body-parser 2.3.0 read.js does
+    attach the raw body - createError(400, err, { body: str, type }), own and enumerable, exactly
+    as claimed - BUT @nestjs/core routes-resolver.js:94-101 mapExternalException replaces every
+    SyntaxError with new BadRequestException(err.message) before any filter sees it, so the error
+    carrying `body` never reaches application code. What the shipped filter receives has ownKeys
+    stack, response, status, options, message, name; body and cause are undefined. No application
+    seam observes the original - an express error middleware before init() sits ahead of the
+    parsers, one after sits behind Nest's handler, and both were tried. THE REMEDY STANDS AND THE
+    CONTROL IS STILL NEEDED: the leak shapes are reachable without body-parser at all (F-260 and
+    F-263 both leak with none involved), and the real framework-400 exposure is the MESSAGE, into
+    which V8 quotes the first ten characters of the body. That is F-108, now confirmed live. Only
+    the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
+    shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
   ruling: >-
     FIXED in fix round 2, AND THE IMPLEMENTER CORRECTED THE FINDING'S MECHANISM. Both this finding and
@@ -8401,6 +8431,21 @@
     creation, or name the residual as loudly as the depth-5 one is - source docblock, contract
     partition section, and invariant 5 - with the rule that a TASK must not put a throwable into
     child bindings. A test on emitted bytes for the child path either way; the suite has none.
+  correction: >-
+    CORRECTED 2026-08-09, ruled by Juano, after the first end-to-end measurement anyone in this
+    chain performed. THE STATED ATTACKER PATH DOES NOT OCCUR. body-parser 2.3.0 read.js does
+    attach the raw body - createError(400, err, { body: str, type }), own and enumerable, exactly
+    as claimed - BUT @nestjs/core routes-resolver.js:94-101 mapExternalException replaces every
+    SyntaxError with new BadRequestException(err.message) before any filter sees it, so the error
+    carrying `body` never reaches application code. What the shipped filter receives has ownKeys
+    stack, response, status, options, message, name; body and cause are undefined. No application
+    seam observes the original - an express error middleware before init() sits ahead of the
+    parsers, one after sits behind Nest's handler, and both were tried. THE REMEDY STANDS AND THE
+    CONTROL IS STILL NEEDED: the leak shapes are reachable without body-parser at all (F-260 and
+    F-263 both leak with none involved), and the real framework-400 exposure is the MESSAGE, into
+    which V8 quotes the first ten characters of the body. That is F-108, now confirmed live. Only
+    the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
+    shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
@@ -8433,6 +8478,21 @@
     fixed context string on every error log call in the contract's implementer-guarantee list. The
     architect's own TASK-009 constraint text already writes `logger.error({ err }, 'fixed context
     string')`; the contract body does not say it.
+  correction: >-
+    CORRECTED 2026-08-09, ruled by Juano, after the first end-to-end measurement anyone in this
+    chain performed. THE STATED ATTACKER PATH DOES NOT OCCUR. body-parser 2.3.0 read.js does
+    attach the raw body - createError(400, err, { body: str, type }), own and enumerable, exactly
+    as claimed - BUT @nestjs/core routes-resolver.js:94-101 mapExternalException replaces every
+    SyntaxError with new BadRequestException(err.message) before any filter sees it, so the error
+    carrying `body` never reaches application code. What the shipped filter receives has ownKeys
+    stack, response, status, options, message, name; body and cause are undefined. No application
+    seam observes the original - an express error middleware before init() sits ahead of the
+    parsers, one after sits behind Nest's handler, and both were tried. THE REMEDY STANDS AND THE
+    CONTROL IS STILL NEEDED: the leak shapes are reachable without body-parser at all (F-260 and
+    F-263 both leak with none involved), and the real framework-400 exposure is the MESSAGE, into
+    which V8 quotes the first ten characters of the body. That is F-108, now confirmed live. Only
+    the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
+    shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
@@ -8608,6 +8668,21 @@
     Same six-line wrapper as child(), preceded by a red test on emitted bytes from
     sdlc-test-architect. Alternative is a documented residual, which Juano's F-251 ruling already
     weighed and declined for this exact shape.
+  correction: >-
+    CORRECTED 2026-08-09, ruled by Juano, after the first end-to-end measurement anyone in this
+    chain performed. THE STATED ATTACKER PATH DOES NOT OCCUR. body-parser 2.3.0 read.js does
+    attach the raw body - createError(400, err, { body: str, type }), own and enumerable, exactly
+    as claimed - BUT @nestjs/core routes-resolver.js:94-101 mapExternalException replaces every
+    SyntaxError with new BadRequestException(err.message) before any filter sees it, so the error
+    carrying `body` never reaches application code. What the shipped filter receives has ownKeys
+    stack, response, status, options, message, name; body and cause are undefined. No application
+    seam observes the original - an express error middleware before init() sits ahead of the
+    parsers, one after sits behind Nest's handler, and both were tried. THE REMEDY STANDS AND THE
+    CONTROL IS STILL NEEDED: the leak shapes are reachable without body-parser at all (F-260 and
+    F-263 both leak with none involved), and the real framework-400 exposure is the MESSAGE, into
+    which V8 quotes the first ten characters of the body. That is F-108, now confirmed live. Only
+    the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
+    shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
@@ -8666,6 +8741,21 @@
   required_change: >-
     The hook must cover every argument position, not the first two - replace Errors in all args
     before pino interpolates them. Plus a test on emitted bytes for the format-string shapes.
+  correction: >-
+    CORRECTED 2026-08-09, ruled by Juano, after the first end-to-end measurement anyone in this
+    chain performed. THE STATED ATTACKER PATH DOES NOT OCCUR. body-parser 2.3.0 read.js does
+    attach the raw body - createError(400, err, { body: str, type }), own and enumerable, exactly
+    as claimed - BUT @nestjs/core routes-resolver.js:94-101 mapExternalException replaces every
+    SyntaxError with new BadRequestException(err.message) before any filter sees it, so the error
+    carrying `body` never reaches application code. What the shipped filter receives has ownKeys
+    stack, response, status, options, message, name; body and cause are undefined. No application
+    seam observes the original - an express error middleware before init() sits ahead of the
+    parsers, one after sits behind Nest's handler, and both were tried. THE REMEDY STANDS AND THE
+    CONTROL IS STILL NEEDED: the leak shapes are reachable without body-parser at all (F-260 and
+    F-263 both leak with none involved), and the real framework-400 exposure is the MESSAGE, into
+    which V8 quotes the first ten characters of the body. That is F-108, now confirmed live. Only
+    the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
+    shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
@@ -8938,6 +9028,34 @@
     amendment minimal, and said so. Filed rather than left implicit.
   required_change: Correct it, or state in the amendment that wave claims in the ADR body are superseded by the TASK cards.
   owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-273
+  phase: implement
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 4
+  severity: minor
+  kind: security
+  file: apps/api/src/common/errors/exception-filter.ts
+  line: 1
+  summary: >-
+    exception.getResponse().message is an UNCOVERED SECOND COPY of the quoted request-body
+    fragment that BadRequestException carries. Flagged by the test architect during the
+    framework-400 measurement rather than filed by it.
+  failure_scenario: >-
+    Nest builds BadRequestException from err.message, and V8 has already quoted the first ten
+    characters of the request body into that string - so a body beginning with a credential leaks
+    ten verbatim characters. The shipped policy withholds `message`, and mutation E proved the
+    withholding is what does the work. But the SAME fragment exists a second time inside the
+    exception's response object, reachable via getResponse(), and no test pins that the filter
+    never writes it to a line or a body.
+  required_change: >-
+    A test on emitted bytes that the response-object copy reaches neither the log line nor the
+    HTTP body, and whatever filter change that test demands. Same policy, second copy.
+  owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
   resolved_round: null
