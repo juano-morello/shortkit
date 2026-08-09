@@ -8,8 +8,9 @@
 
 ## Logger
 
-Amended 2026-08-08 (F-242, F-244, F-248, F-249), and again 2026-08-08 fix round 3 (F-250,
-F-251, F-252, F-253, F-255, F-258). The block below matches the shipped
+Amended 2026-08-08 (F-242, F-244, F-248, F-249), again 2026-08-08 fix round 3 (F-250, F-251,
+F-252, F-253, F-255, F-258), and again 2026-08-09 fix round 4 (F-259, F-260, F-263, F-265,
+F-267, F-269). The block below matches the shipped
 `apps/api/src/observability/logger.ts` on pino 10.3.1.
 
 **This contract is the single normative source for the logger's configuration.** ADR-0022
@@ -18,13 +19,20 @@ used to fence a copy of it and no longer does (F-250); the wave-1 stub at
 (F-249). One configuration living in three artifacts is what produced F-244, F-248, F-249
 and F-250 in sequence.
 
-**Four mechanisms in the literal, plus two wrappers the literal cannot express, and every
-one of them is load-bearing.** `redact` covers named fields. `serializers.err` covers the
-`err` key. `hooks.logMethod` covers both call shapes that would otherwise put an error's
-message into `msg`. `formatters.log` covers every other key at depth. The wrappers on
-`logger.child` and `logger.setBindings` run the same scan on the other path a line is built
-by, because no pino option reaches it. Read "Why each mechanism is here" and "The two
-wrappers" below before editing any of them. Removing one reopens a leak that already
+**Four mechanisms in the literal, plus three things under it the literal cannot express, and
+every one of them is load-bearing.**
+
+| Mechanism | Covers | Section |
+|---|---|---|
+| `redact` | fields you can name, one wildcard level | "Why each mechanism is here" |
+| `serializers.err` | the top-level `err` key, including a non-error under it | "Why each mechanism is here" |
+| `hooks.logMethod` | every call shape that would put an error's message into `msg` — the record, and every argument position pino formats | "Why each mechanism is here", "Door six" |
+| `formatters.log` | every other key of the record, to depth 4 | "The ordering" |
+| the `logger.child` wrapper | bindings, on the other path a line is built by | "The two wrappers" |
+| the `logger.setBindings` wrapper | the second entry to the same path | "The two wrappers" |
+| `childOptionsChecked` | a child that tries to replace `redact`, `serializers` or `formatters` | "The two wrappers" |
+
+Read the sections named before editing any of them. Removing one reopens a leak that already
 shipped once, and `apps/api/src/observability/logger.spec.ts` fails on each.
 
 ### PENDING: redaction becomes a field allowlist (ADR-0028)
@@ -71,11 +79,26 @@ scan. Everything after `isWalkable` in that file — `RequestLogFields`, `ErrorL
 `errorLogFields` and its helpers — belongs to `error-envelope.md` and is deliberately not
 reproduced here.
 
-The comparison is: strip comments from both sides, collapse each run of whitespace to a
-single space, and the normalised fence must appear as a **contiguous substring** of the
-normalised source. Comments are stripped on both sides, so the explanatory comments inside
-the fence are free and may differ from the source's docblocks. Anything else — a reordered
-declaration, a changed redact path, a dropped wrapper, a different depth bound — fails.
+The comparison, implemented by `apps/api/src/observability/logger-contract-drift.spec.ts`:
+strip comments from both sides and collapse each run of whitespace **outside a string** to a
+single space, then cut the region out of the source between two anchors and compare it to the
+fence for **equality**. The anchors are the literal text `import pino from 'pino';` and
+`export interface RequestLogFields`, the first declaration `error-envelope.md` owns rather
+than this one. Whitespace inside a string is left alone, because the strings are the payload
+here — redact paths, the censor, the fixed context message.
+
+Comments are stripped on both sides, so the explanatory comments inside the fence are free
+and may differ from the source's docblocks. Everything else fails: a reordered declaration, a
+changed redact path, a different depth bound, a dropped wrapper.
+
+**Equality between anchors rather than substring containment, and the difference matters
+(F-270).** A substring is open at both ends, so dropping the last declaration from the fence
+left a shorter needle that was still found, and adding a declaration to the source just after
+the region left the same needle found in a longer haystack. Both stayed green when measured
+on copies, and the end of the region is exactly where a new wrapper gets appended — which is
+the shape F-251 and F-258 both had. **Anything a later round inserts before
+`RequestLogFields` is inside the region by this contract's definition and belongs in the
+fence.**
 
 **When this block and the shipped file disagree, the shipped file wins and the divergence
 is a finding.** A TASK that changes the logger updates this block in the same commit, and
@@ -147,11 +170,64 @@ export const logger = pino({
         }
       }
 
-      method.apply(this, args);
+      // Door six (F-260): pino also builds `msg` out of the ARGUMENTS, before `write()`.
+      // See "Door six" below.
+      method.apply(this, interpolationCovered(args) as Parameters<pino.LogFn>);
     },
   },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
+
+// The format path (F-260, F-269). `quick-format-unescaped` expands `%o`, `%j` and `%s`
+// before `write()` runs, so no serialiser, formatter or wrapper is anywhere on it. The two
+// argument roles get two different answers; see "Door six" for why.
+function interpolationCovered(args: readonly unknown[]): readonly unknown[] {
+  const message = messageArgumentIndex(args);
+
+  const covered = message === 1 && args[1] instanceof Error ? errorMovedOntoTheRecord(args) : args;
+
+  let replaced: unknown[] | undefined;
+
+  for (let index = message + 1; index < covered.length; index += 1) {
+    const argument = covered[index];
+    const safe = interpolationSafe(argument);
+
+    if (safe !== argument) {
+      replaced ??= [...covered];
+      replaced[index] = safe;
+    }
+  }
+
+  return replaced ?? covered;
+}
+
+// `LOG` branches on `typeof o === 'object'`, so `null` takes the record branch too, and a
+// leading `undefined` is shifted past. Everything from here on is interpolated.
+function messageArgumentIndex(args: readonly unknown[]): number {
+  return typeof args[0] === 'object' || args[0] === undefined ? 1 : 0;
+}
+
+// `log.error(record, error)`. The error is filed under `err`, where `serializers.err` owns
+// it, and the message becomes the string a positional error already gets.
+function errorMovedOntoTheRecord(args: readonly unknown[]): readonly unknown[] {
+  const record = typeof args[0] === 'object' && args[0] !== null ? args[0] : {};
+
+  return [{ ...record, [ERROR_KEY]: args[1] }, POSITIONAL_ERROR_MESSAGE, ...args.slice(2)];
+}
+
+// 2, not 1: the top-level `err` exemption exists only because `serializers.err` runs after
+// `formatters.log`. Nothing runs after `format`, so here the exemption would be a hole.
+// Load-bearing — see "Door six". Unifying this with the depth the wrappers use reopens
+// `logger.error('ctx %o', { err: e })`.
+const FORMAT_ARGUMENT_SCAN_DEPTH = 2;
+
+function interpolationSafe(value: unknown): unknown {
+  if (value instanceof Error) {
+    return errorLogFields(value, { includeMessage: false });
+  }
+
+  return isWalkable(value) ? errorsReplaced(value, FORMAT_ARGUMENT_SCAN_DEPTH) : value;
+}
 
 // The bindings path (F-251, F-258). No pino option reaches it; see "The two wrappers".
 type ChildFactory = (
@@ -166,7 +242,7 @@ const inheritedChild: ChildFactory = logger.child;
 const inheritedSetBindings: BindingsSetter = logger.setBindings;
 
 const childWithErrorsReplaced: ChildFactory = function childWithErrorsReplaced(bindings, options) {
-  return inheritedChild.call(this, bindingsScanned(bindings), options);
+  return inheritedChild.call(this, bindingsScanned(bindings), childOptionsChecked(options));
 };
 
 const setBindingsWithErrorsReplaced: BindingsSetter = function setBindingsWithErrorsReplaced(
@@ -181,18 +257,51 @@ function bindingsScanned(bindings: pino.Bindings): pino.Bindings {
   return bindings ? errorsReplaced(bindings, 1) : bindings;
 }
 
+// Child options REPLACE the root's rather than merging with them, so these three are
+// refused (F-263). `level`, `msgPrefix` and `customLevels` still work. See "A child's
+// options are an opt-out, so they are refused" under "The two wrappers".
+const OPTIONS_A_CHILD_MAY_NOT_REPLACE = ['redact', 'serializers', 'formatters'] as const;
+
+function childOptionsChecked(
+  options?: pino.ChildLoggerOptions,
+): pino.ChildLoggerOptions | undefined {
+  const supplied: unknown = options;
+
+  if (typeof supplied !== 'object' || supplied === null) {
+    return options;
+  }
+
+  const replaced = OPTIONS_A_CHILD_MAY_NOT_REPLACE.filter((option) =>
+    Object.hasOwn(supplied, option),
+  );
+
+  if (replaced.length > 0) {
+    throw new TypeError(
+      `a child logger may not supply its own ${replaced.join(', ')}: pino replaces the ` +
+        `logger's own rather than merging, so this child would lose the controls that keep ` +
+        `an error's incidental fields, a credential and an IP off every line it writes. ` +
+        `See design/contracts/logging-and-headers.md.`,
+    );
+  }
+
+  return options;
+}
+
+// Not writable and not configurable (F-267), so `logger.child = pinoChild` is a TypeError
+// rather than a silent replacement. pino's originals stay reachable through the prototype;
+// see "Versioning" for what that does and does not buy.
 Object.defineProperty(logger, 'child', {
   value: childWithErrorsReplaced,
-  writable: true,
+  writable: false,
   enumerable: false,
-  configurable: true,
+  configurable: false,
 });
 
 Object.defineProperty(logger, 'setBindings', {
   value: setBindingsWithErrorsReplaced,
-  writable: true,
+  writable: false,
   enumerable: false,
-  configurable: true,
+  configurable: false,
 });
 
 /** The key pino files a positional `Error` under, and the one key `serializers.err` owns. */
@@ -248,7 +357,10 @@ function errorsReplaced<T extends object>(container: T, depth: number): T {
   return replacement ?? container;
 }
 
-/** A property whose getter threw. The scan leaves that key exactly as it found it. */
+/**
+ * A property whose getter threw. The scan leaves that key exactly as it found it — which
+ * does not make the scan throw-free (F-259). See "A log call can still throw".
+ */
 const UNREADABLE_PROPERTY = Symbol('unreadable property');
 
 function readIndexedProperty(container: object, key: string): unknown {
