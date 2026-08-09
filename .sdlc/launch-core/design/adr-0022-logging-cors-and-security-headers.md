@@ -43,6 +43,21 @@ This costs nothing now and three TASK reworks later.
 >
 > What this ADR still decides is below and is unchanged: redaction is an allowlist of paths
 > applied at the logger, the list is append-only, and which classes of value are on it.
+>
+> **Amended 2026-08-09 (F-272). Wave claims in this ADR's body are superseded by the TASK
+> cards.** The paragraph below said TASK-003 ships the `x-shortkit-*` entries "in wave 1,
+> before TASK-009"; `TASK-003.md:55` corrected that on 2026-08-06 — TASK-003 and TASK-009 are
+> both in wave 2 and run concurrently — and the sentence is corrected in place below. The
+> general rule is the point: this ADR records decisions, and when it names a wave, the TASK
+> card wins.
+>
+> **Superseded 2026-08-09 by ADR-0028, in the redaction clause only.** CORS, the header
+> table and the HSTS decision stand unchanged. What ADR-0028 replaces is the mechanism:
+> "redaction is an allowlist of paths" means an allowlist of paths *to censor*, which is a
+> denylist of key names, and it failed three audit rounds by covering only the spellings
+> someone thought of. Under ADR-0028 a field reaches a log line only if its key is named.
+> The alternative this ADR rejected as "an explicit whitelist of loggable fields" is the one
+> ADR-0028 adopts, and it answers the rejection's reason rather than ignoring it.
 
 `*.ip` and the two IP headers are redacted because GC-9 says click events store
 `ip_hash` and never a raw IP, and a log line carrying the raw IP defeats that. `ipHash`
@@ -52,9 +67,10 @@ a weaker boundary than the database.
 The two `x-shortkit-*` entries were added 2026-08-04 (F-032). `x-shortkit-client-ip` is
 a raw client IP on every browser-originated request, and `x-shortkit-proxy-auth`
 carries `BFF_PROXY_SECRET` verbatim; the `'*.secret'` wildcard matches a property one
-level deep and does not reach a header key. TASK-003 ships both entries in wave 1,
-before TASK-009 and TASK-012 introduce the headers, because a later append would have
-no owner.
+level deep and does not reach a header key. TASK-003 ships both entries with the rest of
+the list. TASK-003 and TASK-009 are both in wave 2 and run concurrently (`TASK-003.md`,
+corrected 2026-08-06), so the entries land before or beside the headers themselves;
+redacting a not-yet-sent header is free, and a later append would have no owner.
 
 **Every log line carries `request_id`, and nothing carries a body by default.** The
 request logger emits method, path, status and duration. Logging a request or response

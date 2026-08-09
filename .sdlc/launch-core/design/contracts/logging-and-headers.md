@@ -27,6 +27,42 @@ by, because no pino option reaches it. Read "Why each mechanism is here" and "Th
 wrappers" below before editing any of them. Removing one reopens a leak that already
 shipped once, and `apps/api/src/observability/logger.spec.ts` fails on each.
 
+### PENDING: redaction becomes a field allowlist (ADR-0028)
+
+**Filed 2026-08-09, not yet implemented, and the fenced block below is deliberately
+unchanged.** ADR-0028 replaces `REDACT_PATHS` and pino's `redact` option with
+`LOGGABLE_FIELDS`: a field reaches a log line only if its key is named, and every other key
+is emitted as `[redacted]`. It was written because the 25-path list has failed three audit
+rounds the same way — it covers the spellings someone thought of (F-244's `err.body`,
+F-262's `clientIp`/`trustedClientIp`/`remoteAddress`, F-266's `sessionToken`/`apiKey`/
+bare `authorization`) — and appending the newly-found names buys a fourth round.
+
+**Until ADR-0028 is approved and implemented, everything below this block describes what
+ships, including the parts ADR-0028 measured false.** The fence is compared to
+`apps/api/src/observability/logger.ts` by a drift test, so amending it ahead of the source
+would turn a passing gate red for the length of the gap. The source, the fence and this
+section change in one commit.
+
+What changes when it lands, so a reader of the sections below knows which of them are
+provisional:
+
+- `REDACT_PATHS` and the `redact` option are removed. The 25 paths move into "What may never
+  appear in a log line" as names that must never be added to `LOGGABLE_FIELDS`.
+- "Which casing `REDACT_PATHS` is keyed to" and its `ip_hash` residual stop being
+  load-bearing: an unnamed snake_case key is censored like every other unnamed key.
+- The residuals under "The residuals" close. A container the scan cannot inspect — past the
+  depth bound, a class instance, anything carrying `toJSON` (F-265) — is censored rather than
+  passed through.
+- **Invariant 1 becomes true** for a stronger reason than it states: a whole request object
+  does not reach the line at all.
+- **Invariant 5 narrows.** An `Error` at depth 1 still emits `err_name` and `err_stack` under
+  any key spelling, because an `Error` value is reduced by policy before any key decision.
+  An error nested under a key that is not named — `{ ctx: { err: e } }` — is censored with
+  its container and lost, rather than reduced. Measured: `"ctx":"[redacted]"`.
+- **F-263 becomes a precondition.** `logger.child(b, { formatters: { log: (o) => o } })`
+  disables the scan for that child, and after `redact` is removed nothing sits behind it.
+  The child-options rejection lands first or in the same commit.
+
 ### The block below is machine-checked against the shipped file
 
 The fence is the **normative region**: `apps/api/src/observability/logger.ts` from its
@@ -458,15 +494,29 @@ covers none of them completely:
 record for pino to read again. That is what the source docblock means by "leaves pino's own
 stringify to handle it exactly as it did before this function existed", and it is accurate.
 
-**Why a sentinel was rejected.** Making `readIndexedProperty` write a placeholder into the
-copy would cover the first two rows and not the last two: fast-redact's clone and
-`asChindings` run over containers the scan does not reach, at depths past the bound and
-inside class instances it declines to walk. A safety guarantee bounded at depth 4 is worse
-than a stated residual, because the two call sites that need it — the exception filter's
-`headersSent` arm, outside the try/catch F-092 added, and `main.ts`'s last-chance boot
-handler — have no way to check the bound before they call. It would also cost the copy:
-`{ ...container }` re-invokes the getter, so the sentinel forces a key-by-key copy on the
-path every log line carrying an error takes.
+**Why a sentinel was rejected. The ruling stands; one sentence of its reasoning was measured
+false and is corrected here (F-271).** It used to say a sentinel would cover the first two
+rows and not the last two. It would not split the table that way. `_asJson`, fast-redact's
+`cloneSelectively` and `asChindings` all read the scan's **own output**, so a placeholder
+written into the copy is what each of them sees, and rows 1, 3 and 4 are covered alike —
+inside the scan's reach, and not outside it. The row a sentinel does not reach is **row 2**,
+the scan's own `{ ...container }`, which re-invokes the getter before any sentinel can be
+written; that one needs a key-by-key copy rather than a spread, and it is F-259.
+
+What the ruling rests on is the reach, which is the same for all four rows: the scan is
+bounded at depth 4 and declines to walk a class instance, so a sentinel buys a **bounded**
+guarantee, and the two call sites that need it — the exception filter's `headersSent` arm,
+outside the try/catch F-092 added, and `main.ts`'s last-chance boot handler — have no way to
+check the bound before they call. A safety guarantee whose beneficiaries cannot tell whether
+it applies is worse than a stated residual. It would also cost the copy: `{ ...container }`
+re-invokes the getter, so the sentinel forces a key-by-key copy on the path every log line
+carrying an error takes.
+
+**ADR-0028 changes this ruling's premises and does not overturn it.** Under a field
+allowlist the scan has no unreachable containers left to pass through: past the depth bound
+and inside a class instance both become `[redacted]`, so "bounded at depth 4" stops being the
+objection. Whether a sentinel plus a key-by-key copy is then worth its cost is a decision for
+whoever owns F-253 and F-259 next. It is not made here.
 
 **What is guaranteed, and it is the half these two call sites actually meet.** A hostile
 **error** is survivable. An accessor that throws on `name`, `message` or `stack` is caught by
@@ -532,6 +582,18 @@ Normative. GC-9.
   `error-envelope.md`, "What the 500 log line carries, and who owns changing it".
 - Any property a library assigned to an error. `body-parser` puts the raw request body on
   `err.body`; `pg` puts colliding column values on `detail`.
+
+**The spellings a prohibited value actually arrives under, and what happens to them
+(F-261, F-262, F-266).** Measured 2026-08-08 against the shipped logger: `clientIp`,
+`trustedClientIp`, `remoteAddress`, `ipAddress`, `remotePort`, `url`, `sessionToken`,
+`accessToken`, `refreshToken`, `apiKey`, `api_key`, `passwordHash`, and a bare
+`authorization` or `cookie` outside `req.headers`, are all emitted **verbatim** today.
+`trustedClientIp` is the accessor already named in
+`design/stubs/apps/api/src/auth/resolve-rate-limit-principal.ts:28`, so the spelling this
+system will hold is one of the uncensored ones. Under ADR-0028 these are censored because
+they are not named, along with every spelling nobody has thought of, and this paragraph
+becomes the **never-allowlist list**: names that may not be added to `LOGGABLE_FIELDS`,
+whatever a call site wants them for. Until then, no call site may log any of them.
 
 The redact list is one of six mechanisms, and it is the one that only covers fields you
 can name. **It is an allowlist of paths and it does not reach arbitrary nesting**:
@@ -627,6 +689,15 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 
 1. Logging a whole request or response object never emits a credential, an IP, or a
    cookie. The redaction is at the logger, so no call site has to remember.
+   **Not true today (F-261).** Measured 2026-08-08 against the shipped logger:
+   `logger.info(req, '…')` emits `"remoteAddress":"203.0.113.7"`, `"remotePort":54321` and
+   the concrete `"url":"/l/abc?token=SEKRIT"` in the clear. The six `req.headers.*` paths
+   are censored, which is what makes this dangerous rather than obvious — the list reads as
+   though logging a whole request were a covered act. A raw client IP in any field is GC-9's
+   first prohibition, and the concrete path is what "Required fields" forbids two sections
+   above. Until ADR-0028 lands, **a caller may not rely on this invariant**: log named
+   fields, never a request or response object. ADR-0028 makes it true by censoring the whole
+   object, since `req` is not a named field.
 2. Every line inside a request carries `request_id`; every line inside a tenant
    transaction carries `tenant_id`.
 3. The API sends no `Access-Control-Allow-Origin` header, for any origin, on any route.
@@ -665,7 +736,13 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
   contains neither value and contains `[redacted]`.
 - A test asserts no response carries `Access-Control-Allow-Origin`.
 - Adding a field that could carry a secret means adding its path to `REDACT_PATHS` in the
-  same commit.
+  same commit. **Reversed by ADR-0028**: adding *any* field means naming it in
+  `LOGGABLE_FIELDS` in the same commit, and a field that could carry a secret may not be
+  named at all. A field that skips that step emits `"<field>":"[redacted]"`.
+- **Never log a request or response object.** Log named fields from it. `logger.info(req, …)`
+  emits the raw client IP and the concrete path today (invariant 1), and under ADR-0028 it
+  emits `"req":"[redacted]"` and tells you nothing. Neither outcome is what the call site
+  wanted; `request_id`, `route`, `status` and `duration_ms` are.
 - **Assert the bytes, not the configuration.** `apps/api/src/observability/logger.spec.ts`
   spawns a Node process, imports the shipped singleton, emits one line per call shape and
   reads stdout. A test that inspected `logger.options.serializers` passes against a config
@@ -707,6 +784,13 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 
 `REDACT_PATHS` is append-only. Removing a path needs a reason in the commit message.
 Changing the header table requires amending ADR-0022.
+
+**ADR-0028 removes `REDACT_PATHS` entirely, and that ADR is the reason in the commit
+message.** Its replacement, `LOGGABLE_FIELDS`, is append-only under the same rule with one
+addition: a name may be appended only after it has been checked against "What may never
+appear in a log line", and removing a name silently censors a field that was on the line
+yesterday, so it needs the same reason. `err_name`, `err_message` and `err_stack` are on
+that list, so renaming any of them now censors it as well as breaking every saved log query.
 
 `serializers.err`, `hooks.logMethod`, `formatters.log` and the two bindings wrappers are
 not removable by a TASK. Each closes a leak that shipped once, each is defended by tests in
