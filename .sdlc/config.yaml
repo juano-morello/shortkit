@@ -9,6 +9,26 @@ gates:
   mode: phase
   require_approval: [refine, plan, design, test, implement, ship]
 
+# Added 2026-08-09 with the launch-core -> foundation re-scope. The initiative-size rule
+# did not exist when launch-core was planned, and neither did this block; `full` was run
+# by default on all 58 TASKs, which is how that initiative reached a 9:1
+# artifact-to-code ratio. `standard` is the default now so the roadmap increments do not
+# inherit full ceremony by habit — they have to earn it, or trip a glob below.
+track:
+  default: standard
+  # Any initiative touching these is at least `full` and cannot be talked down to
+  # `express`. Upgrading is automatic; downgrading is a decision.
+  force_full_paths:
+    - "apps/api/src/tenancy/**"              # tenant context; GC-5's transaction rule
+    - "apps/api/src/db/**"                   # RLS policy template, client, check-policies
+    - "apps/api/drizzle/**"                  # migrations — not reversible after the fact
+    - "apps/api/src/auth/**"                 # auth surface, session and JWT issuance
+    - "apps/api/src/common/authorization/**" # role checks
+    - "apps/api/src/invitations/tokens/**"   # capability tokens, ADR-0021
+    - "packages/contracts/src/auth/**"       # auth shapes both deployables read
+    - "apps/api/test/isolation/**"           # the suite SC-1 rests on
+    - "apps/api/src/gdpr/**"                 # export and erasure; destructive, cross-tenant
+
 rework:
   max_rework_iterations: 5
   reaudit: raised-only

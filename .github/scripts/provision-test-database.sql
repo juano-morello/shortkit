@@ -1,7 +1,7 @@
 -- The roles, database and grants the `integration` job's Postgres service needs.
 --
--- Contract: .sdlc/launch-core/design/contracts/rls-policy-template.md ("Roles")
--- ADR: .sdlc/launch-core/design/adr-0003-rls-policy-template-and-roles.md
+-- Contract: .sdlc/foundation/design/contracts/rls-policy-template.md ("Roles")
+-- ADR: .sdlc/foundation/design/adr-0003-rls-policy-template-and-roles.md
 --
 -- Both paths are written out in full because the bare `design/contracts/...` form used
 -- across apps/ and packages/ does not resolve from the repository root — there is no

@@ -52,7 +52,7 @@ const SOURCE_PATH = new URL('./logger.ts', import.meta.url);
  * in the message, which is the correct outcome — a missing contract is not a passing test.
  */
 const CONTRACT_PATH = new URL(
-  '../../../../.sdlc/launch-core/design/contracts/logging-and-headers.md',
+  '../../../../.sdlc/foundation/design/contracts/logging-and-headers.md',
   import.meta.url,
 );
 
