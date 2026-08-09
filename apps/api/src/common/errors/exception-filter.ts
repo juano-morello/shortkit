@@ -237,6 +237,23 @@ export class ApiExceptionFilter implements ExceptionFilter {
       // not remove a credential sitting at the start of the quoted slice. What is left is
       // the exception's name, its frames and the `request_id`, which is what the operator
       // can act on anyway. See `observability/logger.ts` for the full policy.
+      //
+      // MEASURED, END TO END, IN `observability/framework-400-request-body.spec.ts`, and
+      // it corrects what six findings assumed. body-parser DOES attach the verbatim body to
+      // the error it raises (`read.js:163`), but `RoutesResolver.mapExternalException`
+      // (`routes-resolver.js:94-101`) replaces every `SyntaxError` with
+      // `new BadRequestException(err.message)` before any filter runs — so `err.body` is
+      // gone before this line, and what actually arrives is the MESSAGE, into which V8
+      // quotes the first ten characters of the body: `Unexpected token 'S', "SEKRIT-KEY"...`.
+      //
+      // THERE IS A SECOND COPY OF THAT FRAGMENT AND NOTHING HERE MAY REACH FOR IT (F-273).
+      // `exception.getResponse()` returns `{ message, error, statusCode }` carrying the same
+      // quoted bytes one level down, under a key nothing special-cases. This filter never
+      // calls it — not for the body (branch 3 builds its own envelope, ADR-0026) and not for
+      // the log (`logError` passes the exception to `errorLogFields`, which reads `name`,
+      // `message` and `stack` and returns). A later edit that logs or forwards
+      // `getResponse()` reinstates F-108 through a route the `includeMessage` policy does
+      // not stand in front of, because the value is no longer the exception's `message`.
       logError(log, 'framework exception with a 400 status', exception);
       return errorResponse('validation_failed', VALIDATION_FAILED_MESSAGE, {
         fieldErrors: { [FORM_ERROR_KEY]: [FRAMEWORK_BAD_REQUEST_FORM_MESSAGE] },

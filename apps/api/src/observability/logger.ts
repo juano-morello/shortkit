@@ -126,6 +126,10 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
  * walked past it. The second branch below supplies the context string pino would otherwise
  * take from the error, and hands the caller's own record through unchanged so its fields
  * survive.
+ *
+ * AND `msg` IS BUILT FROM THE ARGUMENTS AS WELL AS FROM THE RECORD (F-260). That is a
+ * mechanism none of the above stands in front of; `interpolationCovered` below the literal
+ * owns it, and the hook's last line is where it is applied.
  */
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -152,11 +156,129 @@ export const logger = pino({
         }
       }
 
-      method.apply(this, args);
+      method.apply(this, interpolationCovered(args) as Parameters<pino.LogFn>);
     },
   },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
+
+/**
+ * ============================================================================
+ * DOOR SIX: `msg` IS BUILT FROM THE CALL'S ARGUMENTS TOO (F-260, F-269).
+ * ============================================================================
+ *
+ * `genLog`'s `LOG` (`tools.js:47-77`) calls `format(msg, formatParams, formatOpts)` —
+ * `quick-format-unescaped` — BEFORE `write()` runs. `%o`, `%O` and `%j` expand an argument
+ * through the stringifier and `%s` expands it through `String()`. Neither `formatters.log`,
+ * nor `serializers.err`, nor either bindings wrapper is anywhere on that path: they act on
+ * the RECORD or on BINDINGS, and this is neither. The hook above read `args[0]` and
+ * `args[1]` only, so by the time a placeholder mattered `args[1]` was a string and every
+ * branch of it declined.
+ *
+ * REPRODUCED against this module before the fix, on an error shaped as a library shapes
+ * one: `logger.error('parse failed: %o', e)` put every own enumerable property of the
+ * throwable into `msg` — the one top-level field no redact path may censor without
+ * censoring every line's text. `%j` was identical, `%s` wrote `${name}: ${message}`, and
+ * `logger.error({ request_id }, e)` — the `Error` in the MESSAGE position, one token from
+ * the covered `logger.error(e, 'context')` — made `msg` a JSON OBJECT holding the same
+ * payload.
+ *
+ * REDACTION IS NOT THE FALLBACK HERE, AND IT WAS CHECKED RATHER THAN ASSUMED.
+ * `formatOpts.stringify` IS the redacting stringifier, so an interpolated object does get
+ * the path list applied — it does not help for F-244's reason, that the payload is a STRING
+ * and no path reaches inside one, and `%s` bypasses `stringify` altogether.
+ *
+ * WHAT THIS DOES: every position pino interpolates goes through the same policy the record
+ * path uses, before pino formats anything.
+ *
+ *   - AN `Error` IN THE MESSAGE POSITION is moved onto the record under `err`, where
+ *     `serializers.err` owns it, and the message becomes the fixed string the positional
+ *     branch already uses. It cannot be reduced in place: `format` returns a non-string
+ *     message unchanged, so `msg` would be an object rather than a line an aggregator can
+ *     index.
+ *   - AN `Error` IN A FORMAT-PARAMETER POSITION becomes `errorLogFields(…)`, so `%o` and
+ *     `%j` interpolate the name and the frames and nothing else. `%s` on that object reads
+ *     `[object Object]`: a placeholder is the wrong way to hand this logger an error, and
+ *     `log.error({ err }, 'context')` is the shape that gives the operator the fields.
+ *   - A CONTAINER in either position is scanned, so `logger.error('ctx %o', { err: e })` —
+ *     the auditor's own reproduction — is covered as well.
+ *
+ * F-269 RIDES ON THIS RATHER THAN BEING CLOSED BY IT. `logger.error('parse failed', e)` —
+ * a trailing argument no placeholder consumes — is still DROPPED by `quick-format`, which
+ * is pino's documented behaviour and not something this module changes. What changed is
+ * that the dropped argument and the interpolated one are now the same reduced value, so the
+ * difference between `'parse failed'` and `'parse failed %o'` is a silent line versus a line
+ * carrying a name and frames. It is no longer silence versus a credential.
+ *
+ * COST. The common shape — `log.error({ … }, 'context')` — reaches the loop with nothing to
+ * iterate and allocates nothing; a call with format arguments allocates one array only if a
+ * value actually changed. Measured with the rest of the module against GC-1's 25 ms.
+ */
+function interpolationCovered(args: readonly unknown[]): readonly unknown[] {
+  const message = messageArgumentIndex(args);
+
+  // The message position first: covering it rewrites the whole argument list.
+  const covered = message === 1 && args[1] instanceof Error ? errorMovedOntoTheRecord(args) : args;
+
+  let replaced: unknown[] | undefined;
+
+  for (let index = message + 1; index < covered.length; index += 1) {
+    const argument = covered[index];
+    const safe = interpolationSafe(argument);
+
+    if (safe !== argument) {
+      replaced ??= [...covered];
+      replaced[index] = safe;
+    }
+  }
+
+  return replaced ?? covered;
+}
+
+/**
+ * Which argument pino will format into `msg`. `LOG` branches on `typeof o === 'object'` —
+ * so `null` takes the record branch too — and shifts a leading `undefined` past. Everything
+ * from this index onwards is interpolated; `args[0]` below it is the RECORD, which
+ * `formatters.log` and `serializers.err` already own.
+ */
+function messageArgumentIndex(args: readonly unknown[]): number {
+  return typeof args[0] === 'object' || args[0] === undefined ? 1 : 0;
+}
+
+/**
+ * `log.error(record, error)`. The error is filed under `err`, where `serializers.err`
+ * reduces it to the policy fields, and the message becomes the string a positional error
+ * already gets.
+ *
+ * The caller's record is COPIED rather than mutated, and an `err` it already carried is
+ * overwritten deliberately — the alternative is leaving the error in the message position,
+ * which is the leak this exists to close. The copy is a spread, so it re-reads the record's
+ * own keys; `readIndexedProperty` states what that does and does not guarantee.
+ */
+function errorMovedOntoTheRecord(args: readonly unknown[]): readonly unknown[] {
+  const record = typeof args[0] === 'object' && args[0] !== null ? args[0] : {};
+
+  return [{ ...record, [ERROR_KEY]: args[1] }, POSITIONAL_ERROR_MESSAGE, ...args.slice(2)];
+}
+
+/**
+ * Where a scan of a FORMAT ARGUMENT starts, and the one difference between this path and
+ * the record path. The depth-1 skip of the top-level `err` key exists only because
+ * `serializers.err` runs after `formatters.log` and owns that key; nothing runs after
+ * `format`, so the same exemption here would be a hole rather than a seam —
+ * `logger.error('ctx %o', { err: e })` is the shape it leaks through. Starting at 2 turns
+ * the exemption off, and the price is one level of reach.
+ */
+const FORMAT_ARGUMENT_SCAN_DEPTH = 2;
+
+/** The policy applied to one value pino is about to interpolate. */
+function interpolationSafe(value: unknown): unknown {
+  if (value instanceof Error) {
+    return errorLogFields(value, { includeMessage: false });
+  }
+
+  return isWalkable(value) ? errorsReplaced(value, FORMAT_ARGUMENT_SCAN_DEPTH) : value;
+}
 
 /**
  * ============================================================================
@@ -214,7 +336,7 @@ const inheritedChild: ChildFactory = logger.child;
 const inheritedSetBindings: BindingsSetter = logger.setBindings;
 
 const childWithErrorsReplaced: ChildFactory = function childWithErrorsReplaced(bindings, options) {
-  return inheritedChild.call(this, bindingsScanned(bindings), options);
+  return inheritedChild.call(this, bindingsScanned(bindings), childOptionsChecked(options));
 };
 
 const setBindingsWithErrorsReplaced: BindingsSetter = function setBindingsWithErrorsReplaced(
@@ -233,23 +355,98 @@ function bindingsScanned(bindings: pino.Bindings): pino.Bindings {
   return bindings ? errorsReplaced(bindings, 1) : bindings;
 }
 
+/**
+ * ============================================================================
+ * A CHILD'S `options` ARE AN OPT-OUT OF THIS WHOLE MODULE, SO THEY ARE REFUSED (F-263).
+ * ============================================================================
+ *
+ * pino's `child(bindings, options)` does not merge these three with the instance's own; it
+ * REPLACES them, and all three were reproduced against this singleton:
+ *
+ *   - `redact` — `proto.js:157-165`, comment "replace redact directly". One child-scoped
+ *     path drops all 25 the root censors, on that child, with nothing in the output to say
+ *     so. This is the plausible accident rather than the exotic one: a TASK that wants ONE
+ *     extra path for its own subtree writes `child(b, { redact: ['*.myField'] })`.
+ *   - `serializers` — `proto.js:115-134`. Merged PER KEY, parent first, so a child naming
+ *     `err` displaces the serialiser that owns the top-level `err` key — the half of the
+ *     partition the record scan deliberately skips. Nothing else covers that key.
+ *   - `formatters` — `proto.js:136-143`, `log || formatters.log`. A child supplying
+ *     `formatters.log` removes the scan itself, at every key and every depth.
+ *
+ * REFUSED RATHER THAN MERGED, and the choice is not a coin toss. Merging is only definable
+ * for `redact`, and even there a child supplying its own `censor` or `remove: true` changes
+ * what the merged list does to the paths it inherited; for `serializers.err` and
+ * `formatters.log` a "merge" is a composition whose order is a second undocumented policy.
+ * Every one of those outcomes is a control that is partly in force, which is the state this
+ * module exists to make impossible — the file header says "Nothing may opt out", and until
+ * now nothing enforced it. A throw is the only answer that cannot be half-applied, it fires
+ * at the call site rather than in a log line nobody reads, and no call site in `apps/api`
+ * passes any of the three (`exception-filter.ts:125` passes bindings and no options at all),
+ * so nothing that runs today reaches it. ADR-0028 depends on this: once `redact` goes, a
+ * child-supplied `formatters.log` would be the only thing between a record and the line.
+ *
+ * `level`, `msgPrefix`, `customLevels` and `bindings` are untouched — they change what a
+ * child logs, not what this module withholds — and `setBindings` takes no options at all.
+ */
+const OPTIONS_A_CHILD_MAY_NOT_REPLACE = ['redact', 'serializers', 'formatters'] as const;
+
+function childOptionsChecked(
+  options?: pino.ChildLoggerOptions,
+): pino.ChildLoggerOptions | undefined {
+  // `options == null` is pino's own "no options at all" (`proto.js:96`), and `null` reaches
+  // this from an untyped call site, so it is answered here rather than by `Object.hasOwn`
+  // throwing something that names neither the option nor the reason.
+  const supplied: unknown = options;
+
+  if (typeof supplied !== 'object' || supplied === null) {
+    return options;
+  }
+
+  // Presence, not truthiness: pino tests `hasOwnProperty` for `serializers` and
+  // `formatters`, so `{ serializers: undefined }` already takes its replacing branch.
+  const replaced = OPTIONS_A_CHILD_MAY_NOT_REPLACE.filter((option) =>
+    Object.hasOwn(supplied, option),
+  );
+
+  if (replaced.length > 0) {
+    throw new TypeError(
+      `a child logger may not supply its own ${replaced.join(', ')}: pino replaces the ` +
+        `logger's own rather than merging, so this child would lose the controls that keep ` +
+        `an error's incidental fields, a credential and an IP off every line it writes. ` +
+        `See design/contracts/logging-and-headers.md.`,
+    );
+  }
+
+  return options;
+}
+
 // Installed as own properties, shadowing the ones on pino's prototype, with the descriptor a
 // prototype method has. `defineProperty` rather than assignment because pino declares `child`
 // generic over the custom levels a child may add and this wrapper is indifferent to them —
 // assigning would take a double type assertion to say something neither honest nor checked.
 // `setBindings` is installed the same way for one idiom rather than two.
+//
+// NEITHER IS WRITABLE OR CONFIGURABLE (F-267). The versioning rules call these two not
+// removable by a TASK, and until now they were the least protected things in the file:
+// `logger.child = pinoChild` replaced one permanently, on the singleton every later TASK
+// imports, with nothing in the suite or the drift test able to see it. Under a non-writable
+// descriptor that assignment is a `TypeError` — this module graph is ES modules, so it is
+// strict everywhere. WHAT THIS DOES NOT DO, stated so the claim is not read as wider than it
+// is: `Object.getPrototypeOf(logger).child.call(logger, …)` still reaches pino's unwrapped
+// original, and no property descriptor can change that. That is hardening against the
+// accident, not a boundary against a call site that means it.
 Object.defineProperty(logger, 'child', {
   value: childWithErrorsReplaced,
-  writable: true,
+  writable: false,
   enumerable: false,
-  configurable: true,
+  configurable: false,
 });
 
 Object.defineProperty(logger, 'setBindings', {
   value: setBindingsWithErrorsReplaced,
-  writable: true,
+  writable: false,
   enumerable: false,
-  configurable: true,
+  configurable: false,
 });
 
 /**
@@ -303,10 +500,10 @@ function messageWouldBeTakenFromTheError(record: unknown): record is object {
  * path already pays for, against GC-1's 25 ms budget. The bound also makes a self-referential
  * record terminate, which a walk without one would not.
  *
- * THE RESIDUALS, STATED RATHER THAN LEFT TO BE FOUND. Two shapes reach a line with a
- * library's assigned properties on them, and both carry the same escalation rule: the TASK
- * that first builds one closes it here, in the same commit, rather than living with it.
- * (A third was listed here and is now CLOSED: `setBindings` is wrapped, F-258.)
+ * THE RESIDUALS, STATED RATHER THAN LEFT TO BE FOUND. Three shapes reach a line with a
+ * library's assigned properties on them, and all three carry the same escalation rule: the
+ * TASK that first builds one closes it here, in the same commit, rather than living with it.
+ * (A fourth was listed here and is now CLOSED: `setBindings` is wrapped, F-258.)
  *
  *   1. AN ERROR AT DEPTH 5 OR DEEPER is not replaced — the bound above. Same limit
  *      `REDACT_PATHS` has for a nested secret, same answer: raise it.
@@ -316,6 +513,17 @@ function messageWouldBeTakenFromTheError(record: unknown): record is object {
  *      body on the line even at depth 1. The answer for a TASK that needs it is to log the
  *      fields it wants rather than the instance, or to widen `isWalkable` deliberately and
  *      pay the `Buffer` cost it exists to avoid.
+ *   3. AN ERROR RETURNED BY A `toJSON` METHOD is not replaced (F-265), and this is NOT
+ *      residual 2 with a different container. THIS SCAN INSPECTS PROPERTIES;
+ *      `JSON.stringify` CONSULTS `toJSON` AND THEN NEVER LOOKS AT THEM. So
+ *      `{ ctx: { toJSON: () => e } }` is a PLAIN object, `isWalkable` returns true, the walk
+ *      goes through it, finds one key holding a function, replaces nothing — and the error
+ *      appears at stringify time regardless. Reproduced both on the plain object and on a
+ *      class with a `toJSON`. Residual 2's remedies do not describe it: widening
+ *      `isWalkable` is irrelevant to the plain form, and for the class form it would remove
+ *      the leak only by dropping `toJSON` from the copy, silently changing what the line
+ *      looks like. The answer for a TASK that needs it is the same as residual 2's first
+ *      one — log the fields, not the object that knows how to serialise itself.
  *
  * NOT A RESIDUAL, AND THE REASON IT IS WORTH SAYING SO: BOTH BINDINGS PATHS ARE COVERED.
  * `logger.child` and `logger.setBindings` are the two entries to `asChindings` and both are
@@ -408,9 +616,24 @@ const UNREADABLE_PROPERTY = Symbol('unreadable property');
 
 /**
  * A log record's own values are free to be hostile getters, the same way an error's are
- * (F-244's second minor). Reading one must not throw out of the log call, and must not
- * change what pino writes for that key either — so the scan skips it and leaves pino's own
- * stringify to handle it exactly as it did before this function existed.
+ * (F-244's second minor). Reading one here must not throw, and must not change what pino
+ * writes for that key either — so the scan skips it and leaves pino's own stringify to
+ * handle it exactly as it did before this function existed.
+ *
+ * WHAT THIS GUARD IS AND IS NOT (F-259). It stops THIS READ from throwing. IT DOES NOT MAKE
+ * THE SCAN THROW-FREE, and the docblock here used to imply that it did. When some OTHER key
+ * in the same container changed, `errorsReplaced` builds the copy with `{ ...container }`,
+ * which re-reads every enumerable key — the hostile one included — outside this `try`. So
+ * does `errorMovedOntoTheRecord`'s spread of the caller's record. THE OBSERVABLE OUTCOME IS
+ * UNCHANGED FROM BARE PINO, which reads every key in `_asJson` with no guard at all and
+ * throws from there, so this is not a hazard the module added; a key-by-key copy would
+ * remove one of the four throw sites and leave `_asJson`, fast-redact's `cloneSelectively`
+ * and `asChindings` untouched (F-253).
+ *
+ * WHAT THAT MEANS FOR A CALL SITE, which is the reason the claim had to be corrected rather
+ * than left: a place with nowhere left to escape to — the exception filter's `headersSent`
+ * arm, `main.ts`'s boot handler, anything on a GC-8 path — still needs its own `try/catch`
+ * around a log call whose record it did not build itself. This module does not supply that.
  */
 function readIndexedProperty(container: object, key: string): unknown {
   try {
