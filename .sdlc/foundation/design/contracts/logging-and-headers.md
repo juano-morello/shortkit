@@ -3,7 +3,11 @@
 - **Boundary:** every log line the API emits; every response header it sets.
 - **Normative form:** `apps/api/src/observability/logger.ts` and `apps/api/src/main.ts`. This contract's § "Logger" fence is the single normative statement of the logger's configuration and is compared to the shipped file by a drift test. The wave-1 stub at `design/stubs/apps/api/src/observability/logger.ts` is **superseded** (F-249) and its config is unsafe to copy; ADR-0022 no longer carries a copy at all (F-250).
 - **Produced by:** TASK-003.
-- **Consumed by:** every API TASK. Nothing may opt out.
+- **Consumed by:** every API TASK. Nothing may opt out, with **two named exceptions measured
+  2026-08-10 (F-278)**: `apps/api/src/db/client.ts:55` and
+  `apps/api/src/tenancy/tenant-context.ts:136` each construct `new Logger('…')` from
+  `@nestjs/common` and write through Nest, not through pino. They are exempted, bounded and
+  scheduled in ADR-0028 Migration step 3. A third one is a finding.
 - **ADRs:** ADR-0022, and ADR-0028 which supersedes its redaction clause only — ADR-0022's
   CORS decision and header table stand. Enforces GC-9.
 
@@ -27,7 +31,7 @@ every one of them is load-bearing.**
 | Mechanism | Covers | Section |
 |---|---|---|
 | `serializers.err` | the top-level `err` key, including a non-error under it | "Why each mechanism is here" |
-| `hooks.logMethod` | every call shape that would put an error's message into `msg` — the record, and every argument position pino formats | "Why each mechanism is here", "Door six" |
+| `hooks.logMethod` | every call shape that would put an error's message into `msg`, and every argument position pino formats. **The message position is open until ADR-0028 Migration step 7 lands (F-277); the rule it must implement is in "Door six"** | "Why each mechanism is here", "Door six" |
 | `formatters.log` | every other key of the record, to depth 4: an `Error` under any key, and every key `LOGGABLE_FIELDS` does not name | "A field reaches a line only if it is named", "The ordering" |
 | the `logger.child` wrapper | bindings, on the other path a line is built by | "The two wrappers" |
 | the `logger.setBindings` wrapper | the second entry to the same path | "The two wrappers" |
@@ -567,6 +571,59 @@ and nothing walked it before F-248's fix. `errorLogFields` is the boundary: it r
 "improves" the walk by following `cause` reopens the leak for chained errors, and
 `logger.spec.ts` has a test that fails when it does.
 
+### Door six: the argument list, and what each position gets
+
+**Normative. Written 2026-08-10 (F-277); three references pointed at this section and it did
+not exist.** The mechanism table's `hooks.logMethod` row and two comments inside the fence
+deferred their rationale to it, which is the rationale the message-position leak turned on.
+
+`_asJson` builds a line out of the RECORD, and `asChindings` out of BINDINGS. Neither of them
+builds `msg`. `genLog`'s `LOG` (`tools.js:47-77`) calls
+`format(msg, formatParams, formatOpts)` — `quick-format-unescaped` — before `write()` runs, so
+no serialiser, formatter or bindings wrapper is anywhere on that path. **The argument list is
+the third place a line is built, and the only mechanism on it is `hooks.logMethod`.**
+
+pino's argument list has three positions. `messageArgumentIndex` returns 1 when `args[0]` is an
+object (`null` included) or `undefined`, and 0 otherwise, so a record exists only at index 0
+and the message argument can be a container only at index 1.
+
+| position | decided by | mechanism | result |
+|---|---|---|---|
+| the record, `args[0]` | its KEYS | `formatters.log` → `fieldsCensored(record, 1)`, `err` exempt at depth 1 and owned by `serializers.err` | a named key keeps its value to `MAX_SCAN_DEPTH`; every other key is `[redacted]`, key intact |
+| the message argument, when it is a non-null object | its TYPE, not its keys | `hooks.logMethod` → `errorMovedOntoTheRecord` | moved onto the record under `err`; `msg` becomes `an error was logged with no context string` |
+| the message argument, when it is anything else | nothing | none | verbatim. A string is free text and no censoring scheme reaches inside one |
+| every argument after the message | its VALUE | `hooks.logMethod` → `interpolationSafe`, which is `valueCensored(value, 1)` | an `Error` becomes `errorLogFields`; a container is walked from depth 2; a class instance, a `Buffer` or anything past the bound is `[redacted]`; a primitive is verbatim |
+
+**The key rule does not run on the message argument or on a format argument, and that is not
+an omission.** Both arrive under no key, so there is no field name to decide about:
+`logger.error('a %s', 'b')` has to interpolate `b`. The record path decides by key, the
+argument list decides by type and by value.
+
+**Why the message position is moved rather than reduced in place.** `format` returns a
+non-string message unchanged, so a reduced container would leave `msg` an object rather than a
+line an aggregator can index; a container handed to pino's stringifier can still fire an own
+non-enumerable `toJSON` that the scan returned by reference; and one policy per position beats
+two policies chosen by `instanceof`. The alternatives and their costs are in ADR-0028, "The
+argument list: one policy per position".
+
+**Format arguments start one level shallower than a record, and the level is the price of the
+seam.** `valueCensored(value, 1)` walks a container it holds at `depth + 1`, so the container
+is walked from 2, where the top-level `err` exemption does not fire. That exemption exists only
+because `serializers.err` runs after `formatters.log`, and nothing runs after `format`. Route a
+format argument through `fieldsCensored(value, 1)` instead and `logger.error('ctx %o',
+{ err: e })` reopens.
+
+**Status, 2026-08-10.** Row 1, row 3 and row 4 ship. **Row 2 does not.** `logger.ts:239`
+tests `args[1] instanceof Error`, so a non-`Error` container in the message position reaches
+`msg` verbatim: measured, `logger.error({ request_id }, e)` for a non-`Error` throwable emits
+`"msg":{"statusCode":401,"clientIp":"203.0.113.9","headers":{"authorization":"Bearer …"},
+"body":"{\"password\":\"…\"}"}`. It is also a regression, because pino applied the deleted
+`redact` list's wildcard stringifier to the `msg` value too (`tools.js:205`), so `*.password`,
+`*.token`, `*.secret`, `*.rawToken`, `*.tokenDigest`, `*.verificationToken`, `*.ip` and
+`*.ipHash` were censored inside `msg` until ADR-0028 removed the list. F-277, ADR-0028
+Migration step 7, red tests in `logger-field-allowlist.spec.ts`. **Row 2 is what the fix must
+produce; it is not what the module does today.**
+
 ### The ordering: `formatters.log` runs before the serialisers
 
 `formatters.log` runs **before** the per-key serialisers, not after. Measured in the
@@ -960,12 +1017,28 @@ the error ones, which is the half that goes wrong quietly.
 | `X-Content-Type-Options` | `nosniff` | every response |
 | `X-Frame-Options` | `DENY` | every response |
 | `Referrer-Policy` | `no-referrer` | every response except the redirect 302 |
-| `Content-Security-Policy` | helmet default | API responses |
+| `Content-Security-Policy` | helmet default, with `frame-ancestors 'none'` | API responses |
 
-**`frameguard: { action: 'deny' }` is the one option overridden.** helmet's default is
-`SAMEORIGIN`; the table above says `DENY` and the table wins. Everything else is helmet's own
-default. `helmet@8.3.0` is exact-pinned in `apps/api/package.json` under the ADR-0018
-precedent that pins `pino@10.3.1`.
+**Two options are overridden, and the second is why the first works.**
+`frameguard: { action: 'deny' }` replaces helmet's `SAMEORIGIN`, because the table says
+`DENY`. `contentSecurityPolicy: { useDefaults: true, directives: { 'frame-ancestors':
+["'none'"] } }` replaces helmet's default `frame-ancestors 'self'`. Everything else is
+helmet's own default. `helmet@8.3.0` is exact-pinned in `apps/api/package.json` under the
+ADR-0018 precedent that pins `pino@10.3.1`.
+
+**Why the CSP directive is not decoration (F-280, decided 2026-08-10, ADR-0022 amended).**
+CSP Level 2 requires a browser that supports `frame-ancestors` to ignore `X-Frame-Options`,
+so until this override the one header the implementer deliberately set was the one every
+browser discarded, and the effective framing policy was `'self'`. Measured on
+`node dist/main.js`: both `GET /health` and the branded 404 carried `X-Frame-Options: DENY`
+beside a CSP saying `frame-ancestors 'self'`. **The two headers now agree, and the CSP is the
+one that is enforced.** The rejected alternative was to keep `'self'` and re-label
+`X-Frame-Options` as legacy in this table; ADR-0022 records why it lost.
+
+**`frame-ancestors` does not fall back to `default-src`.** A response that replaces this CSP
+with its own — the branded 404 below is the one that does — carries no framing policy at all
+unless its own directive list names `frame-ancestors`. That is a requirement on
+`redirect-resolution.md`, not on this file.
 
 `preload` is **not** set on HSTS: submission is close to irreversible and the apex domain
 is unregistered.
@@ -973,9 +1046,10 @@ is unregistered.
 `X-Powered-By: Express` is removed as a side effect of helmet's defaults. The table does not
 name it and nothing asserts it.
 
-**Asserted against `node dist/main.js` on loopback**, seven integration tests in
-`security-headers.int-spec.ts`, covering the routed `/health` 200 and the branded 404. Not
-asserted against the deployed image: HSTS is only meaningful over TLS, which loopback is not.
+**Asserted against `node dist/main.js` on loopback**, eight integration tests in
+`security-headers.int-spec.ts`, covering the routed `/health` 200 and the branded 404. The
+eighth is F-280's and is red until the CSP override lands. Not asserted against the deployed
+image: HSTS is only meaningful over TLS, which loopback is not.
 
 ### Two deliberate exceptions on the redirect path
 
@@ -985,6 +1059,14 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 |---|---|---|---|
 | redirect 302 | `Referrer-Policy` | `unsafe-url` | passing the short URL to the destination is the point of an attribution referrer, and the link is public |
 | branded 404 | `Content-Security-Policy` | `default-src 'none'; img-src https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'` | tighter than helmet's default; the page interpolates tenant-controlled branding (F-006) |
+
+**Open against `redirect-resolution.md`, raised 2026-08-10 and not decided here (F-280).**
+That directive list names no `frame-ancestors`, and `frame-ancestors` is not covered by
+`default-src`. A response that replaces helmet's CSP with this one therefore replaces
+`frame-ancestors 'none'` with nothing and falls back to `X-Frame-Options`, which is the
+weaker of the two mechanisms and the one this contract has stopped relying on. The directive
+belongs in that list. `redirect-resolution.md` is normative for that response and this row
+quotes it, so the fix is made there and copied here, not the other way round.
 
 ## Invariants a caller may rely on
 
@@ -997,14 +1079,30 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
    `"url":"/l/abc?token=SEKRIT"` in the clear while the six `req.headers.*` paths were
    censored — which is what made it dangerous rather than obvious.
 
+   **Qualified 2026-08-10 (F-277), and the qualification is temporary.** The invariant holds
+   for the RECORD position and for BINDINGS. It does **not** hold today for the MESSAGE
+   position: `logger.info('…', req)` is covered, and `logger.error({ request_id }, req)` puts
+   the concrete `url` with its query token, `headers.authorization`, `headers.cookie` and
+   `socket.remoteAddress` on the line verbatim. Measured against the shipped singleton by two
+   auditors independently. ADR-0028 Migration step 7 makes the invariant true again by moving
+   a container in that position onto the record under `err`, where nothing of it survives; see
+   "Door six". **Until step 7 lands, a caller may not rely on this invariant for the message
+   position.**
+
    **This invariant is not permission to log a request object.** It tells you nothing;
    `request_id`, `route`, `status` and `duration_ms` are what the call site wanted.
 2. Every line inside a request carries `request_id`; every line inside a tenant
    transaction carries `tenant_id`.
 3. The API sends no `Access-Control-Allow-Origin` header, for any origin, on any route.
 4. HSTS, `nosniff` and `DENY` are present on every API response including errors.
-   **True since 2026-08-10** (F-243 clause 2 closed), asserted by seven integration tests
+   **True since 2026-08-10** (F-243 clause 2 closed), asserted by eight integration tests
    against `node dist/main.js` on loopback. Not asserted against the deployed image.
+
+   **What `DENY` buys, corrected 2026-08-10 (F-280).** `X-Frame-Options: DENY` is on the
+   response and a CSP-aware browser ignores it whenever the CSP names `frame-ancestors`. The
+   header a browser acts on is the CSP, which is why `frame-ancestors 'none'` is now set
+   beside the `DENY`. A caller relying on "this response cannot be framed" is relying on the
+   two agreeing, and the eighth integration test is what keeps them agreeing.
 5. **An `Error` reaches the line only as `err_name` and an `err_stack` of frames.** Not
    `message`, not `body`, not `detail`, not any property a library assigned. Holds under any
    key spelling and at any depth the scan reaches — `{ err: e }`, `{ error: e }`,
@@ -1025,6 +1123,16 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
    *the record has an `err` key and no own `msg`*, not that `err` holds an `Error`. What
    this invariant does **not** cover is a message a call site interpolated into the context
    string itself, which no mechanism here can reach.
+
+   **Extended 2026-08-10 by ADR-0028 Migration step 7 (F-277), and not shipped yet.** A
+   non-null object in the message position is moved onto the record under `err` whatever its
+   type, so `logger.error({ request_id }, anyContainer)` emits
+   `"err":{"err_name":"non-error throwable (object)"}` and the same fixed string. The caller's
+   record survives. `null`, a number and a string in that position are unchanged, and a
+   function still produces no `msg` key at all. Measured 2026-08-10. **What a caller gives up
+   is the payload**: `non-error throwable (object)` is a constant, so the line says a
+   non-`Error` was logged and nothing about what it held. Pass `{ err }` with a fixed context
+   string, or name the fields worth having.
 7. **A hostile error does not take the process with it.** An accessor that throws on
    `name`, `message` or `stack` is survivable under `err` and under every other key: the log
    call emits a line carrying `err_name` and does not rethrow. This is what the exception
@@ -1038,6 +1146,11 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
    does.** `"attemptCount":"[redacted]"`, never a dropped key, so the operator can see which
    field exists and what it is called. The corollary a caller must plan for: **a field you
    forgot to name is censored, silently, with every gate green.**
+
+   **Scope, stated 2026-08-10 because F-277 turned on it.** This invariant is about the two
+   places a key exists: the log call's RECORD and BINDINGS. A value in the message position or
+   in a format parameter arrives under no key, so the key rule is not what covers it; "Door
+   six" says what does, position by position.
 
 ## What the implementer must guarantee
 
@@ -1073,8 +1186,18 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
   them — and since `redact` was removed there is no residual censoring behind it, so the hole
   is every field on every line that instance writes. Import `logger` from
   `apps/api/src/observability/logger.ts`, and do not re-derive it from ADR-0022, which
-  records the decision and deliberately carries no literal (F-250). F-268 proposes a lint rule
-  for this and is unowned.
+  records the decision and deliberately carries no literal (F-250). F-268's lint rule ships
+  and fires: `no-console: error` plus a `no-restricted-imports` block on `pino` for
+  `apps/api/src/**`, excluding the logger module itself.
+- **Never construct `new Logger(…)` from `@nestjs/common`, and the lint rule does not stop you
+  yet.** Added 2026-08-10 (F-278). Nest's `Logger` writes unstructured, ANSI-coloured lines to
+  the same stdout with none of the six mechanisms, no `service`, no `env`, no `request_id` and
+  no pino timestamp, and a log shipper parsing NDJSON drops them or files them as parse
+  errors. Two files do it today, `db/client.ts:55` and `tenant-context.ts:136`; both are named
+  exceptions in the Consumed-by line above, both are bounded to one fixed-string call site
+  each, and ADR-0028 Migration step 3 holds the ruling and the requirement that F-268's rule
+  be extended to `importNames: ['Logger']` on `@nestjs/common`. A third one is a finding, not
+  a precedent.
 - **Never pass `redact`, `serializers` or `formatters` to `logger.child`.** It throws a
   `TypeError` naming the option and the reason. pino replaces these rather than merging them,
   so a child that supplied `formatters.log` would run with no scan at all.
@@ -1086,12 +1209,15 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 - **Never interpolate an error's message into a log message string.**
   `` logger.error(`failed: ${e.message}`) `` puts the message into `msg`, which no
   serialiser, formatter or wrapper reaches. Pass `{ err: e }` and a fixed context string
-  instead. `apps/api/src/tenancy/tenant-context.ts:247` does the interpolated form today; it
-  is F-274, reported and not fixed. **This bullet got sharper with ADR-0028: `msg` and
-  `err_stack` are the only uncensored surfaces left, so they are the only ones worth
-  attacking.** The arguments path is covered — `hooks.logMethod` reduces every value pino
-  would interpolate before `format` runs (F-260) — but a string a call site built itself is
-  reachable by nothing here.
+  instead. **This bullet got sharper with ADR-0028: `msg` and `err_stack` are the only
+  uncensored surfaces left, so they are the only ones worth attacking.** The arguments path is
+  covered for format parameters — `hooks.logMethod` reduces every value pino would interpolate
+  before `format` runs (F-260) — the message position is covered by ADR-0028 Migration step 7
+  and not before it, and a string a call site built itself is reachable by nothing here.
+  `apps/api/src/tenancy/tenant-context.ts:247` does the interpolated form today. **Corrected
+  2026-08-10 (F-278): that line does not reach pino at all**, so F-274 was filed on a false
+  premise; it writes through `new Logger('TenantTransaction')` from `@nestjs/common` and is
+  one of the two exceptions in the Consumed-by line above.
 - Never log `error.request` or `error.config` from an HTTP client. Both carry headers.
 - **Never log a database error's `detail`, `hint`, `where`, `internalQuery` or `query`.**
   Added 2026-08-05 (F-120). A `pg.DatabaseError` populates `detail` on a unique violation

@@ -294,6 +294,141 @@ Cost accepted: an interpolated container's reach is one level shallower than a r
 it starts at 2 rather than 1. Routing this through `fieldsCensored(value, 1)` instead would
 restore that level and reopen the exemption as a hole, so the level is the price of the seam.
 
+### The argument list: one policy per position, ruled 2026-08-10 (F-277)
+
+**Everything above this line is about a RECORD's keys. This ADR never specified the argument
+list at all**, which is how `interpolationCovered` shipped with the message position uncovered
+and passed review twice. Both auditors found the hole independently in round 6, and it is a
+regression: the deleted 25-path list built a wildcard stringifier and pino applies it to the
+`msg` value too (`tools.js:205`), so eight names were censored inside `msg` by accident of the
+denylist's shape and nothing censors them now.
+
+pino's argument list has three positions, and each gets a different answer for a different
+reason. The table is normative. `messageArgumentIndex` returns 1 when `args[0]` is an object
+(`null` included) or `undefined`, and 0 otherwise, so a record exists only at index 0 and the
+message argument is a container only at index 1.
+
+| position | decided by | mechanism | result |
+|---|---|---|---|
+| the record, `args[0]` | its KEYS | `formatters.log` → `fieldsCensored(record, 1)`, with `err` exempt at depth 1 and owned by `serializers.err` | a named key keeps its value to `MAX_SCAN_DEPTH`; every other key is `[redacted]` and stays on the line |
+| the message argument, when it is a non-null object | its TYPE, not its keys | `hooks.logMethod` → `errorMovedOntoTheRecord` | moved onto the record under `err`; `msg` becomes `an error was logged with no context string` |
+| the message argument, when it is anything else | nothing | none | verbatim. A string is free text and no censoring scheme reaches inside one |
+| every argument after the message | its VALUE | `hooks.logMethod` → `interpolationSafe`, which is `valueCensored(value, 1)` | an `Error` becomes `errorLogFields`; a container is walked from depth 2; a class instance, a `Buffer` or anything past the bound is `[redacted]`; a primitive is verbatim |
+
+**Decision. A container in the message position is moved onto the record under `err`, whatever
+its type. The `instanceof Error` test is deleted, not widened with a second branch.** One
+position, one policy, and the implementer's change is a smaller module rather than a larger
+one:
+
+```ts
+// `messageArgumentIndex` returns 0 only when `args[0]` is neither an object nor `undefined`,
+// so the message argument can be a container only at index 1. `null` is excluded: it carries
+// nothing onto a line, and describing an absence as a throwable is worse than leaving it.
+const covered =
+  message === 1 && typeof args[1] === 'object' && args[1] !== null
+    ? errorMovedOntoTheRecord(args)
+    : args;
+```
+
+`errorMovedOntoTheRecord` is unchanged. What the line then carries, measured 2026-08-10
+against the shipped singleton by handing the same containers to `logger.error({ request_id,
+err: container }, '…')`, which is the shape the fix produces:
+
+| the call | the line, after the fix |
+|---|---|
+| `logger.error({ request_id }, nonErrorThrowable)` | `"request_id":"r-1","err":{"err_name":"non-error throwable (object)"},"msg":"an error was logged with no context string"` |
+| `logger.error({ request_id }, ['first', { password }])` | the same, `err_name` only |
+| `logger.error({ request_id }, new Held(secret))` | the same |
+| `logger.error(undefined, { password })` | the same, with no `request_id` |
+| `logger.error({ request_id }, { password }, 'tail')` | the same; the trailing argument is still dropped by `quick-format` (F-269) |
+| `logger.error({ request_id }, null)` | unchanged: `"msg":null` |
+| `logger.error({ request_id }, 42)` | unchanged: `"msg":42` |
+| `logger.error({ request_id }, someFunction)` | unchanged: no `msg` key at all. `JSON.stringify` discards a function whatever properties it carries |
+
+#### The alternative, and why it lost
+
+**Reduce the message argument in place, through the `valueCensored(value, 1)` the format
+arguments already get.** `msg` would then hold a censored copy of the container the caller
+wrote: `"msg":{"clientIp":"[redacted]","headers":"[redacted]"}`.
+
+- **Pros.** It preserves the shape the call site wrote, and the operator keeps the key names,
+  which is this ADR's own mitigation for a censored field. It is the smallest possible edit,
+  reusing a mechanism one line below that was measured sound. It discards no payload that the
+  key rule would have kept. It satisfies every assertion the round-5 red step wrote.
+- **Cons, each measured or already ruled on.**
+  1. It keeps the `instanceof Error` split, so one argument position carries two policies
+     selected by a type test. That is the enumeration shape F-244, F-262 and F-266 each
+     punished, applied to a position rather than to a key.
+  2. `msg` becomes an object whenever a caller passes a container, so the one field an
+     aggregator indexes as text is polymorphic at runtime. `logger.ts:212-216` rejected exactly
+     that reasoning for an `Error` in this position, and `logger.spec.ts:495` pins it: "`msg`
+     is a string an aggregator can index, not an object".
+  3. It hands a partly scanned caller container to pino's stringifier. `fieldsCensored` returns
+     the container BY REFERENCE when nothing in it changed, so an own non-enumerable `toJSON`
+     fires on the way out. Measured at HEAD, on the mechanism this alternative would reuse:
+     `logger.error('fmt %o', containerWithHiddenToJSON)` emits
+     `"msg":"fmt {\"password\":\"TJ-SECRET\"}"`, while the same object under `err` emits
+     `{"err_name":"non-error throwable (object)"}`. Taking this alternative would close a
+     blocker by routing the message position into an open minor (round 6, security auditor
+     finding 2, the residual half of F-265; unowned, and the Consequences table below still
+     reads as though `toJSON` closed as a class, which the same finding disputes).
+  4. The allowlist's names would act as pass-throughs inside a value that arrived under no key.
+     `logger.error({ request_id }, { route: '/l/abc?token=SEKRIT' })` would emit the token,
+     because `route` is named and the message argument is not a record.
+- **Why it lost.** Three of its four costs are things this module has already ruled on in the
+  opposite direction, and the fourth is a live measured leak.
+
+**Dropping the message argument** was the second alternative and lost to silence.
+`logger.error({ request_id }, e)` would emit a record, a fixed string, and no trace that a
+throwable was logged. The test architect measured this as mutation A, and the guard
+`F-277: covering the message position does not cost the line its record or its message` exists
+to red it.
+
+**Refusing a non-string message argument at the type level** is alternative 3 of this ADR by
+another name. `e` is `any` in a `.catch` callback, which is the shape the finding reproduces,
+so the types are erased exactly where the leak is. Still worth having as a companion, still
+deferred.
+
+#### Consequences of this ruling
+
+Positive:
+
+- One rule for the position, reached by deleting a type test rather than adding a branch.
+- `msg` is a string on every call shape the module accepts, so `logger.ts`'s claim and
+  `logger.spec.ts:495` become properties of the position rather than of the `Error` case.
+- `logger.ts:221-222`, "A CONTAINER in either position is scanned", becomes true. The table
+  above is what "scanned" means in each position, and the contract now carries it as
+  "Door six", a section three references already pointed at and which did not exist.
+- The regression is not merely repaired. The denylist censored eight names inside `msg` and
+  passed everything else; this discards the container whole.
+- Contract invariant 1 becomes true on the message position for the same reason it is true on
+  the record path: the object does not reach the line.
+
+Negative, and the cost accepted:
+
+- **The payload is discarded, not censored.** `err_name: 'non-error throwable (object)'` is a
+  constant. The operator learns that a non-`Error` was logged and nothing about what it was,
+  where the rejected alternative would at least have left the key names. This is already the
+  contract's answer for `logger.error({ err: {…} })`, so it adds no new shape to the output
+  vocabulary, and the remedy is the one already prescribed: pass `{ err }` with a fixed context
+  string, or name the fields worth having.
+- **A real `Error` on the record is displaced in one shape.**
+  `logger.error({ request_id, msg: 'x', err: realError }, container)` reaches
+  `interpolationCovered`, because the record's own `msg` makes the hook's second branch
+  decline, and `errorMovedOntoTheRecord` overwrites `err`. The real error's name and frames are
+  lost. Today that shape leaks the container instead. It is contrived, no call site produces
+  it, and it is stated rather than special-cased: a branch for it would reintroduce the split
+  this ruling removes.
+- **Two calls one token apart now emit the same line.** `logger.error({ request_id }, e)` and
+  `logger.error({ request_id }, someDto)` are indistinguishable. That is what one policy per
+  position means, and it will read as a bug the first time somebody logs a DTO there on
+  purpose.
+- **F-269's silence widens by one shape.** `logger.error({ request_id }, dto, 'tail')` emits
+  the record and the fixed message; the trailing argument was already dropped and the message
+  argument now carries nothing either.
+- Follow-up work: `logger.ts:221-222` and the docblock above it, the contract's new "Door six"
+  section, invariant 1, invariant 5's narrowing note and invariant 6. Named in Migration below.
+
 ### The rules, stated so an implementer does not have to infer them
 
 1. **An `Error` value is reduced to `errorLogFields` whatever its key**, and the key check
@@ -323,7 +458,9 @@ restore that level and reopen the exemption as a hole, so the level is the price
    Measured on pino 10.3.1: `formatters.log` receives only the log call's own record, so a
    positional message never reaches the allowlist and a record-supplied `msg` does — which is
    why `msg` is on the list. `service` and `env` are `base`, serialised at construction from
-   module literals.
+   module literals. **What covers a positional message is not this rule but the argument-list
+   table above** (F-277): the key rule never sees it, and the message argument is covered by
+   type instead.
 
 ### `redact` is removed, not kept alongside
 
@@ -424,16 +561,26 @@ is still redaction.
 
 ## Migration
 
-**Status 2026-08-10: COMPLETE. All six steps have landed.** The 25 paths no longer ship.
+**Status 2026-08-10: steps 1-6 have landed and step 7 has not.** The 25 paths no longer
+ship. Step 7 is the argument-list ruling above, opened by F-277 after step 2 shipped, and
+until it lands the message position carries no policy at all.
 
 | step | landed at | by |
 |---|---|---|
 | 1, the child-options rejection (F-263) | `45cf578` | `sdlc-implementer-backend` |
 | 2, `LOGGABLE_FIELDS` and the scan; `REDACT_PATHS` and the `redact` option deleted | `45cf578` | `sdlc-implementer-backend` |
-| 3, the call-site sweep | `45cf578`, re-verified 2026-08-10 | `sdlc-implementer-backend`, then the orchestrator and `sdlc-architect` |
+| 3, the call-site sweep | `45cf578`, re-verified 2026-08-10, **corrected 2026-08-10 for F-278** | `sdlc-implementer-backend`, then the orchestrator and `sdlc-architect` |
 | 4, the 25 paths moved to the never-allowlist | `b42d9a2` | `sdlc-architect` |
 | 5, the contract's fenced block | `b42d9a2` | `sdlc-architect` |
 | 6, the drift spec's fence marker | `2423a63` | `sdlc-test-architect` |
+| 7, the message position (F-277), and the contract's "Door six" | **open** | `sdlc-implementer-backend`, then `sdlc-architect` for the fence |
+
+**Step 7 repeats step 5's sequencing and its lesson.** The source moves first; the contract's
+fenced block moves in the same commit as the source and never before, because the drift test
+compares the two. The contract's PROSE has already moved: "Door six" and the position table
+are written, invariant 1 says what is true today and what the ruling makes true, and each
+carries the date. A reader between the two commits gets a document that is accurate about
+being mid-migration rather than one that describes a module that does not exist yet.
 
 Step 6 carried a second, unplanned edit in the same file. The guard
 `the redact path with an inner double quote survives the strip on both artifacts` asserted
@@ -451,29 +598,88 @@ The order below is the order the work happened in, and step 1 was not optional.
    `REDACT_CENSOR`'s use in the `redact` option, and the `redact` option itself.** Keep the
    `REDACT_CENSOR` export.
 3. **Sweep every log call site in `apps/api/src` and check its fields against the list.**
-   There are six today: `main.ts:198`, `main.ts:269`, `exception-filter.ts:125` (the child
-   binding), `:181`, `:195`, `:271`, plus `db/client.ts:93` and `tenant-context.ts:247`,
-   which pass a string and no record. The thirteen names in the list were derived from
-   exactly this sweep; if a field is missing the line degrades silently, so the sweep is the
-   safety net, not a formality.
+   The thirteen names in the list were derived from exactly this sweep; if a field is missing
+   the line degrades silently, so the sweep is the safety net, not a formality.
 
-   **Run, and re-verified against the shipped list on 2026-08-10. Nothing degrades.** Every
-   field any call site can put on a line today is named:
+   **Run, and re-verified against the shipped list on 2026-08-10. Nothing degrades on the
+   shared logger.** Every field any pino call site can put on a line today is named:
 
    - `main.ts:199` emits `boot_precondition`, `attempt`, `retry_in_ms` and the spread of
      `errorLogFields`; `main.ts:293` emits `boot_precondition` and the same spread. All named.
-   - `exception-filter.ts:125` binds `request_id` on the child. Named. `logError` spreads
-     `errorLogFields` plus a caller-supplied `fields` record, and exactly one caller passes
-     one: `:265` passes `{ status }`. Named.
-   - `db/client.ts:93` and `tenant-context.ts:247` pass a string and no record, so the key
-     rule does not reach them. `msg` covers what they emit.
+   - `exception-filter.ts:125` binds `request_id` on the child. Named. `:181` and `:195` each
+     emit `code`. Named. `logError` spreads `errorLogFields` plus a caller-supplied `fields`
+     record, and exactly one caller passes one: `:265` passes `{ status }`. Named.
    - `ErrorLogFields` is `err_name`, `err_message`, `err_stack`. All three named, and the
      contract's versioning rule now says renaming one censors it.
    - `RequestLogFields` is `request_id`, `route`, `status`, `duration_ms`, `tenant_id`. All
      five named ahead of the request-log middleware a later TASK adds, so that TASK adds no
      name to the list.
-   - `code` is named with no emitter today. A `DomainError` code goes in the response body;
-     the name is on the list so the first call site that logs one does not degrade.
+   - `code` is on the list and has two emitters, `exception-filter.ts:181` and `:195`. An
+     earlier version of this step said it had none, which was wrong and is corrected here.
+
+   **CORRECTED 2026-08-10 (F-278). The sweep enumerated eight sites and two of them are not
+   on this logger at all.** The claim it made about them — "pass a string and no record, so
+   the key rule does not reach them, `msg` covers what they emit" — reads as though they were
+   shared-logger call sites whose fields happen to be safe. They are a second log surface
+   with none of the six mechanisms:
+
+   | site | what it writes through | reaches the allowlist? |
+   |---|---|---|
+   | `main.ts:199`, `:293` | the shared pino singleton | yes |
+   | `exception-filter.ts:125`, `:181`, `:195`, `:265` | the shared pino singleton, through a per-request child | yes |
+   | `db/client.ts:93` | `new Logger('Database')` from `@nestjs/common`, declared at `db/client.ts:55` | **no** |
+   | `tenant-context.ts:247` | `new Logger('TenantTransaction')` from `@nestjs/common`, declared at `tenant-context.ts:136` | **no** |
+
+   Verified by reading the two files: neither imports `observability/logger`, and
+   `grep -rn "new Logger(" apps packages` returns exactly those two declarations. Their output
+   is unstructured, ANSI-coloured, carries no `service`, `env`, `request_id` or pino
+   timestamp, and goes to the same stdout the JSON goes to. So the contract's boundary
+   sentence, "Consumed by: every API TASK. Nothing may opt out", was measurably false, and
+   F-274 was filed against `tenant-context.ts:247` on the premise that its `msg` reached pino,
+   which it never did.
+
+   **Ruling: the two Nest loggers are exempted, named, and bounded. They are not converted by
+   TASK-003 and they are not tolerated silently.**
+
+   - Both files are outside TASK-003's `paths`, and routing rule 0 forbids reaching into
+     them. This ADR can correct its own false claim; it cannot edit another TASK's files.
+   - The mechanism that would actually close the class is not a per-file edit. It is
+     `app.useLogger(adapter)` in `main.ts`, a Nest `LoggerService` over the shared pino
+     singleton, which redirects every `new Logger(…)` in the process and Nest's own bootstrap
+     lines with it. That is one decision covering three findings, and it needs its own ADR: it
+     has to answer what a Nest log call's `context` and `stack` arguments become (both would
+     need names on `LOGGABLE_FIELDS`), what happens to the lines Nest writes before
+     `useLogger` runs, and whether a message string these call sites build by interpolation is
+     acceptable as `msg` when the contract tells every other call site not to build one.
+     Deciding that here would decide it for files this TASK may not touch.
+   - **What the exemption is bounded by, so it cannot grow quietly.** Exactly two
+     declarations, both in the table above, each with exactly one call site, each passing a
+     string and no record. `db/client.ts:93` writes
+     `${where} failed and was discarded: ${error.name} (sqlstate …)`, which carries a class
+     name and a SQLSTATE. `tenant-context.ts:247` writes
+     `afterCommit hook failed: ${error.name}: ${error.message}`, which interpolates an
+     arbitrary error's MESSAGE and is the one that has to move first. Neither carries a raw
+     IP, a token, a credential or a request body today. A third Nest `Logger` is a finding.
+
+   **Requirement on F-268's lint rule, stated here because `eslint.config.mjs` is not this
+   ADR's file.** The rule restricts importing `pino` and says nothing about Nest's `Logger`,
+   so the cheapest way to opt out of the whole policy passes lint. It must be extended with a
+   second `no-restricted-imports` entry for `apps/api/src/**/*.ts`:
+   `{ name: '@nestjs/common', importNames: ['Logger'], message: … }`, pointing at the shared
+   logger and at this ruling. Two details the extension has to get right, both verified
+   against the tree:
+
+   - It goes in a **separate config object** whose `ignores` lists `apps/api/src/db/client.ts`
+     and `apps/api/src/tenancy/tenant-context.ts`. Adding those two paths to the existing
+     block's `ignores` would switch off `no-console` and the `pino` restriction for them as
+     well, which is more than the exemption is for.
+   - `importNames` rather than the whole module: `@nestjs/common` supplies `Module`,
+     `Catch`, `Controller` and the rest across the API. `exception-filter.ts:51` imports a
+     `Logger` type from `pino`, not from `@nestjs/common`, so the restriction does not
+     collide with it.
+
+   Until that lands, "nothing may opt out" holds by convention on this path and by mechanism
+   on every other. The contract says which is which.
 4. **Move the 25 paths into "What may never appear in a log line" as the never-allowlist
    list**, adding the spellings F-261, F-262 and F-266 found. Nothing is deleted from the
    design; it changes from a mechanism to a prohibition.
@@ -500,6 +706,24 @@ The order below is the order the work happened in, and step 1 was not optional.
    fenced `ts` blocks only. Grep is not the check here; running the spec is. The contract's
    section "The block below is machine-checked against the shipped file" now states that, and
    states that renaming a fenced declaration re-points the marker in the same commit.
+
+7. **Cover the message position, and say so in the three places that describe it.** Open. In
+   order:
+
+   1. `logger.ts:239`: replace the `instanceof Error` test with the container test in "The
+      argument list" above. `errorMovedOntoTheRecord` does not change.
+   2. `logger.ts:212-222`, the "Door six" docblock: the three bullets describe an `Error` in
+      the message position, an `Error` in a format parameter, and "A CONTAINER in either
+      position is scanned". The first two collapse into one bullet about the position, and the
+      third stops being a claim the file contradicts. State what each position gets, in the
+      order the table above states it.
+   3. The contract's fenced block, in the **same commit** as step 7.1. Owned by
+      `sdlc-architect`, not by the implementer, and it is what turns
+      `logger-contract-drift.spec.ts` green again after 7.1 turns two of its six red.
+
+   The red step measured that sequencing rather than predicting it: under a candidate fix at
+   `:239`, `F-249` and `F-270` went red and returned to green on revert. Two red drift tests
+   between 7.1 and 7.3 are the expected state and not a finding.
 
 ### What a TASK does to log a new field
 
@@ -600,7 +824,21 @@ makes load-bearing.
 
 - **Door six (F-260).** `msg` built from a log call's arguments. Not touched by any key-based
   scheme. It is a precondition of this decision being worth much, and it belongs to the hook,
-  not to the allowlist.
+  not to the allowlist. **Amended 2026-08-10:** the argument list is decided now, in "The
+  argument list: one policy per position", because F-277 measured that leaving it undecided is
+  what let the message position ship uncovered. What is still not decided is a `msg` string a
+  call site built itself, which no mechanism here reaches.
+- **The `toJSON` residual.** A plain object with no own enumerable keys and an own
+  non-enumerable `toJSON` is returned by reference from `fieldsCensored` and then serialised
+  from `toJSON`'s return value. Measured under a named key and through a format argument
+  (round 6, security auditor finding 2). The Consequences table above says the `toJSON` shape
+  is `[redacted]`, which holds for the shape it names, whose key is unnamed, and not for the
+  mechanism. Unowned. The message-position ruling above avoids it rather than closing it.
+- **A Nest `LoggerService` over the shared singleton.** The mechanism that would close F-278's
+  class rather than bounding it, and the same mechanism that would put Nest's own bootstrap
+  lines on JSON. Named in Migration step 3, deliberately not decided here. What would force
+  it: a third `new Logger(…)`, or either of the two exempted sites logging anything but a
+  fixed string.
 - **F-253's sentinel ruling.** The allowlist changes that ruling's premises: the guarantee
   would no longer be bounded by `isWalkable` or by depth, because both now censor instead of
   passing through. Whether that makes a sentinel plus a key-by-key copy worth its cost is a

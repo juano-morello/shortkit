@@ -90,7 +90,55 @@ own ADR; it does not inherit a permissive default set here.
 | `X-Content-Type-Options` | `nosniff` | every response |
 | `X-Frame-Options` | `DENY` | every response |
 | `Referrer-Policy` | `no-referrer` | every response **except** the redirect 302 |
-| `Content-Security-Policy` | helmet default | API responses |
+| `Content-Security-Policy` | helmet default, **with `frame-ancestors 'none'`** (amended 2026-08-10, F-280) | API responses |
+
+> **Amended 2026-08-10 (F-280): the CSP overrides `frame-ancestors`, and the two framing
+> headers now agree.**
+>
+> helmet 8.3.0's default directives include `frame-ancestors 'self'`
+> (`helmet/index.cjs:19`). CSP Level 2 requires a user agent that supports `frame-ancestors`
+> to ignore `X-Frame-Options` entirely, so the one option this ADR deliberately overrode was
+> the one every browser discarded. Measured on `node dist/main.js`: `GET /health` and the
+> branded 404 both answer with `X-Frame-Options: DENY` and a CSP carrying
+> `frame-ancestors 'self'`, and what a browser enforces is `'self'`.
+>
+> **Decision. `main.ts` passes one more override to helmet:**
+>
+> ```ts
+> app.use(
+>   helmet({
+>     frameguard: { action: 'deny' },
+>     contentSecurityPolicy: { useDefaults: true, directives: { 'frame-ancestors': ["'none'"] } },
+>   }),
+> );
+> ```
+>
+> `useDefaults` is helmet's own default and is written out because this call now names two
+> policies and the reader has to see that the other ten directives are untouched. Measured by
+> `sdlc-test-architect` as a throwaway candidate: `security-headers.int-spec.ts` 8/8 green,
+> including the pre-existing `X-Frame-Options: DENY` row.
+>
+> **The alternative was documentation: declare CSP the governing mechanism, `X-Frame-Options`
+> the legacy fallback, and leave `'self'`.** It is cheaper and it is honest about what the
+> browser does. It lost on three counts. The header table above says `DENY` and has said so
+> since 2026-08-04, so the doc route means weakening a stated security property to match an
+> accident of helmet's defaults rather than a decision anyone made. Same-origin framing of a
+> JSON API is close to harmless today and stops being harmless the moment the branded 404
+> renders tenant-controlled markup on the same origin (F-006), which is a route this product
+> is committed to building. And a header the deployed bytes carry and the browser discards is
+> the worst of the three states available.
+>
+> **Cost accepted.** helmet's defaults are now overridden in two places rather than one, so
+> "helmet with its defaults" is no longer literally true and a helmet upgrade that changes
+> `frame-ancestors` needs reading against this row. The alternative kept the call shorter and
+> the policy weaker.
+>
+> **Consequence for the branded 404, which belongs to `redirect-resolution.md` and is not
+> changed here.** That page sets its own tighter CSP, `default-src 'none'; img-src https:;
+> style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'`. **`frame-ancestors` does
+> not fall back to `default-src`**, so a policy without it leaves framing to whatever else is
+> on the response. The TASK that builds that page adds `frame-ancestors 'none'` to its
+> directive list explicitly. Flagged here, owned there.
 
 Two deliberate exceptions on the redirect path, both already in
 `redirect-resolution.md`: `Referrer-Policy: unsafe-url` on the 302, because passing the
@@ -131,7 +179,11 @@ irreversible and the apex domain is not registered yet.
 - `X-Frame-Options: DENY` applies to the branded 404 too, so a customer cannot embed
   their own 404 page in an iframe. Nobody has asked to.
 - helmet's default CSP on API responses is irrelevant to JSON and will be the first
-  thing someone disables when serving anything else from the API.
+  thing someone disables when serving anything else from the API. **Amended 2026-08-10
+  (F-280): one directive of it is not irrelevant.** `frame-ancestors` is what a browser
+  actually enforces for framing, and it now carries `'none'`. Disabling the CSP disables the
+  framing policy and leaves `X-Frame-Options: DENY` as the only thing standing, which is the
+  state this amendment exists to get out of.
 
 ### Follow-ups this creates
 
