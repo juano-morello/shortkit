@@ -17,52 +17,59 @@
 import pino from 'pino';
 
 /**
- * APPEND-ONLY (`logging-and-headers.md`, "Versioning"). Removing a path needs a reason in
- * the commit message.
+ * ============================================================================
+ * EVERY KEY THAT MAY CARRY A VALUE ONTO A LOG LINE. NOTHING ELSE SURVIVES (ADR-0028).
+ * ============================================================================
  *
- * NOTE THE LIMIT, IN BOTH DIRECTIONS. A pino wildcard path matches EXACTLY ONE level, so
- * `*.token` covers `req.token` and covers NEITHER `token` at the top level NOR
- * `payload.data.credentials.token` two levels down. That is why every `*.x` entry below is
- * paired with a bare `x`: F-244's minor half measured that a top-level `password` was not
- * censored at all. Depth beyond one is still uncovered — a TASK introducing a nested secret
- * adds its own path here in the same commit.
+ * This replaces `REDACT_PATHS`, a list of 25 paths to censor, and it inverts the polarity:
+ * a field reaches a line only if it is NAMED here, and every other key is emitted as
+ * `[redacted]`. The denylist failed three audit rounds the same way — it covered the
+ * spellings someone had thought of. `err.body` (F-244), then `clientIp`,
+ * `trustedClientIp`, `remoteAddress`, `ipAddress` (F-262), then `sessionToken`, `apiKey`,
+ * `api_key`, `passwordHash` and a bare `authorization` or `cookie` (F-266). Appending each
+ * round's newly-found names produces a longer list with the same property: the next name
+ * nobody thought of is emitted in the clear.
  *
- * The two `x-shortkit-*` entries ship here in wave 2, ahead of the headers themselves
- * (F-032): `x-shortkit-client-ip` carries a raw client IP on every browser-originated
- * request and `x-shortkit-proxy-auth` carries `BFF_PROXY_SECRET` verbatim, and the
- * `'*.secret'` wildcard matches a property one level deep — never a header key.
+ * THE FAILURE MODE IS NOW A MISSING FIELD RATHER THAN A LEAKED ONE, and the missing field
+ * NAMES ITSELF on the line: `"attemptCount":"[redacted]"`, never a dropped key. That
+ * visibility is the whole mitigation for what this costs, so it is a rule and not an
+ * accident — see `fieldsCensored`.
+ *
+ * APPEND-ONLY (`logging-and-headers.md`, "Versioning"), and a name may be appended only
+ * after it has been checked against "What may never appear in a log line". If a field is a
+ * raw IP, a token, a password, a digest, a request body, a concrete URL path or a foreign
+ * `tenant_id`, the answer is not to name it here — it is that the field may not be logged.
+ * REMOVING a name silently censors a field that was on the line yesterday, so it needs the
+ * same reason in the commit message that adding one does.
+ *
+ * ONE NAME PER LINE, KEPT SORTED, with the owning file in a trailing comment. Every TASK
+ * that logs a new field edits this one list, so wave-parallel TASKs collide here — and a
+ * merge conflict on a one-name-per-line list resolves by keeping both.
+ *
+ * `err_name`, `err_message` and `err_stack` are `error-envelope.md`'s names, so renaming
+ * any of them now CENSORS it as well as breaking every saved log query.
  */
-export const REDACT_PATHS = [
-  'req.headers.authorization',
-  'req.headers.cookie',
-  'req.headers["fly-client-ip"]',
-  'req.headers["x-forwarded-for"]',
-  'req.headers["x-shortkit-client-ip"]',
-  'req.headers["x-shortkit-proxy-auth"]',
-  'res.headers["set-cookie"]',
-  '*.password',
-  '*.token',
-  '*.secret',
-  '*.rawToken',
-  '*.tokenDigest',
-  '*.verificationToken',
-  '*.ip',
-  '*.ipHash',
-  'req.body.password',
-  'req.body.confirmation',
-  // The top-level halves of the wildcards above (F-244). `*.password` does not match a
-  // `password` key on the record itself, and the record itself is where a call site that
-  // spreads a parsed body reaches first.
-  'password',
-  'token',
-  'secret',
-  'rawToken',
-  'tokenDigest',
-  'verificationToken',
-  'ip',
-  'ipHash',
-] as const;
+export const LOGGABLE_FIELDS: ReadonlySet<string> = new Set([
+  'attempt', // main.ts, boot retry
+  'boot_precondition', // main.ts, F-245
+  'code', // exception-filter.ts, a DomainError code (error-envelope.md)
+  'duration_ms', // logging-and-headers.md, Required fields
+  'err_message', // ErrorLogFields, spread into records by logError and main.ts
+  'err_name', // ErrorLogFields
+  'err_stack', // ErrorLogFields
+  'msg', // pino's messageKey, when a call site supplies its own
+  'request_id', // logging-and-headers.md, Required fields
+  'retry_in_ms', // main.ts, boot retry
+  'route', // logging-and-headers.md, Required fields. The PATTERN, never a path
+  'status', // logging-and-headers.md, Required fields
+  'tenant_id', // logging-and-headers.md, Required fields
+]);
 
+/**
+ * What an unnamed key carries instead of its value. The name and the value both stay
+ * verbatim through ADR-0028: log queries and the byte-level tests key on `[redacted]`, and
+ * this is still redaction — only its polarity changed.
+ */
 export const REDACT_CENSOR = '[redacted]';
 
 /**
@@ -74,7 +81,7 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
 
 /**
  * The one logger in the API. Every line the process writes goes through it, which is what
- * makes the redact list above a mechanism rather than a convention.
+ * makes the allowlist above a mechanism rather than a convention.
  *
  * Its destination is pino's default, file descriptor 1, and that write is SYNCHRONOUS.
  * Verified 2026-08-08 on pino 10.3.1 and Node 24.19 through a pipe: a line written
@@ -90,15 +97,15 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
  * the record. body-parser attaches the verbatim request body to `err.body` on the 400 it
  * raises for malformed JSON, so `log.error({ err }, '…')` — one idiomatic line, in any
  * later TASK — wrote an unauthenticated POST's credentials in the clear. Reproduced on
- * this repository's own pino 10.3.1 before the override, and `REDACT_PATHS` did not reach
+ * this repository's own pino 10.3.1 before the override, and the denylist did not reach
  * it: `err.body` is a string, and a path list cannot reach inside one.
  *
  * Routing the key through `errorLogFields` makes that misuse impossible UNDER THAT KEY
  * rather than enumerating the fields to censor: the record carries the three fields the
  * policy below builds and no fourth, whatever the error happens to hang off itself.
- * Appending `err.body` to `REDACT_PATHS` was the alternative and is weaker — it defends the
+ * Appending `err.body` to a path list was the alternative and is weaker — it defends the
  * one property that has already been found, and the next library to decorate an error gets a
- * new name.
+ * new name. ADR-0028 is that argument applied to the path list as a whole.
  *
  * `serializers` IS KEYED BY FIELD NAME, AND THAT WAS THE SAME WEAKNESS ONE LEVEL UP (F-248).
  * `{ error: e }` and `{ ctx: { err: e } }` reach pino's ordinary object path, where `message`
@@ -130,14 +137,24 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
  * AND `msg` IS BUILT FROM THE ARGUMENTS AS WELL AS FROM THE RECORD (F-260). That is a
  * mechanism none of the above stands in front of; `interpolationCovered` below the literal
  * owns it, and the hook's last line is where it is applied.
+ *
+ * THERE IS NO `redact` OPTION, AND ITS ABSENCE IS DELIBERATE (ADR-0028). Every one of the
+ * 25 paths named a key that is not on `LOGGABLE_FIELDS`, so the list is subsumed by the
+ * scan; keeping it would cost a measured 2.7 µs per line for no coverage the scan does not
+ * already have, and would leave in the codebase the one mechanism whose "just append a
+ * path" reflex produced F-261, F-262 and F-266. TWO CENSORING MECHANISMS WITH OPPOSITE
+ * POLARITY IS ALSO A COMPREHENSION HAZARD: it is what let a reader of the six
+ * `req.headers.*` paths conclude that logging a whole request was a covered act. The cost
+ * accepted with it is real — `redact` was a second layer that would have survived a bug in
+ * the scan, and after this there is exactly one mechanism between an unnamed field and the
+ * line. That is why `childOptionsChecked` below is load-bearing rather than hardening.
  */
 export const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
-  redact: { paths: [...REDACT_PATHS], censor: REDACT_CENSOR },
   base: { service: 'shortkit-api', env: process.env.NODE_ENV },
   formatters: {
     level: (label) => ({ level: label }),
-    log: (record) => errorsReplaced(record, 1),
+    log: (record) => fieldsCensored(record, 1),
   },
   serializers: { err: (thrown: unknown) => errorLogFields(thrown, { includeMessage: false }) },
   hooks: {
@@ -183,10 +200,11 @@ export const logger = pino({
  * the covered `logger.error(e, 'context')` — made `msg` a JSON OBJECT holding the same
  * payload.
  *
- * REDACTION IS NOT THE FALLBACK HERE, AND IT WAS CHECKED RATHER THAN ASSUMED.
- * `formatOpts.stringify` IS the redacting stringifier, so an interpolated object does get
- * the path list applied — it does not help for F-244's reason, that the payload is a STRING
- * and no path reaches inside one, and `%s` bypasses `stringify` altogether.
+ * NOTHING SITS BEHIND THIS, AND SINCE ADR-0028 THAT IS LITERAL. `formatOpts.stringify` used
+ * to be the REDACTING stringifier, so an interpolated object got the path list applied —
+ * which did not help for F-244's reason, that the payload is a STRING and no path reaches
+ * inside one, and `%s` bypassed `stringify` altogether. With `redact` gone the only policy
+ * on this path is the one below.
  *
  * WHAT THIS DOES: every position pino interpolates goes through the same policy the record
  * path uses, before pino formats anything.
@@ -263,27 +281,36 @@ function errorMovedOntoTheRecord(args: readonly unknown[]): readonly unknown[] {
 
 /**
  * Where a scan of a FORMAT ARGUMENT starts, and the one difference between this path and
- * the record path. The depth-1 skip of the top-level `err` key exists only because
- * `serializers.err` runs after `formatters.log` and owns that key; nothing runs after
- * `format`, so the same exemption here would be a hole rather than a seam —
- * `logger.error('ctx %o', { err: e })` is the shape it leaks through. Starting at 2 turns
- * the exemption off, and the price is one level of reach.
+ * the record path.
+ *
+ * A format argument ARRIVES UNDER NO KEY, so it goes through `valueCensored` — the value
+ * half of the policy — rather than through the key rule: `logger.error('a %s', 'b')` has to
+ * interpolate `b`, and there is no field name to decide about. A CONTAINER it holds is then
+ * walked by `fieldsCensored` at `depth + 1`, so its own keys are decided normally.
+ *
+ * ONE, AND THE `+ 1` IS THE LOAD-BEARING PART. The depth-1 skip of the top-level `err` key
+ * exists only because `serializers.err` runs after `formatters.log` and owns that key;
+ * nothing runs after `format`, so the same exemption here would be a hole rather than a
+ * seam — `logger.error('ctx %o', { err: e })` is the shape it leaks through. An
+ * interpolated container is therefore walked from 2, where the exemption does not apply,
+ * and the price is one level of reach.
  */
-const FORMAT_ARGUMENT_SCAN_DEPTH = 2;
+const FORMAT_ARGUMENT_SCAN_DEPTH = 1;
 
 /** The policy applied to one value pino is about to interpolate. */
 function interpolationSafe(value: unknown): unknown {
-  if (value instanceof Error) {
-    return errorLogFields(value, { includeMessage: false });
-  }
-
-  return isWalkable(value) ? errorsReplaced(value, FORMAT_ARGUMENT_SCAN_DEPTH) : value;
+  return valueCensored(value, FORMAT_ARGUMENT_SCAN_DEPTH);
 }
 
 /**
  * ============================================================================
  * BINDINGS GO THROUGH THE SAME SCAN, BECAUSE PINO WILL NOT RUN IT (F-251, F-258).
  * ============================================================================
+ *
+ * "THE SAME SCAN" IS WIDER SINCE ADR-0028 AND THE MECHANISM IS UNCHANGED. These two
+ * wrappers are one of the two places a line is built, so they are one of the two places the
+ * field allowlist is enforced; a key that is not named is censored in bindings exactly as it
+ * is in a record, and an `Error` under any key is still reduced to the policy fields.
  *
  * `formatters.log` above is applied by `_asJson` to the record a log call passes. Child
  * bindings never reach it: they are serialised once, at `logger.child(…)`, by `asChindings`
@@ -335,11 +362,11 @@ type BindingsSetter = (this: pino.Logger, bindings: pino.Bindings) => void;
 const inheritedChild: ChildFactory = logger.child;
 const inheritedSetBindings: BindingsSetter = logger.setBindings;
 
-const childWithErrorsReplaced: ChildFactory = function childWithErrorsReplaced(bindings, options) {
+const childWithFieldsCensored: ChildFactory = function childWithFieldsCensored(bindings, options) {
   return inheritedChild.call(this, bindingsScanned(bindings), childOptionsChecked(options));
 };
 
-const setBindingsWithErrorsReplaced: BindingsSetter = function setBindingsWithErrorsReplaced(
+const setBindingsWithFieldsCensored: BindingsSetter = function setBindingsWithFieldsCensored(
   bindings,
 ) {
   inheritedSetBindings.call(this, bindingsScanned(bindings));
@@ -352,7 +379,7 @@ const setBindingsWithErrorsReplaced: BindingsSetter = function setBindingsWithEr
  * bindings for child Pino", `setBindings` no-ops.
  */
 function bindingsScanned(bindings: pino.Bindings): pino.Bindings {
-  return bindings ? errorsReplaced(bindings, 1) : bindings;
+  return bindings ? fieldsCensored(bindings, 1) : bindings;
 }
 
 /**
@@ -363,10 +390,11 @@ function bindingsScanned(bindings: pino.Bindings): pino.Bindings {
  * pino's `child(bindings, options)` does not merge these three with the instance's own; it
  * REPLACES them, and all three were reproduced against this singleton:
  *
- *   - `redact` — `proto.js:157-165`, comment "replace redact directly". One child-scoped
- *     path drops all 25 the root censors, on that child, with nothing in the output to say
- *     so. This is the plausible accident rather than the exotic one: a TASK that wants ONE
- *     extra path for its own subtree writes `child(b, { redact: ['*.myField'] })`.
+ *   - `redact` — `proto.js:157-165`, comment "replace redact directly". This root no longer
+ *     sets one (ADR-0028), so a child supplying `redact` removes nothing today — it is
+ *     refused anyway, because a censoring option the root does not hold is a second policy
+ *     with the opposite polarity to this module's, applied to one subtree, and the
+ *     comprehension hazard that produced F-261, F-262 and F-266 is exactly that.
  *   - `serializers` — `proto.js:115-134`. Merged PER KEY, parent first, so a child naming
  *     `err` displaces the serialiser that owns the top-level `err` key — the half of the
  *     partition the record scan deliberately skips. Nothing else covers that key.
@@ -382,8 +410,10 @@ function bindingsScanned(bindings: pino.Bindings): pino.Bindings {
  * now nothing enforced it. A throw is the only answer that cannot be half-applied, it fires
  * at the call site rather than in a log line nobody reads, and no call site in `apps/api`
  * passes any of the three (`exception-filter.ts:125` passes bindings and no options at all),
- * so nothing that runs today reaches it. ADR-0028 depends on this: once `redact` goes, a
- * child-supplied `formatters.log` would be the only thing between a record and the line.
+ * so nothing that runs today reaches it. ADR-0028 MADE THIS LOAD-BEARING RATHER THAN
+ * HARDENING, and its Migration says so: `redact` is gone, so a child-supplied
+ * `formatters.log` is now the ONLY thing that would stand between a record and the line.
+ * There is nothing behind this refusal.
  *
  * `level`, `msgPrefix`, `customLevels` and `bindings` are untouched — they change what a
  * child logs, not what this module withholds — and `setBindings` takes no options at all.
@@ -436,14 +466,14 @@ function childOptionsChecked(
 // original, and no property descriptor can change that. That is hardening against the
 // accident, not a boundary against a call site that means it.
 Object.defineProperty(logger, 'child', {
-  value: childWithErrorsReplaced,
+  value: childWithFieldsCensored,
   writable: false,
   enumerable: false,
   configurable: false,
 });
 
 Object.defineProperty(logger, 'setBindings', {
-  value: setBindingsWithErrorsReplaced,
+  value: setBindingsWithFieldsCensored,
   writable: false,
   enumerable: false,
   configurable: false,
@@ -484,66 +514,73 @@ function messageWouldBeTakenFromTheError(record: unknown): record is object {
 }
 
 /**
- * How far into a log record the scan below looks for an `Error`.
+ * How far in the scan looks. A CONTAINER AT OR BELOW THIS DEPTH IS CENSORED, NOT WALKED —
+ * which is the inversion ADR-0028 turns on, and the reason the depth bound stopped being a
+ * residual. It used to mean "past here, pass it through"; it now means "past here, redact".
  *
- * Four. `{ ctx: { err: e } }` — F-248's third shape — puts the error at depth 2, so one
- * level is not enough, and an unbounded walk runs on every line the process writes. Four
- * covers every nesting a call site in this repository builds — every one is flat today, and
- * `req.headers.authorization` in `REDACT_PATHS` is the deepest shape named anywhere, at 3 —
- * with a level of slack, and it bounds the work whatever a call site hands the logger.
+ * Four. `{ ctx: { err: e } }` — F-248's third shape — puts a value at depth 2, so one level
+ * is not enough, and an unbounded walk runs on every line the process writes. Four covers
+ * every nesting a call site in this repository builds — every one is flat today — with a
+ * level of slack, and it bounds the work whatever a call site hands the logger. The bound
+ * also makes a self-referential record terminate, which a walk without one would not.
  *
- * MEASURED on this repository, pino 10.3.1 and Node 24.19, one million calls per figure,
- * against the shipped instance's own formatter: 40 ns on a flat request-log record, 95 ns on
- * one carrying `req.headers`, 115 ns on a record nested five deep, and 500 ns when the record
- * actually holds an error — where `errorLogFields`, not the walk, is the cost. The whole log
- * call is 5.8 µs to 9 µs on the same machine, so the scan is under 2% of a line the redirect
- * path already pays for, against GC-1's 25 ms budget. The bound also makes a self-referential
- * record terminate, which a walk without one would not.
+ * WHAT DEEPENING IT COSTS AND BUYS is now the opposite of what it was. Raising it does not
+ * close a leak; it lets a DEEPER NAMED FIELD keep its value. Lowering it censors more.
+ * Either way it is additive to safety, so the versioning rule that made lowering a removal
+ * has inverted with it — see `logging-and-headers.md`, "Versioning".
  *
- * THE RESIDUALS, STATED RATHER THAN LEFT TO BE FOUND. Three shapes reach a line with a
- * library's assigned properties on them, and all three carry the same escalation rule: the
- * TASK that first builds one closes it here, in the same commit, rather than living with it.
- * (A fourth was listed here and is now CLOSED: `setBindings` is wrapped, F-258.)
+ * MEASURED, pino 10.3.1 and Node 24.19, against a prototype of this configuration and
+ * against the one that shipped before it, one million calls per figure: the allowlist scan
+ * costs 45 ns on a flat request-log record against the denylist scan's 31 ns, because it
+ * does a `Set` lookup per key — and 31 ns against 78 ns on a record carrying `req.headers`,
+ * 26 ns against 66 ns on a record nested five deep, because a denied key is censored without
+ * walking what is under it. The whole log call fell from 4295 ns to 1706 ns on a flat record,
+ * because removing `redact` refunds more than this spends. Re-measured on this commit; see
+ * the round's report. Against GC-1's 25 ms ceiling one line is 0.007%.
  *
- *   1. AN ERROR AT DEPTH 5 OR DEEPER is not replaced — the bound above. Same limit
- *      `REDACT_PATHS` has for a nested secret, same answer: raise it.
- *   2. AN ERROR HELD INSIDE A CLASS INSTANCE is not replaced (F-255), because `isWalkable`
- *      declines to walk one — see it for why. `JSON.stringify` serialises a class instance's
- *      own enumerable properties happily, so `{ ctx: new Ctx(parseFailure) }` puts the raw
- *      body on the line even at depth 1. The answer for a TASK that needs it is to log the
- *      fields it wants rather than the instance, or to widen `isWalkable` deliberately and
- *      pay the `Buffer` cost it exists to avoid.
- *   3. AN ERROR RETURNED BY A `toJSON` METHOD is not replaced (F-265), and this is NOT
- *      residual 2 with a different container. THIS SCAN INSPECTS PROPERTIES;
- *      `JSON.stringify` CONSULTS `toJSON` AND THEN NEVER LOOKS AT THEM. So
- *      `{ ctx: { toJSON: () => e } }` is a PLAIN object, `isWalkable` returns true, the walk
- *      goes through it, finds one key holding a function, replaces nothing — and the error
- *      appears at stringify time regardless. Reproduced both on the plain object and on a
- *      class with a `toJSON`. Residual 2's remedies do not describe it: widening
- *      `isWalkable` is irrelevant to the plain form, and for the class form it would remove
- *      the leak only by dropping `toJSON` from the copy, silently changing what the line
- *      looks like. The answer for a TASK that needs it is the same as residual 2's first
- *      one — log the fields, not the object that knows how to serialise itself.
- *
- * NOT A RESIDUAL, AND THE REASON IT IS WORTH SAYING SO: BOTH BINDINGS PATHS ARE COVERED.
- * `logger.child` and `logger.setBindings` are the two entries to `asChindings` and both are
- * wrapped above. A shape that leaks through a THIRD entry, should pino ever grow one, belongs
- * on this list — not in a comment saying the two known ones are handled.
+ * THE RESIDUALS THIS USED TO CARRY ARE CLOSED, and they closed as a class rather than one at
+ * a time. An error at depth 5 (residual 1), an error inside a class instance (F-255,
+ * residual 2) and an error returned by a `toJSON` (F-265, residual 3) all reached a line
+ * carrying whatever a library had assigned, because "the scan cannot inspect this" meant
+ * "emit it whole". It now means `[redacted]`. What replaces them is not a leak but a
+ * DIAGNOSTIC LOSS, and it is stated as a cost rather than as a residual: an `Error` nested
+ * inside a container that is not a named field — `{ ctx: { err: e } }` — is censored WITH
+ * its container instead of being reduced to `err_name` and `err_stack`. The remedy is the
+ * one the contract already prescribes: pass the error at the top level.
  */
-const MAX_ERROR_SCAN_DEPTH = 4;
+const MAX_SCAN_DEPTH = 4;
 
 /**
  * ============================================================================
- * EVERY `Error` IN THE RECORD GOES THROUGH THE SAME POLICY, UNDER EVERY KEY (F-248).
+ * A FIELD REACHES A LOG LINE ONLY IF ITS KEY IS NAMED (ADR-0028), AND EVERY `Error`
+ * REACHES IT ONLY AS THE POLICY FIELDS (F-248).
  * ============================================================================
  *
- * `serializers` is keyed by field name, so the override above covers `err` and nothing
- * else. That was F-244 one level up: `{ error: e }`, `{ cause: e }` and `{ ctx: { err: e } }`
- * all reach pino's ordinary object path, and what survives it is exactly what a library
- * ASSIGNED to the error — `message` and `stack` are non-enumerable, `body-parser`'s `body`
- * is not. All three leaked the verbatim request body; reproduced before this change.
- * Adding `serializers.error` and `serializers.cause` is the enumeration F-244 rejected, and
- * it would not reach the nested shape at all.
+ * Two rules, in this order, and the ORDER IS THE POINT:
+ *
+ *   1. AN `Error` VALUE IS REDUCED BY `errorLogFields` WHATEVER ITS KEY, and the key check
+ *      never runs on it. `serializers` is keyed by field name, so the override in the
+ *      literal above covers `err` and nothing else — that was F-244 one level up:
+ *      `{ error: e }`, `{ cause: e }` and `{ ctx: { err: e } }` all reach pino's ordinary
+ *      object path, where `message` and `stack` do not survive (non-enumerable) but
+ *      body-parser's ASSIGNED `body` does. An error is a VALUE WITH A POLICY, not a field
+ *      with a name, and that is the one guarantee that has survived every round.
+ *   2. EVERY OTHER KEY SURVIVES ONLY IF `LOGGABLE_FIELDS` NAMES IT. Anything else is
+ *      `REDACT_CENSOR`, whatever it holds and however deep it goes.
+ *
+ * THE KEY STAYS ON THE LINE. `"attemptCount":"[redacted]"`, never a dropped key: the
+ * operator sees which field exists, what it is called, and that one line in
+ * `LOGGABLE_FIELDS` is what it needs. That is the whole mitigation for what ADR-0028 costs.
+ *
+ * `undefined` IS LEFT ALONE, because `JSON.stringify` drops a key whose value is
+ * `undefined` — censoring it would ADD a field where none appeared and send an operator
+ * looking for a value that was never there.
+ *
+ * A PROPERTY WHOSE GETTER THROWS IS CENSORED, NOT SKIPPED. Skipping left the key in the
+ * record for pino to read again, so a getter that threw once and returned a credential on
+ * the second read put it on the line — under an allowlist that would be a counterexample to
+ * the whole guarantee. What this does NOT fix: the `{ ...record }` copy re-invokes the
+ * getter and the log call still throws with no line emitted (F-253, F-259).
  *
  * WHAT EACH MECHANISM OWNS, AND WHY THE SPLIT. MEASURED, pino 10.3.1 `lib/tools.js`
  * `_asJson`: `formatters.log` runs BEFORE the per-key serialisers, on the same merged
@@ -552,25 +589,21 @@ const MAX_ERROR_SCAN_DEPTH = 4;
  * `non-error throwable (object)`. The two therefore partition the record:
  *
  *   - `serializers.err` owns the top-level `err` key. It also covers a NON-error under that
- *     key, which this function deliberately does not.
- *   - this function owns every other key, at every depth up to `MAX_ERROR_SCAN_DEPTH` —
- *     including `err` nested below the root.
+ *     key, which this function deliberately does not — and its output is three named fields
+ *     by construction, so the allowlist neither sees it nor needs to.
+ *   - this function owns every other key, at every depth up to `MAX_SCAN_DEPTH` — including
+ *     `err` nested below the root.
  *
  * There is no key between them.
  *
  * WHAT THE SUITE PINS, EXACTLY (F-254 — this paragraph used to claim more). MEASURED by
- * striking each half of the partition and running `logger.spec.ts`: dropping
- * `serializers.err` alone fails 12 tests, dropping the `depth === 1 && key === ERROR_KEY`
- * skip alone fails 6 — so neither half can be removed on its own. Removing BOTH TOGETHER,
- * which is the "these two mechanisms overlap, let me unify them" refactor and the one a
- * later reader is most likely to attempt, fails exactly ONE test: the non-`Error` under the
- * top-level `err` key. That single case is what makes this a partition rather than a
- * redundancy, and it is the only thing standing between that refactor and F-244's shape
- * coming back under `err`.
- *
- * ONLY `Error` INSTANCES ARE REPLACED. A plain object a call site chose to log is its own
- * decision and passes through — the hazard here is the properties a LIBRARY hangs off a
- * throwable without the call site knowing.
+ * striking each half of the partition and running `logger.spec.ts`: neither half can be
+ * removed on its own. Removing BOTH TOGETHER, which is the "these two mechanisms overlap,
+ * let me unify them" refactor and the one a later reader is most likely to attempt, fails
+ * exactly ONE test: the non-`Error` under the top-level `err` key. That single case is what
+ * makes this a partition rather than a redundancy, and it is the only thing standing between
+ * that refactor and F-244's shape coming back under `err`. (The counts move as tests are
+ * added; the shape is what matters.)
  *
  * IT DESCENDS INTO NOTHING IT REPLACES, WHICH IS WHY `err.cause` STAYS SHUT. A chained
  * error is reachable only through `cause`, which is own but non-enumerable when set through
@@ -579,61 +612,138 @@ const MAX_ERROR_SCAN_DEPTH = 4;
  * never a container to walk. Asserted in `logger.spec.ts`.
  *
  * The record is not mutated: a container is copied only if one of its values changed, so a
- * line with no error in it allocates nothing and the caller's object is never touched.
+ * line whose fields are all named and all primitive allocates nothing and the caller's
+ * object is never touched.
+ *
+ * ONE DEVIATION FROM ADR-0028's NORMATIVE FENCE, AND IT IS ONE TERNARY. The ADR's copy is
+ * `{ ...record }`, which would turn an ARRAY handed in as the whole record into an object
+ * keyed `"0"`, `"1"`. Contract invariant 5 names `[e, e]` as a covered shape, so the copy
+ * keeps the array branch `errorsReplaced` had and an array record stays an array. An array
+ * reached through a NAMED KEY does not come here at all — `valueCensored` routes it to
+ * `elementsCensored`, where an index is correctly not treated as a field name.
  */
-function errorsReplaced<T extends object>(container: T, depth: number): T {
+function fieldsCensored<T extends object>(record: T, depth: number): T {
   let replacement: T | undefined;
 
-  for (const key of Object.keys(container)) {
+  for (const key of Object.keys(record)) {
+    // The seam with `serializers.err`. Required, not stylistic: see the partition above.
     if (depth === 1 && key === ERROR_KEY) {
       continue;
     }
 
-    const value = readIndexedProperty(container, key);
+    const value = readIndexedProperty(record, key);
 
-    if (value === UNREADABLE_PROPERTY) {
+    if (value === undefined) {
       continue;
     }
 
     const replaced =
-      value instanceof Error
-        ? errorLogFields(value, { includeMessage: false })
-        : depth < MAX_ERROR_SCAN_DEPTH && isWalkable(value)
-          ? errorsReplaced(value, depth + 1)
-          : value;
+      value === UNREADABLE_PROPERTY
+        ? REDACT_CENSOR
+        : value instanceof Error
+          ? errorLogFields(value, { includeMessage: false })
+          : LOGGABLE_FIELDS.has(key)
+            ? valueCensored(value, depth)
+            : REDACT_CENSOR;
 
     if (replaced !== value) {
-      replacement ??= (Array.isArray(container) ? [...container] : { ...container }) as T;
+      replacement ??= (Array.isArray(record) ? [...record] : { ...record }) as T;
       (replacement as Record<string, unknown>)[key] = replaced;
     }
   }
 
-  return replacement ?? container;
+  return replacement ?? record;
 }
 
-/** A property whose getter threw. The scan leaves that key exactly as it found it. */
+/**
+ * The policy for a value whose key has already been allowed, or that arrived under no key at
+ * all — an array element, or a format argument.
+ *
+ * A CONTAINER THIS CANNOT INSPECT IS CENSORED, NOT PASSED THROUGH. A class instance, a
+ * `Buffer`, anything at or past `MAX_SCAN_DEPTH`: `[redacted]`. That is the inversion, and
+ * it is what closes residuals 1 and 2 and F-265's `toJSON` mechanism as a class — a plain
+ * object carrying a `toJSON` is walked, finds nothing to replace, and is emitted by
+ * `JSON.stringify` from `toJSON`'s return value, so the only defence that ever reached it is
+ * the one that never had to look inside.
+ *
+ * A class instance is declined for the reason it always was — `Object.keys` on a `Buffer` is
+ * thousands of index strings — and the answer for a TASK that needs one logged is unchanged:
+ * log the fields it wants, not the object.
+ */
+function valueCensored(value: unknown, depth: number): unknown {
+  if (value instanceof Error) {
+    return errorLogFields(value, { includeMessage: false });
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+
+  if (depth >= MAX_SCAN_DEPTH) {
+    return REDACT_CENSOR;
+  }
+
+  if (Array.isArray(value)) {
+    return elementsCensored(value, depth + 1);
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null
+    ? fieldsCensored(value, depth + 1)
+    : REDACT_CENSOR;
+}
+
+/**
+ * An array's elements, each through `valueCensored` and NONE through the key rule: AN ARRAY
+ * INDEX IS NOT A FIELD NAME. A scan that ran the key check on `'0'` and `'1'` would censor
+ * every element of every array — no allowlist will ever name an index — and turn a named
+ * field holding a list into `["[redacted]","[redacted]"]` with the whole suite green.
+ *
+ * An OBJECT inside an array is walked by `fieldsCensored`, so its own keys are decided
+ * normally. Measured: `{ request_id: 'r-1', route: ['a', { password: 'P' }] }` emits
+ * `"route":["a",{"password":"[redacted]"}]`.
+ */
+function elementsCensored(elements: readonly unknown[], depth: number): readonly unknown[] {
+  let replacement: unknown[] | undefined;
+
+  for (let index = 0; index < elements.length; index += 1) {
+    const value = readIndexedProperty(elements, String(index));
+    const replaced = value === UNREADABLE_PROPERTY ? REDACT_CENSOR : valueCensored(value, depth);
+
+    if (replaced !== value) {
+      replacement ??= [...elements];
+      replacement[index] = replaced;
+    }
+  }
+
+  return replacement ?? elements;
+}
+
+/** A property whose getter threw. Censored rather than skipped; see `fieldsCensored`. */
 const UNREADABLE_PROPERTY = Symbol('unreadable property');
 
 /**
  * A log record's own values are free to be hostile getters, the same way an error's are
- * (F-244's second minor). Reading one here must not throw, and must not change what pino
- * writes for that key either — so the scan skips it and leaves pino's own stringify to
- * handle it exactly as it did before this function existed.
+ * (F-244's second minor). Reading one here must not throw.
  *
  * WHAT THIS GUARD IS AND IS NOT (F-259). It stops THIS READ from throwing. IT DOES NOT MAKE
- * THE SCAN THROW-FREE, and the docblock here used to imply that it did. When some OTHER key
- * in the same container changed, `errorsReplaced` builds the copy with `{ ...container }`,
- * which re-reads every enumerable key — the hostile one included — outside this `try`. So
- * does `errorMovedOntoTheRecord`'s spread of the caller's record. THE OBSERVABLE OUTCOME IS
- * UNCHANGED FROM BARE PINO, which reads every key in `_asJson` with no guard at all and
- * throws from there, so this is not a hazard the module added; a key-by-key copy would
- * remove one of the four throw sites and leave `_asJson`, fast-redact's `cloneSelectively`
+ * THE SCAN THROW-FREE. When some OTHER key in the same container changed, `fieldsCensored`
+ * builds the copy with `{ ...record }`, which re-reads every enumerable key — the hostile
+ * one included — outside this `try`. So does `errorMovedOntoTheRecord`'s spread of the
+ * caller's record. THE OBSERVABLE OUTCOME IS UNCHANGED FROM BARE PINO, which reads every key
+ * in `_asJson` with no guard at all and throws from there, so this is not a hazard the
+ * module added; a key-by-key copy would remove one of the throw sites and leave `_asJson`
  * and `asChindings` untouched (F-253).
  *
- * WHAT THAT MEANS FOR A CALL SITE, which is the reason the claim had to be corrected rather
- * than left: a place with nowhere left to escape to — the exception filter's `headersSent`
- * arm, `main.ts`'s boot handler, anything on a GC-8 path — still needs its own `try/catch`
- * around a log call whose record it did not build itself. This module does not supply that.
+ * WHAT IT DOES BUY, AND THIS CHANGED WITH ADR-0028: the key whose read threw is now emitted
+ * as `[redacted]` rather than left for pino to read a second time. A getter that throws once
+ * and answers with a credential on the next read used to put it on the line.
+ *
+ * WHAT THAT MEANS FOR A CALL SITE: a place with nowhere left to escape to — the exception
+ * filter's `headersSent` arm, `main.ts`'s boot handler, anything on a GC-8 path — still
+ * needs its own `try/catch` around a log call whose record it did not build itself. This
+ * module does not supply that.
  */
 function readIndexedProperty(container: object, key: string): unknown {
   try {
@@ -641,26 +751,6 @@ function readIndexedProperty(container: object, key: string): unknown {
   } catch {
     return UNREADABLE_PROPERTY;
   }
-}
-
-/**
- * Plain records and arrays only — the shapes a log call site builds by hand. A class
- * instance is not walked: `Object.keys` on a `Buffer` is thousands of index strings, and an
- * `Error` subclass is already caught by the `instanceof` above.
- *
- * THE CONSEQUENCE, WHICH IS A RESIDUAL AND NOT ONLY A COST DECISION (F-255): an `Error` a
- * class instance holds is never replaced, and `JSON.stringify` writes that instance's own
- * enumerable properties out, so the raw request body reaches the line through it. Stated
- * with the other two on `MAX_ERROR_SCAN_DEPTH`, under the same escalation rule.
- */
-function isWalkable(value: unknown): value is object {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  const prototype: unknown = Object.getPrototypeOf(value);
-
-  return Array.isArray(value) || prototype === Object.prototype || prototype === null;
 }
 
 /**
@@ -695,11 +785,11 @@ export interface RequestLogFields {
  *     what F-111 said to check for. **This module never uses that serialiser, and never
  *     puts an `Error` under an `err` key or in a positional argument** — pino also copies
  *     `err.message` into `msg` when an Error is passed positionally.
- *   - `REDACT_PATHS` DOES reach `err.message` and `err.stack` once an error has been
- *     serialised into an object; `logging-and-headers.md` says it cannot, and that is
- *     wrong in one direction. What redaction cannot do is reach INSIDE either string, so
- *     the choice is per-field and all-or-nothing. That is why the answer is which fields
- *     to build, not which paths to censor.
+ *   - A PATH LIST DID reach `err.message` and `err.stack` once an error had been serialised
+ *     into an object; `logging-and-headers.md` said it could not, and that was wrong in one
+ *     direction. What no censoring scheme can do — the denylist that shipped until ADR-0028
+ *     or the allowlist that replaced it — is reach INSIDE either string, so the choice is
+ *     per-field and all-or-nothing. That is why the answer is which fields to build.
  *
  * THE POLICY:
  *

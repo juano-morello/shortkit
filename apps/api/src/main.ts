@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 import { assertRuntimeRoleCannotBypassRls } from './db/rls';
@@ -233,6 +234,29 @@ async function bootstrap(): Promise<void> {
   await assertBootPreconditions();
 
   app = await NestFactory.create(AppModule);
+
+  // ============================================================================
+  // SECURITY HEADERS (F-243 clause 2, ADR-0022, `logging-and-headers.md` invariant 4).
+  // ============================================================================
+  //
+  // ON THE APP AND BEFORE THE GLOBAL PREFIX, which is the contract's own wording and is
+  // load-bearing rather than stylistic: this is Express middleware on the underlying
+  // instance, so it runs for EVERY response the process writes — the routed 200, the
+  // branded 404 `ApiExceptionFilter` builds, and anything mounted outside the Nest module
+  // graph (ADR-0013). Middleware registered inside a module covers the routed responses and
+  // misses the error ones, which is the half that goes wrong quietly.
+  //
+  // `frameguard: { action: 'deny' }` IS NOT HELMET'S DEFAULT. helmet sends `SAMEORIGIN`;
+  // the contract's header table says `DENY`, and the table wins. Everything else on that
+  // table is helmet's own default and is left alone: HSTS at
+  // `max-age=31536000; includeSubDomains` WITH NO `preload` — the contract refuses preload
+  // because submission is close to irreversible and the apex domain is unregistered —
+  // `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and the default CSP.
+  //
+  // The redirect path's two documented exceptions (`Referrer-Policy: unsafe-url` on the 302,
+  // a tighter CSP on the branded 404) belong to `redirect-resolution.md`, and the TASK that
+  // builds that route sets them per-response over these defaults.
+  app.use(helmet({ frameguard: { action: 'deny' } }));
 
   // ADR-0006: every controller answers under /api. GET /health stays at the
   // root so the platform health check never depends on the API surface.

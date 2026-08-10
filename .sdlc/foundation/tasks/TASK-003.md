@@ -6,12 +6,29 @@ title: API deployable on Fly.io with a health endpoint
 status: rework
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
-paths: ["fly.toml", "Dockerfile", "infra/**", "apps/api/src/health/**", "apps/api/src/app.module.ts", "apps/api/src/main.ts", "apps/api/src/common/errors/**", "apps/api/package.json", "pnpm-lock.yaml"]
+paths: ["fly.toml", "Dockerfile", ".dockerignore", "infra/**", "eslint.config.mjs", "apps/api/src/health/**", "apps/api/src/observability/**", "apps/api/src/app.module.ts", "apps/api/src/main.ts", "apps/api/src/common/errors/**", "apps/api/test/security/**", "apps/api/package.json", "pnpm-lock.yaml"]
 contracts: []
 test_files: ["apps/api/src/health/health.spec.ts"]
 acceptance: [AC-6]
 rework_count: 0
 ---
+
+## ⚠ `paths` corrected 2026-08-10 — it never covered this TASK's largest deliverable
+
+Until now `paths` omitted **`apps/api/src/observability/**`** — the pino logger, which is the
+biggest thing this TASK has built and the subject of four fix rounds, ADR-0022, ADR-0028 and
+roughly forty findings. Also missing: `eslint.config.mjs` (F-268's lint rule, round 4),
+`.dockerignore`, and `apps/api/test/security/**`.
+
+Flagged by the round-5 implementer, which noticed its own excursion was ratified in this
+card's prose and never in its front-matter. **The consequence was silent rather than loud:**
+`references/routing.md` resolves a finding's owner by matching `paths` globs, so every
+observability finding fell through to `config.yaml`'s `**` fallback — which happens to be
+`sdlc-implementer-backend`, the correct slot. It routed correctly by luck for six days. A
+project whose fallback were a different slot would have mis-routed every one of them.
+
+Same class as workflow finding F-O: a field with no writer after the event that should have
+updated it.
 
 ## ⚠ Ruled 2026-08-10 — ADR-0028's implementation is OUTSIDE the rework counter
 
