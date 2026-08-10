@@ -8,7 +8,26 @@
  *              scan, all fenced off at the bottom of this file.
  * AC-12.
  *
- * SC-1 lives here. Coverage is enforced by ENUMERATION, not by a hand-maintained list.
+ * SC-1 lives here.
+ *
+ * ===========================================================================
+ * HOW COVERAGE IS BOUNDED, STATED FIRST BECAUSE IT DECIDES WHAT THE REST MEANS
+ * ===========================================================================
+ *
+ * IN THIS WAVE, THE SET OF SUBJECTS IS THE REGISTRY. `discoveredSurfaces()` maps over
+ * `registrations.ts`, so `uncovered` is structurally `[]` and cannot fail on its own —
+ * an earlier version of this header claimed enumeration where there was a list, and r1
+ * measured the consequence: a tenant-scoped table nobody registered leaked every row to
+ * every tenant with both gates green and its name in no artifact.
+ *
+ * WHAT KEEPS THE LIST HONEST IS A SECOND, INDEPENDENT ENUMERATION (F-296).
+ * `tenantScopedTableDrift()` asks the DATABASE which relations carry a tenant boundary —
+ * every table in schema `public` with a `tenant_id` column, plus `tenants` — and
+ * requires that set to equal the registry's. A table in one and not the other fails the
+ * run and names it, in both directions. That is ADR-0019's cross-check, SQL half, pulled
+ * forward: it needs no `tenantScopedTables()` artifact, and TASK-053 and TASK-056 are
+ * both deferred. Module-graph discovery of routes and repositories remains TASK-056's,
+ * and nothing here pretends otherwise.
  *
  * ===========================================================================
  * WHAT THIS HARNESS COVERS TODAY, AND WHAT A PASSING RUN THEREFORE PROVES
@@ -64,8 +83,10 @@ import { writeFileSync } from 'node:fs';
 import { sql } from 'drizzle-orm';
 
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
+import { querySql } from '../support/psql';
 import {
   createRlsFixture,
+  migrationDsn,
   TENANT_A,
   TENANT_A_NAME,
   TENANT_B,
@@ -139,6 +160,13 @@ export interface TenantScopedMethod {
   readonly name: string;
   /** AC-94 covers the reads, AC-95 the writes. Reported, so the split is legible. */
   readonly kind: 'read' | 'write';
+  /**
+   * Whether the statement reaches a row that must already exist, or writes a new one.
+   * F-295: a statement that reaches an existing row proves nothing unless the target
+   * actually owns one, so the runner refuses to score it until it has read that row
+   * through the target's own tenant transaction.
+   */
+  readonly reaches?: 'existing-row' | 'new-row';
   readonly attempt: CrossTenantAttempt;
 }
 
@@ -165,18 +193,42 @@ export interface TenantScopedSurfaceRegistration {
   readonly methods: readonly TenantScopedMethod[];
 }
 
+export type AttemptDirection = 'A->B' | 'B->A';
+
+/**
+ * F-293. Every method is attempted in both, and both are reported as distinct outcomes
+ * under the same surface id. A leak is not symmetric in general: `USING (true)` is, and
+ * an `OR` arm naming one tenant is not.
+ */
+export const ATTEMPT_DIRECTIONS: readonly AttemptDirection[] = ['A->B', 'B->A'];
+
 export interface AttemptOutcome {
   readonly id: SurfaceId;
   readonly subject: string;
   readonly method: string;
   readonly table: string;
   readonly kind: 'read' | 'write';
-  /** AC-12: pass/fail PER METHOD. */
-  readonly outcome: 'pass' | 'fail';
+  /** F-293: which tenant acted, and which it acted against. */
+  readonly direction?: AttemptDirection;
+  readonly actor?: string;
+  readonly target?: string;
+  /** AC-12: pass/fail PER METHOD. `unverified` is a run failure, like `uncovered`. */
+  readonly outcome: 'pass' | 'fail' | 'unverified';
   /** One entry per way this attempt crossed the boundary. Empty on a pass. */
   readonly leaks: readonly string[];
-  /** How the database refused it, when it did. A refusal is a pass. */
+  /** F-295: "denied" and "found nothing" are different answers. */
+  readonly rowsSeen?: number;
+  readonly rowsAffected?: number;
+  /** Rows the actor could see that it owns, read through its own transaction. */
+  readonly actorOwnRowsVisible?: number;
+  /** Rows the target could see that it owns. Zero makes a reaching attempt vacuous. */
+  readonly targetOwnRowsVisible?: number;
+  /** How the database refused it, when it did. SQLSTATE AND MESSAGE (F-294). */
   readonly refusedWith?: string;
+  /** F-294: only a refusal the harness recognises as row-level security is a pass. */
+  readonly refusalKind?: 'row-level-security' | 'unrecognised';
+  /** Why the attempt proved nothing. Present iff outcome is `unverified`. */
+  readonly unverifiedBecause?: string;
 }
 
 export interface IsolationReport {
@@ -195,6 +247,17 @@ export interface IsolationReport {
   attempts: AttemptOutcome[];
   /** The subset of `covered` whose outcome was `fail`. Named, for AC-96's reason. */
   failed: SurfaceId[];
+  /**
+   * F-294, F-295. Surfaces that were attempted and proved nothing: the database refused
+   * for a reason that was not a policy, or the premise the attempt needed did not hold.
+   * A run with any of these is `fail`, for the same reason `uncovered` is.
+   */
+  unverified?: SurfaceId[];
+  /**
+   * F-296. Tables carrying a tenant boundary that the registry does not know about, and
+   * registered tables the database does not have. Both directions fail the run.
+   */
+  registryDrift?: RegistryDatabaseDrift;
   excluded: ReadonlyArray<{ id: SurfaceId; justification: string }>;
   publicRoutes: ReadonlyArray<{ id: SurfaceId; justification: string }>;
   noTenantTransactionRoutes: ReadonlyArray<{ id: SurfaceId; justification: string }>;
@@ -254,12 +317,24 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-006, wave 2. Covers the two tables that exist: `tenants` (migrated, four ' +
-  'bespoke policies) and `rls_fixture_rows` (built from tenantScopedPolicies()). ' +
-  'No routes and no repositories are enumerated, because none exist — route and ' +
-  'repository discovery is TASK-056. A pass here means cross-tenant reads and writes ' +
-  'against those two tables were refused or returned nothing; it does not mean the ' +
-  'system has no uncovered cross-tenant surface.';
+  'TASK-006, wave 2, revised r2. Covers the two tables that carry a tenant boundary ' +
+  'today: `tenants` (the migrated table, four bespoke policies) and `rls_fixture_rows` ' +
+  '(a FIXTURE TABLE this suite creates and drops per run, built from the production ' +
+  'tenantScopedPolicies()). No routes and no repositories are enumerated, because none ' +
+  'exist — route and repository discovery is TASK-056. ' +
+  'HOW THE COVERED SET IS BOUNDED: it is the registry in registrations.ts, and the ' +
+  'registry is cross-checked against the database on every run — every relation in ' +
+  'schema public carrying a tenant_id column, plus `tenants`, must be registered, and ' +
+  'a difference in either direction fails the run and names the table (ADR-0019, SQL ' +
+  'half). ' +
+  'WHAT A PASS MEANS: every registered method was attempted in BOTH directions, each ' +
+  'acting tenant was shown to see its own row first, every refusal scored as a pass ' +
+  'was a row-level security refusal recorded with its SQLSTATE and message, and no ' +
+  'tenant could see a row it does not own before or after any attempt. An attempt that ' +
+  'proved nothing is reported `unverified` and fails the run. ' +
+  'It does not mean the system has no uncovered cross-tenant surface: most of the ' +
+  'system is unwritten, and the module-graph enumeration, the four grep clauses and ' +
+  'the pg_policies shape assertion are TASK-056\'s.';
 
 /* ========================================================================== *
  * The registry. This is the enumeration mechanism.
@@ -293,6 +368,76 @@ export function registerTenantScopedSurfaces(
 
 export function registeredSubjects(): TenantScopedSurfaceRegistration[] {
   return [...registry.values()];
+}
+
+/**
+ * ============================================================================
+ * F-296. THE REGISTRY IS CROSS-CHECKED AGAINST THE DATABASE.
+ * ============================================================================
+ */
+
+export interface RegistryDatabaseDrift {
+  /** Tenant-scoped in the database, registered nowhere. The suite is blind to these. */
+  readonly inDatabaseNotRegistered: string[];
+  /** Registered here, absent from the database or no longer tenant-scoped. */
+  readonly registeredNotInDatabase: string[];
+}
+
+/**
+ * The suite's own tables, which are built and dropped by a run and are therefore not
+ * part of the schema the registry describes. A CLOSED LIST, for the same reason
+ * `ISOLATION_EXCLUSIONS` is one: naming a real table here is the way to hide it from
+ * SC-1, and it has to be a one-line diff a reviewer sees. `rls_fixture_rows` is NOT
+ * here — it is registered, and it is attempted.
+ */
+export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
+  'isolation_leak_canary',
+  'isolation_direction_canary',
+  'isolation_baseline_leak_canary',
+  'isolation_grant_gap_canary',
+  'isolation_masked_refusal_canary',
+  'isolation_half_seeded_canary',
+];
+
+/**
+ * ADR-0019's cross-check, SQL half, pulled forward: enumerate the tables that carry a
+ * tenant boundary FROM THE DATABASE and compare with the registry. TASK-053's
+ * `tenantScopedTables()` is the schema half and is deferred; this half needs no artifact
+ * that does not exist.
+ */
+export function tenantScopedTableDrift(
+  registrations: readonly TenantScopedSurfaceRegistration[] = registeredSubjects(),
+): RegistryDatabaseDrift {
+  // `relkind` 'r' is an ordinary table and 'p' a partitioned one, matching
+  // scripts/check-policies.mts. `pg_attribute` rather than `information_schema.columns`
+  // for the reason that script records at F-213. `tenants` is tenant-scoped without
+  // carrying `tenant_id` — it is the cascade root and its own owner column is `id` —
+  // so it is named, exactly as ADR-0019's exclusion list names it.
+  const tables = querySql<{ table_name: string }>(
+    migrationDsn(),
+    `select c.relname as table_name
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public'
+        and c.relkind in ('r', 'p')
+        and (c.relname = 'tenants'
+             or exists (select 1
+                          from pg_attribute a
+                         where a.attrelid = c.oid
+                           and a.attname = 'tenant_id'
+                           and a.attnum > 0
+                           and not a.attisdropped))`,
+  ).map((row) => row.table_name);
+
+  const inDatabase = new Set(
+    tables.filter((table) => !SUITE_OWNED_CONTROL_TABLES.includes(table)),
+  );
+  const registered = new Set(registrations.map((registration) => registration.table));
+
+  return {
+    inDatabaseNotRegistered: [...inDatabase].filter((table) => !registered.has(table)).sort(),
+    registeredNotInDatabase: [...registered].filter((table) => !inDatabase.has(table)).sort(),
+  };
 }
 
 export function surfaceIdOf(subject: string, method: string): SurfaceId {
@@ -335,25 +480,68 @@ export async function createTenantFixtures(): Promise<TenantFixtures> {
     tenantB: { id: TENANT_B, name: TENANT_B_NAME },
   };
 
-  ownershipBaseline = await tenantOwnershipCensus(registeredSubjects(), fixtures);
+  const baseline = await censusRows(registeredSubjects(), fixtures);
+
+  // F-295. An empty census is the state in which every attempt in the run passes
+  // vacuously: no row is returned because no row exists, or because the tenant context
+  // never reached the database. Neither is isolation.
+  if (baseline.length === 0) {
+    throw new Error(
+      'the ownership census is empty before any attempt has run. Either no subject is ' +
+        'registered, or neither tenant can see a row it owns — in which case every ' +
+        'cross-tenant attempt below would return zero rows whatever the policies say.',
+    );
+  }
+
+  // F-293. The ABSOLUTE assertion, not the differential one: a leak that is already
+  // present when the fixture is built is identical before and after every attempt.
+  const leaks = censusLeaks(baseline);
+
+  if (leaks.length > 0) {
+    throw new Error(`the fixture leaks before any attempt has run:\n  - ${leaks.join('\n  - ')}`);
+  }
+
+  ownershipBaseline = baseline.map(censusLine).sort();
 
   return fixtures;
 }
 
+interface CensusRow {
+  readonly table: string;
+  readonly seenBy: string;
+  readonly id: string;
+  readonly owner: string;
+}
+
+function censusLine(row: CensusRow): string {
+  return `${row.table} seen-by=${row.seenBy} id=${row.id} owner=${row.owner}`;
+}
+
+function sameTenant(one: string, other: string): boolean {
+  return one.toLowerCase() === other.toLowerCase();
+}
+
 /**
- * Who owns what, read through the policies themselves: one tenant transaction per
- * tenant per table, each returning the row ids that tenant can see. A row that moved
- * from B to A appears in A's half and disappears from B's; a row that was deleted
- * disappears from both.
- *
- * Deliberately NOT read as the migrator with RLS off. The census is what the tenants
- * can see, and the transaction it runs in is the same production path the attempts use.
+ * F-293. Every census line where the tenant that could SEE a row is not the tenant that
+ * OWNS it. The harness computed these lines from the first day and compared them only
+ * before-versus-after an attempt, which is blind to a leak that is already there — and
+ * blind to a leak visible only to the tenant that never acted.
  */
-export async function tenantOwnershipCensus(
+function censusLeaks(rows: readonly CensusRow[]): string[] {
+  return rows
+    .filter((row) => !sameTenant(row.seenBy, row.owner))
+    .map(
+      (row) =>
+        `tenant ${row.seenBy} could see a row it does not own before this attempt ran: ` +
+        `${censusLine(row)}`,
+    );
+}
+
+async function censusRows(
   registrations: readonly TenantScopedSurfaceRegistration[],
   fixtures: TenantFixtures,
-): Promise<string[]> {
-  const census: string[] = [];
+): Promise<CensusRow[]> {
+  const census: CensusRow[] = [];
 
   for (const registration of registrations) {
     for (const tenant of [fixtures.tenantA, fixtures.tenantB]) {
@@ -368,14 +556,41 @@ export async function tenantOwnershipCensus(
       });
 
       for (const row of rows) {
-        census.push(
-          `${registration.table} seen-by=${tenant.id} id=${String(row.id)} owner=${String(row.owner)}`,
-        );
+        census.push({
+          table: registration.table,
+          seenBy: tenant.id,
+          id: String(row.id),
+          owner: String(row.owner),
+        });
       }
     }
   }
 
-  return census.sort();
+  return census;
+}
+
+/**
+ * Who owns what, read through the policies themselves: one tenant transaction per
+ * tenant per table, each returning the row ids that tenant can see. A row that moved
+ * from B to A appears in A's half and disappears from B's; a row that was deleted
+ * disappears from both.
+ *
+ * Deliberately NOT read as the migrator with RLS off. The census is what the tenants
+ * can see, and the transaction it runs in is the same production path the attempts use.
+ *
+ * TWO THINGS ARE ASSERTED OVER IT, AND THE SECOND WAS MISSING UNTIL r2 (F-293). The
+ * differential one — this census before an attempt against the same census after it —
+ * catches a row that MOVED. The absolute one, `censusLeaks()`, catches a row that was
+ * already visible to a tenant that does not own it: seen-by must equal owner on every
+ * line. A leak present at baseline is identical before and after every attempt, so the
+ * differential comparison can never see it, and it is the shape a directional policy
+ * defect produces.
+ */
+export async function tenantOwnershipCensus(
+  registrations: readonly TenantScopedSurfaceRegistration[],
+  fixtures: TenantFixtures,
+): Promise<string[]> {
+  return (await censusRows(registrations, fixtures)).map(censusLine).sort();
 }
 
 /**
@@ -452,50 +667,185 @@ function judge(
   return leaks;
 }
 
-function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    const code = (error as { code?: string }).code;
+/**
+ * F-294. THE MESSAGE SURVIVES, AND THE CODE ALONE IS NOT ENOUGH.
+ *
+ * The previous form returned `${name} [${code}]` and DROPPED the message whenever a
+ * SQLSTATE was present. Both auditors measured the consequence independently: an RLS
+ * `WITH CHECK` violation and `permission denied for table ...` are both 42501, so both
+ * rendered as the identical string `error [42501]` — which is what `report.json` carried
+ * for two of the ten attempts. A refusal that cannot be told apart from a missing grant
+ * is not evidence that a policy refused anything.
+ *
+ * So the classification needs the message as well as the code, and it is deliberately
+ * narrow: PostgreSQL raises `new row violates row-level security policy` for a WITH
+ * CHECK denial and nothing else does. Anything the harness does not recognise is
+ * `unrecognised`, which makes the attempt `unverified` rather than a pass.
+ */
+const ROW_LEVEL_SECURITY_REFUSAL = /violates row-level security policy/i;
 
-    return code === undefined ? `${error.name}: ${error.message}` : `${error.name} [${code}]`;
+interface Refusal {
+  readonly description: string;
+  readonly kind: 'row-level-security' | 'unrecognised';
+}
+
+function classifyRefusal(error: unknown): Refusal {
+  if (!(error instanceof Error)) {
+    return { description: String(error), kind: 'unrecognised' };
   }
 
-  return String(error);
+  const code = (error as { code?: string }).code;
+  const description = `${error.name}${code === undefined ? '' : ` [${code}]`}: ${error.message}`;
+
+  return {
+    description,
+    kind:
+      code === '42501' && ROW_LEVEL_SECURITY_REFUSAL.test(error.message)
+        ? 'row-level-security'
+        : 'unrecognised',
+  };
 }
 
 /**
- * Runs one method and judges it. Never throws for a leak — it RECORDS one, so a run
- * reports every method rather than stopping at the first (AC-12, AC-96).
+ * F-295. THE PREMISE AN ATTEMPT NEEDS BEFORE ITS ANSWER MEANS ANYTHING.
+ *
+ * Four of the five statement shapes return zero rows when the target owns no row,
+ * whatever the policy says, and every one of them returns zero rows if the tenant
+ * context never reached the database. Both are indistinguishable from a denial unless
+ * the harness establishes, through the tenants' own transactions, that there was
+ * something to deny and someone to deny it to.
+ *
+ * Read through the census that is already taken before every attempt, so this costs no
+ * extra round trip.
+ */
+function premiseFailure(
+  registration: TenantScopedSurfaceRegistration,
+  method: TenantScopedMethod,
+  actor: TenantFixture,
+  target: TenantFixture,
+  actorOwnRowsVisible: number,
+  targetOwnRowsVisible: number,
+): string | undefined {
+  if (actorOwnRowsVisible === 0) {
+    return (
+      `the acting tenant ${actor.id} could see no row of its own in ${registration.table}, ` +
+      'so this attempt proves nothing: a statement that returns zero rows or is refused ' +
+      'looks the same whether the policy denied it or the tenant context never reached ' +
+      'the database (F-295). Seed a row for both tenants in this table.'
+    );
+  }
+
+  if (method.reaches !== 'new-row' && targetOwnRowsVisible === 0) {
+    return (
+      `the target tenant ${target.id} owns no row in ${registration.table}, so a ` +
+      'statement reaching an existing row returns nothing whether or not any policy ' +
+      'exists (F-295). "Denied" and "found nothing" are not the same answer.'
+    );
+  }
+
+  return undefined;
+}
+
+/**
+ * Runs one method in one direction and judges it. Never throws for a leak — it RECORDS
+ * one, so a run reports every method rather than stopping at the first (AC-12, AC-96).
+ *
+ * THREE OUTCOMES, NOT TWO. `unverified` is what an attempt gets when it neither leaked
+ * nor proved anything: the database refused it for a reason that was not a policy, or
+ * the premise above did not hold. It fails the run and names the surface, in the same
+ * shape as `uncovered` — the alternative is what r1 measured, a green report over
+ * surfaces that were never tested.
  */
 async function attempt(
   registration: TenantScopedSurfaceRegistration,
   method: TenantScopedMethod,
   fixtures: TenantFixtures,
+  direction: AttemptDirection,
 ): Promise<AttemptOutcome> {
-  const id = surfaceIdOf(registration.subject, method.name);
+  const [actor, target] =
+    direction === 'A->B'
+      ? [fixtures.tenantA, fixtures.tenantB]
+      : [fixtures.tenantB, fixtures.tenantA];
+
+  await registration.reset();
+
+  const beforeRows = await censusRows([registration], fixtures);
+  const before = beforeRows.map(censusLine).sort();
+
+  const actorOwnRowsVisible = beforeRows.filter(
+    (row) => sameTenant(row.seenBy, actor.id) && sameTenant(row.owner, actor.id),
+  ).length;
+  const targetOwnRowsVisible = beforeRows.filter(
+    (row) => sameTenant(row.seenBy, target.id) && sameTenant(row.owner, target.id),
+  ).length;
+
   const common = {
-    id,
+    id: surfaceIdOf(registration.subject, method.name),
     subject: registration.subject,
     method: method.name,
     table: registration.table,
     kind: method.kind,
+    direction,
+    actor: actor.id,
+    target: target.id,
+    actorOwnRowsVisible,
+    targetOwnRowsVisible,
   } as const;
 
-  await registration.reset();
-
-  const before = await tenantOwnershipCensus([registration], fixtures);
+  // F-293. The absolute census assertion, applied per attempt so a red run names the
+  // surface and the table rather than only the run.
+  const leaks = censusLeaks(beforeRows);
+  const unverifiedBecause = premiseFailure(
+    registration,
+    method,
+    actor,
+    target,
+    actorOwnRowsVisible,
+    targetOwnRowsVisible,
+  );
 
   let result: CrossTenantAttemptResult;
 
   try {
-    result = await method.attempt(fixtures.tenantA, fixtures.tenantB);
+    result = await method.attempt(actor, target);
   } catch (error) {
-    // isolation-coverage.md: "zero rows returned, or a throw". The database refusing
-    // the statement is the outcome the policy exists to produce.
-    return { ...common, outcome: 'pass', leaks: [], refusedWith: describeError(error) };
+    const refusal = classifyRefusal(error);
+    // RLS NEVER REFUSES A SELECT — it returns zero rows. A read that threw did not run,
+    // so whatever it proves, it is not that a policy denied it.
+    const refusalProvesDenial = method.kind === 'write' && refusal.kind === 'row-level-security';
+    const because = refusalProvesDenial
+      ? unverifiedBecause
+      : `the database refused this attempt for a reason the harness cannot attribute to a ` +
+        `policy: ${refusal.description}. ` +
+        (method.kind === 'read'
+          ? 'Row-level security refuses a read by returning zero rows, never by raising, ' +
+            'so a read that threw never ran (F-294).'
+          : 'Only a row-level security refusal is evidence that a policy denied the write ' +
+            '(F-294).');
+
+    if (leaks.length > 0) {
+      return {
+        ...common,
+        outcome: 'fail',
+        leaks,
+        refusedWith: refusal.description,
+        refusalKind: refusal.kind,
+      };
+    }
+
+    return {
+      ...common,
+      outcome: because === undefined ? 'pass' : 'unverified',
+      leaks,
+      refusedWith: refusal.description,
+      refusalKind: refusal.kind,
+      ...(because === undefined ? {} : { unverifiedBecause: because }),
+    };
   }
 
-  const leaks = judge(registration, fixtures.tenantA, fixtures.tenantB, result);
-  const after = await tenantOwnershipCensus([registration], fixtures);
+  leaks.push(...judge(registration, actor, target, result));
+
+  const after = (await censusRows([registration], fixtures)).map(censusLine).sort();
 
   if (after.join('\n') !== before.join('\n')) {
     leaks.push(
@@ -504,7 +854,19 @@ async function attempt(
     );
   }
 
-  return { ...common, outcome: leaks.length === 0 ? 'pass' : 'fail', leaks };
+  const counted = {
+    ...common,
+    ...(result.rows === undefined ? {} : { rowsSeen: result.rows.length }),
+    ...(result.rowsAffected === undefined ? {} : { rowsAffected: result.rowsAffected }),
+  };
+
+  if (leaks.length > 0) {
+    return { ...counted, outcome: 'fail', leaks };
+  }
+
+  return unverifiedBecause === undefined
+    ? { ...counted, outcome: 'pass', leaks }
+    : { ...counted, outcome: 'unverified', leaks, unverifiedBecause };
 }
 
 /**
@@ -532,10 +894,20 @@ export async function assertNoCrossTenantAccess(
     );
   }
 
-  const outcome = await attempt(found.registration, found.method, fixtures);
+  for (const direction of ATTEMPT_DIRECTIONS) {
+    const outcome = await attempt(found.registration, found.method, fixtures, direction);
 
-  if (outcome.outcome === 'fail') {
-    throw new Error(`${surface.id} crossed the tenant boundary:\n  - ${outcome.leaks.join('\n  - ')}`);
+    if (outcome.outcome === 'fail') {
+      throw new Error(
+        `${surface.id} crossed the tenant boundary (${direction}):\n  - ${outcome.leaks.join('\n  - ')}`,
+      );
+    }
+
+    if (outcome.outcome === 'unverified') {
+      throw new Error(
+        `${surface.id} (${direction}) proved nothing: ${outcome.unverifiedBecause ?? ''}`,
+      );
+    }
   }
 }
 
@@ -555,11 +927,18 @@ export async function runCrossTenantAttempts(
 
   for (const registration of registrations) {
     for (const method of registration.methods) {
-      attempts.push(await attempt(registration, method, fixtures));
+      // F-293. BOTH DIRECTIONS. One call site attempting `(tenantA, tenantB)` was the
+      // blocker r1 found: the actor was always A, so a policy leaking only to B — an
+      // "internal tenant" carve-out, a support read, a predicate compared against a
+      // hard-coded id — was never attempted at all.
+      for (const direction of ATTEMPT_DIRECTIONS) {
+        attempts.push(await attempt(registration, method, fixtures, direction));
+      }
     }
   }
 
-  const covered = attempts.map((outcome) => outcome.id);
+  // One surface id per surface, however many directions it was attempted in.
+  const covered = [...new Set(attempts.map((outcome) => outcome.id))];
   const uncovered = discovered
     .filter((surface) => surface.authenticated)
     .map((surface) => surface.id)
@@ -568,7 +947,16 @@ export async function runCrossTenantAttempts(
         !covered.includes(id) &&
         !ISOLATION_EXCLUSIONS.some((exclusion) => exclusion.id === id),
     );
-  const failed = attempts.filter((o) => o.outcome === 'fail').map((o) => o.id);
+  const failed = [
+    ...new Set(attempts.filter((o) => o.outcome === 'fail').map((o) => o.id)),
+  ];
+  const unverified = [
+    ...new Set(attempts.filter((o) => o.outcome === 'unverified').map((o) => o.id)),
+  ];
+  // F-296. Read against the registry, not against `registrations`: drift is a property
+  // of what the suite knows about versus what the database holds, and a control run
+  // over one canary must not report the whole registry as missing.
+  const registryDrift = tenantScopedTableDrift();
 
   const report: IsolationReport = {
     runAt: new Date().toISOString(),
@@ -577,13 +965,22 @@ export async function runCrossTenantAttempts(
     uncovered,
     attempts,
     failed,
+    unverified,
+    registryDrift,
     excluded: ISOLATION_EXCLUSIONS.map((exclusion) => ({ ...exclusion })),
     // TASK-056 fills both from the module graph. No route exists to enumerate.
     publicRoutes: [],
     noTenantTransactionRoutes: [],
     unenumerable: UNENUMERABLE_SURFACES.map((surface) => ({ ...surface })),
     coverageBoundary: COVERAGE_BOUNDARY,
-    verdict: failed.length === 0 && uncovered.length === 0 ? 'pass' : 'fail',
+    verdict:
+      failed.length === 0 &&
+      unverified.length === 0 &&
+      uncovered.length === 0 &&
+      registryDrift.inDatabaseNotRegistered.length === 0 &&
+      registryDrift.registeredNotInDatabase.length === 0
+        ? 'pass'
+        : 'fail',
   };
 
   lastReport = report;
@@ -613,14 +1010,39 @@ export function formatIsolationReport(report: IsolationReport): string {
     '',
     ...report.attempts.map(
       (outcome) =>
-        `  ${outcome.outcome === 'pass' ? 'pass' : 'FAIL'}  ${outcome.id}  (${outcome.kind} on ${outcome.table})` +
+        `  ${{ pass: 'pass', fail: 'FAIL', unverified: 'UNVERIFIED' }[outcome.outcome]}  ` +
+        `${outcome.direction ?? '?'}  ${outcome.id}  (${outcome.kind} on ${outcome.table}` +
+        `, saw ${outcome.rowsSeen ?? 0}, affected ${outcome.rowsAffected ?? 0})` +
         (outcome.refusedWith === undefined ? '' : ` — refused: ${outcome.refusedWith}`) +
+        (outcome.unverifiedBecause === undefined
+          ? ''
+          : `\n      ? ${outcome.unverifiedBecause}`) +
         outcome.leaks.map((leak) => `\n      ! ${leak}`).join(''),
     ),
   ];
 
   if (report.uncovered.length > 0) {
     lines.push('', '  UNCOVERED (AC-96):', ...report.uncovered.map((id) => `    - ${id}`));
+  }
+
+  const drift = report.registryDrift;
+
+  if (drift !== undefined && drift.inDatabaseNotRegistered.length > 0) {
+    lines.push(
+      '',
+      '  TENANT-SCOPED IN THE DATABASE AND REGISTERED NOWHERE (F-296):',
+      ...drift.inDatabaseNotRegistered.map(
+        (table) => `    - ${table} — add a registerTenantScopedSurfaces() call in registrations.ts`,
+      ),
+    );
+  }
+
+  if (drift !== undefined && drift.registeredNotInDatabase.length > 0) {
+    lines.push(
+      '',
+      '  REGISTERED HERE AND NOT TENANT-SCOPED IN THE DATABASE (F-296):',
+      ...drift.registeredNotInDatabase.map((table) => `    - ${table}`),
+    );
   }
 
   return lines.join('\n');

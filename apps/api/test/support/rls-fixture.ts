@@ -94,8 +94,14 @@ export const TENANT_B_NAME = 'Tenant B';
 export const TENANT_A_LABEL = 'row-owned-by-tenant-a';
 export const TENANT_B_LABEL = 'row-owned-by-tenant-b';
 
-const TENANT_A_ROW_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const TENANT_B_ROW_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+/**
+ * Exported since TASK-006's r2 rework: the isolation suite's positive control states the
+ * expected ownership census as four hand-derived literals, and the row ids are half of
+ * each line. A census that reads `id=` anything else is a fixture that seeded something
+ * other than what the assertion describes.
+ */
+export const TENANT_A_ROW_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+export const TENANT_B_ROW_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 function dsn(variable: 'DATABASE_URL' | 'DATABASE_MIGRATION_URL'): string {
   const value = process.env[variable];

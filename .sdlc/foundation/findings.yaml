@@ -9912,9 +9912,11 @@
     small. And run every attempt in both directions, or state in isolation-coverage.md why one
     direction is sufficient and make the registration API refuse a non-symmetric surface.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+  resolution: >-
+    CLOSED, AND THE FIX IS PROVEN BOTH WAYS ON THE SAME MUTATION. Attempts now run A->B AND B->A (ATTEMPT_DIRECTIONS), and censusLeaks() asserts seen-by == owner ABSOLUTELY - per attempt and at fixture build - rather than comparing before-versus-after, so a leak present at baseline is no longer invisible. The two mechanisms catch DIFFERENT shapes and both were needed: a directional READ leak is a census leak, while a directional INSERT leak is invisible to any census and reachable only by acting as the other tenant. isolation_direction_canary is built as the second shape so the test cannot be satisfied by the census alone. ORCHESTRATOR VERIFICATION, THE ONE I FAILED EARLIER AND NOW HAVE: a non-recursive directional policy (id = current OR id < current) against the SAME database - OLD harness reports `isolation coverage - PASS`, 5 passed, EXIT 0; NEW harness EXIT 1, refusing at fixture build with `tenant 2222 could see a row it does not own ... seen-by=2222 id=1111 owner=1111`. db:check-policies returned OK in BOTH cases. The rework also reproduced the auditor's original OR-arm mutation and explained why mine recursed and theirs did not: theirs compares against a UUID LITERAL.
 - id: F-294
   phase: implement
   task: TASK-006
@@ -9942,9 +9944,11 @@
     Carry the message into report.json rather than dropping it, so a 42501 from a missing
     grant is distinguishable from a 42501 from a policy.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+  resolution: >-
+    CLOSED. classifyRefusal() keeps the message, and a refusal counts as a pass only at SQLSTATE 42501 AND /violates row-level security policy/. A read that throws is never a pass. A third outcome, `unverified`, fails the run and names the surface rather than scoring silently. The widened-policy-masked-by-an-unrelated-CHECK sequence the security auditor measured now reds: 3 failed, UNVERIFIED ... 23514.
 - id: F-295
   phase: implement
   task: TASK-006
@@ -9970,9 +9974,11 @@
     target's, and report.json carries row counts so zero-because-denied is distinguishable from
     zero-because-empty.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+  resolution: >-
+    CLOSED. rowsSeen, rowsAffected, actorOwnRowsVisible and targetOwnRowsVisible now reach report.json, so denied is distinguishable from found-nothing. Plus a premise gate: the actor must see its own row, and a statement that must reach an existing row requires the target to own one (TenantScopedMethod.reaches). The four-green-surfaces-on-an-unseeded-table failure mode is closed at the premise rather than at the assertion.
 - id: F-296
   phase: implement
   task: TASK-006
@@ -10001,9 +10007,11 @@
     TASK-053 artifact and would close this today: enumerate tenant-scoped tables from the
     database, diff against the registry, and fail on any table present in one and not the other.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+  resolution: >-
+    CLOSED, AND WITHOUT WAITING FOR A DEFERRED TASK. ADR-0019's SQL half was pulled forward as the reviewer suggested: tenantScopedTableDrift() diffs pg_attribute against the registry BOTH WAYS on every run and feeds the verdict, so a tenant-scoped table nobody registered fails the suite instead of being silently outside it. Replayed live: an unregistered RLS-off table now gives 3 failed with the table named in the log. TASK-053 and TASK-056 both being deferred is no longer a dependency.
 - id: F-297
   phase: implement
   task: TASK-006
@@ -10029,6 +10037,63 @@
     reconcile the mechanism gap the reviewer noted: the boundary statement is silent on HOW the
     coverage is bounded, which is what makes the enumeration defect invisible to a reader.
   owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-298
+  phase: implement
+  task: TASK-006
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    lastReport is clobbered by control runs, and THIS REWORK MADE IT WORSE - six negative
+    controls now run instead of one, so isolationReport() called after the suite returns a
+    FAILING CANARY REPORT rather than the real one. Raised by the reviewer at r1 as a minor and
+    never filed; disclosed by the test architect rather than left for the next audit.
+  failure_scenario: >-
+    Anything reading isolationReport() after the suite gets whichever control ran last, which
+    is a deliberately-leaking canary. TASK-056 consumes that API, and while TASK-056 is
+    deferred, the API is the one SC-1's artifact is produced through - so a reader asking the
+    harness for its result gets a fabricated failure. The fix changes a consumed API, which is
+    why the test architect left it alone rather than deciding unilaterally.
+  required_change: >-
+    Separate the control runs' report from the real run's - a distinct sink, or a flag the
+    controls set that isolationReport() refuses to return. Decide the API shape before TASK-056
+    returns rather than after.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-299
+  phase: implement
+  task: TASK-006
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/isolation-coverage.md
+  line: 1
+  summary: >-
+    isolation-coverage.md must absorb the rework's additive report fields and its sharper
+    attempt semantics. The contract is not the test architect's to edit, so it flagged the gap
+    rather than closing it.
+  failure_scenario: >-
+    The harness now reports rowsSeen, rowsAffected, actorOwnRowsVisible and targetOwnRowsVisible;
+    it carries a third outcome `unverified`; refusals count only at 42501 with the RLS message;
+    attempts run in both directions; and tenantScopedTableDrift() feeds the verdict. NONE of
+    that is in the contract, which still describes the pre-rework harness. The contract is what
+    TASK-056 and any later isolation work read, so it now understates the harness in exactly the
+    direction that lets a future change quietly weaken it - which is F-283's shape on a
+    different artifact.
+  required_change: >-
+    Amend isolation-coverage.md to the shipped harness: the report fields, the three outcomes,
+    the refusal predicate, both attempt directions and the census invariant, and the registry
+    drift check. Additive throughout.
+  owner_slot: sdlc-architect
   status: open
   resolved_by: null
   resolved_round: null

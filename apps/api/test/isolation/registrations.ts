@@ -42,6 +42,18 @@ import type {
   TenantScopedSurfaceRegistration,
 } from './coverage';
 import { registerTenantScopedSurfaces } from './coverage';
+import {
+  BASELINE_LEAK_CANARY_TABLE,
+  createBaselineLeakCanary,
+  createDirectionCanary,
+  createGrantGapCanary,
+  createHalfSeededCanary,
+  createMaskedRefusalCanary,
+  DIRECTION_CANARY_TABLE,
+  GRANT_GAP_CANARY_TABLE,
+  HALF_SEEDED_CANARY_TABLE,
+  MASKED_REFUSAL_CANARY_TABLE,
+} from './controls';
 import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
 
 /**
@@ -57,6 +69,25 @@ import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
  * `findAll` is deliberately unfiltered: a `where owner = actor` here would assert the
  * WHERE clause rather than the policy, which is the mistake `tenant-context.int-spec.ts`
  * calls out in its own `visibleRows` helper.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT A REGISTRATION OWES THE HARNESS SINCE r2 — READ THIS BEFORE ADDING ONE
+ * ---------------------------------------------------------------------------
+ *
+ * 1. `reset()` MUST SEED A ROW FOR BOTH TENANTS. Four of the five shapes above return
+ *    zero rows when the target owns none, whatever the policy says, and the harness now
+ *    refuses to score them: the surface comes back `unverified` and the run fails
+ *    (F-295). A registration that seeds only one tenant used to report four green
+ *    surfaces over a table that could have had no row-level security at all.
+ *
+ * 2. EVERY METHOD DECLARES `reaches`. `'existing-row'` for a statement that must find
+ *    something already there, `'new-row'` for one that plants it. It is what tells the
+ *    harness which attempts need the target to own a row.
+ *
+ * 3. EVERY METHOD IS ATTEMPTED IN BOTH DIRECTIONS. `attempt(actor, target)` is called
+ *    once as (A, B) and once as (B, A), so a statement built for one hard-coded tenant
+ *    is a defect the harness will report rather than one it will hide (F-293). Use the
+ *    `actor` and `target` arguments; do not close over `TENANT_A`.
  */
 interface TableAccessSpec {
   readonly table: string;
@@ -102,17 +133,20 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
     {
       name: 'findAll',
       kind: 'read',
+      reaches: 'existing-row',
       attempt: (actor) => reads(sql`select ${projection} from ${table} order by id`)(actor),
     },
     {
       name: 'findOwnedBy',
       kind: 'read',
+      reaches: 'existing-row',
       attempt: (actor, target) =>
         reads(sql`select ${projection} from ${table} where ${owner} = ${target.id}::uuid`)(actor),
     },
     {
       name: 'updateOwnedBy',
       kind: 'write',
+      reaches: 'existing-row',
       attempt: (actor, target) =>
         writes(
           sql`update ${table}
@@ -123,12 +157,14 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
     {
       name: 'deleteOwnedBy',
       kind: 'write',
+      reaches: 'existing-row',
       attempt: (actor, target) =>
         writes(sql`delete from ${table} where ${owner} = ${target.id}::uuid`)(actor),
     },
     {
       name: 'insertOwnedBy',
       kind: 'write',
+      reaches: 'new-row',
       attempt: (actor, target) => writes(spec.plantedRow(spec.plantedOwnerId(target)))(actor),
     },
   ];
@@ -212,6 +248,77 @@ export const leakCanaryAccess: TenantScopedSurfaceRegistration = {
           values (${PLANTED_CANARY_ROW_ID}::uuid, ${ownerId}::uuid, ${'planted-by-another-tenant'})`,
   }),
 };
+
+const PLANTED_CONTROL_ROW_ID = 'f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f3f3';
+
+/**
+ * The five r2 controls (`controls.ts`), each a real table shaped like a tenant-scoped
+ * one and each defective in a way the r1 audit measured this harness reporting as clean.
+ * NOT REGISTERED, for the reason `leakCanaryAccess` states above: the suite passes them
+ * to `runCrossTenantAttempts()` by hand, and the registry has no notion of a subject
+ * allowed to leak.
+ *
+ * Their `reset()` rebuilds only the control table. It does NOT rebuild the tenant
+ * fixture: nothing a control attempt does touches `tenants`, and re-seeding it would
+ * cascade the control's own rows away and cost three process spawns per attempt.
+ */
+function controlAccess(
+  subject: string,
+  table: string,
+  reset: () => void,
+): TenantScopedSurfaceRegistration {
+  return {
+    subject,
+    table,
+    ownerColumn: 'tenant_id',
+    reset,
+    methods: tableAccess({
+      table,
+      ownerColumn: 'tenant_id',
+      projection: ['id', 'tenant_id', 'label'],
+      mutableColumn: 'label',
+      plantedOwnerId: (target) => target.id,
+      plantedRow: (ownerId) =>
+        sql`insert into ${sql.identifier(table)} (id, tenant_id, label)
+            values (${PLANTED_CONTROL_ROW_ID}::uuid, ${ownerId}::uuid, ${'planted-by-another-tenant'})`,
+    }),
+  };
+}
+
+/** F-293: leaks only to one tenant, and only on INSERT. */
+export const directionCanaryAccess = controlAccess(
+  'DirectionCanaryTableAccess',
+  DIRECTION_CANARY_TABLE,
+  createDirectionCanary,
+);
+
+/** F-293: leaks on read to one tenant, and the leak is already there at baseline. */
+export const baselineLeakCanaryAccess = controlAccess(
+  'BaselineLeakCanaryTableAccess',
+  BASELINE_LEAK_CANARY_TABLE,
+  createBaselineLeakCanary,
+);
+
+/** F-294: every write refused with 42501, by a missing grant rather than by a policy. */
+export const grantGapCanaryAccess = controlAccess(
+  'GrantGapCanaryTableAccess',
+  GRANT_GAP_CANARY_TABLE,
+  createGrantGapCanary,
+);
+
+/** F-294: a wide-open policy, with two of the writes masked as 23514 refusals. */
+export const maskedRefusalCanaryAccess = controlAccess(
+  'MaskedRefusalCanaryTableAccess',
+  MASKED_REFUSAL_CANARY_TABLE,
+  createMaskedRefusalCanary,
+);
+
+/** F-295: correct policies, and only one of the two tenants was ever seeded. */
+export const halfSeededCanaryAccess = controlAccess(
+  'HalfSeededCanaryTableAccess',
+  HALF_SEEDED_CANARY_TABLE,
+  createHalfSeededCanary,
+);
 
 /** Every surface id this wave covers, hand-written so a battery quietly losing a method fails. */
 export const EXPECTED_SURFACE_IDS = [

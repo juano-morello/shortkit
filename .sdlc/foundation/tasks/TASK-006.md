@@ -3,7 +3,7 @@ id: TASK-006
 story: STORY-003
 epic: EPIC-001
 title: Cross-tenant isolation test harness
-status: rework
+status: tests-green
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-005]
 paths: ["apps/api/test/isolation/**"]
