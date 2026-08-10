@@ -9155,3 +9155,64 @@
     2026-08-10: this is filed against the ROADMAP ITEM THAT NEXT TOUCHES TENANCY (roadmap.md
     item 1, identity/tenancy/membership) and must be re-raised at that initiative's Refine.
     Recorded here rather than in roadmap.md because roadmap entries carry no ids by rule.
+- id: F-275
+  phase: implement
+  task: TASK-003
+  source: sdlc-architect
+  round: 5
+  severity: nit
+  kind: contract
+  file: apps/api/src/observability/logger.ts
+  line: 618
+  summary: >-
+    fieldsCensored's docblock at :618-623 argues for the Array.isArray ternary on a rationale
+    the architect MEASURED FALSE. It claims the ADR's bare spread would change what an operator
+    reads for an array record. It would not - both copy forms emit identical bytes, because
+    pino's _asJson writes own enumerable keys either way.
+  failure_scenario: >-
+    The code is right and the comment defends it with a claim that does not hold. A later
+    reader who checks the claim - which is the reader this codebase keeps rewarding - measures
+    identical bytes, concludes the ternary is unnecessary, and deletes it. That loses the
+    guarantee that IS the real reason: the signature is <T extends object>(record: T): T, and
+    spreading an array into an object literal makes the `as T` a lie.
+  required_change: >-
+    Replace the byte-difference rationale with the type-soundness one. State that the ternary
+    exists because spreading an array produces an object keyed "0", "1", which the return type
+    asserts it is not, and that the emitted bytes are identical either way.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-276
+  phase: implement
+  task: TASK-003
+  source: sdlc-architect
+  round: 5
+  severity: minor
+  kind: test-coverage
+  file: apps/api/src/observability/logger-contract-drift.spec.ts
+  line: 64
+  summary: >-
+    The drift spec carries TWO DEAD ANCHORS after ADR-0028. FENCE_MARKER at :64 selects the
+    contract's fence by the literal `export const REDACT_PATHS`, a declaration that no longer
+    exists in source or contract (ADR-0028 Migration step 6). The nested-quote guard is
+    anchored on 'req.headers["fly-client-ip"]', a string that left with REDACT_PATHS.
+  failure_scenario: >-
+    A SELECTOR THAT MATCHES NOTHING FAILS OPEN IN A WAY THAT LOOKS LIKE A DIFFERENT DEFECT.
+    FENCE_MARKER filters fences from RAW text before comments are stripped; a fence not
+    containing the literal selects zero fences and fails `expected [] to have length 1`,
+    taking F-249 and F-270 red with it - three failures reported as a fence-shape problem when
+    the cause is a stale string. The architect kept all three green only by carrying the
+    literal inside the fence's first comment, which the normaliser strips before either
+    comparison. THAT COMMENT IS LOAD-BEARING SCAFFOLD: deleting it before step 6 lands turns
+    three green tests red. The nested-quote guard is already red for the same reason.
+  required_change: >-
+    Re-point FENCE_MARKER to `export const LOGGABLE_FIELDS` (Migration step 6). Re-anchor the
+    nested-quote guard on a string that exists today - the contract's never-allowlist still
+    carries req.headers["fly-client-ip"] as a prohibition, and LOGGABLE_FIELDS has no
+    inner-quote entry, so the guard needs a live subject or an explicit retirement. THEN delete
+    the scaffold comment from the contract's fence, and only then.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null

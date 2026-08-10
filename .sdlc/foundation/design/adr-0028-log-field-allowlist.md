@@ -165,7 +165,13 @@ line: `formatters.log` for a log call's record, and the `logger.child` / `logger
 wrappers for bindings. `formatters.bindings` does not reach child bindings on pino 10.3.1;
 that is measured in the contract's "The two wrappers" and is unchanged by this ADR.
 
-One function replaces `errorsReplaced`. Normative shape:
+One function replaces `errorsReplaced`. The shape below is what this decision proposed, and
+it is **not** the normative artifact. `design/contracts/logging-and-headers.md` § "Logger"
+holds the normative fence, it is machine-compared to the shipped file, and it wins wherever
+the two differ. F-250's lesson is that a configuration living in more than one artifact goes
+stale in one of them; this block is kept because the alternatives above argue against it, and
+it is annotated rather than synced. **Two places where the shipped source deviates from it,
+both ruled on under "Deviations from this shape, ruled 2026-08-10" below.**
 
 ```ts
 /** Every key that may carry a value onto a log line. Nothing else survives. */
@@ -250,6 +256,43 @@ decision, because an array index is not a field name. An object *inside* an arra
 by `fieldsCensored`, so its keys are decided normally. Measured:
 `{ request_id: 'r-1', route: ['a', { password: 'P' }] }` emits
 `"route":["a",{"password":"[redacted]"}]`.
+
+### Deviations from this shape, ruled 2026-08-10
+
+The implementer disclosed two departures from the fence above rather than absorbing them.
+Both are **accepted into the contract**; the shipped source stands and neither is a finding.
+
+**1. `fieldsCensored`'s copy keeps `Array.isArray(record) ? [...record] : { ...record }`.**
+Accepted. The reason given for it — that the bare spread would change what an operator reads
+for `logger.info([e, e], '…')`, contract invariant 5's own shape — is **measured false**. Both
+copy forms emit the same bytes: pino's `_asJson` writes own enumerable keys either way, so the
+line is `"0":{"err_name":…},"1":{"err_name":…}` under both. Measured 2026-08-10 on pino 10.3.1
+with the two formatters side by side.
+
+The ternary is kept for two reasons that do hold. The function is declared
+`<T extends object>(record: T, depth: number): T`, and spreading an array into an object
+literal makes the `as T` a false statement about the value; a cast that lies is worth one
+ternary to avoid. And it is the form the previous shipped scan had, so keeping it is the
+existing pattern rather than a new one — this ADR gave no reason to change it, and changing it
+was not among the things it decided. Nothing tests the shape, before or after, and that gap is
+recorded in the contract rather than closed here.
+
+**2. `interpolationSafe` became `valueCensored(value, 1)`, the constant moving 2 → 1.**
+Accepted, and this ADR should have specified the format path rather than leaving it to be
+inferred. A format argument arrives under no key, so the key rule cannot apply to it —
+`logger.error('a %s', 'b')` has to interpolate `b`, and there is no field name to decide
+about. Routing it through the value half of the policy is the only coherent answer.
+
+The constant's meaning changed with it, and the load-bearing property survives. It used to be
+the depth a *container* was walked from; it is now the depth the *argument itself* is scanned
+at, and `valueCensored` walks a container it holds at `depth + 1` — so a container is still
+walked from 2, where the top-level `err` exemption does not fire, and
+`logger.error('ctx %o', { err: e })` stays closed. Defended by four tests in `logger.spec.ts`
+(F-260's `%o`, `%j`, `%s`, and F-269's no-placeholder shape), all green.
+
+Cost accepted: an interpolated container's reach is one level shallower than a record's, since
+it starts at 2 rather than 1. Routing this through `fieldsCensored(value, 1)` instead would
+restore that level and reopen the exemption as a hole, so the level is the price of the seam.
 
 ### The rules, stated so an implementer does not have to infer them
 
@@ -379,6 +422,14 @@ is still redaction.
 
 ## Migration
 
+**Status 2026-08-10.** Steps 1 to 3 landed at `45cf578` (`sdlc-implementer-backend`). Steps 4
+and 5 landed with the contract amendment that follows it (`sdlc-architect`); the drift test's
+F-249 and F-270 are green against the shipped file. **Step 6 is outstanding and belongs to
+`sdlc-test-architect`**, together with a second, unplanned edit in the same file: the guard
+`the redact path with an inner double quote survives the strip on both artifacts` asserts that
+`'req.headers["fly-client-ip"]'` is present in the **source**, and that string left with
+`REDACT_PATHS`. It is red and it is anchored to something that no longer exists.
+
 The 25 paths ship today. The order below is the order the work has to happen in, and step 1
 is not optional.
 
@@ -402,10 +453,18 @@ is not optional.
    the implementation turns a passing gate red for the length of the gap. This ADR therefore
    ships with the contract's *prose* amended and its fence untouched.
 6. **Update the drift spec's fence marker**, the literal `export const REDACT_PATHS` at
-   `logger-contract-drift.spec.ts:54`, to `export const LOGGABLE_FIELDS`. That is the only
-   line in that file this decision touches: F-270's in-flight fix anchors the normative
-   region on `import pino from 'pino';` and `export interface RequestLogFields`, and both
-   anchors survive this change.
+   `logger-contract-drift.spec.ts:64`, to `export const LOGGABLE_FIELDS`. F-270's fix anchors
+   the normative region on `import pino from 'pino';` and `export interface RequestLogFields`,
+   and both anchors survive this change.
+
+   **Step 5 could not wait for step 6, so it carried the marker across the gap.** The marker
+   selects the fence by raw text, before the comment strip, so a fence with no
+   `REDACT_PATHS` in it selects nothing and takes all three passing tests down with
+   `expected [] to have length 1`. Step 5 therefore put the marker's text in the fence's first
+   **comment**, which the normaliser strips before either comparison. Step 6 re-points the
+   marker at code the fence actually carries, and that comment goes with it. The contract says
+   so above its fence, because a selector that depends on a comment is what a later editor
+   deletes as noise.
 
 ### What a TASK does to log a new field
 
