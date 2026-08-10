@@ -13,6 +13,41 @@ acceptance: [AC-15]
 rework_count: 0
 ---
 
+## ⚠ Ruled 2026-08-10 — F-291, what this TASK produces and what defers
+
+The round-1 review found three ADR-assigned functions shipping as throwing stubs and
+`<ErrorMessage />` absent, **in a file no non-deferred TASK can write once this one closes** —
+only TASK-008 and TASK-052 list `apps/web/src/lib/api/**`, TASK-052 is deferred, and no card's
+`paths` cover `apps/web/app/api/bff/**` at all. The reviewer routed it here as an orchestrator
+adjudication rather than picking a side.
+
+**Ruling: they defer, and they defer LOUDLY.**
+
+`serverApiClient`, `buildUpstreamUrl` and `mapBetterAuthError` all exist to serve the BFF proxy
+route or the auth surface. The proxy route is TASK-012's and the auth endpoints are TASK-009's;
+both left with EPIC-002 on 2026-08-09. None of the three has a reachable caller today —
+`apiClient` calls none of them, and `apps/web/src` contains two files. `<ErrorMessage />` is
+consumed only by TASK-012 and TASK-052, both deferred, and AC-15 does not mention it.
+
+So the honest description is that this TASK produces the browser client and its error *types*,
+not the server client and not the rendering. `Produces` is amended to say that.
+
+**What does NOT defer, and why the distinction matters.** F-288's
+`Origin`-on-mutating-methods rule is owed to *surviving* work — not because a surviving TASK
+consumes it, but because `web-api-client.md` names this file as the normative form, the
+contract still specifies the rule at `:82` and `:121-136`, and the shipped file contradicts
+it. That contradiction is the whole of F-233's trap. It is stated here now.
+
+**And the deferred stubs do not stay bare.** `throw new Error('not implemented')` in shipped
+code, with a materialiser that has left the initiative and no gate that can see it, is exactly
+the shape that produced F-288 — a design stub carrying a rule nobody was assigned to
+materialise. Each of the three gets a header naming the finding, the owning TASK and its
+deferred status, so a later reader meets the deferral rather than inferring an oversight.
+
+Consequence to carry into the re-scope record: TASK-012's and TASK-052's `Consumes` name
+`<ErrorMessage />`, and it will not exist when they return. That is now a known gap rather
+than a discovery.
+
 ## Intent
 
 Give every screen one way to call the API and one way to render a failure.
