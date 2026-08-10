@@ -251,12 +251,28 @@ async function bootstrap(): Promise<void> {
   // table is helmet's own default and is left alone: HSTS at
   // `max-age=31536000; includeSubDomains` WITH NO `preload` — the contract refuses preload
   // because submission is close to irreversible and the apex domain is unregistered —
-  // `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and the default CSP.
+  // `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
+  //
+  // AND `frame-ancestors` HAD TO MOVE WITH IT, WHICH IS WHY THERE ARE NOW TWO OVERRIDES
+  // (F-280). helmet's default CSP carries `frame-ancestors 'self'`
+  // (`helmet/index.cjs:19`, `getDefaultDirectives`), and a CSP `frame-ancestors` OVERRIDES
+  // `X-Frame-Options` in every browser that implements CSP — so the one option deliberately
+  // overridden above was the one the client discarded, and the contract's `DENY` was
+  // satisfied on the wire and defeated in the browser. `useDefaults: true` is helmet's own
+  // default and is written out anyway, because this call now names two policies and a reader
+  // has to see that the other ten directives are left as helmet ships them.
   //
   // The redirect path's two documented exceptions (`Referrer-Policy: unsafe-url` on the 302,
   // a tighter CSP on the branded 404) belong to `redirect-resolution.md`, and the TASK that
-  // builds that route sets them per-response over these defaults.
-  app.use(helmet({ frameguard: { action: 'deny' } }));
+  // builds that route sets them per-response over these defaults. THAT CSP MUST CARRY ITS OWN
+  // `frame-ancestors 'none'`: the directive does not fall back to `default-src`, so a
+  // per-response CSP that replaces this one drops the protection this line adds.
+  app.use(
+    helmet({
+      frameguard: { action: 'deny' },
+      contentSecurityPolicy: { useDefaults: true, directives: { 'frame-ancestors': ["'none'"] } },
+    }),
+  );
 
   // ADR-0006: every controller answers under /api. GET /health stays at the
   // root so the platform health check never depends on the API surface.

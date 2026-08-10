@@ -206,20 +206,30 @@ export const logger = pino({
  * inside one, and `%s` bypassed `stringify` altogether. With `redact` gone the only policy
  * on this path is the one below.
  *
- * WHAT THIS DOES: every position pino interpolates goes through the same policy the record
- * path uses, before pino formats anything.
+ * WHAT THIS DOES: every argument position pino reads goes through a policy before pino
+ * formats anything, and ONE POSITION GETS ONE POLICY (ADR-0028, "The argument list: one
+ * policy per position"). The order below is the order the ADR's table states it.
  *
- *   - AN `Error` IN THE MESSAGE POSITION is moved onto the record under `err`, where
+ *   - A NON-NULL OBJECT IN THE MESSAGE POSITION is moved onto the record under `err`,
+ *     WHATEVER ITS TYPE — an `Error`, a plain container, an array, a class instance — where
  *     `serializers.err` owns it, and the message becomes the fixed string the positional
- *     branch already uses. It cannot be reduced in place: `format` returns a non-string
- *     message unchanged, so `msg` would be an object rather than a line an aggregator can
- *     index.
+ *     branch already uses. It is decided by its TYPE and not by its keys, so nothing of it
+ *     reaches the line but `err_name` and, for a real `Error`, the frames. F-277: reducing
+ *     it in place instead was rejected, because `format` returns a non-string message
+ *     unchanged — `msg` would be an object rather than a line an aggregator can index — and
+ *     because a container handed to pino's stringifier is emitted through a `toJSON` the
+ *     scan cannot see. The caller loses the payload: pass `{ err }` with a fixed context
+ *     string, or name the fields worth having and put them on the record.
+ *   - ANYTHING ELSE IN THE MESSAGE POSITION — a string, a number, `null`, a function —
+ *     reaches `msg` verbatim. A string is free text and no censoring scheme reaches inside
+ *     one; `null` carries nothing onto a line, and describing an absence as a throwable is
+ *     worse than leaving it.
  *   - AN `Error` IN A FORMAT-PARAMETER POSITION becomes `errorLogFields(…)`, so `%o` and
  *     `%j` interpolate the name and the frames and nothing else. `%s` on that object reads
  *     `[object Object]`: a placeholder is the wrong way to hand this logger an error, and
  *     `log.error({ err }, 'context')` is the shape that gives the operator the fields.
- *   - A CONTAINER in either position is scanned, so `logger.error('ctx %o', { err: e })` —
- *     the auditor's own reproduction — is covered as well.
+ *   - A CONTAINER IN A FORMAT-PARAMETER POSITION is scanned, so `logger.error('ctx %o',
+ *     { err: e })` — the auditor's own reproduction — is covered as well.
  *
  * F-269 RIDES ON THIS RATHER THAN BEING CLOSED BY IT. `logger.error('parse failed', e)` —
  * a trailing argument no placeholder consumes — is still DROPPED by `quick-format`, which
@@ -236,7 +246,14 @@ function interpolationCovered(args: readonly unknown[]): readonly unknown[] {
   const message = messageArgumentIndex(args);
 
   // The message position first: covering it rewrites the whole argument list.
-  const covered = message === 1 && args[1] instanceof Error ? errorMovedOntoTheRecord(args) : args;
+  //
+  // `messageArgumentIndex` returns 0 only when `args[0]` is neither an object nor `undefined`,
+  // so the message argument can be a container only at index 1. `null` is excluded: it carries
+  // nothing onto a line, and describing an absence as a throwable is worse than leaving it.
+  const covered =
+    message === 1 && typeof args[1] === 'object' && args[1] !== null
+      ? errorMovedOntoTheRecord(args)
+      : args;
 
   let replaced: unknown[] | undefined;
 
@@ -264,9 +281,11 @@ function messageArgumentIndex(args: readonly unknown[]): number {
 }
 
 /**
- * `log.error(record, error)`. The error is filed under `err`, where `serializers.err`
- * reduces it to the policy fields, and the message becomes the string a positional error
- * already gets.
+ * `log.error(record, error)`. The value in the message position is filed under `err`, where
+ * `serializers.err` reduces it to the policy fields — the three fields for an `Error`,
+ * `err_name` alone for anything else — and the message becomes the string a positional error
+ * already gets. Its caller decides WHICH values come here (F-277: every non-null object,
+ * not only an `Error`); this function is the same move for all of them.
  *
  * The caller's record is COPIED rather than mutated, and an `err` it already carried is
  * overwritten deliberately — the alternative is leaving the error in the message position,
@@ -432,10 +451,8 @@ function childOptionsChecked(
     return options;
   }
 
-  // Presence, not truthiness: pino tests `hasOwnProperty` for `serializers` and
-  // `formatters`, so `{ serializers: undefined }` already takes its replacing branch.
   const replaced = OPTIONS_A_CHILD_MAY_NOT_REPLACE.filter((option) =>
-    Object.hasOwn(supplied, option),
+    pinoWouldReplace(supplied, option),
   );
 
   if (replaced.length > 0) {
@@ -448,6 +465,55 @@ function childOptionsChecked(
   }
 
   return options;
+}
+
+/**
+ * WHETHER PINO WOULD REPLACE THIS OPTION, READ THE WAY PINO READS IT (F-279). One predicate
+ * for all three was one predicate too few: `Object.hasOwn` matches pino for two of them and
+ * for neither of the two shapes below.
+ *
+ *   - `redact` — `proto.js:161`, `typeof options.redact === 'object' && options.redact !== null`
+ *     (its `Array.isArray` arm is subsumed: an array is a non-null object). That is an
+ *     ORDINARY PROPERTY READ, so it WALKS THE PROTOTYPE CHAIN. Measured: a child whose
+ *     options carry `redact` on their prototype was accepted here and installed by pino, and
+ *     the line then lost a named field entirely — invariant 8 false for that subtree, under a
+ *     censoring policy with the opposite polarity to this module's.
+ *   - `serializers` (`proto.js:115`) and `formatters` (`:136`) — pino calls
+ *     `options.hasOwnProperty(…)` AS A METHOD ON THE OPTIONS OBJECT, so an options object
+ *     that answers for itself takes pino's replacing branch while `Object.hasOwn` correctly
+ *     says no. Measured: a lying `hasOwnProperty` installed a child `formatters.log` and
+ *     removed the scan at every key and every depth — a `password` and a raw `ip` verbatim.
+ *
+ * THE UNION OF BOTH READS, NOT PINO'S ALONE, and deliberately: `Object.hasOwn` keeps
+ * `{ serializers: undefined }` and `{ redact: undefined }` refused, and refusing an option
+ * pino would not have replaced costs a child logger nobody builds, while missing one costs
+ * the only mechanism left between an unnamed field and the line. The read is guarded because
+ * a getter here is free to throw and this runs before pino has touched the object; a throw
+ * would answer neither `true` nor `false`, and pino's own read is where that hazard belongs.
+ */
+function pinoWouldReplace(supplied: object, option: string): boolean {
+  if (Object.hasOwn(supplied, option)) {
+    return true;
+  }
+
+  if (option === 'redact') {
+    const value = readIndexedProperty(supplied, option);
+
+    return typeof value === 'object' && value !== null;
+  }
+
+  return suppliedClaimsOwnProperty(supplied, option);
+}
+
+/** `options.hasOwnProperty(option)`, called the way pino calls it and unable to throw. */
+function suppliedClaimsOwnProperty(supplied: object, option: string): boolean {
+  try {
+    const claim = (supplied as { hasOwnProperty?: (key: string) => unknown }).hasOwnProperty;
+
+    return typeof claim === 'function' && Boolean(claim.call(supplied, option));
+  } catch {
+    return false;
+  }
 }
 
 // Installed as own properties, shadowing the ones on pino's prototype, with the descriptor a
@@ -616,11 +682,16 @@ const MAX_SCAN_DEPTH = 4;
  * object is never touched.
  *
  * ONE DEVIATION FROM ADR-0028's NORMATIVE FENCE, AND IT IS ONE TERNARY. The ADR's copy is
- * `{ ...record }`, which would turn an ARRAY handed in as the whole record into an object
- * keyed `"0"`, `"1"`. Contract invariant 5 names `[e, e]` as a covered shape, so the copy
- * keeps the array branch `errorsReplaced` had and an array record stays an array. An array
- * reached through a NAMED KEY does not come here at all — `valueCensored` routes it to
- * `elementsCensored`, where an index is correctly not treated as a field name.
+ * `{ ...record }`; this one keeps the array branch `errorsReplaced` had, and the reason is
+ * TYPE SOUNDNESS RATHER THAN EMITTED BYTES (F-275). The signature is
+ * `<T extends object>(record: T): T`, and spreading an array into an object literal produces
+ * an object keyed `"0"`, `"1"` — which is exactly what the return type asserts it is not, so
+ * the `as T` beside it would be a lie. WHAT AN OPERATOR READS IS IDENTICAL EITHER WAY,
+ * MEASURED ON BOTH FORMS: `_asJson` writes own enumerable keys, and an array's are its
+ * indices. Contract invariant 5 names `[e, e]` as a covered shape and it stays covered under
+ * either copy. An array reached through a NAMED KEY does not come here at all —
+ * `valueCensored` routes it to `elementsCensored`, where an index is correctly not treated
+ * as a field name.
  */
 function fieldsCensored<T extends object>(record: T, depth: number): T {
   let replacement: T | undefined;
