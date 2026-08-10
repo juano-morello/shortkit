@@ -9155,6 +9155,21 @@
     2026-08-10: this is filed against the ROADMAP ITEM THAT NEXT TOUCHES TENANCY (roadmap.md
     item 1, identity/tenancy/membership) and must be re-raised at that initiative's Refine.
     Recorded here rather than in roadmap.md because roadmap entries carry no ids by rule.
+  correction: >-
+    FILED ON A FALSE PREMISE BY THE ORCHESTRATOR, 2026-08-10, DISPROVEN BY sdlc-reviewer THE
+    SAME DAY. The summary and failure_scenario above reason about msg being "assembled by the
+    call site before pino sees it". THE LINE NEVER REACHES PINO AT ALL. tenant-context.ts:42
+    imports Logger from @nestjs/common and :136 does `new Logger('TenantTransaction')`, so
+    :247 writes through Nest's own logger - not the observability singleton, not pino, and not
+    any of the seven doors. Verified by the orchestrator against source.
+    THE ORIGINAL TEXT IS KEPT VERBATIM rather than rewritten, so the record shows what was
+    believed and when it was disproven. The underlying concern is real but is a DIFFERENT
+    concern: unstructured, uncensored output on the same stdout, governed by nothing. That is
+    now F-278, which covers both Nest Logger sites and the lint rule that does not catch them.
+    The routing decision also changes. This is no longer "roadmap item 1, next initiative to
+    touch tenancy" - F-278 is TASK-003's, because the opt-out is a defect in this TASK's
+    policy rather than in TASK-005's call site. Re-raise at that initiative's Refine only if
+    F-278 leaves the two Nest loggers in place deliberately.
 - id: F-275
   phase: implement
   task: TASK-003
@@ -9238,3 +9253,138 @@
     blocks only. That third consequence is what the first removal attempt actually hit.
     Drift spec 6/6 before and after every edit. Orchestrator-verified: a single diff hunk at
     :129, entirely above the fence, with the fence content byte-identical.
+- id: F-277
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 6
+  severity: blocker
+  kind: security
+  file: apps/api/src/observability/logger.ts
+  line: 239
+  summary: >-
+    DOOR SEVEN, AND IT IS A REGRESSION. interpolationCovered reduces the MESSAGE argument only
+    when it is `instanceof Error`, and its loop starts at message + 1, so nothing inspects
+    args[1]. Every non-Error value in the message position reaches msg verbatim, bypassing
+    LOGGABLE_FIELDS, formatters.log, serializers.err and both bindings wrappers. Found
+    INDEPENDENTLY by both auditors in the same pass.
+  failure_scenario: >-
+    logger.error({ request_id }, e) where e is a non-Error throwable - the shape `catch (e)`
+    binds and the shape a rejected promise carries. ORCHESTRATOR-REPRODUCED VERBATIM against
+    the shipped singleton: {"request_id":"r-9","msg":{"statusCode":401,"clientIp":
+    "203.0.113.9","headers":{"authorization":"Bearer LEAKED-TOKEN"},"body":
+    "{\"password\":\"LEAKED-PASSWORD\"}"}}. A raw IP, a bearer token and a password on one
+    line; four of the five names are on the contract's OWN never-allowlist. `e` is typed any
+    in a .catch callback, so the call TYPECHECKS AND LINTS CLEAN - the reviewer compiled and
+    linted it. logger.error({request_id}, req) likewise emits the concrete url with its query
+    token, headers.authorization, headers.cookie and socket.remoteAddress, which is GC-9's
+    first three prohibitions and contract invariant 1 word for word.
+    AND IT IS WORSE THAN BEFORE ADR-0028, WHICH IS THE PART THAT DECIDES SEVERITY. The deleted
+    25-path list built a wildcard stringifier and pino applies the wildcard stringifier to msg
+    too (tools.js:205). ORCHESTRATOR-MEASURED ON BOTH SINGLETONS, logger.ts restored
+    byte-identical: {password:'HUNTER2-SECRET'} in the message position emitted
+    "msg":{"password":"[redacted]"} at 45cf578^ and emits "msg":{"password":"HUNTER2-SECRET"}
+    at HEAD. Today's work closed F-261, F-262 and F-266 and opened this.
+    logger.ts:221-222 claims "A CONTAINER in either position is scanned". That is now false in
+    its own file. No shipped call site reaches it today - all six are (record, string) or
+    (string) - so the finding is against the deliverable and against the invariant later TASKs
+    are told to rely on, not against a live leak.
+  required_change: >-
+    Route a non-Error value in the message position through the same reduction the format
+    arguments already get. The mechanism exists one line below: deviation 2 sends format
+    arguments through valueCensored(value, 1) and that was measured sound. Door seven is the
+    line ABOVE the loop. ADR-0028 never specified the argument list at all, so the ADR needs
+    the policy written down as well as the code fixed.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-278
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 6
+  severity: major
+  kind: contract
+  file: .sdlc/foundation/design/adr-0028-log-field-allowlist.md
+  line: 1
+  summary: >-
+    "Nothing may opt out" is measurably false, and the Migration step 3 sweep that was supposed
+    to be the safety net misidentifies two of its eight sites. apps/api/src/db/client.ts:55 and
+    apps/api/src/tenancy/tenant-context.ts:136 each do `new Logger('...')` from @nestjs/common.
+    Neither imports observability/logger. Neither reaches pino, the allowlist, or any of the
+    seven doors.
+  failure_scenario: >-
+    Those two modules write unstructured, uncensored, ANSI-coloured lines to the same stdout
+    the JSON goes to, and no mechanism in this TASK governs them. F-268's lint rule bans
+    importing `pino` but says nothing about Nest's Logger, so the cheapest way to opt out of
+    the whole policy passes lint. A later TASK copying either file inherits the bypass.
+    THE ORCHESTRATOR VERIFIED THE SWEEP AND MISSED THIS, checking that the FIELD NAMES at eight
+    sites were on the allowlist without checking that all eight were pino sites. Two are not.
+    Recorded because the sweep was reported to Juano as verified.
+  required_change: >-
+    Correct ADR-0028's Migration step 3 to distinguish pino call sites from Nest Logger
+    instantiations. Decide whether the two Nest loggers are converted, wrapped, or explicitly
+    exempted with a reason. Extend F-268's lint rule to cover @nestjs/common's Logger, or state
+    why it should not.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-279
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 6
+  severity: minor
+  kind: security
+  file: apps/api/src/observability/logger.ts
+  line: 1
+  summary: >-
+    childOptionsChecked covers two of the three options it is documented to cover, and the
+    round-5 assumption that this self-resolves when ADR-0028 deleted redact IS WRONG - it
+    changed shape instead. pino reads options.hasOwnProperty for serializers and formatters
+    (own, matching Object.hasOwn) but `typeof options.redact === 'object'` at proto.js:161,
+    which is a PROTOTYPIC read and is unaffected by the root no longer holding a redact.
+  failure_scenario: >-
+    Measured: a child whose options carry redact on the PROTOTYPE is accepted by
+    childOptionsChecked and installed by pino; the resulting line lost request_id entirely. No
+    leak, because redact only censors. The converse is worse and also measured: an options
+    object with a lying OWN hasOwnProperty takes pino's replacing branch while Object.hasOwn
+    says no, disabling the scan completely - password and a raw ip verbatim. One predicate from
+    correct. This matters more than at round 5 because there is now exactly ONE mechanism
+    between an unnamed field and a line, so childOptionsChecked is load-bearing rather than
+    defence in depth.
+  required_change: >-
+    Match pino's own predicate per option rather than using Object.hasOwn for all three - a
+    prototypic check for redact, own checks for serializers and formatters - or read the
+    options through the same accessor pino will use.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-280
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 6
+  severity: minor
+  kind: security
+  file: apps/api/src/main.ts
+  line: 259
+  summary: >-
+    helmet's DEFAULT CSP sets frame-ancestors 'self', which OVERRIDES X-Frame-Options in every
+    CSP-aware browser. So frameguard: { action: 'deny' } - the one option deliberately
+    overridden, because the contract says DENY and helmet defaults to SAMEORIGIN - is the one
+    the browser discards.
+  failure_scenario: >-
+    The contract's invariant 4 is satisfied on the wire and defeated in the client. A framing
+    attacker gets 'self' semantics, not DENY, on any browser that implements CSP - which is all
+    of them. The header the test asserts is present and ignored.
+  required_change: >-
+    Set frame-ancestors 'none' in the CSP directives to match the frameguard intent, or state
+    in the contract that CSP governs framing and X-Frame-Options is legacy belt-and-braces.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
