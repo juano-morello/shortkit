@@ -9056,6 +9056,27 @@
     A test on emitted bytes that the response-object copy reaches neither the log line nor the
     HTTP body, and whatever filter change that test demands. Same policy, second copy.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 4
+  resolution: >-
+    CLOSED BY TEST ALONE - NO FILTER CHANGE WAS DEMANDED AND NONE WAS MADE. Four tests in
+    apps/api/src/observability/framework-400-request-body.spec.ts, backed by the fixture
+    apps/api/test/support/response-object-probe.controller.ts. Two guards assert on emitted
+    bytes (every line the process writes, every HTTP body it answers with); two
+    characterizations name the hazard so the guards are not vacuous. The fixture exists
+    because on the body-parser path getResponse().message and exception.message hold the SAME
+    bytes, so no assertion there can tell the second copy from the first - F-244 already
+    satisfies it. The probe throws BadRequestException({ message: [marker] }), the array shape
+    where Nest's initMessage leaves exception.message as class-name text, so the marker lives
+    only at getResponse().message[0].
+    ORCHESTRATOR VERIFIED RATHER THAN ACCEPTED. I re-applied the architect's M2 mutation
+    myself (forward an array message from the response object into _form) and reproduced its
+    result exactly: 1 failed / 88 passed of 89, the single failure being the F-273 body guard,
+    and nothing else in the repository catching it. exception-filter.ts restored and confirmed
+    byte-identical, sha256 76f97edbb343abc7 before and after, git diff empty. Suite green at
+    89/89, typecheck and lint exit 0.
+    LIMITATION, RECORDED RATHER THAN BURIED: the array-message shape is Nest's ValidationPipe
+    shape and NO route in apps/api/src produces it today. If a reviewer restricts the guard to
+    live paths, the log half collapses into F-244 and only the body half stands alone. Flagged
+    by the test architect itself as blocking-if-disputed.
