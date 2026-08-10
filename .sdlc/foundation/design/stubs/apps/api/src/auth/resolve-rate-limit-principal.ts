@@ -87,7 +87,11 @@ export const BFF_CLIENT_IP_HEADER = 'x-shortkit-client-ip';
 export const BFF_PROXY_AUTH_HEADER = 'x-shortkit-proxy-auth';
 export const FLY_CLIENT_IP_HEADER = 'fly-client-ip';
 
-/** Both headers are in REDACT_PATHS (logging-and-headers.md, F-032). Never log either. */
+/**
+ * Never log either header, and never name either in `LOGGABLE_FIELDS` (F-032). They were
+ * redact paths until ADR-0028; they are now on the never-allowlist in
+ * `logging-and-headers.md`, so an unnamed key carrying one is censored by default.
+ */
 export const BFF_PROXY_MISMATCH_COUNTER = 'bff_proxy_auth_mismatch_total';
 
 /** Shape-compatible with Express's req.headers (IncomingHttpHeaders). */

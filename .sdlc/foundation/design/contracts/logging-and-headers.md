@@ -126,16 +126,26 @@ Comments are stripped on both sides, so the explanatory comments inside the fenc
 and may differ from the source's docblocks. Everything else fails: a reordered declaration, a
 changed field name, a different depth bound, a dropped wrapper.
 
-**One transitional coupling, and it dissolves at ADR-0028 Migration step 6.** The drift spec
-selects this fence by content, with `FENCE_MARKER` at `logger-contract-drift.spec.ts:64` set
-to the literal `export const REDACT_PATHS`. That declaration no longer exists in the source or
-in the fence. The fence therefore carries the marker's text **in its first comment**, which
-the normaliser strips before either comparison, so the selector still finds this block while
-the two artifacts are compared on their code alone. Step 6 re-points `FENCE_MARKER` at
-`export const LOGGABLE_FIELDS`, which the fence's code carries; the comment can go with it.
-Until then, deleting that comment turns the first drift test red with
-`expected [] to have length 1` and takes the other two with it. This is stated here because a
-selector that depends on a comment is exactly the thing a later editor removes as noise.
+**The fence is selected by content, and the selector reads the fence's RAW text.** The drift
+spec picks this block out of the document with `FENCE_MARKER` at
+`logger-contract-drift.spec.ts:72`, the literal `export const LOGGABLE_FIELDS`, matched
+against every fenced `ts` block in this file **before comments are stripped**. Three things
+follow, and the ADR-0028 migration paid for each of them:
+
+- **Renaming a declaration inside the fence blinds the selector.** A marker no fence carries
+  selects nothing, the fence-count test fails with `expected [] to have length 1`, and F-249
+  and F-270 go down with it reporting a stale string as a fence-shape problem. Re-point
+  `FENCE_MARKER` in the same commit that renames the declaration.
+- **A comment satisfies the marker, because the strip runs after the selection** (F-276).
+  ADR-0028 used that on purpose: while the source had moved to `LOGGABLE_FIELDS` and the spec still
+  read the old declaration name, the fence carried that name in its first comment so the
+  three tests stayed green across the gap. The scaffold is gone and the marker now names code
+  the fence actually carries. Do not build another selector that depends on a comment: it
+  reads as noise to the next editor, who deletes it.
+- **Searching this document for the marker does not tell you what the selector sees.** The
+  spec reads fenced `ts` blocks only, and this file's prose names the same identifiers. A
+  grep that finds the literal in a sentence proves nothing. Run
+  `npx vitest run src/observability/logger-contract-drift.spec.ts` and expect 6 passed.
 
 **Equality between anchors rather than substring containment, and the difference matters
 (F-270).** A substring is open at both ends, so dropping the last declaration from the fence

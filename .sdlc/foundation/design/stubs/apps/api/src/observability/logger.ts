@@ -1,16 +1,32 @@
 /**
- * SUPERSEDED 2026-08-08 (F-249). TASK-003 has shipped
- * `apps/api/src/observability/logger.ts`. READ THAT FILE, NOT THIS ONE.
+ * SUPERSEDED 2026-08-08 (F-249), and the gap widened at ADR-0028 on 2026-08-10. TASK-003 has
+ * shipped `apps/api/src/observability/logger.ts`. READ THAT FILE, NOT THIS ONE. NOTHING IN
+ * THIS FILE MAY BE COPIED FORWARD.
  *
- * This stub is kept as the wave-1 scaffold it was. It is now wrong in three ways that
- * matter: its REDACT_PATHS has 17 entries against the shipped 25, it exports
- * `createLogger()` where the shipped module exports a `logger` singleton, and it has none
- * of the five error mechanisms F-244, F-248, F-251, F-252 and F-258 forced —
- * `serializers.err`, `hooks.logMethod`, `formatters.log`, and the wrappers on
- * `logger.child` and `logger.setBindings`. Deriving a logger from this file reintroduces a
- * credential leak. `design/contracts/logging-and-headers.md` carries the current
- * configuration and the reasoning, and a drift test compares its fenced block against the
- * shipped file.
+ * This stub is kept as the wave-1 scaffold it was, and it is a record of a design this
+ * project deliberately removed. It is wrong in four ways that matter:
+ *
+ *   1. IT REDACTS BY DENYLIST, AND THE PROJECT NO LONGER DOES. `REDACT_PATHS` below and
+ *      pino's `redact` option are both gone from the shipped module (ADR-0028). A field
+ *      reaches a log line only if its key is in `LOGGABLE_FIELDS`, and every other key is
+ *      emitted as `[redacted]`. The denylist failed three audit rounds the same way: it
+ *      covered the spellings someone had thought of (F-244, F-262, F-266). Copying the list
+ *      below rebuilds the mechanism those findings closed — and rebuilds it at 17 paths,
+ *      short even of the 25 that were shipping when it was retired.
+ *   2. It exports `createLogger()` where the shipped module exports a `logger` singleton.
+ *   3. It has none of the error mechanisms F-244, F-248, F-251, F-252 and F-258 forced:
+ *      `serializers.err`, `hooks.logMethod`, `formatters.log`, and the wrappers on
+ *      `logger.child` and `logger.setBindings`.
+ *   4. It has no child-options refusal (F-263), which is load-bearing rather than hardening
+ *      since ADR-0028: one `logger.child(b, { formatters })` call opts a whole subtree out
+ *      of the only mechanism there is.
+ *
+ * Deriving a logger from this file reintroduces a credential leak.
+ * `design/contracts/logging-and-headers.md` carries the current configuration and the
+ * reasoning, and `logger-contract-drift.spec.ts` compares its fenced block against the
+ * shipped file byte for byte. Nothing compares THIS file to anything: it is not built, not
+ * typechecked and not tested, so its only failure mode is a human reading it as current.
+ * That is why the warning is this long.
  *
  * Contract: design/contracts/logging-and-headers.md
  * ADR: adr-0022-logging-cors-and-security-headers.md
@@ -27,11 +43,24 @@
 import type pino from 'pino';
 
 /**
- * APPEND-ONLY. Removing a path needs a reason in the commit message.
+ * DEAD DECLARATION. NOT A LIST TO MAINTAIN, AND NOT A LIST TO COPY (ADR-0028).
  *
- * NOTE THE LIMIT: these are pino redact paths, and `*.token` matches ONE level.
- * `payload.data.credentials.token` is NOT covered. A TASK introducing a nested secret
- * adds its path here in the same commit.
+ * No `REDACT_PATHS` exists in `apps/api/src/observability/logger.ts` and no `redact` option
+ * is passed to pino. Do not add a path here: nothing reads it, and a TASK that "keeps it up
+ * to date" is maintaining a mechanism the project removed on purpose.
+ *
+ * WHY IT WAS REMOVED, since the shape is tempting: a path list censors the spellings someone
+ * thought of. `err.body` leaked past it (F-244), then `clientIp`, `trustedClientIp`,
+ * `remoteAddress`, `ipAddress` (F-262), then `sessionToken`, `apiKey`, `api_key`,
+ * `passwordHash` and a bare `authorization` or `cookie` (F-266). Appending each round's
+ * findings produced a longer list with the same property. `*.token` also matches ONE level,
+ * so `payload.data.credentials.token` was never covered by the entry that looks like it
+ * covers everything — which is the trap this list sets for the reader.
+ *
+ * WHAT SURVIVES OF IT. The paths live on as a PROHIBITION, not a mechanism:
+ * `logging-and-headers.md`, "The never-allowlist: names that may never be added to
+ * `LOGGABLE_FIELDS`". If you came here looking for what may not be logged, that section is
+ * the current answer and it is longer than this array.
  */
 export const REDACT_PATHS = [
   'req.headers.authorization',

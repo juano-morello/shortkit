@@ -9213,6 +9213,28 @@
     inner-quote entry, so the guard needs a live subject or an explicit retirement. THEN delete
     the scaffold comment from the contract's fence, and only then.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-test-architect + sdlc-architect
+  resolved_round: 5
+  resolution: >-
+    All three required changes landed, at 2423a63 for the tests and the design cleanup after
+    it. FENCE_MARKER re-pointed to `export const LOGGABLE_FIELDS`. The nested-quote guard was
+    RE-ANCHORED RATHER THAN RETIRED, after measuring the liar direction first: a quote-blind
+    stripper mangles both artifacts identically and leaves F-249 and F-270 green, so that guard
+    is the only thing under them. The obvious anchor is reproduced intact by that mutant and
+    would have been decoration; the new one spans the child-options message's concatenation
+    junction plus a wording-independent half. The scaffold comment is gone from the fence.
+    THE REMOVAL FOUND ITS OWN BUG, WHICH IS THE PART WORTH KEEPING. The first pass deleted the
+    four lines naming FENCE_MARKER but kept the explanatory sentence, and the trap mutation
+    came back ALL GREEN - because that sentence itself contained the old marker literal in
+    prose and the selector reads RAW fence text. The coupling had not dissolved; it had moved
+    one line up and become invisible. Caught by RUNNING the mutation rather than assuming the
+    deletion worked.
+    The architect then replaced the transitional paragraph with the DURABLE property instead of
+    a description of the scaffold: the selector matches raw fence text before comments are
+    stripped, so renaming a fenced declaration blinds it and the failure reports itself as a
+    fence-shape problem; a comment satisfies the marker, recorded as history and prohibited
+    going forward; and grepping the document is not the check, because the spec reads fenced ts
+    blocks only. That third consequence is what the first removal attempt actually hit.
+    Drift spec 6/6 before and after every edit. Orchestrator-verified: a single diff hunk at
+    :129, entirely above the fence, with the fence content byte-identical.

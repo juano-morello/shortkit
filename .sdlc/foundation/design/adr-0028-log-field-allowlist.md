@@ -415,6 +415,8 @@ is still redaction.
 - `logger.spec.ts` changes: the redaction tests assert specific paths and become allowlist
   tests. `logger-contract-drift.spec.ts` anchors on the literal string
   `export const REDACT_PATHS`, which stops existing (F-270's owner is already in that file).
+  **Done at `2423a63`.** The allowlist tests live in `logger-field-allowlist.spec.ts` and the
+  drift spec's marker is `export const LOGGABLE_FIELDS`.
 - The contract's fenced normative block, updated in the same commit as the source and not
   before. See Migration step 5.
 - A lint rule banning a second pino instance and `console.*` (F-268) is worth more after this
@@ -422,16 +424,25 @@ is still redaction.
 
 ## Migration
 
-**Status 2026-08-10.** Steps 1 to 3 landed at `45cf578` (`sdlc-implementer-backend`). Steps 4
-and 5 landed with the contract amendment that follows it (`sdlc-architect`); the drift test's
-F-249 and F-270 are green against the shipped file. **Step 6 is outstanding and belongs to
-`sdlc-test-architect`**, together with a second, unplanned edit in the same file: the guard
-`the redact path with an inner double quote survives the strip on both artifacts` asserts that
-`'req.headers["fly-client-ip"]'` is present in the **source**, and that string left with
-`REDACT_PATHS`. It is red and it is anchored to something that no longer exists.
+**Status 2026-08-10: COMPLETE. All six steps have landed.** The 25 paths no longer ship.
 
-The 25 paths ship today. The order below is the order the work has to happen in, and step 1
-is not optional.
+| step | landed at | by |
+|---|---|---|
+| 1, the child-options rejection (F-263) | `45cf578` | `sdlc-implementer-backend` |
+| 2, `LOGGABLE_FIELDS` and the scan; `REDACT_PATHS` and the `redact` option deleted | `45cf578` | `sdlc-implementer-backend` |
+| 3, the call-site sweep | `45cf578`, re-verified 2026-08-10 | `sdlc-implementer-backend`, then the orchestrator and `sdlc-architect` |
+| 4, the 25 paths moved to the never-allowlist | `b42d9a2` | `sdlc-architect` |
+| 5, the contract's fenced block | `b42d9a2` | `sdlc-architect` |
+| 6, the drift spec's fence marker | `2423a63` | `sdlc-test-architect` |
+
+Step 6 carried a second, unplanned edit in the same file. The guard
+`the redact path with an inner double quote survives the strip on both artifacts` asserted
+that `'req.headers["fly-client-ip"]'` was present in the **source**, and that string left with
+`REDACT_PATHS`. It is re-anchored on the child-options refusal message, which holds the same
+hazard (a single quote inside a template literal), and a second hand-written case was added
+because the existing one was measured not to catch a quote-blind stripper.
+
+The order below is the order the work happened in, and step 1 was not optional.
 
 1. **Land F-263 first or in the same commit.** Reject `redact`, `serializers` and
    `formatters` in the `child` wrapper's `options` argument. Until that exists, one
@@ -445,6 +456,24 @@ is not optional.
    which pass a string and no record. The thirteen names in the list were derived from
    exactly this sweep; if a field is missing the line degrades silently, so the sweep is the
    safety net, not a formality.
+
+   **Run, and re-verified against the shipped list on 2026-08-10. Nothing degrades.** Every
+   field any call site can put on a line today is named:
+
+   - `main.ts:199` emits `boot_precondition`, `attempt`, `retry_in_ms` and the spread of
+     `errorLogFields`; `main.ts:293` emits `boot_precondition` and the same spread. All named.
+   - `exception-filter.ts:125` binds `request_id` on the child. Named. `logError` spreads
+     `errorLogFields` plus a caller-supplied `fields` record, and exactly one caller passes
+     one: `:265` passes `{ status }`. Named.
+   - `db/client.ts:93` and `tenant-context.ts:247` pass a string and no record, so the key
+     rule does not reach them. `msg` covers what they emit.
+   - `ErrorLogFields` is `err_name`, `err_message`, `err_stack`. All three named, and the
+     contract's versioning rule now says renaming one censors it.
+   - `RequestLogFields` is `request_id`, `route`, `status`, `duration_ms`, `tenant_id`. All
+     five named ahead of the request-log middleware a later TASK adds, so that TASK adds no
+     name to the list.
+   - `code` is named with no emitter today. A `DomainError` code goes in the response body;
+     the name is on the list so the first call site that logs one does not degrade.
 4. **Move the 25 paths into "What may never appear in a log line" as the never-allowlist
    list**, adding the spellings F-261, F-262 and F-266 found. Nothing is deleted from the
    design; it changes from a mechanism to a prohibition.
@@ -455,16 +484,22 @@ is not optional.
 6. **Update the drift spec's fence marker**, the literal `export const REDACT_PATHS` at
    `logger-contract-drift.spec.ts:64`, to `export const LOGGABLE_FIELDS`. F-270's fix anchors
    the normative region on `import pino from 'pino';` and `export interface RequestLogFields`,
-   and both anchors survive this change.
+   and both anchors survive this change. **Landed at `2423a63`**, marker now at `:72`, with
+   the scaffold comment removed from the contract's fence in the same commit.
 
    **Step 5 could not wait for step 6, so it carried the marker across the gap.** The marker
    selects the fence by raw text, before the comment strip, so a fence with no
    `REDACT_PATHS` in it selects nothing and takes all three passing tests down with
    `expected [] to have length 1`. Step 5 therefore put the marker's text in the fence's first
-   **comment**, which the normaliser strips before either comparison. Step 6 re-points the
-   marker at code the fence actually carries, and that comment goes with it. The contract says
-   so above its fence, because a selector that depends on a comment is what a later editor
-   deletes as noise.
+   **comment**, which the normaliser strips before either comparison. Step 6 re-pointed the
+   marker at code the fence carries and deleted that comment.
+
+   **What the gap cost, recorded because the shape recurs (F-276).** The first attempt at step 6
+   removed the scaffold comment and read the contract's prose as evidence the marker was
+   still needed: a sentence outside the fence carried the same literal, and the selector reads
+   fenced `ts` blocks only. Grep is not the check here; running the spec is. The contract's
+   section "The block below is machine-checked against the shipped file" now states that, and
+   states that renaming a fenced declaration re-points the marker in the same commit.
 
 ### What a TASK does to log a new field
 
@@ -528,6 +563,38 @@ process, no contention; the shipped logger writes to fd 1. Both configurations w
 the same way, so the *difference* is sound and the *absolutes* are a floor. The 5.8–9 µs
 whole-call baseline quoted in earlier rounds is not reproduced here and should not be used;
 these figures replace it.
+
+### Re-measured after the change shipped
+
+The figures above are a prototype's. These are the shipped singleton at `45cf578` against the
+singleton it replaced (`git show 45cf578^:apps/api/src/observability/logger.ts`, `redact` plus
+25 paths plus the denylist scan), both imported into one process with a bare pino built on the
+same `base` and `timestamp`, all three writing to fd 1 with the process's stdout redirected to
+`/dev/null`. Five runs of 200 000 calls per figure, median, Node 24.19, pino 10.3.1,
+2026-08-10. Measured by `sdlc-implementer-backend` and not independently re-run here.
+
+| record | bare pino | before ADR-0028 | shipped |
+|---|---|---|---|
+| flat request-log record | 2355 ns | 5164 ns | **2507 ns** |
+| record carrying `req.headers` | 2406 ns | 6991 ns | **2254 ns** |
+| record nested five deep | 2389 ns | 4388 ns | **2269 ns** |
+| record holding an error | 2528 ns | 6260 ns | **3857 ns** |
+
+**The prediction held in direction and in magnitude.** This ADR predicted about 2.6 µs off
+each line; the flat record fell 5164 → 2507 ns, a saving of 2.66 µs, and the `req.headers`
+record fell 6991 → 2254 ns, a saving of 4.74 µs. A `req.headers` record now costs *less* than
+bare pino's own path, because a denied key is censored without walking under it. The error
+record's 1.3 µs over bare pino is `errorLogFields` building frames, not the scan.
+
+The absolutes differ from the table above (bare pino at 2355 ns here against 1600 ns there):
+different machine, and a shell redirect of fd 1 rather than `pino.destination({ sync: true })`.
+Use the absolutes from this table, and against GC-1's 25 ms ceiling one line is 0.010%.
+
+**So the allowlist is both safer and faster than the 25-path denylist**, and the cost this ADR
+accepted was never throughput. It was the missing field, and it still is. What stands between
+an unnamed field and a log line is now exactly one mechanism, by design — see
+`logging-and-headers.md`, "One mechanism between an unnamed field and the line", for what that
+makes load-bearing.
 
 ## What this ADR does not decide
 
