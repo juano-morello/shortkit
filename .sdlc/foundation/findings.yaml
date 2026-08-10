@@ -10160,3 +10160,101 @@
   status: open
   resolved_by: null
   resolved_round: null
+- id: F-302
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 2
+  severity: blocker
+  kind: security
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    THE HARNESS IS STILL GREEN WHILE A TENANT OVERWRITES ANOTHER TENANT'S ROWS, on the MIGRATED
+    PRODUCTION TABLE, after the F-293 fix. Every write attempt is QUALIFIED BY THE OWNER COLUMN,
+    so Postgres routes it through the SELECT policy - the rule this repository already measured
+    and wrote down at rls-fixture.ts:175-188. An UNQUALIFIED write never touches that path and
+    is never attempted.
+  failure_scenario: >-
+    ORCHESTRATOR-REPRODUCED END TO END. One ALTER POLICY tenants_self_update ON tenants USING
+    (true) WITH CHECK (true). Then, as shortkit_app inside a normal tenant-A transaction with
+    set_config('app.tenant_id', A, true): UPDATE tenants SET name = 'pwned-by-tenant-A' with NO
+    WHERE CLAUSE. Ground truth read back as superuser: BOTH ROWS now read pwned-by-tenant-A -
+    tenant B's data destroyed by tenant A.
+    UNDER THAT DATABASE THE REWORKED HARNESS REPORTS: `isolation coverage - PASS`, Tests 15
+    passed (15), EXIT CODE 0, and db:check-policies OK. Verified by me, not quoted.
+    The auditor measured the same for DELETE: DELETE ... WHERE tenant_id = B gives DELETE 0
+    while DELETE FROM tenants gives DELETE 2. Neither mechanism F-293 added can see it - the
+    census compares ownership and an overwrite preserves ownership, and both attempt directions
+    still issue the qualified statement.
+    AND THE SUITE ACTIVELY ASSERTS THE BLIND SPOT IS FINE: cross-tenant-isolation.int-spec.ts:429
+    asserts eight passes over a canary carrying FOR UPDATE USING (true).
+    Attacker: any authenticated tenant, through any code path that issues an unqualified UPDATE
+    or DELETE - an admin action, a bulk operation, a migration helper, an ORM call with a
+    forgotten where. GC-5 says no query path may bypass tenant scoping; this is a class of path
+    the harness cannot see.
+  required_change: >-
+    Attempt UNQUALIFIED writes as well as owner-qualified ones, and assert the row COUNT the
+    statement reports rather than only what a subsequent read returns - UPDATE 2 from a
+    single-tenant context is the leak, and it is visible in the command tag before any census
+    runs. Then fix cross-tenant-isolation.int-spec.ts:429, which currently asserts the wrong
+    thing over a FOR UPDATE USING (true) canary.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-303
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    tenantScopedTableDrift() enumerates on the LITERAL column name `tenant_id`, so a
+    tenant-scoped table whose owner column is named anything else is invisible to the drift
+    check that F-296 added to close exactly this class.
+  failure_scenario: >-
+    Measured by the auditor: audit_events(owning_tenant) with ENABLE + FORCE and USING (true)
+    leaks bob@tenant-b.example to tenant A. The suite is green, drift is empty, the table is
+    named in no artifact, and db:check-policies is OK. The registrations already carry an
+    ownerColumn per table, so the harness knows the column can vary - the drift query is the
+    one place that assumes it cannot.
+  required_change: >-
+    Enumerate candidate tenant-scoped tables by a property that does not assume a column name -
+    RLS enabled and forced, or a policy referencing app.tenant_id - and diff THAT against the
+    registry. Failing that, at minimum diff on the set of ownerColumn values the registry
+    actually declares.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-304
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: behavior
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    report.json is written ONCE, after the attempts, so a run that dies earlier LEAVES THE
+    PREVIOUS RUN'S "verdict": "pass" ON DISK. Measured.
+  failure_scenario: >-
+    Any failure before the write - a fixture throw, a connection drop, a killed process - and
+    the artifact on disk still asserts the last successful run. Since the F-293 fix makes the
+    fixture THROW on a pre-existing leak, the most alarming failure mode this harness has is
+    now precisely the one that leaves a stale `pass` behind.
+    THE SEQUENCING MATTERS AND THE AUDITOR NAMED IT: this must land BEFORE F-297's CI upload,
+    not after. Upload the artifact first and CI starts publishing a stale pass as evidence.
+  required_change: >-
+    Write the artifact with a `running`/`incomplete` verdict before the attempts and overwrite
+    it at the end, or delete it at the start of every run so absence is unambiguous. Land
+    before F-297.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
