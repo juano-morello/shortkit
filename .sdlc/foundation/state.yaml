@@ -61,8 +61,30 @@ tasks:
 # TASK-011, TASK-012, TASK-054, TASK-058. They stay in findings.yaml (append-only), parked
 # with the deferral rather than closed.
 
-escalations: []
-# EMPTY as of 2026-08-09. What was here, and why none of it survives the re-scope:
+escalations:
+  - task: TASK-003
+    findings: []
+    reason: >-
+      AC-6's DEPLOYED HALF HAS NEVER BEEN TRUE, and only Juano can resolve it. TASK-003 is
+      "API deployable on Fly.io with a health endpoint". VERIFIED INDEPENDENTLY BY THE
+      ORCHESTRATOR after sdlc-product-auditor raised it: shortkit-api.fly.dev is NXDOMAIN from
+      Fly's own authoritative nameservers, with debug.fly.dev resolving through the same
+      resolver as a positive control; no flyctl on PATH; no ~/.fly; and .github/workflows holds
+      only ci.yml and dependencies.yml, no deploy job. Nothing has ever been deployed, through
+      five audit rounds, four fix rounds and a design-derived cycle.
+      The in-process and IMAGE halves ARE met and were newly measured this round: the auditor
+      built the shipped Dockerfile and got GET /health -> 200 with commit equal to
+      `git rev-parse HEAD`, and the same run proved F-116's boot refusal fires in the real
+      image and that helmet's invariant 4 holds on the wire.
+      SAME SHAPE AS TASK-004's AC-7, which sat blocked for eleven days until Juano created the
+      Vercel project. Fly needs an account, an app and secrets. RULED BY JUANO 2026-08-10:
+      escalate and hold. Code blockers are fixed meanwhile; the AC closes when the deploy
+      exists. TASK-003 CANNOT REACH done until then, independently of F-277.
+      Note before that deploy is attempted: F-142 is undischarged - docs/architecture/
+      migrations.md:120 still says the Fly release command runs migrations while fly.toml
+      deliberately has none, which sends a reader to `fly deploy` by hand against an unmigrated
+      schema with /health still reporting green.
+# The block below was EMPTY as of 2026-08-09. What was here, and why none of it survives the re-scope:
 #
 # 1. TASK-004 / AC-7 — RESOLVED, and this entry was already stale when the re-scope read
 #    it. The deploy succeeded on 2026-08-06 and AC-7 was verified live by curl at 200
@@ -1016,3 +1038,14 @@ log:
   - "2026-08-10 implement: THE FIVE REWRITTEN GUARDS CARRY THEIR OWN WEIGHT, PROVEN BY MUT-B. Naming a, ctx and req in LOGGABLE_FIELDS leaks nothing, so every raw-marker assertion stays green and ONLY the five new container assertions fire. That is the difference between rewriting five guards and silently un-guarding F-244, F-248, F-251, F-257 and F-258 - all five confirmed RESOLVED at round 5, so a tautology there would have reopened closed findings with every gate green."
   - "2026-08-10 implement: TASK-003's paths NEVER COVERED apps/api/src/observability/** - its largest deliverable, four fix rounds, two ADRs and about forty findings. routing.md resolves a finding's owner by matching paths globs, so every observability finding fell through config.yaml's ** fallback for six days and hit the correct slot BY LUCK. A project whose fallback were a different slot would have mis-routed all of them. Corrected; same class as F-O."
   - "2026-08-10 implement: GATES AT THE END OF THE CYCLE, RUN BY ME. Unit 122 passed / 6 failed of 128, and the only failing spec in the repository is TASK-008's client.spec.ts. Integration 37/37. Drift 6/6. typecheck 0, lint 0, build 0. TASK-003 is code-complete and has never been audited whole."
+  - "2026-08-10 implement: ROUND-6 AUDIT PANEL. Three auditors on the finished state, and BOTH sdlc-reviewer AND sdlc-security-auditor INDEPENDENTLY FOUND THE SAME BLOCKER by different routes. Two auditors converging on one defect is the strongest signal this workflow produces, and it landed on the mechanism ADR-0028 had just built."
+  - "2026-08-10 implement: F-277 DOOR SEVEN, AND IT IS A REGRESSION - which is what decides the severity rather than the leak itself. interpolationCovered reduces the message argument only when instanceof Error and its loop starts at message + 1, so nothing inspects args[1]. I REPRODUCED IT: a raw IP, a bearer token and a password on one line, four of the five names on the contract's OWN never-allowlist, and it typechecks and lints clean because e is any in a .catch callback."
+  - "2026-08-10 implement: AND I MEASURED THE REGRESSION DIRECTION ON BOTH SINGLETONS, logger.ts restored byte-identical. {password:'X'} in the message position emitted \"[redacted]\" at 45cf578^ and emits it VERBATIM at HEAD. The deleted 25-path list built a wildcard stringifier and pino applies that to msg too. TODAY'S WORK CLOSED F-261, F-262 AND F-266 AND OPENED THIS. A guard that only asserts the absolute property would pass on the old logger too and would not have caught it."
+  - "2026-08-10 implement: F-278 AND IT IS A CORRECTION TO ME. I reported Migration step 3's sweep as personally verified. I checked that the FIELD NAMES at eight sites were on the allowlist and never checked that all eight were PINO sites. Two are not: db/client.ts:55 and tenant-context.ts:136 do `new Logger(...)` from @nestjs/common. 'Nothing may opt out' is measurably false and F-268's lint rule bans importing pino but not that."
+  - "2026-08-10 implement: AND F-274, WHICH I FILED, RESTS ON A FALSE PREMISE FOR THE SAME REASON. I wrote that tenant-context.ts:247 interpolates error.message into msg 'assembled by the call site before pino sees it'. The line never reaches pino at all. Corrected with the original text KEPT VERBATIM; the real concern is subsumed by F-278 and the routing moves from roadmap item 1 back to TASK-003."
+  - "2026-08-10 implement: THE ROUND-5 SELF-RESOLVING ASSUMPTION WAS WRONG AND THE AUDITOR RE-TESTED ITS OWN CALL. It declined to file the Object.hasOwn gap at round 5 because deleting redact would resolve it. redact is now deleted; the gap CHANGED SHAPE instead. pino reads redact prototypically at proto.js:161, and a lying own hasOwnProperty disables the scan entirely. F-279. That is an auditor revisiting a judgement it had already made rather than standing on it."
+  - "2026-08-10 implement: F-280 - helmet's DEFAULT CSP sets frame-ancestors 'self', which overrides X-Frame-Options in every CSP-aware browser. So frameguard: deny, THE ONE OPTION DELIBERATELY OVERRIDDEN because the contract says DENY, is the one the browser discards. The header the test asserts is present and ignored."
+  - "2026-08-10 implement: AC-6 IS PARTIAL AND ESCALATED. The in-process and IMAGE halves are met and were newly measured - the product auditor built the shipped Dockerfile and got 200 with commit == git rev-parse HEAD, which also proved F-116 fires in the real image. The DEPLOYED half has never been true: shortkit-api.fly.dev NXDOMAIN from Fly's authoritative nameservers with debug.fly.dev resolving as control, no flyctl, no ~/.fly, no deploy workflow. VERIFIED BY ME. Same shape as TASK-004's AC-7 and only Juano can clear it."
+  - "2026-08-10 implement: THE PRODUCT AUDITOR'S SCOPE READ, RECORDED BECAUSE IT IS UNCOMFORTABLE AND I THINK CORRECT. 4817 lines added; AC-6's actual subject is 450 of them, 9%; the logging subsystem is 3453, 72%. About 91% is authorised by a finding, a ruling or a Global Constraint and by NO ACCEPTANCE CRITERION. Nothing was smuggled and every excursion is written down - but it was not one TASK, and the mechanism is that TASK-003 owns main.ts so it became the destination for every cross-cutting obligation nobody costed."
+  - "2026-08-10 implement: SEVEN MINORS RULED. F-119, F-217, F-250, F-259 discharged. F-225 mitigated in code, doc clause unwritten. F-243 clause 2 discharged by helmet, CLAUSE 3 NOT. F-257 ruled SUPERSEDED rather than resolved - its required assertion is now unwritable, which is a different thing from satisfied and would have been recorded as a false close."
+  - "2026-08-10 implement: JUANO RULED FIX ROUND 5/5 SPENT ON F-277, over the available 'the ADR never specified the argument list' route. His reasoning holds: that route is available for almost any gap, and using it twice on one TASK is how the cap stops meaning anything. Invariant 2 sends the behaviour finding to sdlc-test-architect first, so the red step is dispatched before any implementer. THIS IS THE LAST ROUND - if it does not close, a blocker is adjudicated rather than fixed, and for a GC-9 regression that means BLOCKED."
