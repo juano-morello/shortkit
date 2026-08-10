@@ -10258,3 +10258,31 @@
   status: open
   resolved_by: null
   resolved_round: null
+- id: F-305
+  phase: implement
+  task: TASK-008
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/web-api-client.md
+  line: 1
+  summary: >-
+    web-api-client.md CONTRADICTS ITSELF ON WHETHER OPTIONS IS A MUTATING METHOD. The
+    MUTATING_METHODS allowlist names four - POST, PATCH, PUT, DELETE - so OPTIONS is not. The
+    Origin section's rule is `method !== 'GET' && method !== 'HEAD'`, so OPTIONS is. Both are in
+    the same document, and the F-288 fix must implement one of them.
+  failure_scenario: >-
+    An implementer materialising isMutatingMethod() reads whichever passage it finds first. Get
+    it wrong in the permissive direction and the proxy forwards Origin on a preflight, which is
+    harmless; get it wrong in the restrictive direction and any future method outside the
+    four-item list silently loses its Origin, which is F-233's failure - a 403 in production
+    with every test green. The test architect tested only the six methods both passages agree
+    on, and said so rather than picking a side.
+  required_change: >-
+    Make the two passages agree. State the predicate once and have the allowlist derive from it,
+    or say explicitly that the allowlist is exhaustive and the other phrasing is descriptive.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
