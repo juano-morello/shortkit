@@ -100,11 +100,18 @@ const REDACT_PROBE_MARKER = 'redact-probe-marker';
 const REDACT_PROBE_KEY = 'password';
 
 /**
- * What the emitter writes when a child-options call REFUSED rather than emitted. F-263's
- * required change is "refuse or merge", and the tests below accept either — asserting one
- * of the two would pick the implementation instead of the property.
+ * What the emitter appends to the CONTEXT STRING when a child-options call REFUSED rather
+ * than emitted. F-263's required change is "refuse or merge", and the tests below accept
+ * either — asserting one of the two would pick the implementation instead of the property.
+ *
+ * IN `msg`, NOT UNDER A KEY OF ITS OWN, and the reason is ADR-0028. This signal used to be
+ * `{ child_options_refused: true }` on the record. Under a field allowlist a key this suite
+ * invented is not a named field, so it would be emitted as `[redacted]`, the three tests
+ * below would stop taking their early return, and each would fail reading a record that
+ * carries nothing else — three failures that say "F-263 regressed" when nothing about F-263
+ * moved. `msg` is a named field by construction, so the signal survives either policy.
  */
-const CHILD_OPTIONS_REFUSED = 'child_options_refused';
+const CHILD_OPTIONS_REFUSED = ' [child options refused]';
 
 /**
  * `logging-and-headers.md`, "What the implementer must guarantee": the serialised output
@@ -327,7 +334,7 @@ try {
     .child({ scope: 'redact-probe' }, { redact: { paths: ['nothing.the.root.censors'], censor: 'x' } })
     .error(redactProbe, 'the redact probe through a child with its own redact');
 } catch {
-  logger.error({ ${CHILD_OPTIONS_REFUSED}: true }, 'the redact probe through a child with its own redact');
+  logger.error('the redact probe through a child with its own redact${CHILD_OPTIONS_REFUSED}');
 }
 
 // 25. F-263: child options merge serialisers PER KEY (\`proto.js:118-134\`), so a child that
@@ -338,7 +345,7 @@ try {
     .child({ request_id: '${CALLER_FIELD_MARKER}' }, { serializers: { err: (thrown) => thrown } })
     .error({ err: parseFailure }, 'a child with its own err serialiser');
 } catch {
-  logger.error({ ${CHILD_OPTIONS_REFUSED}: true }, 'a child with its own err serialiser');
+  logger.error('a child with its own err serialiser${CHILD_OPTIONS_REFUSED}');
 }
 
 // 26. F-263: child options replace \`formatters.log\` (\`proto.js:136-143\`), which is the scan
@@ -348,7 +355,7 @@ try {
     .child({ request_id: '${CALLER_FIELD_MARKER}' }, { formatters: { log: (record) => record } })
     .error({ error: parseFailure }, 'a child with its own log formatter');
 } catch {
-  logger.error({ ${CHILD_OPTIONS_REFUSED}: true }, 'a child with its own log formatter');
+  logger.error('a child with its own log formatter${CHILD_OPTIONS_REFUSED}');
 }
 
 // 27. F-264: a GRANDCHILD, which nothing has ever built. Both halves are on this one line —
@@ -840,7 +847,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
     // Refusing the options outright is the other half of F-263's required change, and it
     // closes this door as completely as merging does.
-    if (child.record[CHILD_OPTIONS_REFUSED] === true) {
+    if (String(child.record.msg).includes(CHILD_OPTIONS_REFUSED)) {
       return;
     }
 
@@ -857,7 +864,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     // at `JSON.stringify` with every property a library assigned to it.
     const line = lines[LINE.childWithItsOwnErrSerialiser];
 
-    if (line.record[CHILD_OPTIONS_REFUSED] === true) {
+    if (String(line.record.msg).includes(CHILD_OPTIONS_REFUSED)) {
       return;
     }
 
@@ -877,7 +884,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     // to add a field to every line, say — removes F-248's entire mechanism on that child.
     const line = lines[LINE.childWithItsOwnLogFormatter];
 
-    if (line.record[CHILD_OPTIONS_REFUSED] === true) {
+    if (String(line.record.msg).includes(CHILD_OPTIONS_REFUSED)) {
       return;
     }
 

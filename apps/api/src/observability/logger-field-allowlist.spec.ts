@@ -1,0 +1,713 @@
+import { spawnSync } from 'node:child_process';
+
+import { beforeAll, describe, expect, it } from 'vitest';
+
+/**
+ * ADR-0028 — a log field reaches the line only if its key is named.
+ *
+ * Decision: `.sdlc/foundation/design/adr-0028-log-field-allowlist.md`. Contract:
+ * `design/contracts/logging-and-headers.md`, "What may never appear in a log line" and
+ * invariant 1. Enforces GC-9 — no PII in log bodies.
+ *
+ * Findings: F-261, F-262, F-266.
+ *
+ * ============================================================================
+ * WHY THIS FILE IS SEPARATE FROM `logger.spec.ts`
+ * ============================================================================
+ *
+ * `logger.spec.ts` is about ERRORS: what happens to an `Error` and to the properties a
+ * library hung off one, under every key and on every path a line is built by. Its subject is
+ * a VALUE and its policy.
+ *
+ * This file is about KEYS. ADR-0028 replaces `REDACT_PATHS` — a list of 25 key paths to
+ * censor — with `LOGGABLE_FIELDS`, a list of keys that may carry a value, and censors
+ * everything else. The two suites therefore fail for different reasons and a reader chasing
+ * one should not have to read the other. They share the emitter shape and nothing else.
+ *
+ * ============================================================================
+ * WHAT THESE TESTS ARE FOR, AND WHY THE FIRST ONE IS THE IMPORTANT ONE
+ * ============================================================================
+ *
+ * `REDACT_PATHS` has failed three audit rounds the same way: it covers the spellings someone
+ * thought of. F-244 was `err.body`. F-262 is `clientIp`, `trustedClientIp`, `remoteAddress`,
+ * `ipAddress`. F-266 is `sessionToken`, `apiKey`, `api_key`, `passwordHash`, and a bare
+ * `authorization` or `cookie`. Appending each round's newly-found names produces a longer
+ * list with the same property, so a suite that covered only those names would certify the
+ * fourth round of the same fix.
+ *
+ * So the FIRST test below logs keys that appear NOWHERE in this repository — invented for
+ * this file — and asserts they are censored. It is the one that says the mechanism is right
+ * rather than that four known spellings are covered. The three finding-named tests after it
+ * are the measured shapes each finding was raised against, kept because a finding closes
+ * against the reproduction that raised it.
+ *
+ * ============================================================================
+ * AND WHAT STOPS "CENSOR EVERYTHING" PASSING
+ * ============================================================================
+ *
+ * Every assertion above is satisfied by a logger that emits `[redacted]` for every key it is
+ * given, which would be useless and would pass silently — ADR-0028's own stated cost is that
+ * "typecheck, lint and the suite are all green on a log line whose fields are all censored".
+ * Three tests exist against that: the fields the shipped call sites actually emit reach the
+ * line with their values, an array element is not treated as a field name, and a key whose
+ * value is `undefined` does not become a field. Each is green today for a different reason
+ * than it will be green afterwards, so each is proved by mutation in the report rather than
+ * assumed.
+ *
+ * ============================================================================
+ * HOW
+ * ============================================================================
+ *
+ * The same shape `logger.spec.ts` uses and for the same reason: a test that read
+ * `logger.options.redact` would pass against a configuration that emits the wrong bytes.
+ * A Node process imports THE SHIPPED SINGLETON, emits one line per shape to file descriptor
+ * 1, and every assertion is made against those bytes.
+ *
+ * `LOG_LEVEL` is `info`, not `error`. Two reasons, and they are the same reason: the auditor
+ * measured every shape below at `info`, and the deployed image sets no `LOG_LEVEL` at all
+ * (`Dockerfile`, `ENV NODE_ENV=production`), so `info` is the level the leak is reachable at
+ * in production and the level a request-logging middleware would write.
+ *
+ * No network, no database, no Docker. `pnpm test` still runs from a clean clone (ADR-0001).
+ */
+
+/**
+ * A value under a key NOBODY HAS NAMED. Six spellings, none of which occurs anywhere in
+ * `apps/api/src` — five are ADR-0028's own examples of "every field a TASK invents next
+ * quarter", and `attemptCount` is the ADR's rule-6 example, chosen because it is one word
+ * away from `attempt`, which IS on the list. A near miss has to be censored like a miss.
+ */
+const UNNAMED_FIELD_MARKER = 'unnamed-field-marker';
+
+/**
+ * The four IP spellings F-262 measured, one distinct literal each so a failure names WHICH
+ * key leaked rather than only that one did. Hand-copied from
+ * `.sdlc/foundation/audits/TASK-003-sdlc-security-auditor-r5.md` § F-262, which measured
+ * them against this same singleton, and they are TEST-NET-1 addresses (RFC 5737) so nothing
+ * here resembles a real client.
+ *
+ * `trustedClientIp` is the one that matters most: it is the accessor already named in
+ * `design/stubs/apps/api/src/auth/resolve-rate-limit-principal.ts:28`, so the spelling this
+ * system will actually hold is one of the uncensored ones.
+ */
+const CLIENT_IP = '203.0.113.9';
+const TRUSTED_CLIENT_IP = '203.0.113.10';
+const REMOTE_ADDRESS = '203.0.113.11';
+const IP_ADDRESS = '203.0.113.12';
+const IP = '203.0.113.13';
+
+/** The request-shaped record's own IP, kept distinct from the four above (F-261). */
+const REQUEST_REMOTE_ADDRESS = '203.0.113.7';
+const REQUEST_REMOTE_PORT = 44321;
+
+/**
+ * The concrete path on a request-shaped record. "Required fields" forbids it — `route` is the
+ * PATTERN, never the path — and the redirect path's concrete paths are the entire click
+ * stream in plain text. The query string carries a capability token on top of that.
+ */
+const REQUEST_URL = '/l/abc?token=SEKRIT-IN-THE-URL';
+
+/** The two request headers the six `req.headers.*` redact paths do not reach when the request IS the record (F-261, widened by the round-5 audit). */
+const AUTHORIZATION_HEADER = 'Bearer AAA-authorization-marker';
+const COOKIE_HEADER = 'sk_at=BBB-cookie-marker';
+
+/**
+ * F-266's eight credential spellings, one marker each. `token` and `password` are NOT here:
+ * they are censored today, and they are asserted separately as the coverage this change may
+ * not lose.
+ */
+const SESSION_TOKEN = 'S1-session-token-marker';
+const ACCESS_TOKEN = 'S2-access-token-marker';
+const REFRESH_TOKEN = 'S3-refresh-token-marker';
+const API_KEY_CAMEL = 'S4-apiKey-marker';
+const API_KEY_SNAKE = 'S5-api_key-marker';
+const PASSWORD_HASH = 'S6-password-hash-marker';
+
+/** The two spellings `REDACT_PATHS` does censor today. Asserted so the change cannot be bought by losing them. */
+const TOKEN = 'T-token-marker';
+const PASSWORD = 'P-password-marker';
+
+/**
+ * The raw request body body-parser 2.3.0 hangs off the `SyntaxError` it raises for a
+ * malformed JSON POST. Used only by the container tests below, where the question is whether
+ * a container the scan CANNOT INSPECT is censored or passed through.
+ */
+const RAW_REQUEST_BODY_MARKER = 'hunter2-raw-request-body-marker';
+
+/** A secret inside an object inside an array under a NAMED key. ADR-0028's own measured example. */
+const SECRET_INSIDE_AN_ARRAY = 'array-element-secret-marker';
+
+/**
+ * `logging-and-headers.md`, "What the implementer must guarantee", and ADR-0028
+ * § "`REDACT_CENSOR` keeps its name and its value". Hand-copied from the contract rather than
+ * imported from `logger.ts` — an expected value read out of the code under test agrees with
+ * it whatever it does.
+ */
+const CENSOR = '[redacted]';
+
+/**
+ * Every field a log call site in `apps/api/src` actually emits today, with a value that is
+ * recognisably itself. This is ADR-0028 Migration step 3 — "sweep every log call site and
+ * check its fields against the list" — written as an assertion, so a name missing from
+ * `LOGGABLE_FIELDS` reds here instead of degrading a line silently at 3am.
+ *
+ * Sources, one per field:
+ *   `request_id`, `route`, `status`, `duration_ms`, `tenant_id` — the contract's
+ *      "Required fields" table, and `RequestLogFields` in `logger.ts`.
+ *   `boot_precondition`, `attempt`, `retry_in_ms` — `main.ts:198-206` and `:269-277`.
+ *   `code` — `exception-filter.ts`, a `DomainError` code (`error-envelope.md`).
+ *   `err_name`, `err_message`, `err_stack` — `ErrorLogFields`, spread into records by
+ *      `logError` and by `main.ts`.
+ *   `msg` — pino's `messageKey`, when a call site supplies its own on the record.
+ */
+const REQUEST_ID = 'r-1-request-id';
+const ROUTE_PATTERN = '/api/links/:id';
+const TENANT_ID = 't-1-tenant-id';
+const DOMAIN_ERROR_CODE = 'validation_failed';
+const CALLER_SUPPLIED_MESSAGE = 'a message the call site put on the record';
+
+/** The context strings the emitter passes, asserted where "not bought by logging nothing" needs one. */
+const REQUEST_RECORD_CONTEXT = 'a request-shaped first argument';
+
+/**
+ * Lines are addressed by ORDINAL, not by `msg`: an ordinal still addresses the right line
+ * when a regression changes what `msg` says, and `msg` is itself a field this decision
+ * governs.
+ */
+const LINE = {
+  keysNobodyNamed: 0,
+  ipSpellings: 1,
+  requestAsTheRecord: 2,
+  requestOneKeyDown: 3,
+  credentialSpellings: 4,
+  fieldsTheCallSitesEmit: 5,
+  errorFieldsSpreadOntoTheRecord: 6,
+  toJsonContainer: 7,
+  classInstanceContainer: 8,
+  pastTheDepthBound: 9,
+  arrayUnderANamedKey: 10,
+  undefinedUnderAnUnnamedKey: 11,
+} as const;
+
+const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
+
+/**
+ * Emitted in a subprocess so the module under test is the real singleton writing to the real
+ * file descriptor. Held as source text rather than as a sibling `.ts` file because it has to
+ * build the shapes a library builds — an error with an assigned `body`, a `toJSON` that
+ * returns one, a class instance holding one — and expressing those in checked TypeScript
+ * would take casts that hide the shape being reproduced.
+ */
+function emitterSource(loggerModule: string): string {
+  return `
+import { logger } from '${loggerModule}';
+
+// What body-parser 2.3.0 raises for a malformed JSON body: a SyntaxError carrying the RAW
+// REQUEST BODY as an own enumerable property.
+const parseFailure = new SyntaxError('Unexpected token } in JSON at position 41');
+parseFailure.body = '{"email":"a@b.test","password":"${RAW_REQUEST_BODY_MARKER}"';
+parseFailure.status = 400;
+
+// 0. KEYS NOBODY HAS NAMED. Not one of these six spellings occurs anywhere in apps/api/src.
+//    \`attemptCount\` is one word from \`attempt\`, which IS a field main.ts emits.
+logger.info(
+  {
+    principalKey: '${UNNAMED_FIELD_MARKER}',
+    subjectIp: '${UNNAMED_FIELD_MARKER}',
+    bearer: '${UNNAMED_FIELD_MARKER}',
+    authToken: '${UNNAMED_FIELD_MARKER}',
+    x_api_key: '${UNNAMED_FIELD_MARKER}',
+    attemptCount: '${UNNAMED_FIELD_MARKER}',
+  },
+  'keys nobody has named',
+);
+
+// 1. F-262. Four IP spellings measured verbatim by the round-5 audit, beside the two the
+//    denylist does cover and the snake_case column name a raw driver row carries.
+logger.info(
+  {
+    clientIp: '${CLIENT_IP}',
+    trustedClientIp: '${TRUSTED_CLIENT_IP}',
+    remoteAddress: '${REMOTE_ADDRESS}',
+    ipAddress: '${IP_ADDRESS}',
+    ip: '${IP}',
+    ipHash: 'CAMEL-ip-hash-marker',
+    ip_hash: 'SNAKE-ip-hash-marker',
+  },
+  'the spellings a client IP arrives under',
+);
+
+// 2. F-261, THE WIDER SHAPE. The request object is the RECORD ITSELF, so the six
+//    \`req.headers.*\` paths do not apply either and a bare authorization header and cookie
+//    go on the line beside the IP and the concrete url.
+const request = {
+  id: 1,
+  method: 'GET',
+  url: '${REQUEST_URL}',
+  headers: {
+    host: 'shortkit.test',
+    authorization: '${AUTHORIZATION_HEADER}',
+    cookie: '${COOKIE_HEADER}',
+  },
+  remoteAddress: '${REQUEST_REMOTE_ADDRESS}',
+  remotePort: ${String(REQUEST_REMOTE_PORT)},
+};
+
+logger.info(request, '${REQUEST_RECORD_CONTEXT}');
+
+// 3. F-261 as originally filed: the same object one key down, where the six header paths DO
+//    apply and the IP, the port and the concrete url still do not.
+logger.info({ req: request }, 'a request-shaped value under a req key');
+
+// 4. F-266. Eight credential spellings, plus the two the denylist covers today.
+logger.info(
+  {
+    sessionToken: '${SESSION_TOKEN}',
+    accessToken: '${ACCESS_TOKEN}',
+    refreshToken: '${REFRESH_TOKEN}',
+    apiKey: '${API_KEY_CAMEL}',
+    api_key: '${API_KEY_SNAKE}',
+    passwordHash: '${PASSWORD_HASH}',
+    authorization: '${AUTHORIZATION_HEADER}',
+    cookie: '${COOKIE_HEADER}',
+    token: '${TOKEN}',
+    password: '${PASSWORD}',
+  },
+  'the spellings a credential arrives under',
+);
+
+// 5. THE OTHER DIRECTION. Every field a shipped call site emits, with a value that is
+//    recognisably itself. A logger that censored everything satisfies every assertion above
+//    and fails this one.
+//
+//    NO CONTEXT STRING ON THIS ONE, DELIBERATELY. \`msg\` is on the list because a record
+//    may supply its own, and pino uses a positional context string in preference to the
+//    record's — so passing one here would assert nothing about the record's \`msg\` key.
+logger.info({
+  request_id: '${REQUEST_ID}',
+  route: '${ROUTE_PATTERN}',
+  status: 200,
+  duration_ms: 12,
+  tenant_id: '${TENANT_ID}',
+  boot_precondition: 'database_reachable',
+  attempt: 2,
+  retry_in_ms: 250,
+  code: '${DOMAIN_ERROR_CODE}',
+  msg: '${CALLER_SUPPLIED_MESSAGE}',
+});
+
+// 6. The three fields \`errorLogFields\` builds, SPREAD onto a record — which is how
+//    main.ts:269-277 and exception-filter.ts's logError both write them, so they arrive as
+//    ordinary top-level keys and not under \`err\`.
+logger.info(
+  {
+    request_id: '${REQUEST_ID}',
+    err_name: 'BootPreconditionError',
+    err_message: 'GIT_COMMIT_SHA must be the full 40-character lowercase hex git SHA',
+    err_stack: '    at bootstrap (main.ts:1:1)',
+  },
+  'the error fields a call site spreads onto its record',
+);
+
+// 7-9. THE CONTAINERS THE SCAN CANNOT INSPECT. All three reach a line today with the
+//      library's assigned properties on them: \`logger.ts:503-526\` states them as residuals
+//      1, 2 and 3, and ADR-0028's Consequences table is where each is measured as closing.
+//      "Cannot inspect" has to mean CENSORED, not EMITTED WHOLE.
+logger.info({ ctx: { toJSON: () => parseFailure } }, 'a container that serialises itself');
+
+class Ctx {
+  constructor(held) {
+    this.err = held;
+  }
+}
+logger.info({ ctx: new Ctx(parseFailure) }, 'a container the scan declines to walk');
+
+logger.info({ a: { b: { c: { d: { err: parseFailure } } } } }, 'a container past the depth bound');
+
+// 10. An ARRAY under a NAMED key. An array index is not a field name, so the string element
+//     survives; an OBJECT inside the array has its keys decided normally, so the secret
+//     inside it does not. ADR-0028's own measured example.
+logger.info(
+  { request_id: '${REQUEST_ID}', route: ['a', { password: '${SECRET_INSIDE_AN_ARRAY}' }] },
+  'an array under a named key',
+);
+
+// 11. \`undefined\` under an unnamed key. \`JSON.stringify\` drops a key whose value is
+//     \`undefined\`, so censoring it would ADD a field where none appeared.
+logger.info({ notNamed: undefined, request_id: '${REQUEST_ID}' }, 'an undefined value');
+`;
+}
+
+interface EmittedLine {
+  /** The exact bytes of the line, which is what a leak has to be absent from. */
+  readonly raw: string;
+  readonly record: Record<string, unknown>;
+}
+
+let lines: readonly EmittedLine[];
+
+beforeAll(() => {
+  const loggerModule = new URL('./logger.ts', import.meta.url).href;
+
+  const run = spawnSync(
+    process.execPath,
+    ['--no-warnings', '--input-type=module', '-e', emitterSource(loggerModule)],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, LOG_LEVEL: 'info', NODE_ENV: 'test' },
+    },
+  );
+
+  // A harness that half-ran would let every assertion below pass vacuously, so it is checked
+  // loudly here rather than silently in each test.
+  if (run.status !== 0 || run.stderr !== '') {
+    throw new Error(
+      `the log emitter did not run cleanly (status ${String(run.status)}).\nstderr:\n${run.stderr}\nstdout:\n${run.stdout}`,
+    );
+  }
+
+  const emitted = run.stdout.split('\n').filter((line) => line !== '');
+
+  if (emitted.length !== EXPECTED_LINE_COUNT) {
+    throw new Error(
+      `expected ${String(EXPECTED_LINE_COUNT)} log lines, got ${String(emitted.length)}:\n${run.stdout}`,
+    );
+  }
+
+  lines = emitted.map((raw) => ({ raw, record: JSON.parse(raw) as Record<string, unknown> }));
+});
+
+/**
+ * The line's record with only `keys` kept, in the order given. Written so a failure prints
+ * one object naming every key that leaked rather than stopping at the first — a suite whose
+ * whole subject is "which spelling did nobody think of" should not report them one per run.
+ *
+ * It carries no expectation of its own: the expected object is a hand-written literal at
+ * every call site below.
+ */
+function fields(ordinal: number, keys: readonly string[]): Record<string, unknown> {
+  const record = lines[ordinal].record;
+
+  return Object.fromEntries(keys.map((key) => [key, record[key]]));
+}
+
+describe('a key that is not named does not carry a value onto a log line', () => {
+  it('ADR-0028: a key nobody has named is censored, and the key stays on the line', () => {
+    // THE CLASS TEST, AND THE REASON THIS DECISION EXISTS. Not one of these six spellings
+    // occurs in `apps/api/src`, in `REDACT_PATHS`, or in any finding — they were invented
+    // here. `REDACT_PATHS` covers the spellings someone thought of, so it emits all six
+    // verbatim, and it would still emit them after F-261, F-262 and F-266 were each closed
+    // by appending the names they found. That is the fourth audit round, and it is what this
+    // asserts against.
+    //
+    // The keys stay on the line (ADR-0028 rule 6). A dropped key tells an operator nothing;
+    // `"attemptCount":"[redacted]"` tells them which field exists, what it is called, and
+    // that one line in `LOGGABLE_FIELDS` is what it needs. That visibility is the whole
+    // mitigation for the cost this decision accepts, so it is asserted rather than implied.
+    expect(lines[LINE.keysNobodyNamed].raw).not.toContain(UNNAMED_FIELD_MARKER);
+
+    expect(
+      fields(LINE.keysNobodyNamed, [
+        'principalKey',
+        'subjectIp',
+        'bearer',
+        'authToken',
+        'x_api_key',
+        'attemptCount',
+      ]),
+    ).toEqual({
+      principalKey: CENSOR,
+      subjectIp: CENSOR,
+      bearer: CENSOR,
+      authToken: CENSOR,
+      x_api_key: CENSOR,
+      attemptCount: CENSOR,
+    });
+  });
+
+  it('F-262: every spelling a client IP arrives under is censored, not only the key spelled `ip`', () => {
+    // MEASURED, this repository's own pino 10.3.1, round-5 audit and reproduced here:
+    //   {"clientIp":"203.0.113.9","trustedClientIp":"…","remoteAddress":"…",
+    //    "ipAddress":"…","ip":"[redacted]","ipHash":"[redacted]","ip_hash":"SNAKE"}
+    // Four raw IPv4 literals in the clear beside two censored keys. GC-9's first prohibition
+    // is "a raw IP address, in any field, from any header", and the field the system will
+    // actually hold is `trustedClientIp` — the accessor already named in
+    // `design/stubs/apps/api/src/auth/resolve-rate-limit-principal.ts:28`.
+    //
+    // `ip` and `ipHash` are asserted alongside so the fix cannot be bought by losing the
+    // coverage that already exists, and `ip_hash` — the Postgres column name a raw driver row
+    // carries — closes the residual the contract names at "Which casing `REDACT_PATHS` is
+    // keyed to".
+    for (const literal of [CLIENT_IP, TRUSTED_CLIENT_IP, REMOTE_ADDRESS, IP_ADDRESS, IP]) {
+      expect(lines[LINE.ipSpellings].raw).not.toContain(literal);
+    }
+
+    expect(
+      fields(LINE.ipSpellings, [
+        'clientIp',
+        'trustedClientIp',
+        'remoteAddress',
+        'ipAddress',
+        'ip',
+        'ipHash',
+        'ip_hash',
+      ]),
+    ).toEqual({
+      clientIp: CENSOR,
+      trustedClientIp: CENSOR,
+      remoteAddress: CENSOR,
+      ipAddress: CENSOR,
+      ip: CENSOR,
+      ipHash: CENSOR,
+      ip_hash: CENSOR,
+    });
+  });
+
+  it('F-261: logging a whole request emits no IP, no credential, no cookie and no concrete path', () => {
+    // CONTRACT INVARIANT 1, WHICH IS MEASURED FALSE TODAY AND SAYS SO IN PLACE. The finding
+    // named `remoteAddress`, `remotePort` and the concrete `url`; the round-5 audit measured
+    // it WIDER — when the request object is the RECORD ITSELF rather than the value of a
+    // `req` key, the six `req.headers.*` paths do not apply either, so a bare `authorization`
+    // header and a `Cookie` go on the line as well:
+    //
+    //   {"id":1,"method":"GET","url":"/l/abc?token=SEKRIT",
+    //    "headers":{"host":"x","authorization":"Bearer AAA","cookie":"sk_at=BBB"},
+    //    "remoteAddress":"203.0.113.7","remotePort":44321}
+    //
+    // The list reads as though logging a whole request were a covered act, which is what
+    // makes it dangerous rather than obvious. Under ADR-0028 the invariant becomes true for a
+    // stronger reason than it claims: no key of a request object is a named field, so there
+    // is no header list to keep current.
+    for (const value of [
+      REQUEST_REMOTE_ADDRESS,
+      REQUEST_URL,
+      AUTHORIZATION_HEADER,
+      COOKIE_HEADER,
+      String(REQUEST_REMOTE_PORT),
+    ]) {
+      expect(lines[LINE.requestAsTheRecord].raw).not.toContain(value);
+    }
+
+    expect(
+      fields(LINE.requestAsTheRecord, [
+        'id',
+        'method',
+        'url',
+        'headers',
+        'remoteAddress',
+        'remotePort',
+      ]),
+    ).toEqual({
+      id: CENSOR,
+      method: CENSOR,
+      url: CENSOR,
+      headers: CENSOR,
+      remoteAddress: CENSOR,
+      remotePort: CENSOR,
+    });
+
+    // Not bought by writing no line: the call site's own words survive.
+    expect(lines[LINE.requestAsTheRecord].record.msg).toBe(REQUEST_RECORD_CONTEXT);
+  });
+
+  it('F-261: a request-shaped value one key down is censored whole, headers included', () => {
+    // The shape as originally filed, asserted separately because it leaks by a DIFFERENT
+    // route: here the six `req.headers.*` paths DO apply, so today's line censors the two
+    // headers and emits the IP, the port and the concrete `url` anyway. A fix that only
+    // widened the header list would pass the header half of this and still leak the IP.
+    //
+    // ADR-0028's Consequences table measures this row as `"req":"[redacted]"` — the whole
+    // object, because `req` is not a named field.
+    for (const value of [
+      REQUEST_REMOTE_ADDRESS,
+      REQUEST_URL,
+      AUTHORIZATION_HEADER,
+      COOKIE_HEADER,
+      String(REQUEST_REMOTE_PORT),
+    ]) {
+      expect(lines[LINE.requestOneKeyDown].raw).not.toContain(value);
+    }
+
+    expect(lines[LINE.requestOneKeyDown].record.req).toBe(CENSOR);
+  });
+
+  it('F-266: every spelling a credential arrives under is censored, not only `token` and `password`', () => {
+    // MEASURED, unchanged from round 4 and re-measured in round 5:
+    //   {"sessionToken":"S1","accessToken":"S2","refreshToken":"S3","apiKey":"S4",
+    //    "api_key":"S5","passwordHash":"S6","authorization":"Bearer AAA",
+    //    "cookie":"sk_at=BBB","token":"[redacted]","password":"[redacted]"}
+    // Eight credential-shaped spellings in the clear, two censored. `authorization` and
+    // `cookie` are covered under `req.headers` and nowhere else, so a call site that lifts
+    // one header onto a record writes it in the clear.
+    //
+    // `token` and `password` are asserted here too: they are what the denylist buys today,
+    // and an allowlist that lost them would be a regression wearing a new mechanism.
+    for (const marker of [
+      SESSION_TOKEN,
+      ACCESS_TOKEN,
+      REFRESH_TOKEN,
+      API_KEY_CAMEL,
+      API_KEY_SNAKE,
+      PASSWORD_HASH,
+      AUTHORIZATION_HEADER,
+      COOKIE_HEADER,
+      TOKEN,
+      PASSWORD,
+    ]) {
+      expect(lines[LINE.credentialSpellings].raw).not.toContain(marker);
+    }
+
+    expect(
+      fields(LINE.credentialSpellings, [
+        'sessionToken',
+        'accessToken',
+        'refreshToken',
+        'apiKey',
+        'api_key',
+        'passwordHash',
+        'authorization',
+        'cookie',
+        'token',
+        'password',
+      ]),
+    ).toEqual({
+      sessionToken: CENSOR,
+      accessToken: CENSOR,
+      refreshToken: CENSOR,
+      apiKey: CENSOR,
+      api_key: CENSOR,
+      passwordHash: CENSOR,
+      authorization: CENSOR,
+      cookie: CENSOR,
+      token: CENSOR,
+      password: CENSOR,
+    });
+  });
+
+  it('ADR-0028: a container the scan cannot inspect is censored, not emitted whole', () => {
+    // THE INVERSION, AND THE THREE RESIDUALS IT CLOSES. Today "cannot inspect" means "emit
+    // whole", which is backwards: a `toJSON` the scan never sees the output of (F-265), a
+    // class instance `isWalkable` declines to walk (F-255's residual 2), and anything past
+    // the depth bound (residual 1) all reach the line carrying whatever a library assigned.
+    // All three are stated at `logger.ts:503-526` and all three were re-measured leaking by
+    // the round-5 audit.
+    //
+    // Under an allowlist none of them needs inspecting: `ctx` and `a` are not named fields,
+    // so the container is censored before the question of walking it arises. That is why
+    // ADR-0028 closes three residuals nobody filed as a class this round.
+    //
+    // Reported together so a failure names ALL the containers that leak rather than the
+    // first.
+    const containers = [
+      ['a toJSON that returns the error', LINE.toJsonContainer, 'ctx'],
+      ['a class instance holding the error', LINE.classInstanceContainer, 'ctx'],
+      ['a container past the depth bound', LINE.pastTheDepthBound, 'a'],
+    ] as const;
+
+    const leaking = containers
+      .filter(([, ordinal]) => lines[ordinal].raw.includes(RAW_REQUEST_BODY_MARKER))
+      .map(([name]) => name);
+
+    expect(leaking).toEqual([]);
+
+    for (const [, ordinal, key] of containers) {
+      expect(lines[ordinal].record[key]).toBe(CENSOR);
+    }
+  });
+
+  it('ADR-0028: an object inside an array under a named key still has its own keys decided', () => {
+    // An array index is not a field name, so `elementsCensored` applies no key decision to
+    // the elements — but an OBJECT inside the array is walked by the ordinary key rule, and
+    // its keys are decided normally. ADR-0028 measures exactly this:
+    //   { request_id: 'r-1', route: ['a', { password: 'P' }] }
+    //     -> "route":["a",{"password":"[redacted]"}]
+    //
+    // Today `*.password` matches one level and this secret is two levels down under `route`,
+    // so it goes on the line in the clear.
+    expect(lines[LINE.arrayUnderANamedKey].raw).not.toContain(SECRET_INSIDE_AN_ARRAY);
+
+    const route = lines[LINE.arrayUnderANamedKey].record.route as readonly unknown[];
+
+    expect(route[1]).toEqual({ password: CENSOR });
+  });
+});
+
+describe('what the allowlist may not censor, so that a line still says something', () => {
+  it('ADR-0028: every field a shipped call site emits reaches the line with its value', () => {
+    // THE TEST THAT STOPS "CENSOR EVERYTHING" PASSING, and the one ADR-0028's own stated cost
+    // asks for: "a field a TASK forgets to name ships as `[redacted]` … nothing in the build
+    // catches it: typecheck, lint and the suite are all green on a log line whose fields are
+    // all censored". This is the build catching it, for the fields that exist today.
+    //
+    // The record is Migration step 3's sweep: `main.ts:198-206` and `:269-277`
+    // (`boot_precondition`, `attempt`, `retry_in_ms`), `exception-filter.ts` (`code`,
+    // `request_id`), and the contract's "Required fields" table (`request_id`, `route`,
+    // `status`, `duration_ms`, `tenant_id`). `msg` is here because a record may supply its
+    // own and pino then does not derive one.
+    //
+    // GREEN TODAY, for a different reason than it will be green afterwards: nothing censors
+    // these names now, and afterwards they are censored unless named. Proved by mutation in
+    // the round's report rather than assumed.
+    expect(
+      fields(LINE.fieldsTheCallSitesEmit, [
+        'request_id',
+        'route',
+        'status',
+        'duration_ms',
+        'tenant_id',
+        'boot_precondition',
+        'attempt',
+        'retry_in_ms',
+        'code',
+        'msg',
+      ]),
+    ).toEqual({
+      request_id: REQUEST_ID,
+      route: ROUTE_PATTERN,
+      status: 200,
+      duration_ms: 12,
+      tenant_id: TENANT_ID,
+      boot_precondition: 'database_reachable',
+      attempt: 2,
+      retry_in_ms: 250,
+      code: DOMAIN_ERROR_CODE,
+      msg: CALLER_SUPPLIED_MESSAGE,
+    });
+  });
+
+  it("ADR-0028: the three fields `errorLogFields` builds survive being spread onto a record", () => {
+    // `main.ts:269-277` and `exception-filter.ts`'s `logError` both SPREAD `errorLogFields`
+    // into their record, so `err_name`, `err_message` and `err_stack` arrive as ordinary
+    // top-level keys — they do not travel under `err` and `serializers.err` never sees them.
+    // Censoring them would leave the API's boot-failure line and every 500's line naming
+    // nothing at all, which is `error-envelope.md` invariant 9 broken by the fix for GC-9.
+    //
+    // This is also the coupling ADR-0028's Consequences names: renaming any of these three
+    // now silently censors it as well as breaking every saved log query.
+    expect(fields(LINE.errorFieldsSpreadOntoTheRecord, ['err_name', 'err_message', 'err_stack'])).toEqual({
+      err_name: 'BootPreconditionError',
+      err_message: 'GIT_COMMIT_SHA must be the full 40-character lowercase hex git SHA',
+      err_stack: '    at bootstrap (main.ts:1:1)',
+    });
+  });
+
+  it('ADR-0028: an array element is not a field name, so a plain value in one survives', () => {
+    // The other half of the array rule, and the plausible wrong implementation it catches: a
+    // scan that ran the key check on array INDICES censors every element of every array,
+    // because `'0'` and `'1'` are not on any allowlist and never will be. That turns a named
+    // field holding a list into `["[redacted]","[redacted]"]` with the whole suite otherwise
+    // green.
+    const route = lines[LINE.arrayUnderANamedKey].record.route as readonly unknown[];
+
+    expect(route[0]).toBe('a');
+  });
+
+  it('ADR-0028: a key whose value is `undefined` does not become a field on the line', () => {
+    // `JSON.stringify` drops a key whose value is `undefined`, so censoring one would ADD a
+    // field where none appeared — an operator would read `"notNamed":"[redacted]"` and go
+    // looking for a value that was never there. The record's own named field is asserted
+    // beside it so this cannot pass against a line that carries nothing at all.
+    expect(lines[LINE.undefinedUnderAnUnnamedKey].record).not.toHaveProperty('notNamed');
+    expect(lines[LINE.undefinedUnderAnUnnamedKey].record.request_id).toBe(REQUEST_ID);
+  });
+});
