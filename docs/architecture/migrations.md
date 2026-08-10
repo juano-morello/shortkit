@@ -117,10 +117,41 @@ your branch. Anyone who applied the old one locally has to drop and recreate too
 
 ## At deploy
 
-The Fly release command runs `pnpm --filter @shortkit/api db:migrate` as
-`shortkit_migrator`, before the new machine takes traffic. Migrations do not run from
-application boot, so machines starting together cannot race. A failed migration blocks
-the deploy.
+`infra/deploy.sh` runs the migration. **There is no Fly release command, and there
+deliberately never will be.** `fly.toml` carries the settlement beside the absent
+`release_command`. A release command runs inside the built image, and `drizzle-kit` is a
+devDependency that the runtime stage's `pnpm install --prod` does not install, so
+`pnpm --filter @shortkit/api db:migrate` would fail at deploy time rather than at build
+time. Promoting `drizzle-kit` to a dependency loses on two counts: it puts
+GHSA-67mh-4wv8-2f99 into the production dependency graph through a non-optional edge,
+which fails `pnpm audit --prod --no-optional --audit-level moderate` and so blocks every
+merge; and it falsifies `docs/security/known-advisories.md`, whose reason for accepting
+that advisory is that no copy of `drizzle-kit` is deployed.
 
-Write migrations to be transactional where you can. A release that fails halfway through
-a non-transactional migration leaves the database in a state no file describes.
+The script builds the image locally, applies the migration from the working copy as
+`shortkit_migrator`, then calls `fly deploy`. Migrations do not run from application
+boot, so machines starting together cannot race, and a failed migration blocks the
+deploy: `set -e` stops the script before it reaches `fly deploy`.
+
+**Deploy through the script, never through bare `fly deploy`.** Three costs come with
+running the migration outside the platform:
+
+1. **The migrator credential moves off the platform and onto a workstation.** A release
+   command would have read `DATABASE_MIGRATION_URL` from Fly secrets, where the platform
+   holds it. Migrating from the working copy means the DSN of `shortkit_migrator`, the
+   role that owns every table and can run any DDL including `DROP`, lives in a
+   developer's shell instead. Keep it out of shell history and out of any committed
+   `.env`. The integration suite's copy points at a throwaway container, and the script
+   refuses a loopback target so the two cannot be confused.
+2. **Ordering.** Migrating before deploying means a failed image build could leave DDL
+   applied with the **old** image still serving. The script therefore builds the image
+   locally, from the same Dockerfile and the same tree, before it applies any DDL. The
+   residual gap is a build that succeeds locally and fails on Fly's builder, and that gap
+   is accepted.
+3. **Nothing but the script sequences the two.** `fly deploy` run by hand deploys code
+   against whatever schema is live. Nothing reports it: `/health` touches no database, so
+   it answers 200 and Fly's check passes while every DB-backed request 500s. On the
+   redirect path that is GC-8.
+
+Write migrations to be transactional where you can. A deploy that fails halfway through a
+non-transactional migration leaves the database in a state no file describes.

@@ -19,10 +19,10 @@ primary_region = 'iad'
 
 # NO `release_command`, and that settles F-119.
 #
-# ADR-0004 and `docs/architecture/migrations.md` describe the Fly release command running
-# `pnpm --filter @shortkit/api db:migrate`. The release command runs inside THIS image, and
-# `drizzle-kit` is a devDependency that the runtime stage's `pnpm install --prod` does not
-# install — so that command would fail at deploy time rather than at build time.
+# The design called for a Fly release command running `pnpm --filter @shortkit/api db:migrate`,
+# and that cannot work. The release command runs inside THIS image, and `drizzle-kit` is a
+# devDependency that the runtime stage's `pnpm install --prod` does not install — so that
+# command would fail at deploy time rather than at build time.
 #
 # The two ways out were promoting `drizzle-kit` to a dependency or moving migrations out of
 # the image. Promotion loses on two counts: it puts GHSA-67mh-4wv8-2f99 into the production

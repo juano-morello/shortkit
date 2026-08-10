@@ -4519,7 +4519,7 @@
     Mark the section as ADR-0004's intended state owned by TASK-003 and cross-reference F-119, or
     drop it until TASK-003 settles it.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
   ruling: DEFERRED AND ROUTED TO TASK-003 alongside F-119 and F-141, for the same reason.
 
 - id: F-143
@@ -9447,9 +9447,11 @@
     keys that trigger it, or make the required fields survive by building the record so pino
     does not recognise it. Do not leave the invariant asserting something measured false.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect + sdlc-test-architect"
+  resolved_round: 7
+  resolution: >-
+    RESOLVED as a documentation and coverage defect; the behaviour is unchanged and correct. The contract now states the mechanism accurately in three places, and BOTH DOORS ARE PINNED BY TESTS for the first time - door one (o.method && o.headers && o.socket) and door two (typeof o.setHeader === 'function'), plus a NEAR-MISS line, the same record with socket removed, which keeps both named fields and censors the payload key by key. That third line is what makes the other two statements about pino's sniff rather than about the allowlist, and it is exactly what the spec was missing. All three proven falsifiable by mutating pino's tools.js - disabling both branches reds the two doors and leaves the near miss green; widening the sniff reds the near miss and leaves the doors green.
   correction: >-
     CONFIRMED AT ROUND 7 BY BOTH AUDITORS, AND THE ARCHITECT'S STATED REASON IS WRONG.
     sdlc-security-auditor measured that mapHttpRequest CENSORS NOTHING - it re-shapes, and
@@ -9497,9 +9499,11 @@
     inspection. Also strike the claim at TASK-003-f277-design-report.md:75-77 that this was
     "already redded by mutation A"; it is false and must not be carried forward as coverage.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 7
+  resolution: >-
+    RESOLVED. One test asserting the caller's container actually ARRIVES: per message-position shape, record.err deep-equals { err_name: 'non-error throwable (object)' } and record.msg equals the fixed string, six shapes in one array so a partial regression names every one. PROVEN BY BUILDING THE DROP MUTANT IN PLACE and running it - the reviewer's measurement reproduced exactly at 1 failed / 47 passed of 48: all three F-277 tests pass under the mutant, logger.spec.ts passes 28/28 including ordinal 21, and the new test is the ONLY thing that sees it. logger.ts restored, md5 630d63fa identical before and after.
 - id: F-283
   phase: implement
   task: TASK-003
@@ -9527,6 +9531,8 @@
     and that the class is narrowed rather than eliminated. No code change - F-265 stays open
     and narrowed.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect + sdlc-implementer-backend"
+  resolved_round: 7
+  resolution: >-
+    RESOLVED in both halves. The contract is corrected in three places with the full thirteen-route table and per-row status: two closed by F-277's fix, both message-position; nine open (named key at depth 2 and 3, child and grandchild bindings, setBindings, %o, %j, %O, array element); two that never reached the mechanism. The source docblocks at logger.ts now match ADR-0028's residual entry. AND THE ARCHITECT FOUND THE CONFLATION UNDERNEATH IT: the old table's { ctx: { toJSON } } row is censored because `ctx` is UNNAMED, not because anything reaches toJSON - two different mechanisms recorded as one, which is what let the class look closed. F-265 stays open and narrowed; no code changed.

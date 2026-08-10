@@ -280,8 +280,10 @@ GIT_COMMIT_SHA=
   producer (GC-13), so this needs routing rather than assuming.
 - If a deploy workflow is ever added, it passes `--build-arg GIT_COMMIT_SHA=${{ github.sha }}` and
   the same guards apply unchanged.
-- `docs/architecture/migrations.md:120` already describes the Fly release command as an existing
-  procedure. F-119 and F-142 own that; this ADR does not touch it.
+- ~~`docs/architecture/migrations.md:120` already describes the Fly release command as an existing
+  procedure. F-119 and F-142 own that; this ADR does not touch it.~~ **Closed 2026-08-10.** F-142's
+  fix rewrote that section: it now says there is no Fly release command and describes
+  `infra/deploy.sh`. ADR-0004's matching text is corrected in the same round. Nothing outstanding.
 
 ## What was verified, and what was inferred
 
@@ -325,7 +327,10 @@ no Fly account attached to this environment, so nothing below was run:
 - Fly injects no environment variable carrying a git SHA. The eleven documented variables are listed
   in Context.
 - `[[http_service.checks]]` accepts `grace_period`, `interval`, `method`, `timeout` and `path`.
-- A `release_command` failure aborts the deploy.
+- A `release_command` failure aborts the deploy. **Moot since F-119's settlement: `fly.toml`
+  carries no `release_command` and never will. Left here as the record of what was inferred, not
+  as a claim about the shipped deploy. What blocks a deploy on a failed migration is `set -e` in
+  `infra/deploy.sh`.**
 
 TASK-003's implementer runs the first real `fly deploy` and is the first person able to confirm the
 inferred items. Contradict any of them in the TASK report rather than working around them quietly.

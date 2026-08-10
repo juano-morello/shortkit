@@ -288,6 +288,69 @@ const LYING_OPTIONS_IP = '203.0.113.33';
 const CHILD_OPTIONS_REFUSED = ' [child options refused]';
 
 /**
+ * ============================================================================
+ * F-282. WHAT SEPARATES THE SHIPPED FIX FOR F-277 FROM THE CHEAPEST WRONG ONE.
+ * ============================================================================
+ *
+ * The three tests in the door-seven describe assert that no payload marker reaches the line and
+ * that the caller's record and SOME `msg` survive. `sdlc-reviewer` built the DROP MUTANT —
+ * `errorMovedOntoTheRecord` returning `[{ ...record }, POSITIONAL_ERROR_MESSAGE,
+ * ...args.slice(2)]`, the caller's argument DISCARDED rather than filed under `err` — and
+ * measured all three of them, and `logger.spec.ts`'s Error-in-the-message-position test, GREEN
+ * under it. Closing the leak by throwing the container away satisfies every one of them, so the
+ * shipped fix and the cheap wrong answer were behaviourally indistinguishable to this suite.
+ *
+ * What the mutant loses is the DIAGNOSTIC the fix exists to preserve: the line stops saying that
+ * anything was thrown. The two values below are what says it, and they are hand-copied from
+ * `logging-and-headers.md` invariant 1's measured table rather than imported from `logger.ts` —
+ * an expected value read out of the code under test agrees with it whatever it does.
+ *
+ * `err_name` IS A CONSTANT FOR EVERY NON-`Error` CONTAINER, which the invariant states in place
+ * ("what this invariant does not promise is that the object is described"). So this pins that
+ * SOMETHING reached `serializers.err`, which is exactly and only what the mutant removes.
+ */
+const NON_ERROR_THROWABLE = 'non-error throwable (object)';
+const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
+
+/**
+ * ============================================================================
+ * F-281. PINO REPLACES A REQUEST- OR RESPONSE-SHAPED RECORD BEFORE ANY MECHANISM HERE RUNS.
+ * ============================================================================
+ *
+ * `genLog`'s `LOG` (`tools.js:47-56`) sniffs the record's SHAPE before `write`, and therefore
+ * before `formatters.log`, `serializers.err` and both bindings wrappers: `o.method &&
+ * o.headers && o.socket` replaces the WHOLE record with `mapHttpRequest(o)`, which is
+ * `{ req: … }`, and `typeof o.setHeader === 'function'` — the second door, found by
+ * `sdlc-reviewer` — replaces it with `mapHttpResponse(o)`, which is `{ res: … }`. Every other
+ * own key of the caller's object is discarded at that point.
+ *
+ * THERE IS NO LEAK HERE AND THESE TESTS DO NOT ASSERT ONE. `req` and `res` are not named
+ * fields, so the replacement pino built is censored whole, and coverage does not depend on the
+ * replacement at all: the near-miss line below carries the same payload past the sniff and the
+ * allowlist censors it key by key. `sdlc-security-auditor` measured no credential reaching a
+ * line on six routes.
+ *
+ * WHAT IS LOST IS `request_id` AND `route`, GONE RATHER THAN CENSORED, which makes contract
+ * invariant 2 false for this record shape. The contract says so in three places — "Door six",
+ * invariant 1's measured table, invariant 2's exception — and NOTHING TESTED IT: the
+ * request-shaped record at ordinal 2 above has no `socket` key, so it never trips the sniff.
+ *
+ * PINNED AS IT IS, NOT AS IT SHOULD BE. Today's measured behaviour is fixed in place in both
+ * directions — the sniff firing and the near miss not firing — so a pino upgrade that widens,
+ * narrows or moves it cannot pass silently.
+ */
+const REQUEST_SNIFF_AUTHORIZATION = 'Bearer R1-request-sniff-authorization-marker';
+const REQUEST_SNIFF_COOKIE = 'sk_at=R2-request-sniff-cookie-marker';
+const REQUEST_SNIFF_REMOTE_ADDRESS = '203.0.113.41';
+const REQUEST_SNIFF_URL = '/l/abc?token=R3-request-sniff-url-marker';
+const RESPONSE_SNIFF_SET_COOKIE = 'sk_at=R4-response-sniff-set-cookie-marker';
+
+/** The context strings for the three F-281 lines, asserted so none of them is bought by silence. */
+const REQUEST_SNIFF_CONTEXT = 'a record pino reads as an HTTP request';
+const REQUEST_NEAR_MISS_CONTEXT = 'the same record with no socket';
+const RESPONSE_SNIFF_CONTEXT = 'a record pino reads as an HTTP response';
+
+/**
  * Lines are addressed by ORDINAL, not by `msg`: an ordinal still addresses the right line
  * when a regression changes what `msg` says, and `msg` is itself a field this decision
  * governs.
@@ -315,6 +378,11 @@ const LINE = {
   // F-279: the two child-options shapes pino reads differently from `Object.hasOwn`.
   childWithRedactOnItsOptionsPrototype: 18,
   childWithLyingHasOwnProperty: 19,
+  // F-281: the two record shapes pino REPLACES before any mechanism in `logger.ts` runs, and
+  // the near miss that does not trip the sniff.
+  requestShapedRecordWithNamedFields: 20,
+  theSameRecordWithNoSocket: 21,
+  responseShapedRecordWithNamedFields: 22,
 } as const;
 
 const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
@@ -561,6 +629,52 @@ try {
     'a child whose options lie about hasOwnProperty${CHILD_OPTIONS_REFUSED}',
   );
 }
+
+// 20. F-281, DOOR ONE. \`o.method && o.headers && o.socket\` (\`tools.js:51\`) replaces the WHOLE
+//     record with \`{ req: … }\` before \`formatters.log\` sees anything, so the two NAMED fields
+//     on this record are discarded rather than censored. Every payload here is one the record
+//     path already covers — the point of the line is which keys SURVIVE, not which leak.
+const requestShaped = {
+  request_id: '${REQUEST_ID}',
+  route: '${ROUTE_PATTERN}',
+  method: 'GET',
+  headers: {
+    host: 'shortkit.test',
+    authorization: '${REQUEST_SNIFF_AUTHORIZATION}',
+    cookie: '${REQUEST_SNIFF_COOKIE}',
+  },
+  socket: { remoteAddress: '${REQUEST_SNIFF_REMOTE_ADDRESS}', remotePort: 44322 },
+  url: '${REQUEST_SNIFF_URL}',
+};
+
+logger.info(requestShaped, '${REQUEST_SNIFF_CONTEXT}');
+
+// 21. THE NEAR MISS, WHICH IS WHAT MAKES 20 A STATEMENT ABOUT THE SNIFF RATHER THAN ABOUT THE
+//     ALLOWLIST. The same record with the \`socket\` key removed does not trip \`tools.js:51\`, so
+//     the record reaches \`formatters.log\` intact: both named fields keep their values and the
+//     same three payload-carrying keys are censored one by one.
+const { socket, ...requestShapedWithNoSocket } = requestShaped;
+
+logger.info(requestShapedWithNoSocket, '${REQUEST_NEAR_MISS_CONTEXT}');
+
+// 22. F-281, DOOR TWO. \`typeof o.setHeader === 'function'\` (\`tools.js:53\`) replaces the record
+//     with \`{ res: … }\` by the same mechanism and one line further down. \`resSerializer\` calls
+//     \`getHeaders()\`, so a \`Set-Cookie\` this record never held as a key is pulled INTO the
+//     replacement — and censored with it.
+logger.info(
+  {
+    request_id: '${REQUEST_ID}',
+    route: '${ROUTE_PATTERN}',
+    status: 200,
+    headersSent: true,
+    statusCode: 204,
+    setHeader() {},
+    getHeaders() {
+      return { 'set-cookie': '${RESPONSE_SNIFF_SET_COOKIE}' };
+    },
+  },
+  '${RESPONSE_SNIFF_CONTEXT}',
+);
 `;
 }
 
@@ -1042,6 +1156,51 @@ describe("door seven: the argument list is a place a line is built, and nothing 
 
     expect(leaking).toEqual([]);
   });
+
+  it("F-282: the caller's container is MOVED onto the record, not dropped on the way", () => {
+    // THE GAP THE THREE TESTS ABOVE LEAVE, AND IT IS A GAP IN THIS FILE'S OWN RED STEP. The
+    // wrong-fix guard directly above them catches dropping the RECORD and dropping the MESSAGE.
+    // It does not catch dropping the CALLER'S ARGUMENT, which is the actual cheap wrong answer
+    // to F-277: close the leak by throwing the container away instead of filing it under `err`.
+    //
+    // MEASURED by `sdlc-reviewer` against a mutant of `errorMovedOntoTheRecord` that returns
+    // `[{ ...record }, POSITIONAL_ERROR_MESSAGE, ...args.slice(2)]`: all three F-277 tests and
+    // `logger.spec.ts`'s Error-in-the-message-position test stay GREEN. The leak is closed
+    // either way — which is why this is a diagnostic gap and not a security one — and the suite
+    // reported success on a module that had stopped saying anything was thrown.
+    //
+    // WHAT IS ASSERTED IS THE ARRIVAL, NOT THE PAYLOAD. `err_name` is the same constant for
+    // every non-`Error` container, by `serializers.err`'s own policy and by invariant 1's "what
+    // this invariant does not promise is that the object is described". Its PRESENCE is what
+    // the mutant removes, so its presence is what this pins — on the emitted bytes, beside the
+    // fixed `msg` that the same move produces. Both values are hand-copied from the contract.
+    //
+    // Reported as one array so a partial regression names every shape that lost its error
+    // rather than stopping at the first.
+    const shapes = [
+      ['a non-Error throwable', LINE.messagePositionContainer],
+      ['the eight regressed names', LINE.messagePositionRegressedNames],
+      ['an array', LINE.messagePositionArray],
+      ['a class instance', LINE.messagePositionClassInstance],
+      ['no record at all', LINE.messagePositionWithNoRecord],
+      ['a trailing argument', LINE.messagePositionWithATrailingArgument],
+    ] as const;
+
+    expect(
+      shapes.map(([shape, ordinal]) => [
+        shape,
+        lines[ordinal].record.err,
+        lines[ordinal].record.msg,
+      ]),
+    ).toEqual([
+      ['a non-Error throwable', { err_name: NON_ERROR_THROWABLE }, POSITIONAL_ERROR_MESSAGE],
+      ['the eight regressed names', { err_name: NON_ERROR_THROWABLE }, POSITIONAL_ERROR_MESSAGE],
+      ['an array', { err_name: NON_ERROR_THROWABLE }, POSITIONAL_ERROR_MESSAGE],
+      ['a class instance', { err_name: NON_ERROR_THROWABLE }, POSITIONAL_ERROR_MESSAGE],
+      ['no record at all', { err_name: NON_ERROR_THROWABLE }, POSITIONAL_ERROR_MESSAGE],
+      ['a trailing argument', { err_name: NON_ERROR_THROWABLE }, POSITIONAL_ERROR_MESSAGE],
+    ]);
+  });
 });
 
 describe("a child's options are read the way pino reads them, or they are not checked at all", () => {
@@ -1089,5 +1248,97 @@ describe("a child's options are read the way pino reads them, or they are not ch
       expect(line.record.password).toBe(CENSOR);
       expect(line.record.ip).toBe(CENSOR);
     }
+  });
+});
+
+describe('pino replaces a record it reads as an HTTP request or response, before anything here runs', () => {
+  it('F-281: a request-shaped record becomes `req` alone, and its named fields go with the rest', () => {
+    // CHARACTERISATION, NOT A DEFECT ASSERTION. `LOG` (`tools.js:47-56`) runs BEFORE `write`,
+    // so `o.method && o.headers && o.socket` replaces the caller's whole record with
+    // `mapHttpRequest(o)` — `{ req: … }` — before `formatters.log`, `serializers.err` or either
+    // bindings wrapper exists on the path. Nothing in `logger.ts` can see the record that was
+    // passed.
+    //
+    // THE SECURITY HALF IS INTACT AND IS ASSERTED FIRST: `req` is not a named field, so what
+    // pino built is censored whole. MEASURED, and the measurement corrected what this comment
+    // first claimed: appending `req` to `LOGGABLE_FIELDS` does NOT make this line leak, because
+    // `reqSerializer` returns an object whose prototype is `pinoReqProto` rather than
+    // `Object.prototype`, and `valueCensored` censors a container it declines to walk. Two
+    // independent mechanisms hold this half, so the assertion below is not the guard against
+    // that particular edit — `formatters.log` being removed or replaced is what reds it.
+    const line = lines[LINE.requestShapedRecordWithNamedFields];
+
+    for (const marker of [
+      REQUEST_SNIFF_AUTHORIZATION,
+      REQUEST_SNIFF_COOKIE,
+      REQUEST_SNIFF_REMOTE_ADDRESS,
+      REQUEST_SNIFF_URL,
+    ]) {
+      expect(line.raw).not.toContain(marker);
+    }
+
+    expect(line.record.req).toBe(CENSOR);
+
+    // THE COST, WHICH IS THE REASON THIS TEST EXISTS. `request_id` and `route` are named fields
+    // carrying values on the caller's record, and they are ABSENT — not `[redacted]`, absent —
+    // because the replacement discarded them before the allowlist ran. Contract invariant 2 is
+    // false for this record shape, the contract says so in place, and until now nothing pinned
+    // it: the request-shaped record at ordinal 2 carries no `socket` and never trips the sniff.
+    expect(line.record).not.toHaveProperty('request_id');
+    expect(line.record).not.toHaveProperty('route');
+
+    // Not bought by writing no line: the call site's own words survive the replacement.
+    expect(line.record.msg).toBe(REQUEST_SNIFF_CONTEXT);
+  });
+
+  it('F-281: the same record with no `socket` keeps `request_id` and `route`, and is censored key by key', () => {
+    // THE NEAR MISS, AND IT IS WHAT MAKES THE TEST ABOVE A STATEMENT ABOUT PINO'S SNIFF RATHER
+    // THAN ABOUT THIS MODULE. One key removed, the same three payload-carrying keys present:
+    // the record reaches `formatters.log` intact, both named fields keep their values, and
+    // `method`, `headers` and `url` are censored one by one.
+    //
+    // So coverage does not depend on the replacement, which is the other half of "there is no
+    // leak here" — the allowlist reaches the same payload without it. And a pino change that
+    // WIDENED the sniff to fire without a `socket` reds here rather than passing silently.
+    expect(
+      fields(LINE.theSameRecordWithNoSocket, ['request_id', 'route', 'method', 'headers', 'url']),
+    ).toEqual({
+      request_id: REQUEST_ID,
+      route: ROUTE_PATTERN,
+      method: CENSOR,
+      headers: CENSOR,
+      url: CENSOR,
+    });
+
+    const line = lines[LINE.theSameRecordWithNoSocket];
+
+    for (const marker of [REQUEST_SNIFF_AUTHORIZATION, REQUEST_SNIFF_COOKIE, REQUEST_SNIFF_URL]) {
+      expect(line.raw).not.toContain(marker);
+    }
+
+    expect(line.record).not.toHaveProperty('req');
+  });
+
+  it('F-281: a record carrying a `setHeader` becomes `res` alone, which is the second door onto the same mechanism', () => {
+    // DOOR TWO, found by `sdlc-reviewer`: `typeof o.setHeader === 'function'` (`tools.js:53`)
+    // is a second, much cheaper trip-wire than the three-key request test — one function-valued
+    // key on the record is enough. `resSerializer` then calls `getHeaders()`, so a `Set-Cookie`
+    // the caller's record never held as a key is pulled INTO the replacement and censored with
+    // it.
+    //
+    // Same shape of loss as door one, asserted separately because it fires on a different
+    // predicate and a pino change could move one without the other. `status` is here as well as
+    // `request_id` and `route`: it is a named field a response-logging call site would be
+    // holding at exactly this moment.
+    const line = lines[LINE.responseShapedRecordWithNamedFields];
+
+    expect(line.raw).not.toContain(RESPONSE_SNIFF_SET_COOKIE);
+    expect(line.record.res).toBe(CENSOR);
+
+    expect(line.record).not.toHaveProperty('request_id');
+    expect(line.record).not.toHaveProperty('route');
+    expect(line.record).not.toHaveProperty('status');
+
+    expect(line.record.msg).toBe(RESPONSE_SNIFF_CONTEXT);
   });
 });

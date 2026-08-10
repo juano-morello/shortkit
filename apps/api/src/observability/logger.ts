@@ -604,15 +604,23 @@ function messageWouldBeTakenFromTheError(record: unknown): record is object {
  * because removing `redact` refunds more than this spends. Re-measured on this commit; see
  * the round's report. Against GC-1's 25 ms ceiling one line is 0.007%.
  *
- * THE RESIDUALS THIS USED TO CARRY ARE CLOSED, and they closed as a class rather than one at
- * a time. An error at depth 5 (residual 1), an error inside a class instance (F-255,
- * residual 2) and an error returned by a `toJSON` (F-265, residual 3) all reached a line
- * carrying whatever a library had assigned, because "the scan cannot inspect this" meant
- * "emit it whole". It now means `[redacted]`. What replaces them is not a leak but a
- * DIAGNOSTIC LOSS, and it is stated as a cost rather than as a residual: an `Error` nested
- * inside a container that is not a named field — `{ ctx: { err: e } }` — is censored WITH
- * its container instead of being reduced to `err_name` and `err_stack`. The remedy is the
- * one the contract already prescribes: pass the error at the top level.
+ * TWO OF THE THREE RESIDUALS THIS USED TO CARRY ARE CLOSED. An error at depth 5 (residual 1)
+ * and an error inside a class instance (F-255, residual 2) both reached a line carrying
+ * whatever a library had assigned, because "the scan cannot inspect this" meant "emit it
+ * whole". It now means `[redacted]`. What replaces them is not a leak but a DIAGNOSTIC LOSS,
+ * and it is stated as a cost rather than as a residual: an `Error` nested inside a container
+ * that is not a named field — `{ ctx: { err: e } }` — is censored WITH its container instead
+ * of being reduced to `err_name` and `err_stack`. The remedy is the one the contract already
+ * prescribes: pass the error at the top level.
+ *
+ * THE THIRD RESIDUAL IS NOT CLOSED, and neither the depth bound nor the inversion reaches it.
+ * F-265 — a value emitted from an own non-enumerable `toJSON` — arrives on a container this
+ * scan CAN inspect, so it is walked rather than censored; see `valueCensored` below for the
+ * mechanism. MEASURED at round 7 across thirteen routes: two are closed, both of them message
+ * position, and NINE STILL EMIT `toJSON`'s RETURN VALUE — a named key at depth 2 and at depth
+ * 3, child bindings, grandchild bindings, `setBindings`, `%o`, `%j`, `%O`, and an array
+ * element under a named key. Open and narrowed, and carried as such in ADR-0028 under "What
+ * this ADR does not decide".
  */
 const MAX_SCAN_DEPTH = 4;
 
@@ -731,11 +739,18 @@ function fieldsCensored<T extends object>(record: T, depth: number): T {
  * all — an array element, or a format argument.
  *
  * A CONTAINER THIS CANNOT INSPECT IS CENSORED, NOT PASSED THROUGH. A class instance, a
- * `Buffer`, anything at or past `MAX_SCAN_DEPTH`: `[redacted]`. That is the inversion, and
- * it is what closes residuals 1 and 2 and F-265's `toJSON` mechanism as a class — a plain
- * object carrying a `toJSON` is walked, finds nothing to replace, and is emitted by
- * `JSON.stringify` from `toJSON`'s return value, so the only defence that ever reached it is
- * the one that never had to look inside.
+ * `Buffer`, anything at or past `MAX_SCAN_DEPTH`: `[redacted]`. That is the inversion, and it
+ * is what closes residuals 1 and 2.
+ *
+ * IT DOES NOT CLOSE F-265's `toJSON` MECHANISM, and the reason is that the mechanism arrives
+ * on a container this CAN inspect. A plain object carrying an own non-enumerable `toJSON` has
+ * `Object.prototype`, so it is walked; if its own enumerable keys are all named or absent,
+ * nothing is replaced, `fieldsCensored` returns it BY REFERENCE, and `JSON.stringify` then
+ * serialises it from `toJSON`'s return value — which no scan over keys ever saw. MEASURED at
+ * round 7 across thirteen routes: nine still emit that return value (a named key at depth 2
+ * and at depth 3, child bindings, grandchild bindings, `setBindings`, `%o`, `%j`, `%O`, and an
+ * array element under a named key), and the two message-position routes are closed by F-277's
+ * fix. F-265 stays OPEN AND NARROWED — ADR-0028, "What this ADR does not decide".
  *
  * A class instance is declined for the reason it always was — `Object.keys` on a `Buffer` is
  * thousands of index strings — and the answer for a TASK that needs one logged is unchanged:

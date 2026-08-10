@@ -77,9 +77,25 @@ generated migration by hand in the same commit. `pnpm db:check-policies` asserts
 that every table in `tenantScopedTables()` has all four statements present in
 `pg_policies` after migration, and CI's integration job runs it.
 
-**Migrations run at deploy, before the new machine takes traffic.** The Fly release
-command runs `pnpm --filter @shortkit/api db:migrate` as `shortkit_migrator`. It is
-not run from application boot, so N machines starting concurrently cannot race.
+**Migrations run at deploy, before the new machine takes traffic.** `pnpm --filter
+@shortkit/api db:migrate` runs as `shortkit_migrator`. It is not run from application
+boot, so N machines starting concurrently cannot race.
+
+**Corrected 2026-08-10 (F-142). This decision said a Fly release command runs it. There
+is none, and there deliberately never will be.** `fly.toml:20-61` records the settlement
+of F-119: a `release_command` executes inside the deployed image, whose runtime stage
+installs production dependencies only, so it has no `drizzle-kit` binary; promoting
+`drizzle-kit` to a dependency was rejected because it puts GHSA-67mh-4wv8-2f99 into the
+production graph and falsifies the acceptance in `docs/security/known-advisories.md`.
+`infra/deploy.sh` runs the migration from the working copy, as `shortkit_migrator`,
+before it calls `fly deploy`.
+
+**Both requirements this decision actually makes survive the change of mechanism.**
+Migrations still do not run from application boot, so concurrent machines cannot race;
+and a failed migration still blocks the deploy, because `set -e` in `infra/deploy.sh`
+stops the script before `fly deploy` is reached. What the mechanism no longer gives is
+failing closed when someone bypasses the script — see the accepted costs below and the
+three costs enumerated at `fly.toml:20-61`, which are normative for the deploy path.
 
 ### Pinned versions. Recorded 2026-08-05 (F-069)
 
@@ -145,9 +161,17 @@ migration set against an empty database, and run the integration job before merg
   in the integration job, not at generation time.
 - Ten schema files for ten tables makes browsing the data model slower than one file
   would. `docs/architecture/data-model.md` has to carry the overview instead.
-- Running migrations from the Fly release command means a failed migration blocks the
-  deploy, which is correct, and also means a bad migration can leave the release
-  half-applied if it is not written to be transactional.
+- Running migrations at deploy means a failed migration blocks the deploy, which is
+  correct, and also means a bad migration can leave the release half-applied if it is
+  not written to be transactional. **The half-applied cost is unchanged by F-142's
+  correction; only the attribution was wrong.** The blocking is `set -e` in
+  `infra/deploy.sh`, not a Fly release command.
+- **A cost the release-command mechanism would not have had (F-119, F-142).** The
+  migration runs from a working copy, so the `shortkit_migrator` DSN lives in a
+  developer's shell rather than in Fly secrets, and a deploy that bypasses
+  `infra/deploy.sh` applies no DDL at all and fails open. Both are stated in full at
+  `fly.toml:20-61`, which is normative for them; this ADR names them so a reader of the
+  decision above does not have to find out from the deploy script.
 
 ### Follow-ups this creates
 
@@ -155,6 +179,9 @@ migration set against an empty database, and run the integration job before merg
 - TASK-005 writes `drizzle.config.ts`, the barrel, `db:generate`, `db:migrate`,
   `db:check-policies`, and `docs/architecture/migrations.md`. It also needs
   `drizzle-kit` 0.31.10 in `apps/api`'s devDependencies, which nothing has added yet.
-- TASK-003 adds the release command to `fly.toml`.
+- ~~TASK-003 adds the release command to `fly.toml`.~~ **Discharged differently and
+  closed 2026-08-10 (F-142).** TASK-003 deliberately added no `release_command`, and
+  `fly.toml:20` says so in those words. It wrote `infra/deploy.sh` instead, which runs
+  the migration before `fly deploy`. Nothing is outstanding here.
 - Waves 4 and 7: the second TASK to merge rebases. The orchestrator picks which one
   before dispatching, so neither implementer decides mid-merge.

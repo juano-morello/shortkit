@@ -21,6 +21,13 @@ predicates). The block below matches the shipped `apps/api/src/observability/log
 pino 10.3.1 at commit `43e10e7`, verified by `logger-contract-drift.spec.ts` at 6 passed of 6
 rather than by reading.
 
+**Prose corrected 2026-08-10 after round 7, with no change to the fenced block and no change to
+any shipped file (F-283 the `toJSON` class, F-281 the request/response sniff).** Two claims this
+document made were measured false: that F-265's `toJSON` class was closed, and that pino's
+request mapping is what keeps a whole request object off the line. Both are corrected where they
+appeared — this section's ADR-0028 summary, "Door six", "The residuals", and invariants 1 and 2.
+`logger-contract-drift.spec.ts` still passes 6 of 6, which is what says the fence was untouched.
+
 **This contract is the single normative source for the logger's configuration.** ADR-0022
 used to fence a copy of it and no longer does (F-250); the wave-1 stub at
 `design/stubs/apps/api/src/observability/logger.ts` is superseded and unsafe to copy
@@ -71,11 +78,27 @@ claims moved:
 - Casing stopped being load-bearing. `ipHash` and `ip_hash` are both censored, because
   neither is named. The old "Which casing `REDACT_PATHS` is keyed to" section and its
   `ip_hash` residual are removed rather than kept as history.
-- The three residuals closed as a class. A container the scan cannot inspect — past the depth
-  bound, a class instance, anything carrying `toJSON` (F-265) — is censored rather than passed
-  through.
-- **Invariant 1 is true**, for a stronger reason than it used to claim: a whole request object
-  does not reach the line at all, so there is no header list to keep current.
+- **Two of the three residuals closed as a class. The third, F-265's `toJSON`, is narrowed
+  rather than eliminated, and this bullet claimed otherwise until 2026-08-10 (F-283).** A
+  container the scan cannot inspect *by walking* — past the depth bound, or with a prototype
+  that is neither `Object.prototype` nor `null`, a class instance included — is censored
+  rather than passed through. A plain object carrying an own **non-enumerable** `toJSON` is
+  not that container: it has `Object.prototype`, so the scan walks it, and if its own
+  enumerable keys are all named or absent then nothing is replaced, `fieldsCensored` returns
+  it **by reference**, and pino's stringifier serialises it from `toJSON`'s return value,
+  which no scan over keys ever saw. Measured at round 7 across thirteen routes: **two closed,
+  both in the message position, by F-277's fix at `43e10e7`; nine still emit `toJSON`'s return
+  value; two never reached the mechanism.** The nine are enumerated in "The residuals: two
+  closed as a class, one narrowed" below. **F-265 stays open and narrowed** — ADR-0028, "What
+  this ADR does not decide". Severity minor: the shape requires a container carrying a hidden
+  `toJSON`, no library in this tree produces one, and no shipped call site reaches it. Do not
+  read this contract as saying a hidden `toJSON` cannot fire.
+- **Invariant 1 is true**, and the mechanism is this module's key rule rather than pino's
+  request mapping — corrected 2026-08-10 (F-281). A request- or response-shaped record is
+  re-shaped by pino into `{ req: … }` or `{ res: … }` before anything here runs, and the
+  re-shaping censors nothing; `req` and `res` are not in `LOGGABLE_FIELDS`, so the whole thing
+  is `[redacted]` and there is no header list to keep current. See "Door six" for what the
+  re-shaping does and does not do.
 - **Invariant 5 narrowed.** An `Error` at depth 1 still emits `err_name` and `err_stack` under
   any key spelling, because an `Error` value is reduced by policy before any key decision. An
   error nested under a key that is not named — `{ ctx: { err: e } }` — is censored with its
@@ -641,20 +664,49 @@ an omission.** Both arrive under no key, so there is no field name to decide abo
 argument list decides by type and by value.
 
 **One thing pino does to the RECORD before any of this, and row 1 does not say it.** `LOG`
-(`tools.js:47-56`) sniffs the record's shape: `o.method && o.headers && o.socket` replaces the
-whole record with `mapHttpRequest(o)`, which is `{ req: … }`, and
-`typeof o.setHeader === 'function'` replaces it with `{ res: … }`. Every other own key of the
-caller's object is discarded at that point, before `formatters.log` sees anything. Measured
-2026-08-10 on the shipped singleton: `logger.info(requestLike, '…')` emits `"req":"[redacted]"`
-and `logger.info(responseLike, '…')` emits `"res":"[redacted]"`, because `req` and `res` are not
-on `LOGGABLE_FIELDS`. That is why the invariant-1 row reads `"req":"[redacted]"` for a whole
-request object rather than a censored key per field, and it means **a request-shaped record
-loses its named fields too**. Measured:
+(`tools.js:47-55`) sniffs the record's shape through **two doors**, not one:
+`o.method && o.headers && o.socket` (`tools.js:51-52`) replaces the whole record with
+`mapHttpRequest(o)`, which is `{ req: … }`, and the `else if` at `tools.js:53-54`,
+`typeof o.setHeader === 'function'`, replaces it with `mapHttpResponse(o)`, which is
+`{ res: … }`. Every other own key of the caller's object is discarded at that point, before
+`formatters.log` sees anything.
+
+**The re-shaping censors nothing, and this paragraph said otherwise until 2026-08-10 (F-281).**
+Read in pino-std-serializers 7.1.0: `reqSerializer` (`lib/req.js:66-93`) builds
+`Object.create(pinoReqProto)` and assigns `id`, `method`, `url`, `headers`, `remoteAddress`,
+`remotePort` — plus `query` and `params` when the request carries them — as own enumerable
+properties, and hangs the **original request object** off a non-enumerable `raw`. `resSerializer`
+(`lib/res.js:35-42`) is the same shape and carries `res.getHeaders()`, which is where a
+`Set-Cookie` lives. Measured 2026-08-10 by calling `mapHttpRequest` directly: the returned `req`
+carries `headers.authorization`, `headers.cookie` and `remoteAddress` verbatim, and `req.raw`
+is the request object itself. It is a re-shaper. Nothing in it is a redaction.
+
+**What censors is this module's own key rule.** The replaced record is `{ req: … }` or
+`{ res: … }`, `formatters.log` runs on it inside `_asJson`, and neither `req` nor `res` is in
+`LOGGABLE_FIELDS`. Measured 2026-08-10 on the shipped singleton: `logger.info(requestLike, '…')`
+emits `"req":"[redacted]"` and `logger.info(responseLike, '…')` emits `"res":"[redacted]"`.
+**The coverage does not depend on the replacement at all**, in two independent ways:
+
+- **Bindings skip the sniff and are covered anyway.** `asChindings` never calls `LOG`, so a
+  request-shaped object in `logger.child(bindings)` is not re-shaped. Measured:
+  `"method":"[redacted]","url":"[redacted]","headers":"[redacted]","socket":"[redacted]"` —
+  each key censored on its own, because none of them is named.
+- **Naming `req` would not open it.** `reqSerializer`'s output has prototype `pinoReqProto`,
+  which is neither `Object.prototype` nor `null`, so `valueCensored` censors it as a non-plain
+  container even if a future TASK adds `req` to `LOGGABLE_FIELDS`. Measured: the prototype
+  identity check is false for both `mapHttpRequest` and `mapHttpResponse` output. Adding `req`
+  or `res` to the allowlist stays forbidden — both are on "The never-allowlist" — but the
+  reason a hypothetical slip would not leak is the prototype rule, not the mapping.
+
+That is why the invariant-1 row reads `"req":"[redacted]"` for a whole request object rather
+than a censored key per field, and it means **a request-shaped record loses its named fields
+too**. Measured:
 `logger.info({ request_id, route, method, headers, socket }, '…')` emits
 `"req":"[redacted]"` and nothing else, so `request_id` and `route` are gone, while the same
 record without `headers` and `socket` keeps both and censors `method`. Invariant 2 does not
-hold for a record that trips this sniff. Nothing here relies on the mapping for coverage: the
-allowlist censors `req` and `res`, and it would equally have censored the individual keys.
+hold for a record that trips either door. The consequence is an observability defect — a
+correlation id vanishing from an audit line — and not a leak. The remedy is the one this
+contract prescribes twice: log named fields, never a request or response object.
 
 **Why the message position is moved rather than reduced in place.** `format` returns a
 non-string message unchanged, so a reduced container would leave `msg` an object rather than a
@@ -856,13 +908,15 @@ actually creates: 609 ns per child through the wrapper against 581 ns through pi
 `child`. 28 ns on a per-request path against GC-1's 25 ms budget. The redirect hot path
 imports nothing from this module and creates no child logger.
 
-### The residuals closed, and the diagnostic loss that replaced them
+### The residuals: two closed as a class, one narrowed
 
-**All three residuals this section used to carry are closed, and they closed as a class
-rather than one at a time (ADR-0028).** An error at depth 5, an error inside a class instance
-(F-255) and an error returned by a `toJSON` (F-265) each reached a line carrying whatever a
-library had assigned, because "the scan cannot inspect this" meant "emit it whole". It now
-means `[redacted]`. Measured against the shipped logger:
+**Corrected 2026-08-10 (F-283). This section claimed all three closed. Two did. F-265's
+`toJSON` class is narrowed by two routes of thirteen and nine remain open.**
+
+**Two of the three residuals closed as a class rather than one at a time (ADR-0028).** An error
+at depth 5 and an error inside a class instance (F-255) each reached a line carrying whatever a
+library had assigned, because "the scan cannot inspect this" meant "emit it whole". It now means
+`[redacted]`. Measured against the shipped logger:
 
 | shape | before ADR-0028 | now |
 |---|---|---|
@@ -871,16 +925,67 @@ means `[redacted]`. Measured against the shipped logger:
 | `{ ctx: { toJSON: () => parseFailure } }` | the raw request body | `"ctx":"[redacted]"` |
 | `logger.info(req, '…')` | `remoteAddress`, `remotePort`, the concrete `url` | `"req":"[redacted]"` |
 
-**What replaced them is a diagnostic loss, and it is a cost rather than a residual.** An
-`Error` nested inside a container that is not a named field — `{ ctx: { err: e } }`, F-248's
-third shape — is censored **with** its container instead of being reduced to `err_name` and
-`err_stack`. The remedy is the one this contract already prescribes: pass the error at the
-top level, where it is reduced under any key spelling.
+**The third row above is censored by the KEY rule, not by anything that reaches `toJSON`.**
+`ctx` is not in `LOGGABLE_FIELDS`, so its value is replaced without being walked. Change the
+key to a named one and the mechanism fires. That distinction is what this section used to
+lose, and it is the whole of F-283.
+
+**What replaced the two that closed is a diagnostic loss, and it is a cost rather than a
+residual.** An `Error` nested inside a container that is not a named field —
+`{ ctx: { err: e } }`, F-248's third shape — is censored **with** its container instead of being
+reduced to `err_name` and `err_stack`. The remedy is the one this contract already prescribes:
+pass the error at the top level, where it is reduced under any key spelling.
 
 `MAX_SCAN_DEPTH` is still 4 and its meaning inverted with the polarity. It no longer bounds
 what is *covered*; it bounds what is *walked*, and a container past it is censored. Raising it
 lets a deeper **named** field keep its value and closes no leak. The bound also still makes a
 self-referential record terminate.
+
+#### F-265's `toJSON` class: open, narrowed, minor
+
+**The mechanism.** A plain object carrying an own **non-enumerable** `toJSON` has
+`Object.prototype`, so `valueCensored` walks it rather than censoring it. If its own enumerable
+keys are all named or absent, `fieldsCensored` replaces nothing and returns **the same object by
+reference**. `JSON.stringify` inside pino then serialises it from `toJSON`'s return value — a
+value no scan over keys ever saw. A scan over keys cannot see it, which is why no widening of
+`LOGGABLE_FIELDS` or of `MAX_SCAN_DEPTH` addresses it.
+
+**Thirteen routes measured at round 7, `toJSON` returning `{ password: <marker> }`. Two closed,
+nine open, two never reach the mechanism.** A later TASK may rely on the closed rows and may
+**not** rely on the open ones.
+
+| route | emitted | status |
+|---|---|---|
+| under a named key at depth 2 | `"route":{"password":"<marker>"}` | **OPEN** |
+| under a named key at depth 3 | `"route":{"route":{"password":"<marker>"}}` | **OPEN** |
+| child bindings, `logger.child(b)` | `"route":{"password":"<marker>"}` | **OPEN** |
+| grandchild bindings | `"route":{"password":"<marker>"}` | **OPEN** |
+| `logger.setBindings(b)` | `"route":{"password":"<marker>"}` | **OPEN** |
+| format argument `%o` | `"msg":"fmt {\"password\":\"<marker>\"}"` | **OPEN** |
+| format argument `%j` | `"msg":"fmt {\"password\":\"<marker>\"}"` | **OPEN** |
+| format argument `%O` | the object inside `msg` | **OPEN** |
+| an array element under a named key | `"route":[{"password":"<marker>"}]` | **OPEN** |
+| the message position, with a record | `"err":{"err_name":"non-error throwable (object)"}` | closed by F-277's fix at `43e10e7` |
+| the message position, no record | the same | closed by F-277's fix at `43e10e7` |
+| as the whole record | `"request_id":"ok"` only. `_asJson` walks own keys, so a record-level `toJSON` never fires | never reached the mechanism |
+| under the top-level `err` key | `"err":{"err_name":"non-error throwable (object)"}` | never reached the mechanism |
+
+**F-277's fix removed one route to a stringifier and that is exactly what it removed.** The
+class is **narrowed rather than eliminated**. Severity **minor**, unowned, disclosed in
+ADR-0028's "What this ADR does not decide": reaching it requires handing this logger a container
+that carries a hidden `toJSON`, no library in this tree produces one, and no shipped call site
+does it. It is not a reason to skip the allowlist and it is not a reason to treat a
+library-supplied container as safe under a named key.
+
+**What a caller may rely on, stated as a boundary.** Under a **named** key, a value this module
+returns by reference is serialised by pino, not by this module, and pino honours `toJSON`. So:
+put fields under named keys, not containers you did not build. `err` is exempt from this — it is
+reduced by `errorLogFields` to three fields and never handed on whole.
+
+**What would close it and why it is not done here:** a key-by-key rebuild of every walked
+container instead of the copy-on-change `{ ...record }`, which pays a copy on every log line to
+cover a shape with no call site, plus F-253's throwing-getter interaction. That is an ADR
+amendment on the F-265 owner, not a patch.
 
 #### An array as the whole record
 
@@ -1198,6 +1303,17 @@ quotes it, so the fix is made there and copied here, not the other way round.
    for a stronger reason than this invariant used to claim:** the object does not reach the
    line at all. There is no header list to keep current.
 
+   **What holds it, corrected 2026-08-10 (F-281): this module's key rule, in every position.**
+   In the record position pino re-shapes a request- or response-shaped record into `{ req: … }`
+   or `{ res: … }` first (`tools.js:51-52` and `tools.js:53-54`), and **that re-shaping censors
+   nothing** — `reqSerializer` carries `headers`, `remoteAddress` and the raw request straight
+   through. The value is `[redacted]` because `req` and `res` are not in `LOGGABLE_FIELDS`, and
+   it would equally be `[redacted]` had pino left the record alone, key by key. The proof is the
+   bindings path, which never runs that sniff: a request-shaped object passed as the whole
+   bindings emits `"method":"[redacted]","url":"[redacted]","headers":"[redacted]",
+   "socket":"[redacted]"`, one censored key at a time. Do not read this invariant as a property
+   of pino's request mapping. See "Door six".
+
    **The qualification F-277 put here is discharged at `43e10e7`. The invariant holds in
    every position a caller can put an object in, and each position holds it by a different
    mechanism.** Re-measured against the shipped singleton 2026-08-10, one process, with a
@@ -1230,10 +1346,12 @@ quotes it, so the fix is made there and copied here, not the other way round.
    transaction carries `tenant_id`.
 
    **One measured exception, 2026-08-10, and it is the call sites' to avoid rather than the
-   logger's to fix.** A record pino reads as an HTTP request or response is replaced whole
-   before any mechanism here runs (`tools.js:47-56`; see "Door six"), so
+   logger's to fix.** A record pino reads as an HTTP request (`tools.js:51-52`) or as a
+   response (`tools.js:53-54`, `typeof o.setHeader === 'function'` — two doors, not one) is
+   replaced whole before any mechanism here runs; see "Door six". So
    `logger.info({ request_id, route, method, headers, socket }, '…')` emits `"req":"[redacted]"`
-   and neither named field. Log named fields, never a request object, and this cannot arise.
+   and neither named field, and a record carrying a `setHeader` method emits `"res":"[redacted]"`
+   the same way. Log named fields, never a request or response object, and this cannot arise.
 3. The API sends no `Access-Control-Allow-Origin` header, for any origin, on any route.
 4. HSTS, `nosniff` and `DENY` are present on every API response including errors.
    **True since 2026-08-10** (F-243 clause 2 closed), asserted by eight integration tests
