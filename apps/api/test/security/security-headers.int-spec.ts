@@ -76,6 +76,37 @@ const FRAME_OPTIONS = 'DENY';
 const REFERRER_POLICY = 'no-referrer';
 
 /**
+ * F-280 — the framing policy a browser actually enforces.
+ *
+ * `X-Frame-Options: DENY` above is the row the implementer had to override helmet's default
+ * for, and it is the row a CSP-aware browser DISCARDS: CSP Level 2 § 4 requires a user agent
+ * that supports `frame-ancestors` to ignore `X-Frame-Options` entirely, and helmet's default
+ * CSP carries `frame-ancestors 'self'`. So the contract's table states `DENY` and the deployed
+ * bytes deliver `'self'` — same-origin framing, on the origin whose branded 404 is slated to
+ * render tenant-controlled markup (F-006).
+ *
+ * `'none'` is the value that makes the two headers agree, hand-derived from the contract's own
+ * `DENY` rather than read off helmet. This is the one CSP directive asserted by value; the rest
+ * of the policy stays "helmet default" and is not pinned, for the reason the CSP test below
+ * gives.
+ */
+const FRAME_ANCESTORS = "'none'";
+
+/**
+ * One directive's value out of a `Content-Security-Policy` header, or `undefined` when the
+ * directive is absent. Absent and present-but-wrong are different defects and the assertion
+ * has to be able to tell them apart.
+ */
+function cspDirective(csp: string | null, name: string): string | undefined {
+  const found = (csp ?? '')
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part === name || part.startsWith(`${name} `));
+
+  return found?.slice(name.length).trim();
+}
+
+/**
  * The two responses invariant 4 says "every API response including errors". `/health` is
  * excluded from the global prefix and answers 200; the unrouted `/api` path goes through
  * `ApiExceptionFilter` and answers the branded 404, which is the "including errors" half.
@@ -199,6 +230,29 @@ describe('the security headers every API response carries', () => {
 
     expect(csp).toBeTypeOf('string');
     expect(csp ?? '').toContain('default-src');
+  });
+
+  it('F-280: the CSP denies framing too, so the browser and `X-Frame-Options` agree', () => {
+    // THE ROW THE IMPLEMENTER DELIBERATELY OVERRODE IS THE ROW THE BROWSER THROWS AWAY.
+    // `frameguard: { action: 'deny' }` puts `X-Frame-Options: DENY` on the wire and the test
+    // above proves it — and helmet's default CSP, which `main.ts` leaves alone, carries
+    // `frame-ancestors 'self'` on the same response. CSP Level 2 requires a user agent that
+    // supports `frame-ancestors` to ignore `X-Frame-Options`, which is every browser, so the
+    // effective policy is same-origin framing and the contract's table says `DENY`.
+    //
+    // MEASURED 2026-08-10 against `node dist/main.js` on loopback: `GET /health` and the
+    // branded 404 both carry `X-Frame-Options: DENY` AND
+    // `…;frame-ancestors 'self';…`. Nothing in the suite could see the disagreement,
+    // because every existing assertion reads the header the browser discards.
+    //
+    // ASSERTED ON THE DIRECTIVE'S VALUE, not on the whole policy string: helmet's other
+    // defaults are a decision and pinning them would fire on an upgrade. This one is not a
+    // default the contract accepted — the contract accepted `DENY`.
+    for (const probe of probes) {
+      expect(cspDirective(probe.header('content-security-policy'), 'frame-ancestors'), probe.path).toBe(
+        FRAME_ANCESTORS,
+      );
+    }
   });
 
   it('invariant 3: no API response carries `Access-Control-Allow-Origin`, for any origin', () => {

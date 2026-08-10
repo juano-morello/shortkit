@@ -69,6 +69,26 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * in production and the level a request-logging middleware would write.
  *
  * No network, no database, no Docker. `pnpm test` still runs from a clean clone (ADR-0001).
+ *
+ * ============================================================================
+ * ROUND 6 ADDITIONS: F-277 (DOOR SEVEN) AND F-279, AND WHY THEY ARE FILED HERE
+ * ============================================================================
+ *
+ * Both are the same question this file was opened to ask — CAN A VALUE REACH A LINE UNDER A
+ * KEY NOBODY NAMED — reached through two doors the file did not probe.
+ *
+ *   - F-277 is the ARGUMENT LIST. Every shape above puts its payload in the RECORD; not one
+ *     puts a value in pino's MESSAGE position, and that is the one position nothing scans.
+ *     `sdlc-security-auditor`'s required change names this file by name.
+ *   - F-279 is `childOptionsChecked`, which ADR-0028 made the only thing standing between a
+ *     record and the line when a child supplies its own `formatters`. Its two measured
+ *     failures are a NAMED field losing its value (invariant 8's "the key stays on the line",
+ *     which is this file's subject) and the scan being disabled outright.
+ *
+ * They are NOT in `logger.spec.ts`, whose subject is an `Error` and the properties a library
+ * hangs off one. The payloads below are credentials and IPs under ordinary keys, which is this
+ * file's subject, and `logger.spec.ts`'s emitter cannot take an appended shape safely anyway —
+ * its last two lines call `setBindings`, which pollutes the singleton permanently.
  */
 
 /**
@@ -170,6 +190,104 @@ const CALLER_SUPPLIED_MESSAGE = 'a message the call site put on the record';
 const REQUEST_RECORD_CONTEXT = 'a request-shaped first argument';
 
 /**
+ * ============================================================================
+ * F-277, DOOR SEVEN. THE VALUES THAT GO IN PINO'S MESSAGE POSITION.
+ * ============================================================================
+ *
+ * `interpolationCovered` reduces `args[1]` only when it `instanceof Error`, and its
+ * interpolation loop starts at `message + 1`, so a NON-`Error` value in the message position
+ * is inspected by nothing at all — not `LOGGABLE_FIELDS`, not `formatters.log`, not
+ * `serializers.err`, not either bindings wrapper. It reaches `msg` verbatim.
+ *
+ * The call shape is `logger.error({ request_id }, e)` where `e` is what `catch (e)` binds and
+ * what a rejected promise carries. `e` is `any` in a `.catch` callback, so it typechecks and
+ * lints clean; `logger.ts:199` names that exact shape as covered and `:221-222` claims "A
+ * CONTAINER in either position is scanned".
+ *
+ * Each marker is distinct so a failure names WHICH shape and WHICH key leaked.
+ */
+const HOSTILE_CLIENT_IP = '203.0.113.31';
+const HOSTILE_AUTHORIZATION = 'Bearer M1-message-position-authorization-marker';
+const HOSTILE_BODY_PASSWORD = 'M2-message-position-body-password-marker';
+const ARRAY_ELEMENT_SECRET = 'M3-message-position-array-element-marker';
+const CLASS_INSTANCE_SECRET = 'M4-message-position-class-instance-marker';
+const NO_RECORD_SECRET = 'M5-message-position-no-record-marker';
+const TRAILING_ARGUMENT_SECRET = 'M6-message-position-trailing-argument-marker';
+
+/**
+ * ============================================================================
+ * THE EIGHT NAMES THAT PIN THE REGRESSION DIRECTION, AND WHY THEY ARE NOT AN ARBITRARY LIST.
+ * ============================================================================
+ *
+ * F-277 is a REGRESSION, and a guard that only asserted the general property would not have
+ * caught it — every shape above leaks in the message position on BOTH singletons.
+ *
+ * `REDACT_PATHS` carried eight wildcards: `*.password`, `*.token`, `*.secret`, `*.rawToken`,
+ * `*.tokenDigest`, `*.verificationToken`, `*.ip`, `*.ipHash`. pino builds a WILDCARD
+ * STRINGIFIER out of those and applies it to the `msg` value too — `tools.js:205`,
+ * `stringifiers[messageKey] || wildcardStringifier` — so the eight names were censored INSIDE
+ * `msg` by accident, and ADR-0028's removal of the list took that with it.
+ *
+ * MEASURED, both singletons, same process shape, `logger.ts` restored byte-identical
+ * afterwards (md5 `88cf0c238633777e375ec5d75cfeed1f`):
+ *
+ *   `logger.error({ request_id }, { password: …, token: …, secret: …, rawToken: …,
+ *                                   tokenDigest: …, verificationToken: …, ip: …, ipHash: … })`
+ *
+ *   at `45cf578^`  "msg":{"password":"[redacted]","token":"[redacted]", … all eight
+ *   at HEAD        "msg":{"password":"W1","token":"W2", … all eight verbatim
+ *
+ * So THIS shape is the one that discriminates between the two, in the right direction: red at
+ * HEAD, green before ADR-0028. The shapes either side of it are the wider class the denylist
+ * never covered.
+ */
+const REGRESSED_PASSWORD = 'G1-regressed-password-marker';
+const REGRESSED_TOKEN = 'G2-regressed-token-marker';
+const REGRESSED_SECRET = 'G3-regressed-secret-marker';
+const REGRESSED_RAW_TOKEN = 'G4-regressed-raw-token-marker';
+const REGRESSED_TOKEN_DIGEST = 'G5-regressed-token-digest-marker';
+const REGRESSED_VERIFICATION_TOKEN = 'G6-regressed-verification-token-marker';
+const REGRESSED_IP = '203.0.113.32';
+const REGRESSED_IP_HASH = 'G8-regressed-ip-hash-marker';
+
+/**
+ * ============================================================================
+ * F-279. THE TWO OPTIONS SHAPES `childOptionsChecked` DOES NOT SEE.
+ * ============================================================================
+ *
+ * `Object.hasOwn` is used for all three refused options, and pino does not read all three the
+ * same way: `options.hasOwnProperty('serializers')` (`proto.js:115`) and
+ * `options.hasOwnProperty('formatters')` (`:136`) are OWN checks that `Object.hasOwn` matches,
+ * but `typeof options.redact === 'object'` (`:161`) is an ORDINARY PROPERTY READ that walks the
+ * prototype chain, and `hasOwnProperty` is a METHOD CALL ON THE OPTIONS OBJECT that an options
+ * object is free to answer for itself.
+ *
+ * So the check is wrong in both directions, and both were measured against this singleton:
+ * a `redact` on the options PROTOTYPE is accepted and installed, and an options object with a
+ * LYING own `hasOwnProperty` takes pino's replacing branch while `Object.hasOwn` says no.
+ */
+const CHILD_SCOPE = 'a child logger built with hostile options';
+
+/** The record the proto-`redact` child logs. `request_id` IS a named field, so it must reach the line. */
+const REDACT_REMOVED_FIELD = 'request_id';
+
+/** What the lying-options child logs, under keys nobody named. Censored unless the scan was disabled. */
+const LYING_OPTIONS_PASSWORD = 'X1-lying-child-options-password-marker';
+const LYING_OPTIONS_IP = '203.0.113.33';
+
+/**
+ * What the emitter appends to the CONTEXT STRING when a child-options call REFUSED rather than
+ * emitted, copied from `logger.spec.ts` and for the same two reasons. F-279's required change
+ * is "match pino's own predicate per option", and a refusal is what that produces — but a call
+ * site that reads the options through pino's accessor and neutralises them instead is an equally
+ * good answer, so the tests below accept either rather than picking the implementation.
+ *
+ * IN `msg`, NOT UNDER A KEY OF ITS OWN: a key this suite invented is not a named field, so it
+ * would arrive as `[redacted]` and the tests could not read it. `msg` is named by construction.
+ */
+const CHILD_OPTIONS_REFUSED = ' [child options refused]';
+
+/**
  * Lines are addressed by ORDINAL, not by `msg`: an ordinal still addresses the right line
  * when a regression changes what `msg` says, and `msg` is itself a field this decision
  * governs.
@@ -187,6 +305,16 @@ const LINE = {
   pastTheDepthBound: 9,
   arrayUnderANamedKey: 10,
   undefinedUnderAnUnnamedKey: 11,
+  // F-277, door seven: the MESSAGE position rather than the record.
+  messagePositionContainer: 12,
+  messagePositionRegressedNames: 13,
+  messagePositionArray: 14,
+  messagePositionClassInstance: 15,
+  messagePositionWithNoRecord: 16,
+  messagePositionWithATrailingArgument: 17,
+  // F-279: the two child-options shapes pino reads differently from `Object.hasOwn`.
+  childWithRedactOnItsOptionsPrototype: 18,
+  childWithLyingHasOwnProperty: 19,
 } as const;
 
 const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
@@ -335,6 +463,104 @@ logger.info(
 // 11. \`undefined\` under an unnamed key. \`JSON.stringify\` drops a key whose value is
 //     \`undefined\`, so censoring it would ADD a field where none appeared.
 logger.info({ notNamed: undefined, request_id: '${REQUEST_ID}' }, 'an undefined value');
+
+// 12. F-277, DOOR SEVEN, the reproduction as both auditors filed it. \`logger.error(record, e)\`
+//     where \`e\` is a NON-Error throwable — what \`catch (e)\` binds and what a rejected promise
+//     carries. Not one of these four names is on \`LOGGABLE_FIELDS\` and four of them are on the
+//     contract's OWN never-allowlist. \`.error\` rather than \`.info\` because that is the shape
+//     that was measured; the hook and the argument list are the same at every level.
+const nonErrorThrowable = {
+  statusCode: 401,
+  clientIp: '${HOSTILE_CLIENT_IP}',
+  headers: { authorization: '${HOSTILE_AUTHORIZATION}' },
+  body: '{"password":"${HOSTILE_BODY_PASSWORD}"}',
+};
+
+logger.error({ request_id: '${REQUEST_ID}' }, nonErrorThrowable);
+
+// 13. F-277, THE REGRESSION SHAPE. The eight names \`REDACT_PATHS\`' wildcards reached inside
+//     \`msg\` through pino's wildcard stringifier, and nothing reaches now. Measured
+//     \`[redacted]\` at 45cf578^ and verbatim at HEAD, so this line is the one that says the
+//     module went BACKWARDS rather than that a hole was always there.
+logger.error(
+  { request_id: '${REQUEST_ID}' },
+  {
+    password: '${REGRESSED_PASSWORD}',
+    token: '${REGRESSED_TOKEN}',
+    secret: '${REGRESSED_SECRET}',
+    rawToken: '${REGRESSED_RAW_TOKEN}',
+    tokenDigest: '${REGRESSED_TOKEN_DIGEST}',
+    verificationToken: '${REGRESSED_VERIFICATION_TOKEN}',
+    ip: '${REGRESSED_IP}',
+    ipHash: '${REGRESSED_IP_HASH}',
+  },
+);
+
+// 14. F-277, an ARRAY in the message position. A different container type, and a fix that
+//     walked only plain objects would leave it. NOT a regression: \`*.password\` matched one
+//     level, so an object inside an array was two levels down and leaked before ADR-0028 too.
+logger.error({ request_id: '${REQUEST_ID}' }, ['first', { password: '${ARRAY_ELEMENT_SECRET}' }]);
+
+// 15. F-277, a CLASS INSTANCE in the message position. \`valueCensored\` declines to walk a
+//     non-plain prototype and censors it whole, which is the answer the record path gives —
+//     and the old wildcard stringifier gave this one \`[redacted]\` as well, so it regressed.
+class Held {
+  constructor(secret) {
+    this.password = secret;
+  }
+}
+logger.error({ request_id: '${REQUEST_ID}' }, new Held('${CLASS_INSTANCE_SECRET}'));
+
+// 16. F-277 with NO RECORD AT ALL. \`messageArgumentIndex\` shifts a leading \`undefined\` past,
+//     so the container is still the message argument and there is no record to file it onto.
+//     Regressed: \`[redacted]\` at 45cf578^, verbatim at HEAD.
+logger.error(undefined, { password: '${NO_RECORD_SECRET}' });
+
+// 17. F-277 with a TRAILING ARGUMENT after the container, which is what puts the message
+//     through \`format()\` as a string rather than leaving it an object. Same leak by a
+//     different route — measured \`"msg":"{\\"password\\":\\"…\\"} "\` — and regressed.
+logger.error({ request_id: '${REQUEST_ID}' }, { password: '${TRAILING_ARGUMENT_SECRET}' }, 'tail');
+
+// 18. F-279. \`redact\` supplied on the OPTIONS PROTOTYPE. \`Object.hasOwn\` does not see it and
+//     pino reads it with a plain property read (\`proto.js:161\`), so the child is accepted and
+//     the redact is installed — measured, and the line then carries no \`request_id\` at all,
+//     from the binding or from the record, under a censoring policy this module documents as
+//     refused. \`remove: true\` is what makes the effect visible rather than cosmetic.
+try {
+  logger
+    .child(
+      { scope: '${CHILD_SCOPE}' },
+      Object.create({ redact: { paths: ['${REDACT_REMOVED_FIELD}'], remove: true } }),
+    )
+    .info({ request_id: '${REQUEST_ID}' }, 'a child whose options carry redact on their prototype');
+} catch {
+  logger.info(
+    { request_id: '${REQUEST_ID}' },
+    'a child whose options carry redact on their prototype${CHILD_OPTIONS_REFUSED}',
+  );
+}
+
+// 19. F-279, THE CONVERSE, AND IT IS THE ONE THAT LEAKS. pino calls
+//     \`options.hasOwnProperty('formatters')\` AS A METHOD ON THE OPTIONS OBJECT, so an options
+//     object that answers \`true\` for a \`formatters\` it holds on its PROTOTYPE takes pino's
+//     replacing branch while \`Object.hasOwn\` correctly says no. The scan is then gone at every
+//     key and every depth — measured: an unnamed \`password\` and a raw \`ip\`, both verbatim.
+try {
+  const lyingOptions = Object.create({ formatters: { log: (record) => record } });
+  lyingOptions.hasOwnProperty = (option) => option === 'formatters';
+
+  logger
+    .child({ scope: '${CHILD_SCOPE}' }, lyingOptions)
+    .info(
+      { request_id: '${REQUEST_ID}', password: '${LYING_OPTIONS_PASSWORD}', ip: '${LYING_OPTIONS_IP}' },
+      'a child whose options lie about hasOwnProperty',
+    );
+} catch {
+  logger.info(
+    { request_id: '${REQUEST_ID}' },
+    'a child whose options lie about hasOwnProperty${CHILD_OPTIONS_REFUSED}',
+  );
+}
 `;
 }
 
@@ -709,5 +935,159 @@ describe('what the allowlist may not censor, so that a line still says something
     // beside it so this cannot pass against a line that carries nothing at all.
     expect(lines[LINE.undefinedUnderAnUnnamedKey].record).not.toHaveProperty('notNamed');
     expect(lines[LINE.undefinedUnderAnUnnamedKey].record.request_id).toBe(REQUEST_ID);
+  });
+});
+
+describe("door seven: the argument list is a place a line is built, and nothing scans it", () => {
+  it('F-277: a value in the message position reaches the line under the same policy as one in the record', () => {
+    // THE BLOCKER, FOUND INDEPENDENTLY BY BOTH AUDITORS IN THE SAME PASS. `logger.ts:221-222`
+    // says "A CONTAINER in either position is scanned"; the line below it
+    // (`interpolationCovered`, `:239`) reduces the message argument only when it
+    // `instanceof Error`, and the interpolation loop starts at `message + 1`, so nothing ever
+    // looks at `args[1]`. Neither `LOGGABLE_FIELDS`, nor `formatters.log`, nor
+    // `serializers.err`, nor either bindings wrapper is anywhere near this path — they act on
+    // the RECORD or on BINDINGS, and this is neither.
+    //
+    // MEASURED against the shipped singleton, and this is the finding's own reproduction:
+    //   {"request_id":"r-9","msg":{"statusCode":401,"clientIp":"203.0.113.9",
+    //    "headers":{"authorization":"Bearer LEAKED-TOKEN"},
+    //    "body":"{\"password\":\"LEAKED-PASSWORD\"}"}}
+    // A raw client IP, a bearer token and a password on one line. Four of those five names are
+    // on the contract's own never-allowlist, which is GC-9's first three prohibitions and
+    // invariant 1 word for word.
+    //
+    // FIVE SHAPES, REPORTED TOGETHER so a partial fix names every shape still leaking rather
+    // than stopping at the first. Each is a different route to the same position: a plain
+    // container, an array, a class instance, a call with no record at all (`messageArgumentIndex`
+    // shifts the leading `undefined` past), and a call with a trailing argument (which puts the
+    // message through `format()` as a string instead of leaving it an object).
+    //
+    // WHAT IS DELIBERATELY NOT ASSERTED: the SHAPE the covered message takes. Moving the
+    // container onto the record under `err` — where `serializers.err` reduces it to
+    // `err_name: 'non-error throwable (object)'` — and reducing it in place through
+    // `valueCensored` are both answers to this finding, and `sdlc-reviewer` ruled the choice
+    // Design's rather than the implementer's. Asserting either one here would pick it.
+    const shapes = [
+      ['a non-Error throwable', LINE.messagePositionContainer, HOSTILE_CLIENT_IP],
+      ['a non-Error throwable', LINE.messagePositionContainer, HOSTILE_AUTHORIZATION],
+      ['a non-Error throwable', LINE.messagePositionContainer, HOSTILE_BODY_PASSWORD],
+      ['an array', LINE.messagePositionArray, ARRAY_ELEMENT_SECRET],
+      ['a class instance', LINE.messagePositionClassInstance, CLASS_INSTANCE_SECRET],
+      ['no record at all', LINE.messagePositionWithNoRecord, NO_RECORD_SECRET],
+      ['a trailing argument', LINE.messagePositionWithATrailingArgument, TRAILING_ARGUMENT_SECRET],
+    ] as const;
+
+    const leaking = shapes
+      .filter(([, ordinal, marker]) => lines[ordinal].raw.includes(marker))
+      .map(([shape, , marker]) => `${shape}: ${marker}`);
+
+    expect(leaking).toEqual([]);
+  });
+
+  it('F-277: covering the message position does not cost the line its record or its message', () => {
+    // NOT BOUGHT BY LOGGING NOTHING, which is the half every "no marker on the line" assertion
+    // needs beside it. Dropping the message argument, or the caller's record with it, satisfies
+    // the test above completely and leaves an operator with a line that says nothing.
+    //
+    // `msg` is asserted as PRESENT rather than as a string or as a particular value: both
+    // answers Design may take produce one — the fixed positional string if the container is
+    // moved onto the record, the censored container if it is reduced in place — and neither is
+    // this test's to choose.
+    const withARecord = [
+      LINE.messagePositionContainer,
+      LINE.messagePositionRegressedNames,
+      LINE.messagePositionArray,
+      LINE.messagePositionClassInstance,
+      LINE.messagePositionWithATrailingArgument,
+    ];
+
+    for (const ordinal of withARecord) {
+      expect(lines[ordinal].record.request_id, `line ${String(ordinal)}`).toBe(REQUEST_ID);
+    }
+
+    for (const ordinal of [...withARecord, LINE.messagePositionWithNoRecord]) {
+      expect(lines[ordinal].record, `line ${String(ordinal)}`).toHaveProperty('msg');
+    }
+  });
+
+  it('F-277: the message position keeps the censoring the deleted redact list gave `msg`', () => {
+    // THE REGRESSION, PINNED IN ITS DIRECTION RATHER THAN AS AN ABSOLUTE PROPERTY. Every other
+    // shape in this describe leaks on BOTH singletons, so a guard built only from them would
+    // have passed before ADR-0028 as well and would not have caught what today's work broke.
+    //
+    // These eight names are exactly the wildcards `REDACT_PATHS` carried — `*.password`,
+    // `*.token`, `*.secret`, `*.rawToken`, `*.tokenDigest`, `*.verificationToken`, `*.ip`,
+    // `*.ipHash`. pino builds a WILDCARD STRINGIFIER from them and applies it to the `msg`
+    // value too (`tools.js:205`, `stringifiers[messageKey] || wildcardStringifier`), so the
+    // eight were censored inside `msg` by accident of the denylist's shape, and removing the
+    // list took that with it.
+    //
+    // MEASURED on both singletons, same process shape, `logger.ts` restored byte-identical:
+    // all eight `[redacted]` at `45cf578^`, all eight verbatim at HEAD. This test is therefore
+    // RED at HEAD and GREEN before ADR-0028 — which is what "the fix may not ship a module that
+    // is worse than the one it replaced" means as an assertion.
+    const regressed = [
+      ['password', REGRESSED_PASSWORD],
+      ['token', REGRESSED_TOKEN],
+      ['secret', REGRESSED_SECRET],
+      ['rawToken', REGRESSED_RAW_TOKEN],
+      ['tokenDigest', REGRESSED_TOKEN_DIGEST],
+      ['verificationToken', REGRESSED_VERIFICATION_TOKEN],
+      ['ip', REGRESSED_IP],
+      ['ipHash', REGRESSED_IP_HASH],
+    ] as const;
+
+    const line = lines[LINE.messagePositionRegressedNames];
+    const leaking = regressed.filter(([, marker]) => line.raw.includes(marker)).map(([name]) => name);
+
+    expect(leaking).toEqual([]);
+  });
+});
+
+describe("a child's options are read the way pino reads them, or they are not checked at all", () => {
+  it('F-279: a child whose options carry `redact` on their prototype keeps a named field on the line', () => {
+    // `childOptionsChecked` tests all three refused options with `Object.hasOwn`, and pino does
+    // not read all three the same way. `redact` is read at `proto.js:161` as
+    // `typeof options.redact === 'object'` — an ORDINARY PROPERTY READ, which walks the
+    // prototype chain — so a `redact` the check cannot see is installed anyway.
+    //
+    // MEASURED: the child is accepted and pino installs `{ paths: ['request_id'],
+    // remove: true }`, and the resulting line carries no `request_id` at all, from the binding
+    // or from the record. That is contract invariant 8 — "the key stays on the line" — false
+    // for that subtree, under a censoring policy with the opposite polarity to this module's
+    // that the module documents as refused. Round 5 predicted this would self-resolve when
+    // ADR-0028 deleted the root's `redact`; it did not, because pino's read never consulted the
+    // root's.
+    //
+    // ASSERTED UNCONDITIONALLY, AND IT COSTS NOTHING TO DO SO: refusing the options is the
+    // likely answer and the emitter's catch arm logs the same `request_id`, so this line
+    // carries the named field whichever way the module answers. It is red today only because
+    // the third answer — accept and install — is the one that ships.
+    expect(lines[LINE.childWithRedactOnItsOptionsPrototype].record.request_id).toBe(REQUEST_ID);
+  });
+
+  it('F-279: a child whose options lie about `hasOwnProperty` does not get the scan turned off', () => {
+    // THE CONVERSE, AND THE HALF THAT LEAKS. pino calls `options.hasOwnProperty('formatters')`
+    // AS A METHOD ON THE OPTIONS OBJECT (`proto.js:136`), so an options object that answers for
+    // itself takes pino's replacing branch while `Object.hasOwn` correctly says no. The
+    // child-supplied `formatters.log` then replaces the scan at every key and every depth.
+    //
+    // MEASURED: `"password":"X1…","ip":"203.0.113.33"`, both verbatim on the child's line.
+    // ADR-0028 is what makes this a leak rather than a degradation — with `redact` gone there is
+    // exactly ONE mechanism between an unnamed field and a line, and this is the call shape that
+    // removes it. The same object shape with `serializers` brings F-244 back under `err`.
+    //
+    // The raw assertions hold whichever way the module answers, because a refused child logs
+    // neither value. The censor equality is asserted only when the child ran, since a refusal
+    // has no `password` key to read.
+    const line = lines[LINE.childWithLyingHasOwnProperty];
+
+    expect(line.raw).not.toContain(LYING_OPTIONS_PASSWORD);
+    expect(line.raw).not.toContain(LYING_OPTIONS_IP);
+
+    if (!String(line.record.msg).includes(CHILD_OPTIONS_REFUSED)) {
+      expect(line.record.password).toBe(CENSOR);
+      expect(line.record.ip).toBe(CENSOR);
+    }
   });
 });
