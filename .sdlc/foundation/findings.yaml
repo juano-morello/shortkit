@@ -9596,9 +9596,11 @@
     label. ContractViolationError.path is frozen in web-api-client.md, so amend the contract in
     the same change - cheap now, 13 call sites later.
   owner_slot: sdlc-implementer-frontend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-frontend"
+  resolved_round: 1
+  resolution: >-
+    CLOSED, AND VERIFIED BY THE ORCHESTRATOR BY EMITTING IT. ApiRequest gained a params record; path is a source-literal template; caller values are encodeURIComponent'd into the URL only. A transport failure on path '/invitations/:token' with a real capability token in params now yields message `Request to GET /invitations/:token could not be sent.` and spread JSON {"path":"/invitations/:token","name":"NetworkError"} - THE TEMPLATE SURVIVES AND THE VALUE DOES NOT, in both channels the auditor measured. The rule is stated once and cross-cutting as ADR-0029 rather than per surface. NetworkError also sets this.name now, closing the reviewer's separate minor.
 - id: F-285
   phase: implement
   task: TASK-008
@@ -9638,9 +9640,11 @@
     with /api/bff/ after normalisation - the browser-side mirror of the origin assertion this
     file already calls load-bearing for the proxy.
   owner_slot: sdlc-implementer-frontend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-frontend"
+  resolved_round: 1
+  resolution: >-
+    CLOSED BY THE SAME FIX, AND VERIFIED BY THE ORCHESTRATOR. All four measured escape shapes are now contained: ../../auth/token -> /api/bff/links/..%2F..%2Fauth%2Ftoken, %2e%2e/... double-encoded, a?workspaceId=other -> a%3FworkspaceId%3Dother, x#frag -> x%23frag. Slashes, ? and # are percent-encoded INSIDE the prefix rather than normalising out of it, so the browser can no longer reach a path the proxy's own F-008 defence would never see.
 - id: F-286
   phase: implement
   task: TASK-008
@@ -9669,9 +9673,11 @@
     Set credentials: 'same-origin' and redirect: 'error' explicitly. Both one-line and
     behaviour-preserving today. Add a test on the second fetch argument.
   owner_slot: sdlc-implementer-frontend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-frontend"
+  resolved_round: 1
+  resolution: >-
+    CLOSED. credentials: 'same-origin' and redirect: 'error' set explicitly on both requestInit branches. These were RED rather than green-by-design - the client set neither, so both read undefined - and the red step's M6 mutation, setting them to fetch's own defaults, proves the assertions discriminate on VALUE rather than presence.
 - id: F-287
   phase: implement
   task: TASK-008
@@ -9698,9 +9704,11 @@
     the same change, or have the proxy set Cache-Control: no-store on every proxied response.
     Decide it here rather than inside TASK-012.
   owner_slot: sdlc-implementer-frontend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    RESOLVED AS A DECISION, WHICH IS WHAT THE FINDING ASKED FOR - 'decide it here rather than inside TASK-012'. Ruled: the proxy sets Cache-Control: no-store on EVERY response and does not forward upstream's. Allowlisting cache-control was rejected because it makes the browser cache of every authenticated response depend on twenty-odd routes each remembering one header. PROXY_RESPONSE_CACHE_CONTROL is exported from the normative form; the proxy that consumes it is TASK-012's and deferred. NOTE the implementer flagged it as the one new export with no test asserting it exists.
 - id: F-288
   phase: implement
   task: TASK-008
@@ -9740,9 +9748,11 @@
     the stub agree afterwards. SEPARATELY, F-233's status must be re-examined - `fixed` is
     false while the fix exists only in design and its owner is deferred.
   owner_slot: sdlc-implementer-frontend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-frontend"
+  resolved_round: 1
+  resolution: >-
+    BLOCKER CLOSED. FORWARDED_REQUEST_HEADERS_MUTATING_ONLY, MUTATING_METHODS and isMutatingMethod are materialised from the amended stub, with the 'not the whole set' docblock, so an implementer reading only client.ts cannot construct the upstream header set without meeting the Origin rule. The four-item allowlist was implemented per ruling; F-305 records that the contract contradicts itself on OPTIONS and is the architect's to settle.
 - id: F-289
   phase: implement
   task: TASK-008
@@ -9775,9 +9785,11 @@
     be answered either way: 422 has no row in ERROR_CODE_STATUS, so the code carried for
     USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL needs a ruling.
   owner_slot: sdlc-implementer-frontend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    RESOLVED BY SPLIT. Settled: ApiError.status is the TRANSPORT status and callers must never assume it agrees with ERROR_CODE_STATUS[code]. The mapping itself is DEFERRED by the F-291 ruling - it maps errors from auth endpoints that exist only behind TASK-009 and TASK-012, both deferred. Left open deliberately, with five recorded constraints: which code carries the 422. It is append-only and permanent, has no /api emitter, and is an ACCOUNT-ENUMERATION decision, so it belongs to whoever builds the mapping rather than to this rework.
 - id: F-290
   phase: implement
   task: TASK-008
@@ -9806,9 +9818,11 @@
     details on the envelope arm plus code === 'internal_error' with the original status on the
     non-envelope arm.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 1
+  resolution: >-
+    CLOSED. All four of the reviewer's surviving mutations now die, proved by running them: M1-M5 and M7 each flip exactly one new test red. The spec now asserts the URL, method, headers and body handed to fetch, and the code/status/details on both toApiError arms. NO EXISTING ASSERTION WAS WEAKENED, proven mechanically at 530 insertions and 0 deletions, with the six original AC-15 tests green 6/6 under every mutation.
 - id: F-291
   phase: implement
   task: TASK-008
@@ -9841,9 +9855,11 @@
     TASK-012's and TASK-052's Consumes. Silence is not available: no non-deferred TASK can
     write that directory after this one closes.
   owner_slot: sdlc-implementer-frontend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "orchestrator ruling 2026-08-10"
+  resolved_round: 1
+  resolution: >-
+    RULED. serverApiClient, buildUpstreamUrl, mapBetterAuthError and <ErrorMessage /> all defer - every one serves the BFF proxy route or the auth surface, both gone with EPIC-002, and none has a reachable caller. TASK-008's Produces is amended to describe what it actually builds: the browser client and its error types, not the server client and not the rendering. THE THREE STUBS DO NOT STAY BARE - each carries a header naming F-291, the owning TASK and its deferred status, and buildUpstreamUrl's says explicitly that the F-288 exports are NOT deferred with it. <ErrorMessage /> got no header because there is no file, and creating a placeholder component to hold a comment would be untested production code.
 - id: F-292
   phase: implement
   task: TASK-008
@@ -9869,9 +9885,11 @@
     web-api-client.md step 6 is silent on abort, so this needs a contract line as well as code
     - decided once here rather than by thirteen consumer TASKs.
   owner_slot: sdlc-implementer-frontend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-frontend"
+  resolved_round: 1
+  resolution: >-
+    CLOSED. RequestAbortedError extends Error, NOT NetworkError, per the contract's new step 7. The discriminator is req.signal?.aborted in both catch blocks and NOT cause.name, because abort(reason) makes fetch reject with the caller's own value. Proved by mutation: flipping both discriminators to req.signal !== undefined fails exactly the falsifier test and nothing else, then restored byte-identically.
 - id: F-293
   phase: implement
   task: TASK-006

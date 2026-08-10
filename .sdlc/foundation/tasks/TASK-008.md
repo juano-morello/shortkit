@@ -3,7 +3,7 @@ id: TASK-008
 story: STORY-004
 epic: EPIC-001
 title: Web typed API client and error surface
-status: rework
+status: tests-green
 owner_slot: sdlc-implementer-frontend
 depends_on: [TASK-007, TASK-004]
 paths: ["apps/web/src/lib/api/**", "apps/web/src/components/errors/**", "apps/web/package.json", "pnpm-lock.yaml"]
@@ -64,11 +64,29 @@ Authentication token handling (TASK-012), 429-specific handling (TASK-052), any 
 
 **Consumes**
 
-`ErrorEnvelope`, `ErrorCode`, `Paginated<T>` (TASK-007); `NEXT_PUBLIC_API_BASE_URL` (TASK-004).
+`ErrorEnvelope`, `ErrorCode`, `isErrorEnvelope`, `Paginated<T>` (TASK-007).
 
-**Produces**
+**Produces** — *amended 2026-08-10 by the F-291 ruling above; the pre-rework version is in git
+at `d3e7853~1`.*
 
-`apiClient` — typed request function validating responses against a supplied contract; `ApiError` — carries `code` and HTTP status; `ContractViolationError`; `<ErrorMessage code={...} />` renderer.
+`apiClient` — typed request function taking a source-literal route template plus a `params`
+record, validating responses against a supplied contract; `ApiError`, carrying `code`, HTTP
+`status` and `details`; `ContractViolationError`; `RequestAbortedError`;
+`FORWARDED_REQUEST_HEADERS`, `FORWARDED_REQUEST_HEADERS_MUTATING_ONLY`, `MUTATING_METHODS`,
+`isMutatingMethod`, `RETURNED_RESPONSE_HEADERS` and `PROXY_RESPONSE_CACHE_CONTROL` — the
+normative shapes TASK-012's proxy is built from.
+
+**No longer produced by this TASK**, each deferred with its consumers and each carrying a
+header in the source saying so: `serverApiClient`, `buildUpstreamUrl`, `mapBetterAuthError`,
+and `<ErrorMessage code={...} />`. TASK-012's and TASK-052's `Consumes` still name
+`<ErrorMessage />`; it will not exist when they return.
+
+**`NEXT_PUBLIC_API_BASE_URL` was removed from Consumes and it was never read.** `apiClient` is
+the authenticated browser path and targets the same-origin BFF proxy relatively, per
+`web-api-client.md`'s "it is not used for anything authenticated". The consequence belongs to
+TASK-004, not here: its build-time positive control was waiting for this TASK to reference the
+variable, and nothing in the surviving initiative ever will. That is F-174, ruled for
+retirement and not yet carried out.
 
 ## ⚠ F-174 — do not give `NEXT_PUBLIC_API_BASE_URL` a hardcoded fallback
 
