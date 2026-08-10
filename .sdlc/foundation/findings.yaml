@@ -9388,3 +9388,37 @@
   status: open
   resolved_by: null
   resolved_round: null
+- id: F-281
+  phase: implement
+  task: TASK-003
+  source: sdlc-architect
+  round: 5
+  severity: minor
+  kind: behavior
+  file: .sdlc/foundation/design/contracts/logging-and-headers.md
+  line: 1
+  summary: >-
+    CONTRACT INVARIANT 2 IS FALSE FOR A REQUEST-SHAPED RECORD, and the mechanism is pino's, not
+    ours. pino's mapHttpRequest (tools.js:47-56) replaces a record it recognises as
+    request-shaped BEFORE formatters.log, serializers.err, hooks.logMethod or either wrapper
+    runs. Found by the architect while diffing the fence, not by anything that was looking for
+    it.
+  failure_scenario: >-
+    logger.info({ request_id, route, method, headers, socket }, '...') emits "req":"[redacted]"
+    AND NOTHING ELSE. Not request_id, not route - the whole record is collapsed. Invariant 2
+    names request_id, route, status, duration_ms and tenant_id as required fields on every
+    request-scoped line, and for this record shape none of them appears. NO LEAK: the
+    replacement censors. The failure is observability, and it is the shape an operator debugging
+    a request is most likely to reach for. It also explains a contract row that has asserted
+    "req":"[redacted]" for days without naming the mechanism behind it.
+    No shipped call site produces this shape today - all six pass a purpose-built record or a
+    plain string - so it is a defect in the invariant later TASKs are told to rely on rather
+    than a live loss.
+  required_change: >-
+    Either restate invariant 2 to exclude records pino will map, naming mapHttpRequest and the
+    keys that trigger it, or make the required fields survive by building the record so pino
+    does not recognise it. Do not leave the invariant asserting something measured false.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null

@@ -396,9 +396,13 @@ Positive:
 - One rule for the position, reached by deleting a type test rather than adding a branch.
 - `msg` is a string on every call shape the module accepts, so `logger.ts`'s claim and
   `logger.spec.ts:495` become properties of the position rather than of the `Error` case.
-- `logger.ts:221-222`, "A CONTAINER in either position is scanned", becomes true. The table
-  above is what "scanned" means in each position, and the contract now carries it as
-  "Door six", a section three references already pointed at and which did not exist.
+- `logger.ts:221-222`, "A CONTAINER in either position is scanned", stops being a claim the
+  file contradicts. **Corrected 2026-08-10 after the fix shipped: it is deleted rather than
+  made true.** A container in the message position is not scanned, it is moved onto the record
+  and reduced to `err_name`; a container in a format parameter is the one that is scanned. The
+  two positions are both covered and neither covers the other, so a sentence that answers for
+  "either position" is wrong whichever answer it gives. The contract's "Door six" states the
+  four positions separately, which is the shape this bullet should have asked for.
 - The regression is not merely repaired. The denylist censored eight names inside `msg` and
   passed everything else; this discards the container whole.
 - Contract invariant 1 becomes true on the message position for the same reason it is true on
@@ -419,6 +423,36 @@ Negative, and the cost accepted:
   lost. Today that shape leaks the container instead. It is contrived, no call site produces
   it, and it is stated rather than special-cased: a branch for it would reintroduce the split
   this ruling removes.
+
+  **Emitted rather than reasoned, 2026-08-10, after the fix shipped.** Both halves reproduce,
+  and one of them is worse than this bullet predicted: that call emits `msg` TWICE,
+  `"msg":"callers own msg","msg":"an error was logged with no context string"`, because the
+  record keeps its own `msg` and pino is handed the fixed string as well. A parser that keeps
+  the last key reads the fixed string and the call site's own message is shadowed. **This is
+  not new with F-277** — the same shape with an `Error` in the message position took the same
+  branch before, measured on the shipped singleton — but F-277 widens it from `Error` to every
+  non-null object. Not a leak: both values are `msg`, which is on the allowlist and free text
+  either way. Closing it means teaching `errorMovedOntoTheRecord` about a record-supplied `msg`,
+  which is a second policy on the position, so it is accepted rather than fixed here.
+
+- **A container in the message position is DROPPED, not moved, when the record already carries
+  an `err`.** `logger.error({ err: realError }, container)` never reaches
+  `interpolationCovered`: `messageWouldBeTakenFromTheError` fires first, and it calls `method`
+  with the record and the fixed string, so the second argument goes nowhere. **Disclosed by the
+  implementer from the branch conditions and verified by emitting, 2026-08-10:** the line
+  carries the real error's `err_name` and `err_stack` and no trace of the container. This is
+  the safe direction of the two — no leak, and the real error survives where the shape above
+  loses it — and the cost is that a caller who passes a container there gets no signal that it
+  was discarded. No call site produces this shape.
+
+- **One more shape where both the container and the error vanish, and pino rather than this
+  module is what does it.** `logger.error(requestLike, container)` spreads a request-shaped
+  record and adds `err`, and pino's `LOG` (`tools.js:47-56`) then replaces the whole record
+  with `{ req: … }` because it reads `method`, `headers` and `socket` on it. Measured: the line
+  is `"req":"[redacted]","msg":"an error was logged with no context string"`. Covered, and
+  undiagnosable. It is the same sniff that makes `logger.info(req, '…')` emit
+  `"req":"[redacted]"`, which is the row this ADR's Consequences table has always quoted
+  without naming the mechanism.
 - **Two calls one token apart now emit the same line.** `logger.error({ request_id }, e)` and
   `logger.error({ request_id }, someDto)` are indistinguishable. That is what one policy per
   position means, and it will read as a bug the first time somebody logs a DTO there on
@@ -534,6 +568,15 @@ is still redaction.
   paths behind it; after this change nothing does. **The allowlist may not ship without the
   child-options rejection.** Same for `{ serializers: … }`. This ADR makes F-263 a
   precondition of its own implementation, not a parallel fix.
+
+  **And a load-bearing refusal has to read the options the way pino reads them (F-279, landed
+  `43e10e7`).** One `Object.hasOwn` for all three was one predicate too few: pino reads
+  `redact` as an ordinary property, so a `redact` on the options' PROTOTYPE was accepted here
+  and installed there, and it reads `serializers` and `formatters` through
+  `options.hasOwnProperty(…)` called as a method, so an options object that answers for itself
+  took pino's replacing branch. Both measured against bare pino. `pinoWouldReplace` now takes
+  the union of pino's read and `Object.hasOwn` per option; the guarantee and its asymmetry are
+  in the contract under "A child's options are an opt-out, so they are refused".
 - **`LOGGABLE_FIELDS` is a shared line every TASK edits**, so wave-parallel TASKs will
   collide on it in a way they do not collide today. One name per line, kept sorted, with the
   owning file in a trailing comment, so a merge conflict resolves by keeping both.
@@ -561,9 +604,10 @@ is still redaction.
 
 ## Migration
 
-**Status 2026-08-10: steps 1-6 have landed and step 7 has not.** The 25 paths no longer
-ship. Step 7 is the argument-list ruling above, opened by F-277 after step 2 shipped, and
-until it lands the message position carries no policy at all.
+**Status 2026-08-10: all seven steps have landed.** The 25 paths no longer ship, and the
+message position carries the policy in the argument-list ruling above. Step 7 was opened by
+F-277 after step 2 shipped and closed at `43e10e7`, with its fence half in the re-sync that
+followed.
 
 | step | landed at | by |
 |---|---|---|
@@ -573,14 +617,24 @@ until it lands the message position carries no policy at all.
 | 4, the 25 paths moved to the never-allowlist | `b42d9a2` | `sdlc-architect` |
 | 5, the contract's fenced block | `b42d9a2` | `sdlc-architect` |
 | 6, the drift spec's fence marker | `2423a63` | `sdlc-test-architect` |
-| 7, the message position (F-277), and the contract's "Door six" | **open** | `sdlc-implementer-backend`, then `sdlc-architect` for the fence |
+| 7, the message position (F-277), and the contract's "Door six" | `43e10e7` for the source, the fence re-sync for the contract | `sdlc-implementer-backend`, then `sdlc-architect` for the fence |
 
 **Step 7 repeats step 5's sequencing and its lesson.** The source moves first; the contract's
-fenced block moves in the same commit as the source and never before, because the drift test
-compares the two. The contract's PROSE has already moved: "Door six" and the position table
-are written, invariant 1 says what is true today and what the ruling makes true, and each
-carries the date. A reader between the two commits gets a document that is accurate about
-being mid-migration rather than one that describes a module that does not exist yet.
+fenced block moves as close behind it as the ownership rules allow, because the drift test
+compares the two. The contract's PROSE moved first: "Door six" and the position table were
+written before the source changed, invariant 1 said what was true then and what the ruling
+would make true, and each carried the date. A reader between the two commits got a document
+that was accurate about being mid-migration rather than one describing a module that did not
+exist yet.
+
+**What the sequencing actually cost, recorded because the plan said one line and the bill was
+three.** The fence was one commit behind the source across three code changes, not one: the
+`:239` predicate, the two new `pinoWouldReplace` / `suppliedClaimsOwnProperty` helpers that
+F-279 landed in the same commit, and the call to them inside `childOptionsChecked`. The
+divergence report names only the first, because it reports the FIRST character where the two
+part company and stops there. **Diff the whole normative region against the fence before
+editing it; do not patch the line the failure names.** `logger-contract-drift.spec.ts` went
+4 passed of 6 at `43e10e7` and 6 of 6 after the re-sync.
 
 Step 6 carried a second, unplanned edit in the same file. The guard
 `the redact path with an inner double quote survives the strip on both artifacts` asserted
@@ -707,7 +761,7 @@ The order below is the order the work happened in, and step 1 was not optional.
    section "The block below is machine-checked against the shipped file" now states that, and
    states that renaming a fenced declaration re-points the marker in the same commit.
 
-7. **Cover the message position, and say so in the three places that describe it.** Open. In
+7. **Cover the message position, and say so in the three places that describe it.** Landed. In
    order:
 
    1. `logger.ts:239`: replace the `instanceof Error` test with the container test in "The
@@ -717,13 +771,18 @@ The order below is the order the work happened in, and step 1 was not optional.
       position is scanned". The first two collapse into one bullet about the position, and the
       third stops being a claim the file contradicts. State what each position gets, in the
       order the table above states it.
-   3. The contract's fenced block, in the **same commit** as step 7.1. Owned by
-      `sdlc-architect`, not by the implementer, and it is what turns
+   3. The contract's fenced block, as close behind step 7.1 as the ownership rules allow.
+      Owned by `sdlc-architect`, not by the implementer, and it is what turns
       `logger-contract-drift.spec.ts` green again after 7.1 turns two of its six red.
 
    The red step measured that sequencing rather than predicting it: under a candidate fix at
    `:239`, `F-249` and `F-270` went red and returned to green on revert. Two red drift tests
    between 7.1 and 7.3 are the expected state and not a finding.
+
+   **Landed.** 7.1 and 7.2 at `43e10e7`, alongside F-279's `pinoWouldReplace` and F-280's CSP
+   override. 7.2's third bullet was DELETED rather than restated, which is the correct outcome
+   and not what this step asked for; see the Consequences correction above. 7.3 carried three
+   code changes into the fence, not one; see the sequencing note under the step table.
 
 ### What a TASK does to log a new field
 
@@ -813,6 +872,35 @@ record's 1.3 µs over bare pino is `errorLogFields` building frames, not the sca
 The absolutes differ from the table above (bare pino at 2355 ns here against 1600 ns there):
 different machine, and a shell redirect of fd 1 rather than `pino.destination({ sync: true })`.
 Use the absolutes from this table, and against GC-1's 25 ms ceiling one line is 0.010%.
+
+### Re-measured after the message position closed
+
+Same method as the table above, at `43e10e7` against `43e10e7^`: both singletons imported into
+one process with a bare pino built on the same `base` and `timestamp`, all three writing to
+fd 1 with stdout redirected to `/dev/null`, five runs of 200 000 calls per figure, median,
+20 000 warm-up calls per shape per instance, Node 24.19, pino 10.3.1, `NODE_ENV=test`,
+`LOG_LEVEL=info`, 2026-08-10. Measured by `sdlc-implementer-backend` and not independently
+re-run here.
+
+| record | bare pino | `43e10e7^` | `43e10e7` | delta |
+|---|---|---|---|---|
+| flat request-log record | 2359 ns | 2460 ns | 2443 ns | −17 ns |
+| record carrying `req.headers` | 2464 ns | 2275 ns | 2266 ns | −9 ns |
+| record nested five deep | 2405 ns | 2314 ns | 2314 ns | 0 ns |
+| record holding an error | 2917 ns | 2920 ns | 2944 ns | +24 ns |
+| **container in the message position** | 2438 ns | 2526 ns | **2706 ns** | **+180 ns** |
+
+**The one real cost is the shape the fix covers: +180 ns on `logger.error(record, container)`,
+which is 0.011% of GC-1's 25 ms ceiling for one line.** It buys the record spread and
+`serializers.err` in place of a container stringified into `msg`. The first four rows are
+inside run-to-run noise, which is what the change predicts: the predicate trades one
+`instanceof` for a `typeof` and a `!== null`, and `pinoWouldReplace` runs only when a child is
+built with options, which no call site does.
+
+Read the DELTAS, not the absolutes. Both singletons were measured in the same process here, so
+the deltas are sound; the absolutes sit about 60 ns above the previous table's on the same
+machine under different session load, and that session-to-session spread is larger than four of
+the five deltas.
 
 **So the allowlist is both safer and faster than the 25-path denylist**, and the cost this ADR
 accepted was never throughput. It was the missing field, and it still is. What stands between

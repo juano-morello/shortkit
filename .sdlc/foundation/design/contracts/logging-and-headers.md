@@ -15,9 +15,11 @@
 
 Amended 2026-08-08 (F-242, F-244, F-248, F-249), again 2026-08-08 fix round 3 (F-250, F-251,
 F-252, F-253, F-255, F-258), again 2026-08-09 fix round 4 (F-259, F-260, F-263, F-265,
-F-267, F-269), and again 2026-08-10 for ADR-0028 (F-261, F-262, F-266) and F-243 clause 2.
-The block below matches the shipped `apps/api/src/observability/logger.ts` on pino 10.3.1 at
-commit `45cf578`.
+F-267, F-269), again 2026-08-10 for ADR-0028 (F-261, F-262, F-266) and F-243 clause 2, and
+again 2026-08-10 fix round 5 (F-277 the message position, F-279 the child-options
+predicates). The block below matches the shipped `apps/api/src/observability/logger.ts` on
+pino 10.3.1 at commit `43e10e7`, verified by `logger-contract-drift.spec.ts` at 6 passed of 6
+rather than by reading.
 
 **This contract is the single normative source for the logger's configuration.** ADR-0022
 used to fence a copy of it and no longer does (F-250); the wave-1 stub at
@@ -31,7 +33,7 @@ every one of them is load-bearing.**
 | Mechanism | Covers | Section |
 |---|---|---|
 | `serializers.err` | the top-level `err` key, including a non-error under it | "Why each mechanism is here" |
-| `hooks.logMethod` | every call shape that would put an error's message into `msg`, and every argument position pino formats. **The message position is open until ADR-0028 Migration step 7 lands (F-277); the rule it must implement is in "Door six"** | "Why each mechanism is here", "Door six" |
+| `hooks.logMethod` | every call shape that would put an error's message into `msg`, and every argument position pino formats, the message position included since `43e10e7` (F-277) | "Why each mechanism is here", "Door six" |
 | `formatters.log` | every other key of the record, to depth 4: an `Error` under any key, and every key `LOGGABLE_FIELDS` does not name | "A field reaches a line only if it is named", "The ordering" |
 | the `logger.child` wrapper | bindings, on the other path a line is built by | "The two wrappers" |
 | the `logger.setBindings` wrapper | the second entry to the same path | "The two wrappers" |
@@ -237,7 +239,14 @@ export const logger = pino({
 function interpolationCovered(args: readonly unknown[]): readonly unknown[] {
   const message = messageArgumentIndex(args);
 
-  const covered = message === 1 && args[1] instanceof Error ? errorMovedOntoTheRecord(args) : args;
+  // Every non-null object in the message position, decided by TYPE and not by keys (F-277).
+  // `messageArgumentIndex` returns 0 only when `args[0]` is neither an object nor `undefined`,
+  // so the message argument can be a container only at index 1. `null` is excluded: it carries
+  // nothing onto a line, and describing an absence as a throwable is worse than leaving it.
+  const covered =
+    message === 1 && typeof args[1] === 'object' && args[1] !== null
+      ? errorMovedOntoTheRecord(args)
+      : args;
 
   let replaced: unknown[] | undefined;
 
@@ -260,8 +269,10 @@ function messageArgumentIndex(args: readonly unknown[]): number {
   return typeof args[0] === 'object' || args[0] === undefined ? 1 : 0;
 }
 
-// `log.error(record, error)`. The error is filed under `err`, where `serializers.err` owns
-// it, and the message becomes the string a positional error already gets.
+// `log.error(record, value)`. The value in the message position is filed under `err`, where
+// `serializers.err` owns it, and the message becomes the string a positional error already
+// gets. Its CALLER decides which values arrive here (F-277: every non-null object, not only
+// an `Error`); this is the same move for all of them.
 function errorMovedOntoTheRecord(args: readonly unknown[]): readonly unknown[] {
   const record = typeof args[0] === 'object' && args[0] !== null ? args[0] : {};
 
@@ -323,7 +334,7 @@ function childOptionsChecked(
   }
 
   const replaced = OPTIONS_A_CHILD_MAY_NOT_REPLACE.filter((option) =>
-    Object.hasOwn(supplied, option),
+    pinoWouldReplace(supplied, option),
   );
 
   if (replaced.length > 0) {
@@ -336,6 +347,36 @@ function childOptionsChecked(
   }
 
   return options;
+}
+
+// One predicate PER OPTION, because pino reads the three differently (F-279): `redact` is an
+// ordinary property read (`proto.js:161`), so it walks the prototype chain, while
+// `serializers` (`:115`) and `formatters` (`:136`) go through `options.hasOwnProperty(…)`
+// called as a method on the options object. The union with `Object.hasOwn` is deliberate; see
+// "A child's options are an opt-out, so they are refused".
+function pinoWouldReplace(supplied: object, option: string): boolean {
+  if (Object.hasOwn(supplied, option)) {
+    return true;
+  }
+
+  if (option === 'redact') {
+    const value = readIndexedProperty(supplied, option);
+
+    return typeof value === 'object' && value !== null;
+  }
+
+  return suppliedClaimsOwnProperty(supplied, option);
+}
+
+// `options.hasOwnProperty(option)`, called the way pino calls it and unable to throw.
+function suppliedClaimsOwnProperty(supplied: object, option: string): boolean {
+  try {
+    const claim = (supplied as { hasOwnProperty?: (key: string) => unknown }).hasOwnProperty;
+
+    return typeof claim === 'function' && Boolean(claim.call(supplied, option));
+  } catch {
+    return false;
+  }
 }
 
 // Not writable and not configurable (F-267), so `logger.child = pinoChild` is a TypeError
@@ -599,6 +640,22 @@ an omission.** Both arrive under no key, so there is no field name to decide abo
 `logger.error('a %s', 'b')` has to interpolate `b`. The record path decides by key, the
 argument list decides by type and by value.
 
+**One thing pino does to the RECORD before any of this, and row 1 does not say it.** `LOG`
+(`tools.js:47-56`) sniffs the record's shape: `o.method && o.headers && o.socket` replaces the
+whole record with `mapHttpRequest(o)`, which is `{ req: … }`, and
+`typeof o.setHeader === 'function'` replaces it with `{ res: … }`. Every other own key of the
+caller's object is discarded at that point, before `formatters.log` sees anything. Measured
+2026-08-10 on the shipped singleton: `logger.info(requestLike, '…')` emits `"req":"[redacted]"`
+and `logger.info(responseLike, '…')` emits `"res":"[redacted]"`, because `req` and `res` are not
+on `LOGGABLE_FIELDS`. That is why the invariant-1 row reads `"req":"[redacted]"` for a whole
+request object rather than a censored key per field, and it means **a request-shaped record
+loses its named fields too**. Measured:
+`logger.info({ request_id, route, method, headers, socket }, '…')` emits
+`"req":"[redacted]"` and nothing else, so `request_id` and `route` are gone, while the same
+record without `headers` and `socket` keeps both and censors `method`. Invariant 2 does not
+hold for a record that trips this sniff. Nothing here relies on the mapping for coverage: the
+allowlist censors `req` and `res`, and it would equally have censored the individual keys.
+
 **Why the message position is moved rather than reduced in place.** `format` returns a
 non-string message unchanged, so a reduced container would leave `msg` an object rather than a
 line an aggregator can index; a container handed to pino's stringifier can still fire an own
@@ -613,16 +670,51 @@ because `serializers.err` runs after `formatters.log`, and nothing runs after `f
 format argument through `fieldsCensored(value, 1)` instead and `logger.error('ctx %o',
 { err: e })` reopens.
 
-**Status, 2026-08-10.** Row 1, row 3 and row 4 ship. **Row 2 does not.** `logger.ts:239`
-tests `args[1] instanceof Error`, so a non-`Error` container in the message position reaches
-`msg` verbatim: measured, `logger.error({ request_id }, e)` for a non-`Error` throwable emits
+**"Scanned" is the wrong word for two of the four rows, and the file used to say it.**
+`logger.ts:212-222` claimed "A CONTAINER in either position is scanned" until `43e10e7`, and
+that sentence was false in both directions: a container in the MESSAGE position is not
+scanned at all, it is moved onto the record under `err` and reduced to `err_name` by
+`serializers.err`; a container in a FORMAT-PARAMETER position is the one that is scanned, by
+`valueCensored` from depth 2. Both are covered. They are covered by different mechanisms with
+different outputs, and a reader who carries one answer across to the other position gets the
+wrong one. The sentence is deleted rather than restated as a claim about "either position".
+
+**Status, 2026-08-10, after `43e10e7`. All four rows ship.** Row 2 was open until then:
+`logger.ts:239` tested `args[1] instanceof Error`, so a non-`Error` container in the message
+position reached `msg` verbatim, measured as
 `"msg":{"statusCode":401,"clientIp":"203.0.113.9","headers":{"authorization":"Bearer …"},
-"body":"{\"password\":\"…\"}"}`. It is also a regression, because pino applied the deleted
+"body":"{\"password\":\"…\"}"}`. That was also a regression, because pino applied the deleted
 `redact` list's wildcard stringifier to the `msg` value too (`tools.js:205`), so `*.password`,
 `*.token`, `*.secret`, `*.rawToken`, `*.tokenDigest`, `*.verificationToken`, `*.ip` and
-`*.ipHash` were censored inside `msg` until ADR-0028 removed the list. F-277, ADR-0028
-Migration step 7, red tests in `logger-field-allowlist.spec.ts`. **Row 2 is what the fix must
-produce; it is not what the module does today.**
+`*.ipHash` were censored inside `msg` until ADR-0028 removed the list. Re-measured against the
+shipped singleton 2026-08-10, one process, `NODE_ENV=test`:
+
+| call | the line |
+|---|---|
+| `logger.error({ request_id }, container)` | `"request_id":"r-2","err":{"err_name":"non-error throwable (object)"},"msg":"an error was logged with no context string"` |
+| `logger.error({ request_id }, { method, headers, socket, url })` | the same, `err_name` only |
+| `logger.error({ request_id }, { toJSON: () => ({ password }) })` | the same. The message position never reaches a stringifier, so the `toJSON` mechanism ADR-0028 leaves open elsewhere does not fire here |
+| `logger.error({ request_id }, ['first', { password }])` | the same |
+| `logger.error(undefined, requestLike)` | the same, with no `request_id` |
+| `logger.error({ request_id }, null)` | `"msg":null`, unchanged |
+| `logger.error({ request_id }, 42)` | `"msg":42`, unchanged |
+| `logger.error({ request_id }, () => …)` | no `msg` key at all, unchanged |
+| `logger.error({ request_id }, 'a plain string')` | `"msg":"a plain string"`, unchanged |
+
+**The hook's ERROR-MESSAGE branch runs before the message-position rule, and it wins.**
+`messageWouldBeTakenFromTheError` fires whenever the record carries a truthy `err` and no own
+`msg`, and it calls `method` with the record and the fixed string, so **any second argument is
+dropped there rather than moved**. Measured: `logger.error({ err: realError }, container)`
+emits the real error's `err_name` and `err_stack` and no trace of the container. No leak, and
+a diagnostic loss on a shape with no call site. Priced in ADR-0028's accepted costs.
+
+**A record that supplies its own `msg` and a container in the message position writes `msg`
+twice.** `errorMovedOntoTheRecord` keeps the record's `msg` and hands pino the fixed string as
+well, so the line carries `"msg":"callers own msg","msg":"an error was logged with no context
+string"`. Measured on the shipped singleton with an `Error` in that position, which is the
+branch that behaved this way before `43e10e7` too, so F-277 widened the shape rather than
+introducing it. A JSON parser that keeps the last key reads the fixed string. Not a leak: both
+values are `msg`, which is on the allowlist and free text either way.
 
 ### The ordering: `formatters.log` runs before the serialisers
 
@@ -721,6 +813,32 @@ instance's own. It **replaces** them, all three reproduced against this singleto
 `:136-143` where `log || formatters.log` removes the scan itself at every key and every
 depth. `childOptionsChecked` throws a `TypeError` naming the options and the reason.
 
+**What the check tests changed 2026-08-10 (F-279), and the guarantee is now stated per option
+rather than uniformly.** `Object.hasOwn` for all three was one predicate too few, because pino
+does not read the three the same way. `pinoWouldReplace` matches pino option by option, and
+takes the UNION of pino's read with `Object.hasOwn`:
+
+| option | how pino reads it | what `pinoWouldReplace` answers `true` on |
+|---|---|---|
+| `redact` | `proto.js:161`, an ordinary property read: `typeof options.redact === 'object' && options.redact !== null`. It walks the PROTOTYPE CHAIN, and its `Array.isArray` arm is subsumed because an array is a non-null object | an own `redact` of any value, or an INHERITED `redact` holding a non-null object. The read goes through `readIndexedProperty`, so a getter that throws answers `false` here and the hazard lands in pino's own read |
+| `serializers` | `proto.js:115`, `options.hasOwnProperty('serializers')` called AS A METHOD on the options object | an own `serializers` of any value, or an options object whose own `hasOwnProperty` claims one |
+| `formatters` | `proto.js:136`, the same method call | the same, for `formatters` |
+
+**The union, not pino's read alone, and deliberately.** `Object.hasOwn` keeps
+`{ serializers: undefined }` and `{ redact: undefined }` refused, which is the
+presence-not-truthiness behaviour F-263's tests pin, and it still refuses an
+`Object.create(null)` options object carrying an own `serializers`, which pino would throw on
+rather than merge. Refusing an option pino would not have replaced costs a child logger nobody
+builds. Missing one costs the only mechanism between an unnamed field and the line.
+
+**What a caller may rely on:** a child logger that reaches pino with any of the three in force
+is not reachable through `logger.child`. What a caller may NOT rely on: a symmetry between the
+three. `Object.create({ redact: [...] })` is refused and `Object.create({ serializers: {...} })`
+is accepted, because pino would install the first and not the second. Measured on the shipped
+singleton 2026-08-10: prototypic `redact` throws, a lying `hasOwnProperty` throws naming
+`serializers, formatters`, `{ serializers: undefined }` throws, and `{ level: 'warn' }` builds
+a child.
+
 **Refused rather than merged**, because merging is only definable for `redact`, and even
 there a child's own `censor` or `remove: true` changes what the merged list does to the paths
 it inherited. For `serializers.err` and `formatters.log` a merge is a composition whose order
@@ -797,6 +915,11 @@ record carrying `req.headers`. The error record's 1.3 µs over bare pino is `err
 building frames, not the walk. **Use the absolute numbers, not a percentage of a whole-call
 baseline** — the 5.8–9 µs baseline earlier rounds quoted has never been reproduced. Against
 GC-1's 25 ms ceiling one line is 0.010%.
+
+**What the message-position fix added on top, measured the same way at `43e10e7`:**
+`logger.error(record, container)` went 2526 → 2706 ns, and every other shape stayed inside
+run-to-run noise. One such line is 0.011% of GC-1's ceiling. The full table is in ADR-0028,
+"Re-measured after the message position closed".
 
 ### A log call can still throw, and the scan does not stop it (F-253)
 
@@ -1048,8 +1171,8 @@ name it and nothing asserts it.
 
 **Asserted against `node dist/main.js` on loopback**, eight integration tests in
 `security-headers.int-spec.ts`, covering the routed `/health` 200 and the branded 404. The
-eighth is F-280's and is red until the CSP override lands. Not asserted against the deployed
-image: HSTS is only meaningful over TLS, which loopback is not.
+eighth is F-280's and went green with the CSP override at `43e10e7`. Not asserted against the
+deployed image: HSTS is only meaningful over TLS, which loopback is not.
 
 ### Two deliberate exceptions on the redirect path
 
@@ -1071,28 +1194,46 @@ quotes it, so the fix is made there and copied here, not the other way round.
 ## Invariants a caller may rely on
 
 1. Logging a whole request or response object never emits a credential, an IP, or a
-   cookie. **True since ADR-0028 (F-261 closed), and for a stronger reason than this
-   invariant used to claim:** the object does not reach the line at all. `req` is not a named
-   field, so `logger.info(req, '…')` emits `"req":"[redacted]"`. There is no header list to
-   keep current. It was false until 2026-08-10, when the same call emitted
+   cookie. **True in every argument position since `43e10e7` (F-261 and F-277 closed), and
+   for a stronger reason than this invariant used to claim:** the object does not reach the
+   line at all. There is no header list to keep current.
+
+   **The qualification F-277 put here is discharged at `43e10e7`. The invariant holds in
+   every position a caller can put an object in, and each position holds it by a different
+   mechanism.** Re-measured against the shipped singleton 2026-08-10, one process, with a
+   request-like object carrying `headers.authorization`, `headers.cookie`, a concrete
+   `url` with a query token, `socket.remoteAddress` and a body string:
+
+   | where the object is | what the line carries |
+   |---|---|
+   | the record, `logger.info(req, '…')` | `"req":"[redacted]"` |
+   | under a key, `logger.info({ request_id, req }, '…')` | `"request_id":"r-8","req":"[redacted]"` |
+   | bindings, `logger.child({ request_id, req })` | `"request_id":"r-12","req":"[redacted]"` |
+   | the message position, `logger.error({ request_id }, req)` | `"request_id":"r-1","err":{"err_name":"non-error throwable (object)"},"msg":"an error was logged with no context string"` |
+   | the message position with no record, `logger.error(undefined, req)` | the same, with no `request_id` |
+   | a format parameter, `logger.info('ctx %o', req)` | `"msg":"ctx '[redacted]'"` |
+
+   It was false for the message position between `45cf578` and `43e10e7`, and false for the
+   record position before `45cf578`, when `logger.info(req, '…')` emitted
    `"remoteAddress":"203.0.113.7"`, `"remotePort":54321` and the concrete
    `"url":"/l/abc?token=SEKRIT"` in the clear while the six `req.headers.*` paths were
-   censored — which is what made it dangerous rather than obvious.
+   censored, which is what made it dangerous rather than obvious.
 
-   **Qualified 2026-08-10 (F-277), and the qualification is temporary.** The invariant holds
-   for the RECORD position and for BINDINGS. It does **not** hold today for the MESSAGE
-   position: `logger.info('…', req)` is covered, and `logger.error({ request_id }, req)` puts
-   the concrete `url` with its query token, `headers.authorization`, `headers.cookie` and
-   `socket.remoteAddress` on the line verbatim. Measured against the shipped singleton by two
-   auditors independently. ADR-0028 Migration step 7 makes the invariant true again by moving
-   a container in that position onto the record under `err`, where nothing of it survives; see
-   "Door six". **Until step 7 lands, a caller may not rely on this invariant for the message
-   position.**
+   **What the invariant does not promise is that the object is described.** In the message
+   position it is discarded whole, and `err_name: 'non-error throwable (object)'` is a
+   constant. In the record position a request-shaped object is replaced by pino before the
+   scan runs and takes the record's other fields with it; see "Door six".
 
    **This invariant is not permission to log a request object.** It tells you nothing;
    `request_id`, `route`, `status` and `duration_ms` are what the call site wanted.
 2. Every line inside a request carries `request_id`; every line inside a tenant
    transaction carries `tenant_id`.
+
+   **One measured exception, 2026-08-10, and it is the call sites' to avoid rather than the
+   logger's to fix.** A record pino reads as an HTTP request or response is replaced whole
+   before any mechanism here runs (`tools.js:47-56`; see "Door six"), so
+   `logger.info({ request_id, route, method, headers, socket }, '…')` emits `"req":"[redacted]"`
+   and neither named field. Log named fields, never a request object, and this cannot arise.
 3. The API sends no `Access-Control-Allow-Origin` header, for any origin, on any route.
 4. HSTS, `nosniff` and `DENY` are present on every API response including errors.
    **True since 2026-08-10** (F-243 clause 2 closed), asserted by eight integration tests
@@ -1124,15 +1265,23 @@ quotes it, so the fix is made there and copied here, not the other way round.
    this invariant does **not** cover is a message a call site interpolated into the context
    string itself, which no mechanism here can reach.
 
-   **Extended 2026-08-10 by ADR-0028 Migration step 7 (F-277), and not shipped yet.** A
-   non-null object in the message position is moved onto the record under `err` whatever its
-   type, so `logger.error({ request_id }, anyContainer)` emits
+   **Extended by ADR-0028 Migration step 7 (F-277), shipped at `43e10e7`.** A non-null object
+   in the message position is moved onto the record under `err` whatever its type, so
+   `logger.error({ request_id }, anyContainer)` emits
    `"err":{"err_name":"non-error throwable (object)"}` and the same fixed string. The caller's
    record survives. `null`, a number and a string in that position are unchanged, and a
-   function still produces no `msg` key at all. Measured 2026-08-10. **What a caller gives up
-   is the payload**: `non-error throwable (object)` is a constant, so the line says a
-   non-`Error` was logged and nothing about what it held. Pass `{ err }` with a fixed context
-   string, or name the fields worth having.
+   function still produces no `msg` key at all. Measured against the shipped singleton
+   2026-08-10. **What a caller gives up is the payload**: `non-error throwable (object)` is a
+   constant, so the line says a non-`Error` was logged and nothing about what it held. Pass
+   `{ err }` with a fixed context string, or name the fields worth having.
+
+   **Two shapes where the record's own `err` and the message argument collide, both measured
+   and neither a leak.** If the record carries a truthy `err` and no own `msg`, the hook's
+   error-message branch fires first and the message argument is DROPPED rather than moved:
+   `logger.error({ err: realError }, container)` emits the real error's `err_name` and
+   `err_stack` and nothing of the container. If the record carries its own `msg`, the message
+   argument is moved, it overwrites `err`, and the line carries `msg` TWICE. Both are
+   contrived, neither has a call site, and both are priced in ADR-0028's accepted costs.
 7. **A hostile error does not take the process with it.** An accessor that throws on
    `name`, `message` or `stack` is survivable under `err` and under every other key: the log
    call emits a line carrying `err_name` and does not rethrow. This is what the exception
@@ -1200,7 +1349,11 @@ quotes it, so the fix is made there and copied here, not the other way round.
   a precedent.
 - **Never pass `redact`, `serializers` or `formatters` to `logger.child`.** It throws a
   `TypeError` naming the option and the reason. pino replaces these rather than merging them,
-  so a child that supplied `formatters.log` would run with no scan at all.
+  so a child that supplied `formatters.log` would run with no scan at all. The check reads the
+  options the way pino reads them, option by option (F-279), so an inherited `redact` and an
+  options object with a lying `hasOwnProperty` are both refused. It is not a guarantee that
+  every possible spelling of "this object has one of the three" is refused; it is a guarantee
+  that every spelling pino would ACT on is.
 - **Wrap the log call where there is nowhere left to escape to.** A record spread from
   caller-controlled data may carry a property whose getter throws, and that throws out of the
   log call with no line emitted. See "A log call can still throw" (F-253). The exception
@@ -1212,8 +1365,8 @@ quotes it, so the fix is made there and copied here, not the other way round.
   instead. **This bullet got sharper with ADR-0028: `msg` and `err_stack` are the only
   uncensored surfaces left, so they are the only ones worth attacking.** The arguments path is
   covered for format parameters — `hooks.logMethod` reduces every value pino would interpolate
-  before `format` runs (F-260) — the message position is covered by ADR-0028 Migration step 7
-  and not before it, and a string a call site built itself is reachable by nothing here.
+  before `format` runs (F-260) — the message position is covered since `43e10e7` (F-277), and a
+  string a call site built itself is reachable by nothing here.
   `apps/api/src/tenancy/tenant-context.ts:247` does the interpolated form today. **Corrected
   2026-08-10 (F-278): that line does not reach pino at all**, so F-274 was filed on a false
   premise; it writes through `new Logger('TenantTransaction')` from `@nestjs/common` and is
