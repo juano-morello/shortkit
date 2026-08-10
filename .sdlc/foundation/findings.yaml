@@ -10097,3 +10097,66 @@
   status: open
   resolved_by: null
   resolved_round: null
+- id: F-300
+  phase: implement
+  task: null
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: security
+  file: .sdlc/foundation/design/contracts/invitation-tokens.md
+  line: 1
+  summary: >-
+    INVITATION-TOKENS.MD INVARIANT 5 - "the raw token appears in exactly one place" - IS FALSE
+    THE MOMENT TASK-022's ACCEPT SCREEN EXISTS, and ADR-0029 does not fix it. Surfaced by the
+    architect while ruling F-284, unprompted and outside its dispatch.
+  failure_scenario: >-
+    The accept flow puts the raw capability token in the URL path: GET /api/invitations/:token,
+    reached from a link in an email. So the token is in the ADDRESS BAR, in BROWSER HISTORY, in
+    the Referer of any third-party asset the page loads, and in Vercel's page-load log - none of
+    which is the "exactly one place" the invariant claims. ADR-0029 and the F-284 route-template
+    ruling keep it out of ERROR TEXT; they do nothing about the URL itself, because the URL is
+    where the design put it.
+    Attacker: anyone with access to the invitee's browser history or to the platform's request
+    logs - a shared machine, a synced profile, a support tool, or log access - replays the token
+    before expiry and joins the workspace as the invitee. This is the same capability F-284
+    protects in one channel and leaves open in three.
+    NOT REACHABLE TODAY: TASK-022 is deferred with EPIC-002 and no invitation route exists.
+    Filed now because the invariant is normative, it is false as written, and the TASK that
+    would discover it is the one that ships the exposure.
+  required_change: >-
+    Either restate invariant 5 honestly, naming the URL channels and accepting them with a
+    reason, or move the token out of the path - a POST with the token in the body from a
+    generic accept page is the usual shape, and it costs one redirect. Decide before TASK-022
+    returns rather than during it.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-301
+  phase: implement
+  task: TASK-008
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/adr-0014-web-session-handling.md
+  line: 220
+  summary: >-
+    ADR-0014:220 STILL ASSIGNS serverApiClient AND THE BETTER AUTH MAPPING TO TASK-008 BY NAME,
+    which the 2026-08-10 F-291 ruling defers. An accepted ADR now contradicts a ruling made
+    against it, and the ADR is what a returning TASK-012 will read.
+  failure_scenario: >-
+    TASK-012 resumes, reads ADR-0014:220, and concludes TASK-008 already built serverApiClient
+    and the Better Auth error mapping - both of which are throwing stubs whose deferral is
+    recorded only in TASK-008's card. It is the same shape as F-233 and F-288: a normative
+    document naming an owner who is not going to do the work, with no gate able to see the
+    contradiction.
+  required_change: >-
+    Amend ADR-0014's ownership paragraph to match the F-291 ruling: TASK-008 produces the
+    browser client and its error types; serverApiClient, buildUpstreamUrl, mapBetterAuthError
+    and <ErrorMessage /> defer with their consumers. Name where the deferral is recorded.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null

@@ -318,6 +318,46 @@ in `rate-limit.md` is on `/api/auth/*`, which is outside this envelope by invari
 When a route needs to reject on size, append `payload_too_large` to `ERROR_CODES` with a
 413 row, in the same commit as the route.
 
+### Open: the code Better Auth's 422 carries
+
+Raised 2026-08-10 (F-289) and **deliberately left open.** Recorded here rather than decided
+because the mapping that consumes it is deferred and the answer has a cost this contract
+would pay permanently.
+
+`auth-tokens.md:184-193` records that `better-auth@1.6.26` answers **422** with
+`{"code":"USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"}` to a signup for an address that already
+has an account. 422 has no row in `ERROR_CODE_STATUS`, and `mapBetterAuthError` has to
+produce an `ApiError` carrying some `ErrorCode`.
+
+**What is settled, and needs no registry change.** `ApiError.status` is the transport status
+and is independent of `code` (`web-api-client.md`, "`ApiError.status` and `ApiError.code` are
+independent"), so `{ code, status: 422 }` is already expressible. Nothing about Better Auth's
+statuses requires appending to `ERROR_CODES` or adding a row to `ERROR_CODE_STATUS`. The
+status table governs what the **Nest filter** returns; `/api/auth/*` is mounted outside Nest
+and is invariant 1's stated exception.
+
+**What is open: which code.** The choice is between reusing an existing code and appending a
+new one, and it is constrained:
+
+- Appending is permanent. Invariant 2 makes `ERROR_CODES` append-only and a code's status
+  fixed, so a code added for this can never be renamed or re-statused.
+- A new code needs an owner in the "Emitted by" column, and **no `/api` route emits it**. The
+  only producer would be a client-side mapping in `apps/web`, which is a category this table
+  has never held.
+- A code meaning "this email already has an account" is a uniqueness disclosure and must
+  justify itself against **invariant 10**, which requires the bit to be observable without
+  the endpoint. Better Auth already discloses it on sign-up; it deliberately does not on
+  sign-in, where `INVALID_EMAIL_OR_PASSWORD` covers both a wrong password and an unknown
+  address. Naming the bit in our own registry is a decision about account enumeration, not a
+  naming decision.
+- Reusing `validation_failed` costs nothing permanent and reads wrong: the request was valid
+  and the conflict is with stored state.
+
+**Owner:** whichever TASK builds `mapBetterAuthError`. It is deferred today under the F-291
+ruling with TASK-012 and TASK-009. That TASK answers this in the ADR that appends the code,
+or picks an existing code and records why, and amends this section either way. A signup screen
+cannot render AC-20's behaviour until it does.
+
 ### `details` is narrowed before the body is written
 
 Added 2026-08-05 (F-096, ADR-0026). This reverses ADR-0024's accepted cost, which had the
@@ -419,8 +459,11 @@ TASK-007's spec covers the four branches; nobody else re-covers them.
 1. Every non-2xx response from a route under the `/api` prefix has a body validating
    against `errorEnvelopeContract`. **Exception:** Better Auth's own routes at
    `/api/auth/*` are mounted outside Nest (ADR-0013) and return Better Auth's native
-   error shape. TASK-008 maps them at the client boundary; nothing else may rely on the
-   envelope there.
+   error shape. They are mapped at the client boundary; nothing else may rely on the
+   envelope there. **That mapping is deferred** with its consumers, ruled 2026-08-10
+   under F-291 (`TASK-008.md`), so today those bodies arrive as
+   `{ code: 'internal_error', status: <the original> }`. See "Open: the code Better
+   Auth's 422 carries".
 2. `code` is stable across releases. Codes are appended to `ERROR_CODES`, never
    renamed and never removed. A code's status never changes.
 3. `message` is human-readable English intended for display, and may change at any
