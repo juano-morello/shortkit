@@ -60,8 +60,16 @@ const CONTRACT_PATH = new URL(
  * The fence the contract designates as machine-checked. Selected by content rather than by
  * position so that editing the prose around it cannot silently re-aim this test at a
  * different block.
+ *
+ * IT SELECTS ON RAW TEXT, BEFORE COMMENTS ARE STRIPPED, and that is worth knowing before
+ * changing it: a marker that no fence carries selects NOTHING, and `toHaveLength(1)` then
+ * fails with `expected [] to have length 1` — taking F-249 and F-270 with it and reporting a
+ * stale string as a fence-shape problem. `export const REDACT_PATHS` was the marker until
+ * ADR-0028 deleted that declaration; Migration step 6 is this line, and the contract's fence
+ * carried the old marker in a comment across the gap so the three tests stayed green while
+ * the source and the fence moved. That scaffold comment is gone with this edit.
  */
-const FENCE_MARKER = 'export const REDACT_PATHS';
+const FENCE_MARKER = 'export const LOGGABLE_FIELDS';
 
 /**
  * The two ends of the normative region, in NORMALISED form, as they appear in the shipped
@@ -99,13 +107,30 @@ function normativeRegion(normalisedSource: string): string {
 }
 
 /**
- * A redact path with a DOUBLE quote inside a SINGLE-quoted string. It is here because it is
- * the input that separates a real strip from a plausible one: a stripper that does not
- * remember which quote opened the string leaves the string half way through, and from there
- * it reads code as text and text as code. The danger is not that it fails — it is that it
- * mangles BOTH artifacts the same way and the comparison passes on garbage.
+ * A span of the child-options refusal message, carried verbatim by both artifacts, holding a
+ * SINGLE quote inside two BACKTICK-quoted strings and the code that concatenates them. It is
+ * here because it is the input that separates a real strip from a plausible one: a stripper
+ * that does not remember which quote opened the string leaves the string half way through,
+ * and from there it reads code as text and text as code. The danger is not that it fails — it
+ * is that it mangles BOTH artifacts the same way and the comparison passes on garbage.
+ *
+ * RE-ANCHORED AT ADR-0028 MIGRATION STEP 6. The subject used to be the redact path
+ * `'req.headers["fly-client-ip"]'`, a double quote inside a single-quoted string, and it left
+ * the source with `REDACT_PATHS`. `LOGGABLE_FIELDS` has no entry with an inner quote, so the
+ * guard moved to the one live subject that carries the same hazard: `logger's` and
+ * `an error's` sit inside template literals, and `${replaced.join(', ')}` puts a whole
+ * single-quoted string inside one.
+ *
+ * WHY THIS SPAN AND NOT THE SHORTER `${replaced.join(', ')}`, MEASURED rather than chosen: a
+ * quote-blind stripper reproduces that one intact, so an assertion on it would pass against
+ * the mangle it exists to catch. What the mangle does show up in is the JUNCTION — the ` + `
+ * between two chunks is CODE, and a stripper still inside a string copies its line break
+ * instead of collapsing it. Same measurement, on the shipped pair: a quote-blind strip leaves
+ * F-249 and F-270 GREEN and grows both artifacts by the same eight characters.
  */
-const NESTED_QUOTE_PATH = '\'req.headers["fly-client-ip"]\'';
+const QUOTE_INSIDE_A_STRING =
+  "`logger's own rather than merging, so this child would lose the controls that keep ` + " +
+  "`an error's incidental fields";
 
 /**
  * Comments removed, and every run of whitespace OUTSIDE a string collapsed to one space.
@@ -279,13 +304,26 @@ describe("the contract's logger block against the shipped logger", () => {
     expect(region === normalisedFence, report).toBe(true);
   });
 
-  it('the redact path with an inner double quote survives the strip on both artifacts', () => {
-    // The liar direction, checked on the REAL artifacts: a stripper that mangles this path
-    // mangles it identically on both sides, and the comparison above then passes while
-    // whole spans of both artifacts go unchecked. If this path is intact after the strip, the
-    // strip did not leave the string.
-    expect(normalised(source)).toContain(NESTED_QUOTE_PATH);
-    expect(normalised(loggerFences[0])).toContain(NESTED_QUOTE_PATH);
+  it('a quote inside a string survives the strip on both artifacts, and no line break does', () => {
+    // The liar direction, checked on the REAL artifacts: a stripper that mangles this span
+    // mangles it identically on both sides, and the two comparisons above then pass while
+    // whole spans of both artifacts go unchecked. Measured on the shipped pair, with the
+    // quote-blind variant of `normalised`: F-249 and F-270 both stay GREEN. This test is the
+    // only thing that goes red, so it is the only thing standing under them.
+    const normalisedRegion = normativeRegion(normalised(source));
+    const normalisedFence = normalised(loggerFences[0]);
+
+    expect(normalisedRegion).toContain(QUOTE_INSIDE_A_STRING);
+    expect(normalisedFence).toContain(QUOTE_INSIDE_A_STRING);
+
+    // The general form of the same property, and the half that does not depend on any one
+    // message's wording: whitespace OUTSIDE a string is collapsed, so a line break survives
+    // the strip only if the stripper believed it was inside one. Neither artifact contains a
+    // multi-line string literal today. If one is ever added this goes red for a reason that
+    // is not a bug — re-anchor it then, and do not weaken it, because the failure it reports
+    // the rest of the time is a comparison running on garbage.
+    expect(normalisedRegion).not.toContain('\n');
+    expect(normalisedFence).not.toContain('\n');
   });
 
   it('the strip keeps a `//` that is inside a string and drops one that is not', () => {
@@ -299,6 +337,29 @@ describe("the contract's logger block against the shipped logger", () => {
 
     expect(normalised(input)).toBe(
       'const paths = [\'req.headers["fly-client-ip"]\', \'https://example.test/a\']; const depth = 4;',
+    );
+  });
+
+  it('only the quote that opened a string closes it, so an apostrophe does not end a template', () => {
+    // ADDED AT ADR-0028 MIGRATION STEP 6, because the test above was MEASURED not to cover
+    // this: a quote-blind stripper — one where any of the three quotes closes a string —
+    // reproduces the input above byte for byte and leaves it green, while it mangles the real
+    // artifacts. The pairing that file's guard relies on, a hand-written input standing behind
+    // the artifact one, therefore had a hole in it.
+    //
+    // An apostrophe inside a template literal is the shape the shipped logger actually
+    // carries (`logger's own`, `an error's incidental`). A stripper that closes the string
+    // there reads ` name` as code, reopens a string at the next backtick, and from inside it
+    // copies the line break and the `// dropped` comment onto the output. Expected value
+    // written by hand rather than produced by the normaliser.
+    const input = [
+      "const message = `an error's name` + // dropped",
+      '  `and a second chunk`;',
+      'const depth = 4; /* dropped */',
+    ].join('\n');
+
+    expect(normalised(input)).toBe(
+      "const message = `an error's name` + `and a second chunk`; const depth = 4;",
     );
   });
 });

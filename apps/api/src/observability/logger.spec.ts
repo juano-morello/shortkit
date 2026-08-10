@@ -288,8 +288,8 @@ logger.error(
 logger.error({ error: chained }, 'an error chained to the leaking one, under the error key');
 
 // 16. F-257: an error at the deepest level the scan is documented to reach. Written out by
-//     hand rather than built from \`MAX_ERROR_SCAN_DEPTH\`, which would agree with the
-//     source whatever the source says.
+//     hand rather than built from \`MAX_SCAN_DEPTH\`, which would agree with the source
+//     whatever the source says.
 logger.error({ a: { b: { c: { err: parseFailure } } } }, 'an error four levels into the record');
 
 // 17-19. F-260, DOOR SIX. pino builds \`msg\` out of the call's ARGUMENTS, through
@@ -498,17 +498,25 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   });
 
   it('F-244: a secret at the top level of the record is censored, not only one level down', () => {
-    // A pino wildcard path matches EXACTLY ONE level, so `*.password` covers
-    // `req.body.password` and does not cover `password` on the record itself — which is
-    // where a call site that spreads a parsed body reaches first.
+    // The top level is where a call site that spreads a parsed body reaches first, and it is
+    // the level the denylist missed: a pino wildcard path matched EXACTLY ONE level, so
+    // `*.password` covered `req.body.password` and left `password` on the record itself in
+    // the clear. ADR-0028 removed the paths and the key rule covers this now — a key
+    // `LOGGABLE_FIELDS` does not name carries `[redacted]` at every depth, the first
+    // included, and none of these four is a named field.
+    //
+    // `req` IS THE ASSERTION THAT MOVED, AND IT MOVED OUTWARDS. It used to be walked so that
+    // `req.body.password` was censored inside it; an unnamed key now takes its whole value
+    // with it, so what is read is `req` itself. Strictly stronger on this shape — the
+    // concrete URL and the `authorization` header F-261 found go with it — and the cost is
+    // the diagnostic loss ADR-0028 states, not coverage.
     const line = lines[LINE.topLevelSecrets];
-    const record = line.record as { req: { body: Record<string, unknown> } };
 
     expect(line.raw).not.toContain(TOP_LEVEL_SECRET_MARKER);
     expect(line.record.password).toBe(CENSOR);
     expect(line.record.token).toBe(CENSOR);
     expect(line.record.ip).toBe(CENSOR);
-    expect(record.req.body.password).toBe(CENSOR);
+    expect(line.record.req).toBe(CENSOR);
   });
 
   it('F-244: the frames carry no name-and-message header, even when the message itself contains a frame-shaped line', () => {
@@ -545,16 +553,20 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     // same key one level down. Adding `serializers.error` and `serializers.cause` is the
     // enumeration F-244 rejected — one key name later it is back — so what is asserted here
     // is the property: no error's incidental fields reach a line, under any key.
-    const shapes = [
+    //
+    // THE THREE SHAPES SPLIT AT ADR-0028 AND THE FINDING DID NOT. `{ error: e }` and
+    // `{ cause: e }` are an `Error` VALUE at the top level, and rule 1 reduces a value with a
+    // policy before any key is consulted — so those two are unchanged. `{ ctx: { err: e } }`
+    // is an error inside a container whose key nobody named, and rule 2 now censors the
+    // container whole: `"ctx":"[redacted]"`, measured. That is invariant 5 narrowing, which
+    // the ADR states as its cost — the incidental fields are still absent, which is F-248,
+    // and the frames are gone with them, which is the trade.
+    const errorValuesAtTheTopLevel = [
       [LINE.frameworkErrorUnderErrorKey, (record: Record<string, unknown>) => record.error],
       [LINE.frameworkErrorUnderCauseKey, (record: Record<string, unknown>) => record.cause],
-      [
-        LINE.frameworkErrorOneLevelDown,
-        (record: Record<string, unknown>) => (record.ctx as Record<string, unknown>).err,
-      ],
     ] as const;
 
-    for (const [ordinal, read] of shapes) {
+    for (const [ordinal, read] of errorValuesAtTheTopLevel) {
       expect(lines[ordinal].raw).not.toContain(RAW_REQUEST_BODY_MARKER);
       expect(lines[ordinal].raw).not.toContain(ERROR_MESSAGE_MARKER);
 
@@ -567,6 +579,15 @@ describe('what the shared logger writes when an error reaches a log call', () =>
         [],
       );
     }
+
+    // The third shape, one level down. The container is what is read, because the container
+    // is what the line carries — nothing under `ctx` reaches it, at any depth and whatever
+    // that error hangs off itself.
+    const oneLevelDown = lines[LINE.frameworkErrorOneLevelDown];
+
+    expect(oneLevelDown.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
+    expect(oneLevelDown.raw).not.toContain(ERROR_MESSAGE_MARKER);
+    expect(oneLevelDown.record.ctx).toBe(CENSOR);
   });
 
   it('F-248: an error reached only through `err.cause` is still not walked into', () => {
@@ -624,16 +645,20 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
   it("F-251: an error nested inside a child logger's bindings is covered too", () => {
     // The nested shape, asserted separately from the flat one because a fix that only
-    // re-keyed the top level of the bindings would pass the test above and leak here.
+    // re-keyed the top level of the bindings would pass the test above and leak here — and
+    // because `bindingsScanned` is a wrapper someone can delete on its own, which is exactly
+    // the shape F-251 had.
+    //
+    // NARROWED WITH THE RECORD PATH, and it is the same rule doing it: bindings go through
+    // `fieldsCensored`, `ctx` is not a named field, so the container is censored whole
+    // instead of being walked into. `"ctx":"[redacted]"`, measured. The diagnostic half of
+    // this path is held by the lines either side of it — ordinals 10 and 12 both still carry
+    // `err_name` and frames — so a scan that censored everything does not get past this file.
     const line = lines[LINE.childBindingOneLevelDown];
 
     expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
     expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
-
-    const fields = (line.record.ctx as Record<string, unknown>).err as Record<string, unknown>;
-
-    expect(fields.err_name).toBe('SyntaxError');
-    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+    expect(line.record.ctx).toBe(CENSOR);
   });
 
   it('F-251: an error under `err` in child bindings still reports the policy fields, not `non-error throwable`', () => {
@@ -690,22 +715,25 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
   });
 
-  it('F-257: an error four levels into the record is still replaced', () => {
-    // The FLOOR of the documented guarantee, which the rest of the suite defends only to
-    // depth 2 — so the bound can be narrowed to 3 or to 2 today with every gate green, and
-    // the docblock would still claim 4. Only the floor is asserted: a test that the level
-    // BELOW leaks would encode the residual as a requirement and fire red on a security
-    // improvement.
+  it('F-257: an error four levels into the record does not reach the line at all', () => {
+    // F-257 was a leak at depth 4 that the scan of the day did not reach, and the guarantee
+    // that answers it changed shape with ADR-0028. It used to be the depth bound: the error
+    // was walked to and REPLACED, and the assertion was on `a.b.c.err`'s policy fields. Under
+    // the key rule the walk never gets that far — `a` is not a named field, so the whole
+    // branch is censored at depth 1 and everything below it goes with it. Measured:
+    // `"a":"[redacted]"`.
+    //
+    // WHAT THIS COSTS THE SUITE, STATED RATHER THAN HIDDEN. The depth bound is no longer
+    // observable through this shape, and no test in this file pins `MAX_SCAN_DEPTH` now. That
+    // is not an unguarded leak: past the bound a container is CENSORED rather than passed
+    // through (ADR-0028's inversion), so lowering the bound censors more and raising it only
+    // lets a deeper NAMED field keep its value. The constant became additive to safety in
+    // both directions, which is why nothing here defends a particular number.
     const line = lines[LINE.errorAtTheDeepestScannedLevel];
 
     expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
     expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
-
-    const nested = line.record.a as Record<string, Record<string, Record<string, unknown>>>;
-    const fields = nested.b.c.err as Record<string, unknown>;
-
-    expect(fields.err_name).toBe('SyntaxError');
-    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+    expect(line.record.a).toBe(CENSOR);
   });
 
   it('F-258: an error bound through `setBindings` is covered under a key other than `err`', () => {
@@ -719,19 +747,19 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
     expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
 
-    // Not bought by binding nothing: the operator still gets the name and the frames under
-    // each key.
-    const shapes = [
-      line.record.error as Record<string, unknown>,
-      (line.record.ctx as Record<string, unknown>).err as Record<string, unknown>,
-    ];
+    // Not bought by binding nothing: under `error` — an `Error` value at the top level of the
+    // bindings, which rule 1 reduces before any key is consulted — the operator still gets
+    // the name and the frames and nothing else.
+    const fields = line.record.error as Record<string, unknown>;
 
-    for (const fields of shapes) {
-      expect(fields.err_name).toBe('SyntaxError');
-      expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual(
-        [],
-      );
-    }
+    expect(fields.err_name).toBe('SyntaxError');
+    expect(Object.keys(fields).filter((field) => !POLICY_ERROR_FIELDS.includes(field))).toEqual([]);
+
+    // `ctx` is the shape ADR-0028 narrowed, here as on the record path and on `child`'s: the
+    // container is not a named field, so `bindingsScanned` censors it whole rather than
+    // walking to the error inside it. Both shapes are still read off THIS line, which is what
+    // catches a scan that covered only the top level of a `setBindings` call.
+    expect(line.record.ctx).toBe(CENSOR);
   });
 
   it('F-258: an error under `err` in `setBindings` still reports the policy fields, not `non-error throwable`', () => {

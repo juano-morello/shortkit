@@ -153,14 +153,6 @@ the drift test is what stops it shipping without doing so.
 ```ts
 import pino from 'pino';
 
-// ADR-0028 removed `export const REDACT_PATHS` and pino's `redact` option from this region.
-// The 25 paths are now the never-allowlist list under "What may never appear in a log line",
-// where they are a prohibition and not a mechanism.
-//
-// This comment also carries the drift spec's `FENCE_MARKER` text, which still reads
-// `export const REDACT_PATHS`, until ADR-0028 Migration step 6 re-points it. Do not delete it
-// before that lands — see the paragraph above this fence.
-
 /**
  * Every key that may carry a value onto a log line. Nothing else survives: an unnamed key is
  * emitted as `[redacted]`, and the key stays on the line. One name per line, sorted, with the
