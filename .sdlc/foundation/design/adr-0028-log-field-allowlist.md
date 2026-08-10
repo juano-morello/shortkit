@@ -2,10 +2,19 @@
 id: ADR-0028
 slug: foundation
 title: A log field reaches the line only if it is named
-status: proposed
+status: accepted
 supersedes: ADR-0022 (its redaction clause only; CORS and the header table stand)
 date: 2026-08-09
+accepted_at: 2026-08-09
 ---
+
+> **Ledger correction, 2026-08-10.** This card read `status: proposed` until now, while
+> `state.yaml`'s design gate recorded Juano reapproving it on 2026-08-09 and the implement
+> log narrated it as partly implemented (F-260 and F-263 closed against it). The vault mirror
+> caught the discrepancy and declined to reconcile it, which was correct — the card is the
+> source of truth, so the card is what had to change. Same class as the drift the 2026-08-09
+> re-scope found in `state.yaml`: a status field with no writer after the event that should
+> have set it.
 
 ## Context
 

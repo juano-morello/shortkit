@@ -3348,9 +3348,11 @@
     unredactable-message reason, the newline property and the concrete remedy. I invoked the F-064
     delivery-path failure class in the same sentence in which I committed it.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-109
   phase: implement
@@ -3380,9 +3382,11 @@
     the pointer to the named section. main.ts is TASK-003's path too, so the pair moves in the same
     commit that moves the line onto pino. Deferred to TASK-003; does not extend TASK-007's loop.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-110
   phase: implement
@@ -3452,9 +3456,11 @@
     verification to be written down and cannot become the next struck claim. The orchestrator has
     already carried this into TASK-003's card as a check; the contract half remains for sdlc-architect.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer + sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-112
   phase: implement
@@ -8447,9 +8453,11 @@
     the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
     shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-252
   phase: implement
@@ -8494,9 +8502,11 @@
     the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
     shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-253
   phase: implement
@@ -8527,9 +8537,11 @@
     pino's own stringify to handle it exactly as it did before this function existed" is accurate
     and is precisely what makes the invariant false.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-254
   phase: implement
@@ -8585,9 +8597,11 @@
     State the residual beside the depth-5 one, in the same two places, with the same escalation
     rule. No behaviour change required if the trade-off is deliberate.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-256
   phase: implement
@@ -8615,9 +8629,11 @@
     nested under ctx. Keeping the existing line as well is fine; it locks errorLogFields'
     non-descent, which is worth locking.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-257
   phase: implement
@@ -8757,9 +8773,11 @@
     the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
     shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-261
   phase: implement
@@ -8787,6 +8805,8 @@
   status: open
   resolved_by: null
   resolved_round: null
+  reaudit_r5: >-
+    STILL OPEN, CONFIRMED SURVIVING AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10) AND MEASURED, NOT READ. Routed to ADR-0028, which Juano accepted on 2026-08-09 - but only ADR-0028's two PRECONDITIONS (F-260, F-263) were implemented. Its main body was not: REDACT_PATHS is still byte-for-byte the 25-path list at apps/api/src/observability/logger.ts:35-64 and redact: is still on the pino literal at :136. THE DECISION WAS BEING READ AS THE IMPLEMENTATION.
 
 - id: F-262
   phase: implement
@@ -8811,6 +8831,8 @@
   status: open
   resolved_by: null
   resolved_round: null
+  reaudit_r5: >-
+    STILL OPEN, CONFIRMED SURVIVING AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10) AND MEASURED, NOT READ. Routed to ADR-0028, which Juano accepted on 2026-08-09 - but only ADR-0028's two PRECONDITIONS (F-260, F-263) were implemented. Its main body was not: REDACT_PATHS is still byte-for-byte the 25-path list at apps/api/src/observability/logger.ts:35-64 and redact: is still on the pino literal at :136. THE DECISION WAS BEING READ AS THE IMPLEMENTATION.
 
 - id: F-263
   phase: implement
@@ -8834,9 +8856,11 @@
     Refuse or merge child options that touch redact, serializers or formatters, rather than passing
     them through. A test on emitted bytes for each of the three.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-264
   phase: implement
@@ -8860,9 +8884,11 @@
     A test that builds a grandchild and asserts both the inherited coverage and the preserved
     binding. Owner is sdlc-test-architect for the test.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer + sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-265
   phase: implement
@@ -8881,9 +8907,11 @@
     walks the object happily and the leak happens at stringify time.
   required_change: State it as a third residual, or handle it. No behaviour change if deliberate.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-266
   phase: implement
@@ -8905,6 +8933,8 @@
   status: open
   resolved_by: null
   resolved_round: null
+  reaudit_r5: >-
+    STILL OPEN, CONFIRMED SURVIVING AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10) AND MEASURED, NOT READ. Routed to ADR-0028, which Juano accepted on 2026-08-09 - but only ADR-0028's two PRECONDITIONS (F-260, F-263) were implemented. Its main body was not: REDACT_PATHS is still byte-for-byte the 25-path list at apps/api/src/observability/logger.ts:35-64 and redact: is still on the pino literal at :136. THE DECISION WAS BEING READ AS THE IMPLEMENTATION.
 
 - id: F-267
   phase: implement
@@ -8925,9 +8955,11 @@
     Either make the claim true - non-writable, non-configurable - or correct the versioning rules.
     Note the originals stay reachable via the prototype either way.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-268
   phase: implement
@@ -8945,9 +8977,11 @@
   failure_scenario: A later TASK builds its own pino instance and every gate stays green.
   required_change: Write the rule, or stop claiming enforcement.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-269
   phase: implement
@@ -8964,9 +8998,11 @@
     difference between silence and a credential in msg is one character.
   required_change: Covered by F-260's fix if the hook scans every argument position.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-270
   phase: implement
@@ -8986,9 +9022,11 @@
     where new declarations get added.
   required_change: Anchor both ends of the region rather than asserting an unanchored substring.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-271
   phase: implement
@@ -9006,9 +9044,11 @@
   failure_scenario: A correct decision resting on a stated reason that does not hold, which the next reader inherits.
   required_change: Correct the sentence. The residual ruling stands on its other grounds.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-272
   phase: implement
@@ -9028,9 +9068,11 @@
     amendment minimal, and said so. Filed rather than left implicit.
   required_change: Correct it, or state in the amendment that wave claims in the ADR body are superseded by the TASK cards.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 5
+  reaudit_r5: >-
+    CONFIRMED RESOLVED AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10), reaudit: raised-only. The auditor that raised it re-judged it against CURRENT SOURCE rather than against any report, with file:line evidence. Status is written here because rounds 3 and 4 closed findings in state.yaml prose and never wrote this field - see workflow finding F-O.
 
 - id: F-273
   phase: implement
