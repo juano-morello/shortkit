@@ -9855,3 +9855,163 @@
   status: open
   resolved_by: null
   resolved_round: null
+- id: F-293
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 1
+  severity: blocker
+  kind: security
+  file: apps/api/test/isolation/coverage.ts
+  line: 490
+  summary: >-
+    EVERY ATTEMPT RUNS ONE DIRECTION ONLY. coverage.ts:490 is the single call site and reads
+    method.attempt(fixtures.tenantA, fixtures.tenantB); registrations.ts:105-111 shows the
+    signature is (actor, target). So the actor is ALWAYS tenant A and the target ALWAYS tenant
+    B. A leak visible only to B, or only in the B->A direction, is scored `pass`. This is the
+    harness SC-1 rests on - "tenant isolation proven, not asserted".
+  failure_scenario: >-
+    A policy that lets B read A's rows while A remains correctly scoped is never attempted, so
+    the suite reports PASS and report.json records "verdict": "pass". THE EVIDENCE IS ALREADY
+    BEING COMPUTED AND THROWN AWAY: the ownership census at coverage.ts:359 iterates BOTH
+    tenants and builds the exact string that proves the leak - `tenants seen-by=<B> owner=<A>`
+    - but it is only ever compared before-versus-after, so a leak PRESENT AT BASELINE is
+    invisible.
+    THE AUDITOR MEASURED THIS TWICE against the live container: one ALTER POLICY on the
+    migrated tenants table with the policy count unchanged at 4, and a new tenant-scoped
+    workspaces table with ENABLE + FORCE and USING (true) that leaks every row to every tenant
+    and is not named anywhere in report.json. Both gates green in both cases.
+    ORCHESTRATOR VERIFICATION, STATED HONESTLY AND INCOMPLETE. I confirmed the MECHANISM
+    conclusively at source. I did NOT reproduce the runtime measurement: my symmetric mutation
+    (USING (true)) WAS CAUGHT, 2 failed / 3 passed, and my asymmetric attempt broke on RLS
+    infinite recursion because I self-referenced tenants from a tenants policy - my error, not
+    a defect. So the refinement worth recording is that SYMMETRIC LEAKS ARE CAUGHT AND THE
+    BLIND SPOT IS DIRECTIONAL. The auditor's two green-while-leaking runs stand on its
+    evidence, not mine.
+    Separately and verified by me: db:check-policies returned OK against a wide-open
+    USING (true) policy. It proves RLS is ON, never that it WORKS.
+  required_change: >-
+    Assert seen-by == owner on every census line - the data is already there and the fix is
+    small. And run every attempt in both directions, or state in isolation-coverage.md why one
+    direction is sufficient and make the registration API refuse a non-symmetric surface.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-294
+  phase: implement
+  task: TASK-006
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/coverage.ts
+  line: 489
+  summary: >-
+    ANY THROW IS SCORED `pass`, AND describeError() DROPS THE MESSAGE whenever a SQLSTATE
+    exists - so the harness cannot tell "the database refused me" from "something else went
+    wrong". FOUND INDEPENDENTLY BY BOTH AUDITORS.
+  failure_scenario: >-
+    Measured against the live database: an RLS WITH CHECK violation and a MISSING TABLE
+    PRIVILEGE are both SQLSTATE 42501, so both render as the identical `error [42501]` string
+    that report.json already carries for two of the ten attempts today. A future table whose
+    INSERT/UPDATE/DELETE grant never reaches shortkit_app reports THREE GREEN WRITE SURFACES
+    THAT TESTED NOTHING. The security auditor measured a sharper version: widening
+    tenants_self_insert to WITH CHECK (true) correctly turns the suite red, and then adding an
+    unrelated CHECK constraint turns it GREEN AGAIN at `refused: error [23514]` while the
+    policy stays wide open.
+  required_change: >-
+    A refusal counts as a pass only when its SQLSTATE and message are the ones RLS produces.
+    Carry the message into report.json rather than dropping it, so a 42501 from a missing
+    grant is distinguishable from a 42501 from a policy.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-295
+  phase: implement
+  task: TASK-006
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/coverage.ts
+  line: 413
+  summary: >-
+    NO POSITIVE CONTROL. Nothing asserts the actor can see its OWN row, and no row count
+    reaches report.json, so "denied" and "found nothing" are indistinguishable. Found
+    independently by both auditors.
+  failure_scenario: >-
+    Four of the five statement shapes return zero rows when the TARGET owns no row, regardless
+    of whether any policy exists. A later registration that forgets to seed tenant B gets FOUR
+    GREEN SURFACES on a table with RLS entirely off. Today this is masked by a different TASK's
+    file (tenant-context.int-spec.ts:171, AC-8) and by the canary's foreign key - neither
+    mitigation extends to a new registration. The canary cannot close it either: the canary has
+    no RLS, so it leaks regardless of the tenant context.
+  required_change: >-
+    Every attempt asserts the actor CAN see its own row before asserting it cannot see the
+    target's, and report.json carries row counts so zero-because-denied is distinguishable from
+    zero-because-empty.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-296
+  phase: implement
+  task: TASK-006
+  source: sdlc-reviewer, sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/coverage.ts
+  line: 11
+  summary: >-
+    A FORGOTTEN REGISTRATION SHRINKS THE HARNESS SILENTLY AND BY CONSTRUCTION.
+    discoveredSurfaces() maps over the registry, so `uncovered` is structurally always [] -
+    the harness can only ever report on what someone remembered to register, while
+    coverage.ts:11's header claims otherwise.
+  failure_scenario: >-
+    The security auditor measured it: a new tenant-scoped `workspaces` table with ENABLE +
+    FORCE and USING (true) leaks every row to every tenant, both gates stay green, and THE
+    TABLE IS NOT NAMED ANYWHERE IN report.json. The covered set is a hand-maintained list of
+    two registerTenantScopedSurfaces() calls with no cross-check against the database.
+    ADR-0019's set-equality check is assigned to TASK-053/056 - both now DEFERRED by the
+    2026-08-09 re-scope - and check-policies.mts's own header says `links` lands three waves
+    earlier. db:check-policies proves a new table has RLS on, not that it works: VERIFIED BY
+    THE ORCHESTRATOR, it returned OK against a wide-open USING (true) policy.
+  required_change: >-
+    Pull the SQL half of ADR-0019's cross-check forward - the reviewer notes it needs no
+    TASK-053 artifact and would close this today: enumerate tenant-scoped tables from the
+    database, diff against the registry, and fail on any table present in one and not the other.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-297
+  phase: implement
+  task: TASK-006
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: contract
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    report.json - which ADR-0020 calls "the artifact SC-1 points at" - is GITIGNORED and never
+    uploaded by CI, so the artifact the initiative's central claim rests on never leaves the
+    machine that produced it.
+  failure_scenario: >-
+    The coverage boundary statement is accurate on substance (the reviewer verified every
+    clause, including the hard-coded policy counts against rls-policy-template.md) and travels
+    in three committed source headers plus COVERAGE_BOUNDARY. But report.json itself is
+    ephemeral. Anyone asked to show that isolation is proven has a green test run and no
+    artifact, which is precisely the "asserted rather than proven" posture SC-1 exists to
+    reject.
+  required_change: >-
+    CI uploads report.json as a build artifact, or the harness writes a committed summary. Also
+    reconcile the mechanism gap the reviewer noted: the boundary statement is silent on HOW the
+    coverage is bounded, which is what makes the enumeration defect invisible to a reader.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null

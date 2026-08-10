@@ -3,7 +3,7 @@ id: TASK-008
 story: STORY-004
 epic: EPIC-001
 title: Web typed API client and error surface
-status: tests-green
+status: rework
 owner_slot: sdlc-implementer-frontend
 depends_on: [TASK-007, TASK-004]
 paths: ["apps/web/src/lib/api/**", "apps/web/src/components/errors/**", "apps/web/package.json", "pnpm-lock.yaml"]
