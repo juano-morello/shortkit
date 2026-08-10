@@ -3755,9 +3755,11 @@
     way in its report. Recorded in TASK-003's card by the orchestrator rather than left in a report -
     the F-064 failure this initiative has now filed four times.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 6
+  resolution: >-
+    DISCHARGED by ruling at the round-6 review, judged against current source.
 
 - id: F-120
   phase: implement
@@ -7035,9 +7037,11 @@
     rather than an unbuilt one to anyone who tries it - including a platform health probe.
   required_change: TASK-003 lands the health controller. Recorded on its card.
   owner_slot: sdlc-implementer-backend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 6
+  resolution: >-
+    DISCHARGED by ruling at the round-6 review, judged against current source.
 
 - id: F-218
   phase: ship
@@ -8404,9 +8408,11 @@
     of one configuration is what produced this finding. Whichever, state that the contract wins a
     disagreement.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 6
+  resolution: >-
+    DISCHARGED by ruling at the round-6 review, judged against current source.
 
 - id: F-251
   phase: implement
@@ -8570,9 +8576,11 @@
     green today, and did not write it because I scoped its dispatch verdict-only. Correct
     logger.ts:195-197 to state what actually holds.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 5
+  resolution: >-
+    RESOLVED, verified by re-running the finding's OWN M12 rather than by reading. Striking both halves of the partition today fails exactly one test - the non-Error under the top-level err key - on the exact leak; striking each half alone fails 15 and 7. The orchestrator's grep reached the same verdict for a weaker reason and was explicitly told not to be taken at its word.
 
 - id: F-255
   phase: implement
@@ -8700,9 +8708,11 @@
     the failure_scenario above was wrong; it is kept verbatim rather than rewritten so the record
     shows what was believed and when it was disproven.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-backend"
+  resolved_round: 5
+  resolution: >-
+    RESOLVED, and not on the orchestrator's grep. The implementer ran the finding's own reproduction, then deleted ONLY the defineProperty(logger, 'setBindings', ...) installation and re-ran it - F-258's exact shape returned, the request body verbatim under `error`. The wrapper is what closes it. logger.ts restored, md5 identical.
 
 - id: F-259
   phase: implement
@@ -8730,9 +8740,11 @@
     measured that the second is the real fix and is more than one line; the first is honest and
     free.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-reviewer"
+  resolved_round: 6
+  resolution: >-
+    DISCHARGED by ruling at the round-6 review, judged against current source.
 
 - id: F-260
   phase: implement
@@ -8802,9 +8814,11 @@
     object may be logged and enforce that. This is a REDACT_PATHS completeness question and may be
     larger than TASK-003.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "ADR-0028 implementation (45cf578)"
+  resolved_round: 5
+  resolution: >-
+    RESOLVED by ADR-0028's allowlist. Confirmed at round 6 by sdlc-product-auditor, which emitted the finding's reproduction through the shipped singleton and got [redacted], and again across rounds 6 and 7 by both auditors sweeping the record, bindings and argument paths. NOTE THE LEDGER LAG: this sat marked `open` with a round-5 note saying it SURVIVED from 45cf578 until 2026-08-10, because the orchestrator recorded the round-5 verdict and never revisited it after the implementation landed. Caught by sdlc-product-auditor, not by any mechanism. That is workflow finding F-O's exact pattern, committed by the person who filed F-O.
   reaudit_r5: >-
     STILL OPEN, CONFIRMED SURVIVING AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10) AND MEASURED, NOT READ. Routed to ADR-0028, which Juano accepted on 2026-08-09 - but only ADR-0028's two PRECONDITIONS (F-260, F-263) were implemented. Its main body was not: REDACT_PATHS is still byte-for-byte the 25-path list at apps/api/src/observability/logger.ts:35-64 and redact: is still on the pino literal at :136. THE DECISION WAS BEING READ AS THE IMPLEMENTATION.
 
@@ -8828,9 +8842,11 @@
     Same completeness question as F-261. Enumerating spellings is the pattern F-244 rejected; an
     allowlist decides the class instead of the instance.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "ADR-0028 implementation (45cf578)"
+  resolved_round: 5
+  resolution: >-
+    RESOLVED by ADR-0028's allowlist - an unnamed key is censored however it is spelled, so the four IP spellings that motivated this finding cannot recur by that route. Same ledger lag as F-261: marked open with a SURVIVES note for the days between the implementation and 2026-08-10.
   reaudit_r5: >-
     STILL OPEN, CONFIRMED SURVIVING AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10) AND MEASURED, NOT READ. Routed to ADR-0028, which Juano accepted on 2026-08-09 - but only ADR-0028's two PRECONDITIONS (F-260, F-263) were implemented. Its main body was not: REDACT_PATHS is still byte-for-byte the 25-path list at apps/api/src/observability/logger.ts:35-64 and redact: is still on the pino literal at :136. THE DECISION WAS BEING READ AS THE IMPLEMENTATION.
 
@@ -8930,9 +8946,11 @@
     cookie are covered only under req.headers, not bare.
   required_change: Part of the same completeness decision as F-261 and F-262.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "ADR-0028 implementation (45cf578)"
+  resolved_round: 5
+  resolution: >-
+    RESOLVED by ADR-0028's allowlist. sessionToken, apiKey, api_key, passwordHash and bare authorization/cookie are all unnamed keys and are censored by default. Same ledger lag as F-261.
   reaudit_r5: >-
     STILL OPEN, CONFIRMED SURVIVING AT THE ROUND-5 SCOPED RE-AUDIT (2026-08-10) AND MEASURED, NOT READ. Routed to ADR-0028, which Juano accepted on 2026-08-09 - but only ADR-0028's two PRECONDITIONS (F-260, F-263) were implemented. Its main body was not: REDACT_PATHS is still byte-for-byte the 25-path list at apps/api/src/observability/logger.ts:35-64 and redact: is still on the pino literal at :136. THE DECISION WAS BEING READ AS THE IMPLEMENTATION.
 
@@ -9195,9 +9213,11 @@
     exists because spreading an array produces an object keyed "0", "1", which the return type
     asserts it is not, and that the emitted bytes are identical either way.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-backend"
+  resolved_round: 7
+  resolution: >-
+    RESOLVED at round 7. The docblock now argues type soundness - the signature is <T extends object>(record: T): T and spreading an array makes the `as T` a lie - and agrees with the corrected inline comment 30 lines below instead of contradicting it.
 - id: F-276
   phase: implement
   task: TASK-003
@@ -9296,9 +9316,11 @@
     line ABOVE the loop. ADR-0028 never specified the argument list at all, so the ADR needs
     the policy written down as well as the code fixed.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-reviewer + sdlc-security-auditor
+  resolved_round: 7
+  resolution: >-
+    RESOLVED AT ROUND 7 BY BOTH AUDITORS THAT RAISED IT, independently. sdlc-reviewer emitted 19 shapes - zero of 20 leak markers reach a line, including Object.create(null), a Buffer, a container impersonating an error, and the own-non-enumerable-toJSON object that decided the ruling against reduce-in-place. sdlc-security-auditor SWEPT the argument list rather than sampling it: 14 lead kinds x 10 payload kinds x 3 slots = 420 calls, 420 lines, 0 throws, and grep for the marker over the whole capture returns zero. THE REGRESSION IS NOT MERELY REPAIRED BUT OVERTAKEN: the denylist censored the eight wildcards only ONE LEVEL DEEP inside msg and leaked all eight VERBATIM on an array element and on a container one level deeper; HEAD emits nothing on either, so the message position is strictly stronger than the denylist ever was. The fix MOVES rather than drops - every line carries request_id, err.err_name and the fixed msg - though see F-282: no behavioural test distinguishes moving from dropping. GC-1 +90 to +180 ns on the covered shape, everything else inside noise.
 - id: F-278
   phase: implement
   task: TASK-003
@@ -9328,9 +9350,11 @@
     exempted with a reason. Extend F-268's lint rule to cover @nestjs/common's Logger, or state
     why it should not.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect + sdlc-implementer-backend"
+  resolved_round: 7
+  resolution: >-
+    RESOLVED in both halves. The architect corrected Migration step 3's sweep with a table separating pino sites from Nest Logger sites and ruled the two Nest loggers EXEMPTED, NAMED AND BOUNDED rather than converted, because the mechanism that would close the class - app.useLogger over the shared singleton - is one decision covering three findings and needs its own ADR. The implementer added the lint half AND DEVIATED FROM THE SPECIFIED SHAPE, correctly: a second config object naming only @nestjs/common would have switched the pino ban OFF for every file it matched, because ESLint REPLACES rule options rather than merging them - the fix for one bypass opening a wider one. Verified by probe at round 7 across five file identities, and independently by the orchestrator.
 - id: F-279
   phase: implement
   task: TASK-003
@@ -9360,9 +9384,11 @@
     prototypic check for redact, own checks for serializers and formatters - or read the
     options through the same accessor pino will use.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-reviewer + sdlc-security-auditor
+  resolved_round: 7
+  resolution: >-
+    RESOLVED AT ROUND 7. Both directions the auditor measured at round 6 are refused now, and it re-measured the ACCEPT set too, since a wrong accept is the half that leaks: prototypic serializers and prototypic formatters with an honest hasOwnProperty are accepted and provably inert, root serialiser and root scan both still running. pinoWouldReplace tracks pino's real per-option predicates - prototypic for redact, own-method for serializers and formatters - rather than the documented uniform one.
 - id: F-280
   phase: implement
   task: TASK-003
@@ -9385,9 +9411,11 @@
     Set frame-ancestors 'none' in the CSP directives to match the frameguard intent, or state
     in the contract that CSP governs framing and X-Frame-Options is legacy belt-and-braces.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-reviewer + sdlc-security-auditor
+  resolved_round: 7
+  resolution: >-
+    RESOLVED AT ROUND 7 on real response bytes across all four arms - routed 200, branded 404, framework-400 and unrouted 404 - with frame-ancestors 'none' set, X-Frame-Options: DENY beside it, and the other ten helmet directives intact.
 - id: F-281
   phase: implement
   task: TASK-003
@@ -9418,6 +9446,86 @@
     Either restate invariant 2 to exclude records pino will map, naming mapHttpRequest and the
     keys that trigger it, or make the required fields survive by building the record so pino
     does not recognise it. Do not leave the invariant asserting something measured false.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+  correction: >-
+    CONFIRMED AT ROUND 7 BY BOTH AUDITORS, AND THE ARCHITECT'S STATED REASON IS WRONG.
+    sdlc-security-auditor measured that mapHttpRequest CENSORS NOTHING - it re-shapes, and
+    carries headers, remoteAddress and the raw request straight through. What censors is THIS
+    TASK'S OWN KEY RULE, because `req` and `res` are not in LOGGABLE_FIELDS. The bindings row
+    proves the coverage does not depend on the replacement at all: asChindings skips the sniff
+    entirely and every key is censored anyway. So the conclusion "no leak" holds on six routes,
+    but not for the reason recorded - and it would still hold even if `req` were added to the
+    allowlist, because reqSerializer's output has a non-plain prototype.
+    WIDER THAN FILED, per sdlc-reviewer: tools.js:48-52 has a SECOND door,
+    typeof o.setHeader === 'function' -> "res":"[redacted]", beside the request door.
+    AND NOTHING PINS ANY OF IT: the allowlist spec's request-shaped record has no `socket` key,
+    so it never trips the sniff. The behaviour is documented in three places and tested in
+    none.
+- id: F-282
+  phase: implement
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 7
+  severity: minor
+  kind: test-coverage
+  file: apps/api/src/observability/logger-field-allowlist.spec.ts
+  line: 987
+  summary: >-
+    NO BEHAVIOURAL TEST DISTINGUISHES THE SHIPPED F-277 FIX FROM THE CHEAPEST WRONG ONE. The
+    reviewer built a drop-mutant outside the repository - errorMovedOntoTheRecord(args) with
+    the caller's argument discarded - and measured that all three F-277 tests AND
+    logger.spec.ts ordinal 21 stay green under it. The wrong-fix guard catches dropping the
+    RECORD and dropping the MESSAGE; it does not catch dropping the caller's ARGUMENT, which
+    is the actual cheap wrong answer.
+  failure_scenario: >-
+    A later refactor that discards the message-position container instead of moving it onto
+    the record passes the entire suite. The leak stays closed - that is why this is minor - but
+    the diagnostic the fix exists to preserve is silently gone, and the tests report success.
+    THE ORCHESTRATOR ASSERTED THE OPPOSITE TO JUANO, reasoning that the guard staying green
+    proved the argument was moved rather than dropped. It does not prove that. The conclusion
+    was right and was independently verified by emission - every line carries err.err_name -
+    but the evidence cited did not support it. Same error shape as the Migration step 3 sweep:
+    checking that a guard EXISTS rather than that it BITES.
+    The drift spec does fire on the mutation, but as a TEXT gate rather than a behaviour gate,
+    which is why this is a test-architect follow-up and not a rework round.
+  required_change: >-
+    One test asserting the caller's container reaches the record - err.err_name present and the
+    fixed msg - that goes RED under the drop-mutant. Prove it by running that mutant, not by
+    inspection. Also strike the claim at TASK-003-f277-design-report.md:75-77 that this was
+    "already redded by mutation A"; it is false and must not be carried forward as coverage.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-283
+  phase: implement
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 7
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/logging-and-headers.md
+  line: 74
+  summary: >-
+    THE CONTRACT AND THE SOURCE BOTH STILL SAY THE toJSON CLASS IS CLOSED. It is not. Door
+    seven closed two of thirteen routes, both message-position ones; nine still emit toJSON's
+    return value - a named key at depth 2 and 3, child and grandchild bindings, setBindings,
+    %o / %j / %O, and an array element. ADR-0028 now carries an honest residual entry. The
+    contract does not, at :74-76 and :858-872, and logger.ts asserts it closed twice at :610
+    and :733-738 - the second inside a sentence that then goes on to describe the leak.
+  failure_scenario: >-
+    The contract is what later TASKs are told to rely on. A TASK reading ":74-76" builds on a
+    guarantee that nine measured routes do not honour, and the source docblock agrees with the
+    contract rather than with the code beneath it. This is F-265 unclosed, not a new defect -
+    but F-265 is filed as narrowed while two normative artifacts still claim it is shut.
+  required_change: >-
+    Correct the contract at :74-76 and :858-872 and the two source docblocks to state the
+    residual honestly, matching ADR-0028's entry: which routes are closed, which nine are not,
+    and that the class is narrowed rather than eliminated. No code change - F-265 stays open
+    and narrowed.
   owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
