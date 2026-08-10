@@ -13,6 +13,37 @@ acceptance: [AC-6]
 rework_count: 0
 ---
 
+## ⚠ Ruled 2026-08-10 — ADR-0028's implementation is OUTSIDE the rework counter
+
+The round-5 scoped re-audit proved F-261, F-262 and F-266 were never closed. All three were
+routed to ADR-0028, ADR-0028 was accepted on 2026-08-09, and **only its two preconditions
+(F-260, F-263) were implemented.** `REDACT_PATHS` is still byte-for-byte the 25-path list at
+`apps/api/src/observability/logger.ts:35-64` and `redact:` is still on the pino literal at
+`:136`. The decision was being read as the implementation.
+
+**Juano ruled this is design-derived new work, not fix round 5 of 5.** The reasoning, which
+the orchestrator flagged on 2026-08-09 and which went unanswered until now: the cap exists to
+stop a loop that is not converging, and ADR-0028 *is* the convergence — it was written because
+`REDACT_PATHS` had failed three audit rounds the same way, by covering only the spellings
+someone thought of. Executing a new Design decision is the escape from that loop rather than
+another turn of it. **Fix round 5 stays in reserve** for whatever the implementation surfaces.
+
+This gets a full red → green cycle. It is not a patch.
+
+### Also added to this TASK's scope, ruled the same day
+
+**`helmet` is absent from `main.ts`**, so the logging-and-headers contract's **invariant 4 is
+currently false** and F-243 clause 2 had no owner. This TASK owns `main.ts` and produces that
+contract, so the clause is squarely its work. An initiative whose own contract asserts an
+invariant the code does not hold is exactly what the Ship review exists to catch.
+
+### Not this TASK's, routed away
+
+`apps/api/src/tenancy/tenant-context.ts:247` interpolates `error.message` into `msg` — the one
+live instance of the call shape no mechanism in the logger can reach. That path is TASK-005's,
+which is `done` and merged, and it is outside this TASK's `paths`. Filed as **F-274** against
+the roadmap item that next touches tenancy.
+
 ## Intent
 
 Get the NestJS deployable running on the internet before any feature depends on it.

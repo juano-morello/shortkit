@@ -9122,3 +9122,36 @@
     shape and NO route in apps/api/src produces it today. If a reviewer restricts the guard to
     live paths, the log half collapses into F-244 and only the body half stands alone. Flagged
     by the test architect itself as blocking-if-disputed.
+- id: F-274
+  phase: implement
+  task: null
+  source: sdlc-security-auditor
+  round: 5
+  severity: minor
+  kind: behavior
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 247
+  summary: >-
+    tenant-context.ts:247 interpolates error.message into the msg string. It is the ONE LIVE
+    INSTANCE in the repository of the call shape no mechanism in the logger can reach - msg is
+    built by the call site, before pino, so neither formatters.log nor hooks.logMethod nor the
+    wrappers see it.
+  failure_scenario: >-
+    A driver or Postgres error whose message carries a value - a DSN fragment, a constraint
+    body, a parameter - is interpolated into msg by the call site and written verbatim. Every
+    control TASK-003 built acts on the RECORD or on the arguments pino formats; a string the
+    caller has already assembled arrives as an opaque literal. GC-9 says no PII in log bodies,
+    and this is the shape that walks past all six doors.
+  required_change: >-
+    Move the error onto the record under err, where serializers.err owns it, and leave msg a
+    fixed string. Same fix F-260 applied to the message position. Do NOT interpolate.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+  routing_note: >-
+    NOT TASK-003's. tenant-context.ts is TASK-005's, which is done and merged, and the file is
+    outside TASK-003's paths - routing rule 0 forbids reaching into it. Ruled by Juano
+    2026-08-10: this is filed against the ROADMAP ITEM THAT NEXT TOUCHES TENANCY (roadmap.md
+    item 1, identity/tenancy/membership) and must be re-raised at that initiative's Refine.
+    Recorded here rather than in roadmap.md because roadmap entries carry no ids by rule.
