@@ -9536,3 +9536,322 @@
   resolved_round: 7
   resolution: >-
     RESOLVED in both halves. The contract is corrected in three places with the full thirteen-route table and per-row status: two closed by F-277's fix, both message-position; nine open (named key at depth 2 and 3, child and grandchild bindings, setBindings, %o, %j, %O, array element); two that never reached the mechanism. The source docblocks at logger.ts now match ADR-0028's residual entry. AND THE ARCHITECT FOUND THE CONFLATION UNDERNEATH IT: the old table's { ctx: { toJSON } } row is censored because `ctx` is UNNAMED, not because anything reaches toJSON - two different mechanisms recorded as one, which is what let the class look closed. F-265 stays open and narrowed; no code changed.
+- id: F-284
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: apps/web/src/lib/api/client.ts
+  line: 58
+  summary: >-
+    THE CALLER-SUPPLIED PATH IS BAKED INTO Error.message AND EXPOSED AS AN OWN ENUMERABLE
+    PROPERTY on ContractViolationError (:53-62) and NetworkError (:184, :193) - and the first
+    specified consumer puts a live capability token in that path.
+  failure_scenario: >-
+    TASK-022's invitation-accept screen calls the only endpoint the design gives it,
+    GET /api/invitations/:token (workspace-authorization.md:162, @Public(), "authorisation IS
+    the capability token"), as apiClient({ path: `/invitations/${raw}` }). raw is
+    <tenantId>.<43-char base64url secret> per invitation-tokens.md, whose own contract states:
+    "The raw token is never stored, never logged, and never returned by any read."
+    ORCHESTRATOR-VERIFIED AGAINST SOURCE: the constructor is
+    super(`Response from ${path} did not match its contract.`) with this.path = path, and
+    NetworkError emits `Request to ${req.path} could not be sent.` A TRANSPORT FAILURE ON A
+    FLAKY CONNECTION IS THE HIGHEST-FREQUENCY TRIGGER and needs no malformed response at all.
+    The auditor measured String(e) carrying the token and JSON.stringify({...e}) yielding
+    {"path":"/invitations/<token>"}, so it survives structured cloning and any telemetry
+    serialiser that spreads the error. An unhandled rejection needs no code to reach a sink:
+    the browser prints message and own properties by default, the Next error overlay renders
+    the message, and any error-reporting SDK added later captures error.message unconditionally.
+    Attacker: anyone with read access to the invitee's console or client telemetry - a browser
+    extension with page access, a support screen-share, a shipped reporting backend, a shared
+    or kiosk browser - replays the token before expiry and joins the workspace as the invitee.
+    NOT EXPLOITABLE TODAY: apiClient has no callers and the BFF route does not exist. Filed
+    major because this file is the frozen boundary 13 TASKs read, the endpoint shapes are
+    already normative, and the same defect found in Implement costs a change at every call site.
+    IT IS THE EXACT MIRROR OF TASK-003's FIVE ROUNDS. The rule that emerged there - a credential
+    must not be constructible into a message string, because every sink downstream is a default
+    - was never carried across to the browser client.
+  required_change: >-
+    Keep the full caller-supplied path out of Error.message and off enumerable own properties
+    on both classes. Redact to a non-identifying form (/invitations/:param) or require a static
+    label. ContractViolationError.path is frozen in web-api-client.md, so amend the contract in
+    the same change - cheap now, 13 call sites later.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-285
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: apps/web/src/lib/api/client.ts
+  line: 88
+  summary: >-
+    requestUrl concatenates the caller-supplied path RAW - no segment validation, no encoding,
+    no guard on ? or # - so a path built from user input escapes the /api/bff prefix or injects
+    query parameters into an authenticated call.
+  failure_scenario: >-
+    ORCHESTRATOR-REPRODUCED against the WHATWG URL parser at origin https://app.shortkit.dev:
+    /links/../../auth/token -> /api/auth/token, and /links/%2e%2e/%2e%2e/secret -> /api/secret.
+    BOTH ESCAPE /api/bff ENTIRELY, AND THE BROWSER NORMALISES BEFORE THE REQUEST IS SENT - so
+    the request never reaches /api/bff/* and the proxy's own normative segment rejection
+    (buildUpstreamUrl, this same file :246-259, F-008) NEVER RUNS. That defence guards the
+    Vercel-to-Fly hop; this is the browser-to-Vercel hop, and it is bare. Percent-encoding does
+    not save a defensive caller - %2e%2e normalises identically.
+    Separately, an unescaped ? in an interpolated segment appends attacker-chosen query
+    parameters to an authenticated call which the proxy rebuilds from parsed searchParams and
+    forwards upstream, and corrupts any query object the caller passed (a second ? becomes part
+    of the preceding value).
+    Every one of the 13 consumer TASKs will build path by template from a route param or form
+    field - that is the only way `path: string` can be used.
+    Attacker: an authenticated dashboard user, or anyone who gets a victim to open a crafted
+    dashboard URL whose route param is interpolated into path.
+    NO ORIGIN ESCAPE IS REACHABLE and that was checked rather than assumed: because the
+    concatenation always begins with the literal /api/bff, the result is always path-absolute -
+    //evil.example/x becomes /api/bff//evil.example/x, same origin, not protocol-relative.
+  required_change: >-
+    Validate and encode at THIS boundary rather than the caller's. Reject or encode any path
+    whose decoded segments contain .., ., empty, /, \, :, ? or #; or take a template plus a
+    params record and encodeURIComponent each value. Then assert the final URL still begins
+    with /api/bff/ after normalisation - the browser-side mirror of the origin assertion this
+    file already calls load-bearing for the proxy.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-286
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: apps/web/src/lib/api/client.ts
+  line: 107
+  summary: >-
+    requestInit sets neither `credentials` nor `redirect`, so the cookie behaviour the whole
+    topology depends on and the no-follow rule this same file declares are both left to fetch
+    defaults.
+  failure_scenario: >-
+    Measured defaults: credentials same-origin, redirect follow. credentials is correct TODAY
+    ONLY BECAUSE THE URL IS RELATIVE - an invisible dependency with no test, failing in two
+    directions: a future absolute URL silently drops the sk_at cookie, and the natural fix for
+    that symptom is credentials: 'include', which sends cookies cross-origin.
+    redirect: follow is sharper. UPSTREAM_FETCH_REDIRECT = 'manual' at :270 of this same file
+    exists so a 3xx is "returned to the caller, never followed" - and the caller, this
+    function, then follows it automatically. A Location to another origin makes the victim's
+    browser issue that cross-origin request unprompted; the fetch rejects on CORS and surfaces
+    as a NetworkError, HIDING THAT THE REQUEST WAS MADE.
+    None of this is asserted by any test: every spec stubs fetch and none inspects RequestInit.
+  required_change: >-
+    Set credentials: 'same-origin' and redirect: 'error' explicitly. Both one-line and
+    behaviour-preserving today. Add a test on the second fetch argument.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-287
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: apps/web/src/lib/api/client.ts
+  line: 278
+  summary: >-
+    RETURNED_RESPONSE_HEADERS omits cache-control, so an upstream no-store on an authenticated
+    JSON response is dropped before it reaches the browser. This constant is what TASK-012 will
+    build the proxy's response-header allowlist from.
+  failure_scenario: >-
+    An API response carrying Cache-Control: no-store for tenant data arrives at the browser
+    with no cache directive at all, and the caching decision falls to browser heuristics on a
+    200 GET. Attacker: someone with later filesystem access to the same browser profile - a
+    shared or kiosk machine, or a recovered disk - reading another tenant's link, member or
+    domain data out of the HTTP cache after the session cookie has expired.
+    web-api-client.md's response-header row is the real owner of this list; the code mirrors
+    the contract exactly, so this is a design finding surfaced in code.
+  required_change: >-
+    Add cache-control to RETURNED_RESPONSE_HEADERS and to the contract's response-header row in
+    the same change, or have the proxy set Cache-Control: no-store on every proxied response.
+    Decide it here rather than inside TASK-012.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-288
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 1
+  severity: blocker
+  kind: contract
+  file: apps/web/src/lib/api/client.ts
+  line: 277
+  summary: >-
+    THE F-233 ORIGIN-ON-MUTATING-METHODS BLOCK IS ABSENT FROM THE SHIPPED FILE, and
+    web-api-client.md names that file as the normative form. The design stub declares
+    FORWARDED_REQUEST_HEADERS_MUTATING_ONLY = ['origin'], MUTATING_METHODS and
+    isMutatingMethod() under a docblock titled "F-233. Origin on mutating requests, and why
+    dropping it breaks all of auth". A full stub-vs-shipped diff shows this is the ONLY
+    structural divergence.
+  failure_scenario: >-
+    TASK-012's proxy implementer builds upstreamHeaders by iterating the exported allowlist -
+    the file being the normative form is the reason to read it - and ships. Every signup,
+    sign-in and sign-out through /api/bff/auth/* then answers 403 MISSING_OR_NULL_ORIGIN in
+    production (auth-tokens.md:192) while every test that speaks to the API directly passes.
+    That is verbatim the failure F-233 documents, and web-api-client.md:246-248 warns it is
+    "one an implementer can drop while every other proxy test still passes". No gate catches
+    it: the drift gate is AC-14 contract-mutation-vs-typecheck, not stub-vs-source.
+    ORCHESTRATOR-VERIFIED AND WORSE THAN FILED. F-233 IS MARKED `fixed` AND ITS FIX LIVES
+    ONLY IN A DESIGN STUB. Its owner TASK-012 is DEFERRED. TASK-052, the only other card whose
+    paths cover apps/web/src/lib/api/**, is DEFERRED. TASK-008 IS THE LAST NON-DEFERRED WRITER
+    OF THAT PATH. Close TASK-008 and a major security finding that reads `fixed` becomes
+    ownerless, with its remedy sitting in an uncompiled stub nobody is assigned to materialise.
+    This is a class the 2026-08-09 re-scope did not check: findings marked fixed against TASKs
+    that were then deferred were never re-examined.
+  required_change: >-
+    The shipped file states the Origin-on-mutating-methods rule NORMATIVELY, so an implementer
+    reading only client.ts cannot construct the upstream header set without meeting it.
+    Materialising the stub's three exports satisfies this; so does an equivalent normative
+    statement inside FORWARDED_REQUEST_HEADERS's docblock. Whatever is chosen, client.ts and
+    the stub agree afterwards. SEPARATELY, F-233's status must be re-examined - `fixed` is
+    false while the fix exists only in design and its owner is deferred.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-289
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: contract
+  file: apps/web/src/lib/api/client.ts
+  line: 237
+  summary: >-
+    Better Auth's native error mapping is unimplemented - mapBetterAuthError is a throwing stub
+    apiClient never calls - and the implementer's stated reason for deferring it is contradicted
+    by the contracts.
+  failure_scenario: >-
+    A user submits a wrong password. Better Auth answers 401 {"code":
+    "INVALID_EMAIL_OR_PASSWORD"} (auth-tokens.md:191), which is not an ErrorEnvelope, so
+    toApiError falls through and the login screen receives ApiError{code:'internal_error',
+    status:401}. THE SCREEN SHOWS AN INTERNAL-ERROR MESSAGE FOR A WRONG PASSWORD and AC-20's
+    behaviour is unreachable. Same for duplicate signup - 422 USER_ALREADY_EXISTS_USE_ANOTHER_
+    EMAIL, which the contract explicitly warns "a caller branching on status alone will miss".
+    The implementer wrote that Better Auth's shapes "are not specified in any contract I can
+    read". THAT IS INCORRECT: auth-tokens.md:180-193 is a table of eight PROBED shapes,
+    introduced with "Recorded 2026-08-08 so TASK-008's mapping and TASK-012's screens have
+    exact shapes rather than inferred ones". The mapping is assigned to TASK-008 by name in
+    web-api-client.md:65-68, error-envelope.md invariant 1, auth-tokens.md:55 and adr-0014:220.
+  required_change: >-
+    Either map Better Auth's native bodies to usable ErrorCodes per auth-tokens.md:184-193, red
+    tests first, or explicitly re-route the work onto a TASK whose paths include
+    apps/web/src/lib/api/** - today only TASK-052, which is deferred. One design question must
+    be answered either way: 422 has no row in ERROR_CODE_STATUS, so the code carried for
+    USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL needs a ruling.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-290
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/web/src/lib/api/client.spec.ts
+  line: 104
+  summary: >-
+    The frozen spec never inspects what was handed to fetch and never inspects an ApiError's
+    fields, so the request shape and normative step 2 are both unpinned.
+  failure_scenario: >-
+    networkAnswers installs a fetch mock that IGNORES ITS ARGUMENTS and no test asserts on the
+    spy's calls. THREE MUTATIONS KEEP ALL SIX TESTS GREEN: change BFF_PATH_PREFIX from /api/bff
+    to /api, so every request bypasses the proxy and arrives with no Authorization; delete the
+    req.body === undefined branch so every POST/PATCH body is dropped; drop signal so nothing
+    is cancellable. Separately both ApiError tests assert only toBeInstanceOf, so collapsing
+    toApiError to a single internal_error arm for every non-2xx also stays green - meaning
+    normative step 2, the half every screen branches on (slug_taken to a field error,
+    email_not_verified to a prompt), is verified by nothing. The implementer flagged the
+    request-shape half itself and asked for it to be pinned.
+  required_change: >-
+    Assert the URL, method, headers and body handed to fetch for a bare GET, a GET whose query
+    contains an undefined value, and a POST with a body; and assert code, status, message and
+    details on the envelope arm plus code === 'internal_error' with the original status on the
+    non-envelope arm.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-291
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: scope
+  file: apps/web/src/lib/api/client.ts
+  line: 229
+  summary: >-
+    THREE ADR-ASSIGNED FUNCTIONS SHIP AS THROWING STUBS IN A FILE NO NON-DEFERRED TASK CAN
+    WRITE AFTER THIS ONE CLOSES, and <ErrorMessage /> does not exist at all. serverApiClient
+    (:229), buildUpstreamUrl (:261) and mapBetterAuthError (:237) all throw; adr-0014:220
+    assigns serverApiClient to TASK-008 by name while TASK-008's card excludes it and
+    TASK-012's paths do not cover this file.
+  failure_scenario: >-
+    ORCHESTRATOR-VERIFIED: only TASK-008 (tests-green) and TASK-052 (deferred) list
+    apps/web/src/lib/api/**, and NO card's paths cover apps/web/app/api/bff/** at all. Under
+    ADR-0014 every dashboard route is a server component; the first to call serverApiClient
+    throws at render. <ErrorMessage /> is in TASK-008's Produces and paths, is listed under
+    Consumes by both TASK-012 and TASK-052, and carries normative behaviour in
+    error-envelope.md's Versioning section - so TASK-012 resumes, imports it, and the module
+    does not exist. A build failure at the first consumer with no owner able to fix it.
+    Compounding: F-157 routes experimental_taintUniqueValue on the sk_at read site to TASK-012,
+    and that read site is INSIDE serverApiClient, inside a file TASK-012 may not touch.
+  required_change: >-
+    ORCHESTRATOR ADJUDICATION, not an implementer decision. Each of the four - serverApiClient,
+    buildUpstreamUrl, mapBetterAuthError, <ErrorMessage /> - gets one owner whose card's paths
+    include the file, or an explicit deferral that amends TASK-008's Produces and re-points
+    TASK-012's and TASK-052's Consumes. Silence is not available: no non-deferred TASK can
+    write that directory after this one closes.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+- id: F-292
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/web/src/lib/api/client.ts
+  line: 182
+  summary: >-
+    A caller-initiated abort is classified as a transport failure and raised as NetworkError.
+  failure_scenario: >-
+    signal?: AbortSignal is in the frozen ApiRequest, so cancellation is an anticipated path.
+    On abort fetch rejects with AbortError, the catch-all swallows the distinction, and the
+    caller gets NetworkError. A search or filter screen that aborts the in-flight request on
+    each keystroke renders a network-failure state for a cancellation IT INITIATED, and any
+    retry wrapper keyed on NetworkError re-issues a request the caller deliberately cancelled.
+    The original is preserved on .cause, so a caller who knows to look CAN discriminate - which
+    is exactly the "distinguishable without inspecting internals" property AC-15 exists to
+    establish for the other three cases.
+  required_change: >-
+    An aborted request is distinguishable from a transport failure without unwrapping cause.
+    web-api-client.md step 6 is silent on abort, so this needs a contract line as well as code
+    - decided once here rather than by thirteen consumer TASKs.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
