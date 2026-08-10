@@ -8221,7 +8221,7 @@
 
 - id: F-247
   phase: implement
-  task: TASK-011
+  task: TASK-003
   source: sdlc-security-auditor
   round: 1
   severity: major
@@ -8250,6 +8250,23 @@
   status: open
   resolved_by: null
   resolved_round: null
+  rerouting: >-
+    RE-ROUTED FROM TASK-011 TO TASK-003 ON 2026-08-10 BY THE RE-SCOPE SWEEP, and it was
+    ownerless for a day before that. TASK-011 was deferred with EPIC-002 on 2026-08-09 while
+    this finding was OPEN and MAJOR against apps/api/src/tenancy/tenant-context.ts:247 - a
+    file in SURVIVING code. A deferred card cannot discharge an obligation on surviving work,
+    so the finding had no owner able to act on it and no gate would have noticed.
+    IT IS ALSO THE CORRECTLY-GRADED VERSION OF TWO THINGS THE ORCHESTRATOR MISHANDLED. It is a
+    re-grade of F-243 clause 3, which reads minor/scope as "two stale logger comments now
+    unowned" and which the round-6 reviewer ruled NOT discharged - carried since as a minor
+    awaiting a gate ruling. And it is the same line as F-274, which the orchestrator filed on
+    a false premise (reasoning about msg assembled before pino) and then corrected. F-247 had
+    the mechanism right all along: the line is outside pino and outside redaction BECAUSE it
+    goes through Nest's own Logger, which is F-278's class.
+    VERIFIED STILL LIVE at HEAD: tenant-context.ts:247 interpolates error.message into the
+    string it hands Nest's Logger. Routed to TASK-003 because that TASK now owns the logging
+    policy and F-278 exempted the two Nest loggers by name - so this is the exemption's cost,
+    and it belongs with the decision that accepted it.
 
 - id: F-248
   phase: implement
