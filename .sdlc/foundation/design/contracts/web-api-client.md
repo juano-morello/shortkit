@@ -577,8 +577,12 @@ rewritten by a proxy stacked on top of Vercel.
   multi-valued list** — that is the construct F-009 exists to forbid, moved one hop
   upstream.
 - When the header is absent (local `next dev`), the proxy **omits**
-  `x-shortkit-client-ip` entirely; the API then falls back to `Fly-Client-IP`
-  (`rate-limit.md`). It never substitutes another header.
+  `x-shortkit-client-ip` entirely. It never substitutes another header.
+  **Corrected 2026-08-11 (F-320):** this bullet said the API then falls back to
+  `Fly-Client-IP`. It falls back to the header `TRUSTED_CLIENT_IP_HEADER` declares, and to
+  no principal at all where none is declared, which in local `next dev` is the case. The
+  Vercel side is unchanged by that; nothing here moves. `trusted-client-address.md` is
+  normative and ADR-0040 is the decision.
 - **This assumption holds only while requests reach Vercel directly.** Putting any
   proxy in front of Vercel (Cloudflare, a corporate gateway, a Vercel Enterprise
   trusted-proxy configuration) changes who controls the client address and invalidates

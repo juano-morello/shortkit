@@ -83,22 +83,40 @@ export function hashClientIp(_tenantId: string, _trustedIp: string): string {
 }
 
 /**
- * F-009. THE LEFTMOST X-Forwarded-For ENTRY IS NEVER USED, FOR ANY PURPOSE.
+ * F-009. X-Forwarded-For IS NEVER READ, AT ANY POSITION, FOR ANY PURPOSE.
  * It is fully attacker-controlled, and the redirect path is deliberately exempt from
  * rate limiting (AC-86), so a visitor could otherwise choose their own ip_hash and
  * write unlimited rows attributing clicks to arbitrary visitors — permanently, into an
  * append-only store that is exported to the tenant under GDPR.
  *
- * Prefer Fly-Client-IP, which the platform sets and a client cannot spoof.
- * Fall back to the RIGHTMOST XFF entry after TRUSTED_PROXY_HOPS platform hops.
- * With neither header present, return UNKNOWN_IP_SENTINEL so a row still exists and
- * carries no attacker-chosen value.
+ * REVISED 2026-08-11 (F-320, ADR-0040). This read was "prefer Fly-Client-IP, fall back to
+ * the RIGHTMOST XFF entry after TRUSTED_PROXY_HOPS hops". ADR-0030 deleted the platform
+ * that set AND STRIPPED Fly-Client-IP, so both branches were client-supplied: nothing
+ * strips the header, and an XFF list with no proxy in front is a list the caller wrote.
+ * TRUSTED_PROXY_HOPS is DELETED; its only correct value was ever 0.
+ *
+ *   trustedClientIp(headers) = readTrustedClientAddress(headers, process.env)
+ *                              ?? UNKNOWN_IP_SENTINEL
+ *
+ * readTrustedClientAddress lives in apps/api/src/common/net/trusted-client-address.ts and
+ * is NORMATIVE in design/contracts/trusted-client-address.md, which owns the declaration
+ * format, the four read rules, the counter and the boot assertion. Not restated here.
+ * That module has no design stub; its full source is fenced in the contract.
+ *
+ * THE ONE RULE THAT IS THIS FILE'S: trustedClientIp NEVER honours X-Shortkit-Client-IP,
+ * with or without a matching X-Shortkit-Proxy-Auth. The redirect path is reached by custom
+ * domains that CNAME straight to the API's origin and never traverse the BFF, so a
+ * forwarded address there is one the visitor chose. DO NOT MERGE THIS WITH
+ * resolveRateLimitPrincipal (F-031). They share the read and nothing else.
+ *
+ * ACCEPTED COST: where no header is declared, every visitor hashes the sentinel and
+ * therefore to one ip_hash per tenant, so unique-visitor counts in that environment are
+ * meaningless. No environment declares one today; production refuses to boot without one.
  */
 export function trustedClientIp(_headers: Headers): string {
   throw new Error('not implemented');
 }
 
-export const TRUSTED_PROXY_HOPS = 0;
 export const UNKNOWN_IP_SENTINEL = 'unknown';
 
 /** F-013. Applied at ENQUEUE, not in the flusher: truncating late leaves the full string buffered. */

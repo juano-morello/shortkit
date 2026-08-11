@@ -298,6 +298,25 @@
   status: fixed
   resolved_by: sdlc-architect
   resolved_round: 2
+  reopened_2026_08_11: >-
+    REOPENED IN EVERY ENVIRONMENT THAT EXISTS TODAY, BY A DECISION RATHER THAN A REGRESSION, and
+    recorded here because this record said `fixed` and a reader would have stopped there.
+    ADR-0040 makes the trusted client address a DECLARED property of the deployment, so where no
+    declaration exists there is no principal - and Juano ruled 2026-08-11 that a no-principal
+    @Public() request FAILS OPEN rather than sharing one unidentified bucket. So the IP-keyed limit
+    that closed this finding DOES NOT BIND in compose, CI or local dev.
+    THE REASONING, WHICH IS THE PART THAT MATTERS: the rejected alternative bounds total anonymous
+    transactions - exactly the harm this finding named - but hands a single caller a PRODUCT-WIDE
+    429 LEVER on the invitation routes. Trading a pool-exhaustion risk for a guaranteed
+    denial-of-service primitive is the worse trade, and the architect chose the option that does not
+    relitigate F-033's fail-open-with-signal ruling.
+    WHERE IT IS STILL CLOSED: production, once TASK-009 lands the boot assertion that makes the
+    no-declaration state impossible. TASK-009 is DEFERRED with EPIC-002, so that is a promise rather
+    than a fact today.
+    STATUS LEFT AS `fixed` DELIBERATELY, with this note, because the fix it describes was real and
+    was correct against the design of the day. What changed is the design underneath it. Flipping it
+    to `open` would lose that distinction; leaving it unannotated would repeat F-142, where a record
+    said one thing and the system did another for six days.
 
 - id: F-019
   phase: design
@@ -10195,9 +10214,12 @@
     generic accept page is the usual shape, and it costs one redirect. Decide before TASK-022
     returns rather than during it.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: parked
+  resolved_by: "sdlc-architect under Juano's ruling"
+  resolved_round: 1
+  resolution: >-
+    PARKED BY JUANO 2026-08-11 with the invariant corrected. invitation-tokens.md no longer claims the raw token appears in exactly one place; the four channels are named and the mechanism is left to whoever builds the accept screen, with the two plausible fixes recorded and NOT chosen between. NO ADR WRITTEN, deliberately: an ADR whose Decision is `undecided` is the manufactured-paperwork case the design rules say to skip, and the architect said so rather than producing one.
+    AND IT FOUND A SECOND LEG THE FINDING MISSED - see F-362. POST /api/invitations/:token/accept carries the token in its path too, so the two recorded fixes are NOT equivalent: the redirect covers the GET and not the POST.
 - id: F-301
   phase: implement
   task: TASK-008
@@ -10923,9 +10945,15 @@
     explicitly, and its routing list names design/stubs/**. Whether the rate-limit design itself
     must change is not the architect's call alone.
   owner_slot: sdlc-architect
-  status: escalated
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect under Juano's ruling"
+  resolved_round: 1
+  resolution: >-
+    RULED BY JUANO 2026-08-11 and implemented in design: ADR-0040 plus a new contract, design/contracts/trusted-client-address.md, consumed by TASK-009, TASK-033, TASK-034 and TASK-051. A deployment DECLARES TRUSTED_CLIENT_IP_HEADER, the API asserts at boot in production that a declaration exists, reads that header and no other, and where no address is established the result is NO PRINCIPAL. Worded against the PROPERTY rather than the header name.
+    THE ONE-COPY RULE APPLIED HARD: the rule wanted nine homes and has ONE. The contract holds the declaration format, the four read rules, the three exact boot-assertion error strings, the counter policy and what null means per bucket; rate-limit.md keeps only the BFF branch, click-events.md keeps only `never honour X-Shortkit-Client-IP`, and ADR-0010, ADR-0012, ADR-0014, web-api-client.md and ADR-0030 each got one corrected sentence and a pointer.
+    IT ALSO FOUND THREE SURFACES BEYOND MY LIST, having been told to verify rather than trust it - most importantly the click-event.types.ts stub, which carried TRUSTED_PROXY_HOPS, the rightmost-XFF fallback and `prefer Fly-Client-IP`: the same defect in the artifact an implementer compiles against, and a kept stub under ADR-0039.
+    THE STRONGEST REJECTED ALTERNATIVE IS WORTH KEEPING: falling back to req.socket.remoteAddress is GENUINELY THE CORRECT VALUE in the compose stack, and it lost because behind a proxy it silently becomes the collapsed-bucket outage - converting a DETECTABLE no-principal state into an UNDETECTABLE wrong-principal one.
+    ONE JUDGEMENT IS ESCALATED RATHER THAN SETTLED - see the null-bucket question put to Juano.
   orchestrator_note: >-
     ESCALATES TO JUANO. ADR-0030 is ACCEPTED as of today's ruling, and phases/design.md says a
     finding against an approved artifact is never fixed by the architect. It is also NOT a
@@ -12273,3 +12301,54 @@
     verification step damaged the thing it was verifying, after the F-282 test architect's
     drop-mutant collided with a concurrent gate run - and both times the METHOD was right and the
     CLEANUP was the defect.
+
+- id: F-362
+  phase: design
+  task: null
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: security
+  file: .sdlc/foundation/design/contracts/invitation-tokens.md
+  line: 1
+  summary: >-
+    F-300's SECOND LEG, WHICH THE FINDING DID NOT NAME. `POST /api/invitations/:token/accept`
+    carries the raw token in its path too. As an XHR it reaches no address bar, no history and no
+    Referer - but it DOES reach platform request logs.
+  failure_scenario: >-
+    Found by the architect while parking F-300, unprompted. It matters because it changes which
+    remedy works: ANY FIX COVERING ONLY THE `GET` LEAVES THIS ONE. The one-time-redirect option -
+    swap the token for a session before the page renders - covers the GET and not the POST; the
+    POST-with-body exchange covers both.
+    So the two plausible fixes F-300 records are NOT equivalent, and the finding as I filed it
+    implied they were.
+  required_change: >-
+    None now; F-300 is parked by Juano's ruling. Recorded in the contract so whoever picks between
+    the two knows the redirect does not cover this leg.
+  owner_slot: sdlc-architect
+  status: parked
+  resolved_by: "recorded under Juano's F-300 ruling, 2026-08-11"
+  resolved_round: null
+
+- id: F-363
+  phase: design
+  task: TASK-059
+  source: sdlc-architect
+  round: 1
+  severity: nit
+  kind: docs
+  file: .sdlc/foundation/design/adr-0030-no-deploy-target.md
+  line: 1
+  summary: >-
+    ADR-0030's stub inventory bullet is now slightly stale - three of its eight entries no longer
+    carry Fly references. The architect was limited to the precondition list and TOOK THAT
+    LITERALLY, flagging the remainder rather than widening its own scope.
+  failure_scenario: >-
+    Stale in the SAFE direction: it names more work than remains. Filed because "stale in the safe
+    direction" is how F-142 started, and the only reason that one cost anything is that nobody
+    wrote it down.
+  required_change: Refresh the inventory when ADR-0030 is next opened.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null

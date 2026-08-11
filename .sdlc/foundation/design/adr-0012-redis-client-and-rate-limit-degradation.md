@@ -134,4 +134,10 @@ one per feature.
   `docs/architecture/rate-limits.md` recording 120 writes per 60 seconds and the
   boundary-burst caveat. The public-IP map's principal comes from
   `resolveRateLimitPrincipal` (TASK-009, `rate-limit.md`).
+- **The public-IP map may get no principal at all.** Added 2026-08-11 (F-320, ADR-0040).
+  `resolveRateLimitPrincipal` now returns `string | null`, and on `null` the IP-keyed
+  bucket does not run, on the Redis path and on this fallback alike. `checkPublicIp` is
+  never called with a sentinel, the empty string or the peer address. The tenant-keyed map
+  is unaffected, and so is the degradation posture this ADR decided.
+  `trusted-client-address.md` is normative for why.
 - Revisit the degraded multiplier before enabling more than one Fly machine.

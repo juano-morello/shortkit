@@ -4,7 +4,8 @@
 - **Normative form:** `apps/api/src/common/rate-limit/rate-limit.types.ts`, `apps/api/src/auth/ports/auth-rate-limit.port.ts`, and `apps/api/src/auth/resolve-rate-limit-principal.ts`, none yet written. The design stubs at the matching paths under `design/stubs/` stand in until TASK-051 and TASK-009 land the files and are retired then (ADR-0039). They are design-gate scaffolds, not normative forms.
 - **Produced by:** TASK-009 (auth surface: body cap, IP buckets, email hook, the port) and TASK-051 (`RateLimitGuard`, the Redis implementations). See the ownership table below.
 - **Consumed by:** TASK-052 (web handling), TASK-056 (enumeration).
-- **ADRs:** ADR-0012, ADR-0006, ADR-0013.
+- **ADRs:** ADR-0012, ADR-0006, ADR-0013, ADR-0040.
+- **Depends on:** `design/contracts/trusted-client-address.md`, which is normative for the declared trusted header, the boot assertion, the shared read, and what a `null` principal means. This contract does not restate those rules (F-320).
 
 Retitled 2026-08-04: this was "per-tenant write rate limiting" and its Boundary line read
 "every authenticated write route", which F-018's fix made false and F-026 caught. The
@@ -90,13 +91,27 @@ BFF sets   X-Shortkit-Client-IP: <browser address, from x-vercel-forwarded-for>
            X-Shortkit-Proxy-Auth: <shared secret, BFF_PROXY_SECRET>
 ```
 
-**The resolution rule is normative in
-`apps/api/src/auth/resolve-rate-limit-principal.ts`** (F-031), which exports the header
-constants (`BFF_CLIENT_IP_HEADER`, `BFF_PROXY_AUTH_HEADER`, `FLY_CLIENT_IP_HEADER`) and
-`resolveRateLimitPrincipal(headers)` — **the only site that makes the trusted-proxy
-decision**. Every IP-keyed bucket, in the Express auth middleware (TASK-009) and in
-`RateLimitGuard` (TASK-051), obtains its principal from that function. Nothing else
-reads these headers.
+**The resolution rule is normative here** (F-031), and
+`resolveRateLimitPrincipal(headers)` in `apps/api/src/auth/resolve-rate-limit-principal.ts`
+is **the only site that makes the trusted-proxy decision**. It exports
+`BFF_CLIENT_IP_HEADER` and `BFF_PROXY_AUTH_HEADER`. Every IP-keyed bucket, in the Express
+auth middleware (TASK-009) and in `RateLimitGuard` (TASK-051), obtains its principal from
+that function. Nothing else reads these headers.
+
+```ts
+export function resolveRateLimitPrincipal(
+  headers: RateLimitRequestHeaders,
+): string | null;
+```
+
+**Revised 2026-08-11 (F-320). The return type was `string` and the fallback branch was
+`Fly-Client-IP`.** ADR-0030 deleted the platform that set and stripped that header, so the
+fallback returned a value any caller could choose, which is what F-009 forbids and what
+every IP-keyed bucket here rests on. Under ADR-0040 the fallback is a **declared** header,
+`TRUSTED_CLIENT_IP_HEADER`, and where no address is established the result is `null`.
+**`design/contracts/trusted-client-address.md` is normative for the declaration, the read,
+the boot assertion and what `null` means.** This section stays normative for the BFF branch,
+which belongs to rate limiting alone.
 
 `resolveRateLimitPrincipal` returns `X-Shortkit-Client-IP` **only when all four hold**
 (F-033):
@@ -114,35 +129,55 @@ reads these headers.
    the value before it becomes a Redis key segment or a local map key; Node accepts
    16 KiB headers, and an unparsed value would void the local limiter's memory budget.
 
-Otherwise it returns `Fly-Client-IP`, for anything reaching Fly directly. The leftmost
-`X-Forwarded-For` entry is never used, for any purpose.
+Otherwise it returns `readTrustedClientAddress(headers, env)`, which is the declared
+platform header and `null` where none resolves (`trusted-client-address.md`). Neither
+resolver reads `X-Forwarded-For` or `Forwarded`, at any position, for any purpose.
 
 **Fail-open-with-signal, not fail-to-boot, not silent** (F-033). A present
-`X-Shortkit-Proxy-Auth` that fails rule 1, 2 or 3 — and a valid secret whose forwarded
-value fails rule 4 — increments **`bff_proxy_auth_mismatch_total`** and logs at warn
+`X-Shortkit-Proxy-Auth` that fails rule 1, 2 or 3, and a valid secret whose forwarded
+value fails rule 4, increments **`bff_proxy_auth_mismatch_total`** and logs at warn
 once per minute, so a secret mismatch shows up as a counter rather than as users
-reporting that signup is broken. The request itself proceeds under the `Fly-Client-IP`
-fallback; an unauthenticated forwarded header is ignored, never rejected, so probing
-reveals nothing. Failing boot on a mismatch would be wrong: the same Fly process serves the
-redirect path (GC-8, AC-86), and "matches" cannot be verified locally. What *is*
-locally checkable is asserted: **`assertBffProxySecretConfigured()` fails boot in
-production when `BFF_PROXY_SECRET` is unset or empty** — TASK-009 calls it in `main.ts`
-beside the auth mount. `BFF_PROXY_SECRET` is required configuration on both
-deployables: Fly (this assertion) and Vercel (TASK-004, `web-api-client.md`).
+reporting that signup is broken. The request itself proceeds under the declared-header
+fallback, or under no principal at all; an unauthenticated forwarded header is ignored,
+never rejected, so probing reveals nothing. Failing boot on a mismatch would be wrong: the
+same process serves the redirect path (GC-8, AC-86), and "matches" cannot be verified
+locally. What *is* locally checkable is asserted, and there are now **two** such
+assertions, both called in `main.ts` by TASK-009:
+
+| Assertion | Fails boot in production when | Normative in |
+|---|---|---|
+| `assertBffProxySecretConfigured()` | `BFF_PROXY_SECRET` is unset or empty | this contract, below |
+| `assertTrustedClientIpHeaderConfigured()` | `TRUSTED_CLIENT_IP_HEADER` is unset, empty, malformed, or names a forwarding header | `trusted-client-address.md` |
+
+`BFF_PROXY_SECRET` is required configuration on both deployables: the API side (this
+assertion) and Vercel (TASK-004, `web-api-client.md`).
 
 **This does not weaken F-009.** That rule forbids trusting a *client-supplied* address,
 and an anonymous attacker cannot produce the shared secret.
 
-**Click events are unaffected and keep `trustedClientIp()` verbatim** — a **separate
-function that must not be merged with `resolveRateLimitPrincipal`**. The redirect path
-is served by Fly directly, because custom domains CNAME to `fly.dev` and never traverse
-the BFF, so it must never honour a forwarded address; a shared resolver would put an
-attacker-settable value into `ip_hash` and reopen F-009 on the append-only store.
-`click-events.md` needs no change.
+**Click events keep `trustedClientIp()` as a separate function that must not be merged
+with `resolveRateLimitPrincipal`.** The redirect path is reached by custom domains that
+CNAME straight to the API's origin and never traverse the BFF, so it must never honour a
+forwarded address; a shared resolver would put an attacker-settable value into `ip_hash`
+and reopen F-009 on the append-only store. The two share `readTrustedClientAddress` and
+nothing else. `click-events.md` and this contract both point at
+`trusted-client-address.md` for that read.
 
-The secret is rotated by setting both sides and redeploying; a mismatch degrades to
-the `Fly-Client-IP` fallback, which is safe, and is visible on
-`bff_proxy_auth_mismatch_total`.
+The secret is rotated by setting both sides and redeploying; a mismatch degrades to the
+declared-header fallback and is visible on `bff_proxy_auth_mismatch_total`.
+
+### What a `null` principal does to each bucket
+
+Added 2026-08-11 (F-320). Normative table in `trusted-client-address.md`, "What a `null`
+principal means to each bucket". In one line: **the IP-keyed bucket does not run and the
+request proceeds**, and the principal is never replaced by a sentinel, the empty string or
+the peer address. `signInPerEmail`, the tenant-keyed write bucket and `authBodyCap` are
+keyed on something else and are unaffected.
+
+The cost is accepted in ADR-0040 and repeated here because it is this contract's invariant 7
+that it dents: **no environment that exists today declares a header**, so the three Express
+IP buckets and the `@Public()` bucket do not bind in compose, in CI or in local dev. F-018's
+connection-pool protection is off there. Invariant 7 is qualified accordingly below.
 
 ### `/api/auth/*` is covered by a separate limiter, not by this guard
 
@@ -162,12 +197,9 @@ implementer would have built.
 | `POST /api/auth/sign-up/email` | client IP | 3 / hour | Express middleware | `sk:{env}:arl:v1:ip:{ip}:signup:{window}` |
 | everything else under `/api/auth/*` | client IP | 60 / min | Express middleware | `sk:{env}:arl:v1:ip:{ip}:other:{window}` |
 
-The client IP is the value returned by `resolveRateLimitPrincipal(headers)` — see
-"Which address the client IP means" above (F-031). Behind the BFF, `Fly-Client-IP`
-read directly is Vercel's egress address for every user, which is exactly the
-collapsed-bucket outage that section exists to prevent; and the leftmost
-`X-Forwarded-For` is never used (F-009). The email is hashed before it becomes a key
-so the keyspace holds no addresses.
+The client IP is the value returned by `resolveRateLimitPrincipal(headers)`; see "Which
+address the client IP means" above (F-031, F-320). **On `null` the row's bucket does not
+run.** The email is hashed before it becomes a key so the keyspace holds no addresses.
 
 **Better Auth's own limiter is disabled on this surface** — TASK-009 sets
 `rateLimit: { enabled: false }` (ADR-0013, F-030) and owns a unit test asserting the
@@ -500,16 +532,21 @@ the API does when Redis is gone.
 5. A Redis outage never produces a 5xx from the limiter and never lifts the limit
    entirely.
 6. The guard reuses `redisClient` from TASK-030. It opens no second connection (GC-3).
-7. **Every route under `/api` is covered by a limiter.** `RateLimitGuard` keyed by
-   tenant for authenticated writes and **by IP for `@Public()` routes on all methods**;
-   `authRateLimit` plus the Better Auth hook for `/api/auth/*`. The only unlimited
-   surfaces are `GET /health` and the redirect path (AC-86), both deliberate and neither
-   opening a tenant transaction. **There is no unthrottled surface that can open a
-   Postgres transaction.**
+7. **Every route under `/api` is covered by a limiter, in a deployment that declares a
+   trusted client header.** `RateLimitGuard` keyed by tenant for authenticated writes and
+   **by IP for `@Public()` routes on all methods**; `authRateLimit` plus the Better Auth
+   hook for `/api/auth/*`. The only deliberately unlimited surfaces are `GET /health` and
+   the redirect path (AC-86), neither of which opens a tenant transaction.
+   **Qualified 2026-08-11 (F-320):** the IP-keyed half of this invariant holds only where
+   `TRUSTED_CLIENT_IP_HEADER` is declared, which is nowhere today. A production boot is
+   refused without it (`trusted-client-address.md`), so the invariant holds wherever it can
+   be relied on and is false in compose, CI and local dev. The tenant-keyed half, the email
+   bucket and `authBodyCap` are unconditional.
 8. No request body larger than 32 KiB reaches Better Auth, and none larger than 100 KiB
    reaches a Nest handler.
 9. A `@Public()` route cannot be used to exhaust the connection pool the redirect path
-   shares (GC-1, GC-8).
+   shares (GC-1, GC-8), under invariant 7's qualification. Where no trusted header is
+   declared this is **false**, and it is the sharpest edge of the cost ADR-0040 accepts.
 
 ## Web handling (TASK-052)
 
@@ -532,6 +569,13 @@ Handled in `apiClient`, centrally, so no screen reimplements it.
 - **Every IP-keyed decision obtains its principal from `resolveRateLimitPrincipal`**
   (F-031). No second resolver, no inlined header reads, and the redirect path's
   `trustedClientIp()` is never called for rate limiting nor merged with it.
+- **A `null` principal skips the bucket.** It is never coerced to `'unknown'`, `''`, the
+  peer address, or any other stand-in, and no two unidentified callers share an allowance
+  (`trusted-client-address.md`, invariant 7).
+- **`main.ts` calls `assertTrustedClientIpHeaderConfigured()`** beside
+  `assertBffProxySecretConfigured()`, and the integration suite sets
+  `TRUSTED_CLIENT_IP_HEADER=x-test-client-ip` so the IP buckets are exercisable at all.
+  Without that variable F-025's six-different-client-IPs test passes for the wrong reason.
 - `docs/architecture/rate-limits.md` records the limit, the window, the fixed-window
   boundary caveat, and the degraded multiplier.
 - `RateLimitGuard` appears in TASK-056's route enumeration like any other guard, and

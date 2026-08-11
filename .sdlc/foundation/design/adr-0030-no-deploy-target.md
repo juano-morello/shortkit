@@ -165,6 +165,15 @@ A deploy target becomes worth choosing when all of these hold, and not before:
   `docker-compose.yml`'s forty-zeros default**. Worded against the image rather than against
   the file, because the compose `api` service builds `target: runtime` and that is the same
   production image AC-6 measures: the sentinel travels with the artifact, not with the YAML.
+- **The candidate terminates at a hop that sets and strips one client-address header, and
+  that header is declared.** Added 2026-08-11 (F-320), and it is the precondition this ADR's
+  own deletion created. Removing Fly removed the premise that discharged F-009 for `ip_hash`
+  and for every IP-keyed rate-limit bucket: a trusted-header model is worth what the hop
+  that strips the header is worth, and there is no hop. ADR-0040 replaces the hardcoded
+  header with `TRUSTED_CLIENT_IP_HEADER`, asserted at boot in production, so a platform
+  that cannot supply such a header cannot serve this API without reopening F-009. Check it
+  against the candidate before pricing it, not after. Mechanism in
+  `trusted-client-address.md`.
 - The candidate is priced against GC-3 with the six constraints above applied, in a new
   ADR that supersedes this one.
 

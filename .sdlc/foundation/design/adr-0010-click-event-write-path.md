@@ -56,9 +56,12 @@ limiting (AC-86), so nothing else bounded it. The OOM kill drops the buffer and 
 GC-8 for every concurrent visitor, which turns an analytics detail into an availability
 failure on the path SC-7 exists to protect.
 
-**`ip_hash` is derived from `Fly-Client-IP`, never from the leftmost
-`X-Forwarded-For`,** and the HMAC message is salted with `tenant_id`. See
-`click-events.md`.
+**`ip_hash` is derived from the declared trusted header, never from `X-Forwarded-For` at
+any position,** and the HMAC message is salted with `tenant_id`. See `click-events.md`.
+
+Corrected 2026-08-11 (F-320). This bullet named `Fly-Client-IP`, whose unspoofable premise
+ADR-0030 removed along with the platform. The decision is ADR-0040 and the mechanism is
+`trusted-client-address.md`; the emission decision this ADR records did not change.
 
 **`SIGTERM` drains the buffer** with a 5-second bound before the process exits. Fly
 sends `SIGTERM` before stopping a machine, so a normal deploy loses nothing.

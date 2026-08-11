@@ -84,11 +84,17 @@ from `x-vercel-forwarded-for` only, never a leftmost list entry (F-035,
 the first only through `resolveRateLimitPrincipal` (F-031, the single trusted-proxy
 decision site, normative in `rate-limit.md`): constant-time secret match, forwarded
 value must parse as an IP, unset secret or absent header disables the branch outright
-(F-033). A mismatch falls back to `Fly-Client-IP` **with signal**:
+(F-033). A mismatch falls back to the declared trusted header **with signal**:
 `bff_proxy_auth_mismatch_total` plus a once-per-minute warn. In production the API
-asserts at boot that `BFF_PROXY_SECRET` is set — "set" is locally checkable, "matches"
-is not, and failing boot on a mismatch would take down the redirect surface (GC-8).
-Details and the reason this does not weaken F-009 are in `rate-limit.md`.
+asserts at boot that `BFF_PROXY_SECRET` is set, because "set" is locally checkable while
+"matches" is not, and failing boot on a mismatch would take down the redirect surface
+(GC-8). Details and the reason this does not weaken F-009 are in `rate-limit.md`.
+
+Corrected 2026-08-11 (F-320). This paragraph said the mismatch falls back to
+`Fly-Client-IP`, a header ADR-0030 left nothing to set or strip. The fallback is now the
+header `TRUSTED_CLIENT_IP_HEADER` declares, `null` where none resolves, under a second boot
+assertion of the same shape. The BFF topology this ADR decided did not change.
+`trusted-client-address.md` is normative; ADR-0040 is the decision.
 
 **The proxy forwards the browser's `Origin` on mutating requests, and the API trusts the
 dashboard's origins explicitly.** Added 2026-08-08, found by TASK-009's red-test probes

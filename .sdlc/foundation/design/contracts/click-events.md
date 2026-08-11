@@ -4,7 +4,8 @@
 - **Normative form:** `apps/api/src/clicks/click-event.types.ts`, not yet written. The design stub at `design/stubs/apps/api/src/clicks/click-event.types.ts` stands in until TASK-033 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-033 (schema, writer, reader), TASK-034 (buffer, emission).
 - **Consumed by:** TASK-029/030 (redirect path), TASK-053 (export), TASK-054 (eraser), TASK-056 (enumeration).
-- **ADRs:** ADR-0010, ADR-0019. Amendment A-2 governs the append-only scoping.
+- **ADRs:** ADR-0010, ADR-0019, ADR-0040. Amendment A-2 governs the append-only scoping.
+- **Depends on:** `design/contracts/trusted-client-address.md`, normative for the declared trusted header, the shared read and the boot assertion. This contract does not restate those rules (F-320).
 
 ## Schema
 
@@ -29,7 +30,7 @@ the flush retry idempotent via `ON CONFLICT (id) DO NOTHING`, and it sorts by ti
 `privilegedTenantEraser`. Append-only is enforced by the absence of methods, not by the
 database.
 
-## Client IP: the platform-trusted value only
+## Client IP: the declared trusted value only
 
 Revised 2026-08-04 (F-009). The rule was "the leftmost `X-Forwarded-For` entry", which
 is **fully attacker-controlled**. On the one path deliberately exempt from rate limiting
@@ -37,20 +38,39 @@ is **fully attacker-controlled**. On the one path deliberately exempt from rate 
 attributing clicks to arbitrary visitors, into an append-only store read by a later
 analytics initiative and exported to the tenant under GDPR.
 
+**Revised again 2026-08-11 (F-320).** The replacement rule read `Fly-Client-IP` first and
+fell back to the rightmost `X-Forwarded-For` entry past `TRUSTED_PROXY_HOPS`. ADR-0030
+deleted the platform that set and stripped `Fly-Client-IP`, so both branches were
+client-supplied: nothing strips the header, and an XFF list with no proxy in front is a
+list the caller wrote. The sentence "`Fly-Client-IP` is set by the platform and cannot be
+spoofed by a client" was the premise discharging F-009 for `ip_hash`, and it was false.
+
 ```ts
 function trustedClientIp(headers: Headers): string {
-  const flyClientIp = headers.get('fly-client-ip');
-  if (flyClientIp) return flyClientIp.trim();
-
-  // Fallback only: take from the RIGHT, skipping TRUSTED_PROXY_HOPS platform hops.
-  const xff = (headers.get('x-forwarded-for') ?? '').split(',').map((s) => s.trim());
-  return xff[xff.length - 1 - TRUSTED_PROXY_HOPS] ?? UNKNOWN_IP_SENTINEL;
+  return readTrustedClientAddress(headers, process.env) ?? UNKNOWN_IP_SENTINEL;
 }
 ```
 
-`Fly-Client-IP` is set by the platform and cannot be spoofed by a client. **The leftmost
-`X-Forwarded-For` entry is never used, for any purpose.** With neither header present
-the sentinel is hashed, so a row still exists and carries no attacker-chosen value.
+**`design/contracts/trusted-client-address.md` is normative** for
+`TRUSTED_CLIENT_IP_HEADER`, the read's four rules, the boot assertion and the signal. This
+contract restates none of them. What belongs here:
+
+- `trustedClientIp` **never** honours `X-Shortkit-Client-IP`, with or without a matching
+  `X-Shortkit-Proxy-Auth`. The redirect path is reached by custom domains that CNAME
+  straight to the API's origin and never traverse the BFF, so a forwarded address there is
+  a value the visitor chose. This is why `resolveRateLimitPrincipal` and this function stay
+  separate (F-031); they share the read and nothing else.
+- **`X-Forwarded-For` is never read, at any position.** Not leftmost, not rightmost, not
+  after a hop count. `TRUSTED_PROXY_HOPS` is deleted; its only correct value was ever `0`.
+- On `null` the sentinel is hashed, so a row still exists and carries no attacker-chosen
+  value.
+
+**Accepted cost, stated (F-320).** Where no header is declared, every visitor in that
+environment hashes to `UNKNOWN_IP_SENTINEL` and therefore to one `ip_hash` per tenant.
+Unique-visitor counts derived from that data are meaningless. No environment declares a
+header today, and a production boot is refused without one. This is strictly better than
+the previous behaviour, where the visitor chose the hash, and it is still a real loss of
+signal in the only environment that runs.
 
 ## `ip_hash`
 
@@ -135,6 +155,11 @@ Neither interface exposes an update or a delete. AC-60 enumerates them and asser
    that enumeration by AC-106.
 7. **`ip_hash` is derived from a value the client cannot set.** A visitor cannot choose
    their own hash, and cannot make one visitor's clicks appear as another's.
+   **Qualified 2026-08-11 (F-320):** where no trusted header is declared, every visitor
+   hashes the sentinel, so the invariant holds in the negative sense that still matters
+   (no attacker-chosen value reaches the column) and the positive sense (distinct visitors
+   produce distinct hashes) is lost. The two senses were conflated in one sentence, and
+   only one of them ever depended on the platform.
 8. **Buffer memory is bounded by bytes, not only by row count.** A 16 KiB `User-Agent`
    at a few hundred RPS previously reached roughly 160 MiB of live heap on the single
    machine that also serves every redirect; the OOM kill dropped the buffer and broke
@@ -159,8 +184,13 @@ mode.
 - The AC-56 test awaits `flush()`. It does not sleep.
 - **Truncate `user_agent` in `enqueue`, not in the flusher.** Truncating late leaves the
   full string in the buffer, which is the memory this cap exists to bound.
-- A test sends `X-Forwarded-For: 203.0.113.7` with no `Fly-Client-IP` and asserts the
-  resulting `ip_hash` does not equal the hash of `203.0.113.7`.
+- A test sends `X-Forwarded-For: 203.0.113.7` with no declared trusted header and asserts
+  the resulting `ip_hash` equals the hash of `UNKNOWN_IP_SENTINEL` and not the hash of
+  `203.0.113.7`. A second run declares `TRUSTED_CLIENT_IP_HEADER=x-test-client-ip`, sends
+  the same `X-Forwarded-For` and no `x-test-client-ip`, and asserts the same thing.
+- A test sends `X-Shortkit-Client-IP: 203.0.113.7` **with a valid `X-Shortkit-Proxy-Auth`**
+  and asserts the `ip_hash` is the sentinel's. That is the one assertion separating this
+  resolver from the rate limiter's.
 - A test sends a 16 KiB `User-Agent` and asserts the stored value is 512 characters.
 
 ## Versioning

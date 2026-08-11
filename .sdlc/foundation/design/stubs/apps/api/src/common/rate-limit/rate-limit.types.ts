@@ -119,19 +119,18 @@ export function publicRouteRateLimitKey(
 /**
  * F-031. The client IP for EVERY IP-keyed bucket comes from
  * resolveRateLimitPrincipal(headers) in apps/api/src/auth/resolve-rate-limit-principal.ts
- * — THE ONLY SITE that decides whether to trust the BFF's forwarded address.
+ * — THE ONLY SITE that decides whether to trust the BFF's forwarded address. It returns
+ * `string | null`. The full rule lives there and in rate-limit.md; the trust rule behind
+ * it lives in design/contracts/trusted-client-address.md. Not restated here (F-320).
  *
- * Under ADR-0014's BFF topology, Fly-Client-IP is Vercel's egress address for every
- * browser-originated request, so keying on it directly collapses all four buckets into
- * one shared bucket for the whole product. The resolver returns
- * X-Shortkit-Client-IP only on a constant-time match of X-Shortkit-Proxy-Auth against
- * BFF_PROXY_SECRET AND when the value parses as an IP; otherwise Fly-Client-IP.
- * Full rule, including the F-033 never-reached clauses, in that file and in
- * rate-limit.md. The leftmost X-Forwarded-For is never used, for any purpose.
- *
- * DO NOT reuse click-events.md's trustedClientIp() here, and DO NOT let the redirect
- * path call the resolver: the redirect path never traverses the BFF and must never
- * honour a forwarded address, or F-009 reopens on the append-only click store.
+ * WHAT THIS FILE MUST NOT GET WRONG:
+ *   - ON null THE IP-KEYED BUCKET DOES NOT RUN and the request proceeds. Never key on a
+ *     sentinel, '', or req.socket.remoteAddress: one shared bucket for unidentified
+ *     callers is the collapsed-bucket outage F-031 exists to prevent (ADR-0040).
+ *   - DO NOT reuse click-events.md's trustedClientIp() here, and DO NOT let the redirect
+ *     path call the resolver: the redirect path never traverses the BFF and must never
+ *     honour a forwarded address, or F-009 reopens on the append-only click store.
+ *   - X-Forwarded-For is never read, at any position, for any purpose.
  *
  * The email is NORMALISED then hashed before it becomes a key (F-025):
  * sha256(email.trim().toLowerCase()), matching the form Better Auth uses for the
@@ -230,7 +229,11 @@ export interface RateLimiter {
 export interface LocalRateLimiter {
   /** Authenticated writes. Tenant-keyed map. */
   checkTenant(tenantId: string): RateLimitDecision;
-  /** @Public() routes. SEPARATE IP-keyed map (F-034); principal from resolveRateLimitPrincipal. */
+  /**
+   * @Public() routes. SEPARATE IP-keyed map (F-034); principal from
+   * resolveRateLimitPrincipal. NEVER called when that returned null — the caller skips
+   * the bucket rather than passing a stand-in (F-320).
+   */
   checkPublicIp(clientIp: string): RateLimitDecision;
 }
 
@@ -292,9 +295,10 @@ return n
  * IP key rather than reading a tenant that is not there.
  *
  * F-031: the IP key comes from resolveRateLimitPrincipal(headers)
- * (apps/api/src/auth/resolve-rate-limit-principal.ts) — never from Fly-Client-IP
- * read directly (behind the BFF that is Vercel's egress for every user), and never
- * from the leftmost X-Forwarded-For. See the block above authRateLimitKey.
+ * (apps/api/src/auth/resolve-rate-limit-principal.ts), never from a header read
+ * directly and never from X-Forwarded-For at any position. It returns `string | null`;
+ * on null the @Public() bucket DOES NOT RUN and the request proceeds (F-320, ADR-0040).
+ * See the block above authRateLimitKey.
  */
 export declare class RateLimitGuard {
   canActivate(context: unknown): Promise<boolean>;

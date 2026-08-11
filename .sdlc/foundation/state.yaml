@@ -63,7 +63,11 @@ tasks:
 # TASK-011, TASK-012, TASK-054, TASK-058. They stay in findings.yaml (append-only), parked
 # with the deferral rather than closed.
 
-escalations:
+escalations: []
+# F-320 CLEARED 2026-08-11 by Juano's boot-assertion ruling. ADR-0040 and
+# design/contracts/trusted-client-address.md. One judgement inside it - what a null principal
+# means for the @Public() bucket - is put back to Juano rather than settled by the architect.
+escalations_cleared_f320:
   - task: TASK-059
     findings: [F-320]
     raised: 2026-08-11
@@ -1284,3 +1288,7 @@ log:
   - "2026-08-11 design: F-320 RULED - THE BOOT-ASSERTION FORM. Assert a configured trusted-header name AT BOOT, mirroring assertBffProxySecretConfigured(), which is F-033's own criterion that what is locally checkable is asserted; keep FAIL-OPEN-WITH-SIGNAL at request time, because rate-limit.md's F-033 already ruled that for the neighbouring case - but with NO PRINCIPAL rather than a client-supplied one. Worded against the PROPERTY rather than the header name, because `repoint every read at the new header` preserves the defect's shape and the shape is the problem."
   - "2026-08-11 design: AND IT IS DESIGN-ONLY, WHICH I VERIFIED BEFORE SCOPING THE DISPATCH. `git grep resolveRateLimitPrincipal` over apps/ and packages/ RETURNS NOTHING - it lives in two stubs and five design documents. So the ruling costs contracts, ADRs and two stubs and no code, which is why holding it all afternoon was safe and why saying so was not the same as prompting for it."
   - "2026-08-11 design: F-300 RULED - PARK IT AND CORRECT THE INVARIANT. invitation-tokens.md invariant 5 says the raw token appears in exactly one place; the accept flow puts it in the URL path, so it is in the address bar, browser history, the Referer of any third-party asset, and platform request logs. Not reachable today with TASK-022 deferred - but THE INVARIANT AS WRITTEN IS FALSE, and a deferred TASK reading it would build against a guarantee the design does not provide. The mechanism is left to whoever builds the accept screen; the two plausible fixes are recorded without choosing between them."
+  - "2026-08-11 design: THE NULL-BUCKET JUDGEMENT UPHELD BY JUANO - @Public() FAILS OPEN rather than sharing one unidentified bucket. The architect asked for a second opinion rather than settling it, which was right: it is a security trade-off with no dominant answer. The rejected option bounds total anonymous transactions - exactly F-018's harm - but hands a single caller a PRODUCT-WIDE 429 LEVER on the invitation routes, so it trades a pool-exhaustion risk for a GUARANTEED denial-of-service primitive."
+  - "2026-08-11 design: AND F-018 IS THEREFORE REOPENED IN EVERY ENVIRONMENT THAT EXISTS - compose, CI, local dev - BY A DECISION RATHER THAN A REGRESSION. Its record said `fixed` and a reader would have stopped there, so it now carries the reopening in full. STATUS LEFT AS `fixed` DELIBERATELY: the fix it describes was real and correct against the design of the day, and what changed is the design underneath it. Flipping it to open would lose that distinction; leaving it unannotated would repeat F-142 exactly."
+  - "2026-08-11 design: ADR-0040's STRONGEST REJECTED ALTERNATIVE IS THE ONE TO REMEMBER. Falling back to req.socket.remoteAddress is GENUINELY THE CORRECT VALUE in the compose stack - and it lost because behind a proxy it silently becomes the collapsed-bucket outage, CONVERTING A DETECTABLE NO-PRINCIPAL STATE INTO AN UNDETECTABLE WRONG-PRINCIPAL ONE. A right answer in the environment you are testing and a silent wrong answer in the one you ship to is the worst shape available."
+  - "2026-08-11 design: AND THE ARCHITECT DECLINED TO WRITE AN ADR FOR F-300, CORRECTLY. Juano ruled `do not design the fix`, and an ADR whose Decision is `undecided` is the manufactured-paperwork case phases/design.md step 1 says to skip. It said so instead of producing one. Second time today an agent declined to generate an artifact and gave the rule it was declining under."
