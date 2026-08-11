@@ -4538,8 +4538,17 @@
     Mark the section as ADR-0004's intended state owned by TASK-003 and cross-reference F-119, or
     drop it until TASK-003 settles it.
   owner_slot: sdlc-implementer-backend
-  status: open
+  status: fixed
   ruling: DEFERRED AND ROUTED TO TASK-003 alongside F-119 and F-141, for the same reason.
+  discharged_2026_08_11: >-
+    DISCHARGED BY TASK-059 at 04ae31a, and THE RECORD LAGGED THE DISCHARGE BY ONE COMMIT - caught by
+    sdlc-product-auditor, not by me. fly.toml and infra/ are deleted, migrations.md carries no
+    release-command claim, and the implementer confirmed by READING :118-157 before rewriting rather
+    than assuming the deletion covered it. What was missing was the status flip: c07c40d touched only
+    state.yaml.
+    THIS RECORD HAS NOW DRIFTED IN BOTH DIRECTIONS IN ONE DAY - marked `fixed` this morning when it
+    was only deferred-and-routed, and left `open` tonight when it was actually discharged. The
+    correction note below is the first half; this is the second.
   correction_2026_08_11: >-
     STATUS CORRECTED fixed -> open, AND THE MISLABEL IS THE POINT. This was marked `fixed` when it
     was DEFERRED AND ROUTED, which are different things: TASK-003 never discharged it, and
@@ -12352,3 +12361,125 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+# ---- TASK-059 acceptance audit: `clear`, five minors on the check script plus one AC tension.
+# Full text: .sdlc/foundation/work/TASK-059-product.md
+
+- id: F-364
+  phase: implement
+  task: TASK-059
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: scripts/check-compose-stack.sh
+  line: 415
+  summary: >-
+    AC-115.4's ONLY EVIDENCE IS THE COMPOSE FILE'S OWN PROBE. Every other clause has an independent
+    host-side second source; the web service's health has none, so nothing confirms the published
+    127.0.0.1:3000 actually answers.
+  failure_scenario: >-
+    A probe that passes while the published port does not answer is the shape this whole design is
+    built to avoid - it is F-357 on a different service. The API clause does have that second
+    source, which is what makes the web clause's absence visible.
+  required_change: One host-side request against the published web port, as AC-115.8 does for the API.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-365
+  phase: implement
+  task: TASK-059
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: scripts/check-compose-stack.sh
+  line: 641
+  summary: >-
+    DOD-2 MEASURES "ROW COUNT UNCHANGED", WHICH IS EQUALLY TRUE OF A SEED THAT NEVER RE-RAN. An
+    "already seeded" marker would pass it - and ADR-0034 rule 2 FORBIDS such a marker, so the check
+    cannot distinguish the compliant implementation from the forbidden one.
+  required_change: >-
+    Assert idempotency by a property only a re-run can produce, or assert that the seed service ran
+    a second time and still left the count unchanged.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-366
+  phase: implement
+  task: TASK-059
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: scripts/check-compose-stack.sh
+  line: 356
+  summary: >-
+    `down -v ... || true` WITH NO POST-CONDITION. A failed teardown leaves a warm pgdata, and
+    AC-115.5 and AC-115.7 then pass over the PREVIOUS run - the exact staleness the comment at
+    :349-352 exists to prevent.
+  failure_scenario: >-
+    The clean-state premise is what makes AC-115 mean anything: "a machine with only Docker and a
+    clone". A teardown that can fail silently converts the whole check into a statement about
+    whatever was already there.
+  required_change: Assert the volume is gone after the teardown, or exit 2 - nothing measured.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-367
+  phase: implement
+  task: TASK-059
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: scripts/check-compose-stack.sh
+  line: 555
+  summary: >-
+    NOTHING ASSERTS A `seed` SERVICE EXISTS OR EXITED 0. AC-115's "the seed has run" is covered only
+    by its EFFECT, and only transitively through `api depends_on seed: service_completed_successfully`.
+  failure_scenario: >-
+    A stack that seeds inside the migrate step, or by any other route, satisfies the effect while
+    the AC's named subject does not exist. The effect assertion is right and is not enough on its own.
+  required_change: Assert the service ran and exited 0 alongside the effect.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-368
+  phase: implement
+  task: TASK-059
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: docs
+  file: .sdlc/foundation/stories/STORY-002.md
+  line: 1
+  summary: >-
+    AC-6 READ VERBATIM HAS A RED INSTANCE INSIDE THIS STACK. The `api` service builds THE PRODUCTION
+    IMAGE FROM THE REPOSITORY'S DOCKERFILE - AC-6's exact subject - and on a bare `up` reports forty
+    zeros rather than a git SHA. ADR-0037's accepted narrowing covers it; THE NARROWING LIVES IN THE
+    ADR AND NOT IN AC-6's TEXT, so the next verbatim reader hits it again.
+  failure_scenario: >-
+    Raised by the product auditor while confirming AC-6 was NOT absorbed into TASK-059 - it was not,
+    and the check explicitly hands provenance back to AC-6 at :33-38, naming ADR-0037. The defect is
+    that an acceptance criterion and a shipped artifact disagree with the reconciliation stored
+    somewhere neither of them points at. Same shape as F-301 and F-233.
+  required_change: >-
+    AC-6 carries the ADR-0037 narrowing, or a pointer to it. One clause.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "orchestrator 2026-08-11"
+  resolved_round: 1
+  resolution: >-
+    AC-6 now carries the narrowing inline with its reason, rather than pointing at an ADR the
+    verbatim reader has no cause to open. The wording states the general rule - an image that CAN
+    reach traffic may not report an unknown commit - so the clause does not read as an exemption for
+    this one stack.
