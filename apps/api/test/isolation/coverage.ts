@@ -87,6 +87,24 @@
  * UPDATE 2 and leaves tenant B's row belonging to tenant A. Theft rather than vandalism,
  * and every mechanism r2 added was blind to it.
  *
+ * AND NO TABLE IS EXCUSED FROM ANY OF THE EIGHT (F-342, r4). r3 let a registration
+ * decline a shape by name, with a published reason, and `tenants` was the first and only
+ * use: its owner column is its primary key, so `UPDATE tenants SET id = <actor>` was said
+ * to be "refused by the primary key index with 23505 before any policy is evaluated, so
+ * it could never distinguish a correct policy from a wide-open one". MEASURED on the
+ * migrated table, as `shortkit_app` in an ordinary tenant-A transaction on 2026-08-11:
+ *
+ *   tenants_self_update USING (id = ctx)  [the migration's] -> UPDATE 1, NO ERROR
+ *   tenants_self_update USING (true), WITH CHECK correct    -> ERROR 23505 tenants_pkey
+ *   tenants_self_update USING (true) WITH CHECK (true)      -> ERROR 23505 tenants_pkey
+ *
+ * The ordering is the other way round: the USING clause is applied during the scan, so
+ * under the correct policy the statement reaches only the actor's own row, the assignment
+ * is an IDENTITY UPDATE, and the key is never contended. The shape separated the cases
+ * cleanly on the one migrated production table this repository has, and the artifact SC-1
+ * points at published the false reason as a fact. Both the decline and the mechanism
+ * behind it are gone.
+ *
  * IT DOES NOT SAY that the system
  * has no cross-tenant surface — most of the system is not written. Ruled 2026-08-06:
  * AC-12 is met against a partial table set, deliberately, and the boundary is stated
@@ -115,11 +133,19 @@
  * its attempts to report `fail`. A harness that could not see a leak would report that
  * table clean, and the suite goes red.
  *
- * There are SEVEN such controls now, one per way an audit measured this harness
- * reporting `pass` over a database that was not isolated, plus two probes for a table
- * nobody registered. They are in `controls.ts` and `leak-canary.ts`, each named for the
- * finding it answers, and every one of them is real DDL against the real database rather
- * than a mutation someone ran once.
+ * There are NINE such controls now, one per way an audit measured this harness reporting
+ * `pass` over a database that was not isolated, plus four probes for tables nobody
+ * registered. They are in `controls.ts` and `leak-canary.ts`, each named for the finding
+ * it answers, and every one of them is real DDL against the real database rather than a
+ * mutation someone ran once.
+ *
+ * AND SINCE r4 THERE IS ONE POSITIVE CONTROL AMONG THEM (F-344).
+ * `isolation_guarded_check_canary` is correctly isolated and carries a WITH CHECK
+ * stricter than its USING, which is what an ordinary business predicate produces — and
+ * r3's `unverified` rule fired on it, leaving the run permanently red over a table with
+ * nothing wrong with it. A check that goes red on correct code is the check that gets
+ * deleted rather than fixed, so the shape a correct table CANNOT be reported as is now
+ * measured on every run alongside the shapes a leaking table must be.
  */
 import { writeFileSync } from 'node:fs';
 
@@ -265,17 +291,30 @@ export interface TenantScopedSurfaceRegistration {
    */
   readonly reset: () => void | Promise<void>;
   readonly methods: readonly TenantScopedMethod[];
-  /**
-   * F-330. Statement shapes this table cannot express, and why. `tenants` is the case
-   * that forced it: its owner column IS its primary key, so the owner-column-writing
-   * attempt collides on the index before any policy is consulted.
+  /*
+   * ==========================================================================
+   * F-342. THERE IS NO WAY TO DECLINE A STATEMENT SHAPE, AND THAT IS DELIBERATE.
+   * ==========================================================================
    *
-   * Declared rather than omitted, and carried into `report.json`, because "this table
-   * never had that attempt" and "this table quietly lost that attempt" have to look
-   * different to a reader. Every round of this TASK's audit has turned on that
-   * distinction.
+   * r3 added one: `declinedShapes`, a reason string carried into `report.json`, guarded
+   * by three independent edits so a decline could not arrive as a silent diff. The guard
+   * rails were right and the first — and only — use was not. `tenants` declined the
+   * owner-column write on the premise that `UPDATE tenants SET id = <actor>` "is refused
+   * by the primary key index with 23505 before any policy is evaluated". Measured on the
+   * migrated table on 2026-08-11: under the migration's own policies it reports UPDATE 1
+   * and NO ERROR, because the USING clause admits only the actor's own row and the
+   * assignment is an identity update; the 23505 appears only once the USING is widened.
+   * The shape separated a correct policy from a wide-open one, in both directions, and
+   * the decline removed one of the table's two live unqualified write attempts — while
+   * the artifact SC-1 points at published the false reason as a fact.
+   *
+   * An absence of evidence recorded as a fact is F-296's shape and it is what this file
+   * keeps repeating, so the mechanism is gone rather than corrected. A table that cannot
+   * express a shape as written changes the STATEMENT — see `unqualifiedWritesAlsoSet` in
+   * registrations.ts, which is how F-344's stricter-WITH-CHECK table stays green — and a
+   * table that genuinely cannot answer goes `unverified` and red, which is a measurement
+   * rather than a declaration.
    */
-  readonly declinedShapes?: ReadonlyArray<{ shape: string; because: string }>;
 }
 
 export type AttemptDirection = 'A->B' | 'B->A';
@@ -417,11 +456,13 @@ export interface IsolationReport {
   /** Covered by named integration tests rather than by enumeration. */
   unenumerable: ReadonlyArray<{ id: string; reason: string; coveredBy: string }>;
   /**
-   * F-330. Statement shapes a registration declined, and why. A table that silently
-   * lost the strongest attempt in the battery would otherwise be indistinguishable from
-   * one that never had it — which is the accounting failure this file keeps repeating.
+   * F-343. How many of this file's tests the runner had reported a result for when the
+   * verdict was computed. `suiteOutcome` is a conjunction over exactly this many tests,
+   * and until r4 nothing pinned the number: the mechanism filtered one level of tasks, so
+   * a test nested in a `describe` was silently uncounted and a red file could publish a
+   * green verdict. A reader of the artifact can now check the count.
    */
-  declinedShapes?: ReadonlyArray<{ table: string; shape: string; because: string }>;
+  observedTests?: number;
   /** Stated in the artifact itself, so a reader of report.json sees the boundary. */
   coverageBoundary: string;
   /**
@@ -495,7 +536,7 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-006, wave 2, revised r3. Covers the two tables that carry a tenant boundary ' +
+  'TASK-006, wave 2, revised r4. Covers the two tables that carry a tenant boundary ' +
   'today: `tenants` (the migrated table, four bespoke policies) and `rls_fixture_rows` ' +
   '(a FIXTURE TABLE this suite creates and drops per run, built from the production ' +
   'tenantScopedPolicies()). No routes and no repositories are enumerated, because none ' +
@@ -520,10 +561,10 @@ export const COVERAGE_BOUNDARY =
   'was a row-level security refusal recorded with its SQLSTATE and message, and no ' +
   'tenant could see a row it does not own before or after any attempt. An attempt that ' +
   'proved nothing is reported `unverified` and fails the run. ' +
-  'EIGHT STATEMENT SHAPES PER TABLE SINCE r3, and THREE of them carry NO WHERE CLAUSE ' +
-  '(F-302): an owner-qualified write is routed through the SELECT policy by PostgreSQL ' +
-  'and reports zero rows however wide open the UPDATE or DELETE policy is, so an ' +
-  'unqualified write is the only shape that can see that class of defect. It is judged ' +
+  'EIGHT STATEMENT SHAPES PER TABLE, ON EVERY TABLE, and THREE of them carry NO WHERE ' +
+  'CLAUSE (F-302): an owner-qualified write is routed through the SELECT policy by ' +
+  'PostgreSQL and reports zero rows however wide open the UPDATE or DELETE policy is, so ' +
+  'an unqualified write is the only shape that can see that class of defect. It is judged ' +
   'on the row count the statement itself reported, against the number of its own rows ' +
   'the acting tenant was shown to see, and separately on a per-row digest of every row ' +
   'the actor does not own — because an overwrite preserves ownership. ' +
@@ -531,9 +572,19 @@ export const COVERAGE_BOUNDARY =
   'while leaving its WITH CHECK correct — one token from the production builder — makes ' +
   'every other shape report a pass: the unqualified write is REFUSED by the WITH CHECK, ' +
   'which proves that clause held and nothing about the USING clause. Such a refusal is ' +
-  'scored `unverified`, never `pass`. A table whose owner column cannot be written — ' +
-  '`tenants`, whose owner column is its primary key — DECLINES that shape by name, with ' +
-  'the reason recorded in `declinedShapes` in this artifact. ' +
+  'scored `unverified`, never `pass`. ' +
+  'NO TABLE MAY DECLINE A SHAPE, AND r3 SAID OTHERWISE (F-342). `tenants` declined the ' +
+  'owner-column write here, with a reason published in this artifact, on the premise ' +
+  'that `UPDATE tenants SET id = <actor>` is refused by the primary key index "before ' +
+  'any policy is evaluated". MEASURED on the migrated table, as shortkit_app inside an ' +
+  'ordinary tenant transaction: under the migration\'s own policies it reports UPDATE 1 ' +
+  'and no error, because the USING clause admits only the actor\'s own row and the ' +
+  'assignment is an identity update; the 23505 appears only once the USING is widened, ' +
+  'in which case the attempt is scored `unverified` and names the surface. The policy is ' +
+  'evaluated FIRST and is what prevents the collision. The decline and the mechanism ' +
+  'behind it are both withdrawn: a table whose WITH CHECK asks for more than tenancy ' +
+  'changes the STATEMENT the unqualified writes issue (F-344), and a table that cannot ' +
+  'answer at all goes `unverified` and red. ' +
   'It does not mean the system has no uncovered cross-tenant surface: most of the ' +
   'system is unwritten, and the module-graph enumeration, the four grep clauses and ' +
   'the pg_policies shape assertion are TASK-056\'s.';
@@ -600,6 +651,19 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
   'isolation_masked_refusal_canary',
   'isolation_half_seeded_canary',
   'isolation_unqualified_write_canary',
+  // F-346, found in r4. `isolation_owner_theft_canary` shipped in r3 and was never added
+  // here, so every control run that had built it also reported it as registry drift —
+  // and `attemptVerdict` is `fail` whenever drift is non-empty, whatever the attempts
+  // said. The F-330 control's `expect(control.verdict).toBe('fail')` was therefore
+  // satisfied by the omission rather than by the policies, measured:
+  // `inDatabaseNotRegistered: ["isolation_owner_theft_canary"]`. A control table missing
+  // from this list turns every later control's verdict assertion into a tripwire for the
+  // list itself, which is the same class as the F-294 refusal roster firing for the wrong
+  // reason. The F-344 control — the one that must come back `pass` — is what now fails
+  // when this list is incomplete.
+  'isolation_owner_theft_canary',
+  'isolation_pk_owner_canary',
+  'isolation_guarded_check_canary',
 ];
 
 /**
@@ -1211,8 +1275,17 @@ async function attempt(
           'could reach — and an unqualified statement reaches every row USING admits. A ' +
           'wide-open USING with a correct WITH CHECK produces exactly this refusal, and ' +
           'it was measured producing it on the migrated `tenants` table while every ' +
-          'attempt in the run scored a pass (F-330). Re-issue the statement in a form ' +
-          'the WITH CHECK admits — `reparentAll` is that form — or narrow the shape.'
+          'attempt in the run scored a pass (F-330). ' +
+          'IF THIS TABLE IS CORRECTLY ISOLATED, THE REMEDY IS THE STATEMENT AND NOT THIS ' +
+          'RULE (F-344): a WITH CHECK stricter than its USING — a soft-delete guard, an ' +
+          'immutability-on-archive predicate, a plan limit — refuses this write on the ' +
+          'ACTOR\'S OWN ROW, and `reparentAll` is refused by it identically, so re-issuing ' +
+          'as that shape does not help. Give the registration `unqualifiedWritesAlsoSet` ' +
+          'naming the columns the check requires; the statement still carries no WHERE ' +
+          'clause, so it still reaches every row the USING clause admits and is still ' +
+          'judged on its row count. What is NOT available is declaring the table fine: ' +
+          'this refusal is evidence about the WITH CHECK and there is no evidence here ' +
+          'about the USING.'
         : `the database refused this attempt for a reason the harness cannot attribute to a ` +
           `policy: ${refusal.description}. ` +
           (method.kind === 'read'
@@ -1389,12 +1462,6 @@ export async function runCrossTenantAttempts(
     failed,
     unverified,
     registryDrift,
-    declinedShapes: registrations.flatMap((registration) =>
-      (registration.declinedShapes ?? []).map((declined) => ({
-        table: registration.table,
-        ...declined,
-      })),
-    ),
     excluded: ISOLATION_EXCLUSIONS.map((exclusion) => ({ ...exclusion })),
     // TASK-056 fills both from the module graph. No route exists to enumerate.
     publicRoutes: [],
@@ -1461,6 +1528,8 @@ export function finishIsolationReport(
   path: string,
   report: IsolationReport | null,
   suiteOutcome: SuiteOutcome,
+  /** F-343. How many tests the conjunction was computed over. Recorded, not trusted. */
+  observedTests: number,
 ): void {
   if (report === null) {
     beginIsolationReport(path, 'the run threw before it judged any attempt.');
@@ -1484,6 +1553,7 @@ export function finishIsolationReport(
     ...report,
     attemptVerdict,
     suiteOutcome,
+    observedTests,
     verdict,
     ...(verdict === 'incomplete'
       ? {

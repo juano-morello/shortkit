@@ -1,9 +1,12 @@
 /**
- * SIX MORE NEGATIVE CONTROLS, one per way an audit measured this harness reporting
- * `pass` over a database that was not isolated.
+ * NINE MORE CONTROLS. Eight are NEGATIVE — one per way an audit measured this harness
+ * reporting `pass` over a database that was not isolated — and the ninth,
+ * `isolation_guarded_check_canary`, is POSITIVE: a correctly isolated table the harness
+ * measurably reported red (F-344).
  *
- * Produced by: TASK-006 rework r2 (F-293, F-294, F-295, F-296) and r2 round 2
- * (F-302, F-303). Used by `cross-tenant-isolation.int-spec.ts` and nowhere else.
+ * Produced by: TASK-006 rework r2 (F-293, F-294, F-295, F-296), r2 round 2 (F-302,
+ * F-303), r3 (F-330, F-333) and r4 (F-342, F-344). Used by
+ * `cross-tenant-isolation.int-spec.ts` and nowhere else.
  *
  * `leak-canary.ts` already carries the first control — a table with no row-level
  * security at all, which every attempt must report as failing. It catches one shape: a
@@ -49,6 +52,26 @@
  *                                     round. Only a write with NO WHERE CLAUSE sees it.
  *                                     F-302's blocker, in its sharpest form.
  *
+ *   isolation_owner_theft_canary      the same USING widened and the WITH CHECK LEFT
+ *                                     CORRECT, so the unqualified write is REFUSED and
+ *                                     the refusal read as a denial, while a statement
+ *                                     assigning the owner column takes the row. F-330's
+ *                                     blocker.
+ *
+ *   isolation_pk_owner_canary         that defect on a table whose owner column IS its
+ *                                     primary key — `tenants`'s shape, and the shape r3
+ *                                     declined the owner-column write on. F-342.
+ *
+ *   isolation_guarded_check_canary    THE ONE THAT IS NOT A LEAK. Correctly isolated,
+ *                                     with a WITH CHECK stricter than its USING, which
+ *                                     the r3 rule reported red — permanently, with no
+ *                                     escape. F-344.
+ *
+ * ⚠ ONE OF THEM IS A POSITIVE CONTROL AND ITS EXPECTED ANSWER IS `pass`. Every other
+ * table here must come back non-`pass` on the attempts the finding names;
+ * `isolation_guarded_check_canary` must come back entirely green, because the failure it
+ * exists for is the harness calling a correct database broken.
+ *
  * ⚠ NONE OF THEM MAY SURVIVE THE SUITE, for the reason `leak-canary.ts` states: an
  * unprotected — or deliberately mis-protected — table in schema `public` is what
  * `db:check-policies` exists to fail on. `dropControlTables()` runs in the suite's
@@ -70,6 +93,8 @@ export const MASKED_REFUSAL_CANARY_TABLE = 'isolation_masked_refusal_canary';
 export const HALF_SEEDED_CANARY_TABLE = 'isolation_half_seeded_canary';
 export const UNQUALIFIED_WRITE_CANARY_TABLE = 'isolation_unqualified_write_canary';
 export const OWNER_THEFT_CANARY_TABLE = 'isolation_owner_theft_canary';
+export const PK_OWNER_CANARY_TABLE = 'isolation_pk_owner_canary';
+export const GUARDED_CHECK_CANARY_TABLE = 'isolation_guarded_check_canary';
 
 /**
  * F-296's probe. A tenant-scoped table that NOBODY REGISTERS — the wave-3 table the
@@ -375,6 +400,130 @@ export function createOwnerTheftCanary(): void {
 }
 
 /**
+ * =========================================================================
+ * F-342. THE OWNER COLUMN IS THE PRIMARY KEY — `tenants`'s SHAPE, AS A CONTROL.
+ * =========================================================================
+ *
+ * r3 declined the owner-column write on `tenants` on the premise that
+ * `UPDATE tenants SET id = <actor>` "is refused by the primary key index with 23505
+ * BEFORE ANY POLICY IS EVALUATED, so it could never distinguish a correct policy from a
+ * wide-open one". Both halves are false, and the measurement is what settles it. On the
+ * migrated production table, as `shortkit_app` inside an ordinary tenant-A transaction
+ * (2026-08-11, this machine):
+ *
+ *   tenants_self_update USING (id = ctx)  [THE MIGRATION'S]  -> UPDATE 1, NO ERROR
+ *   tenants_self_update USING (true), WITH CHECK correct     -> ERROR 23505 tenants_pkey
+ *   tenants_self_update USING (true) WITH CHECK (true)       -> ERROR 23505 tenants_pkey
+ *
+ * The POLICY IS EVALUATED FIRST and is exactly what prevents the collision: the USING
+ * clause admits only the actor's own row, so the assignment is an IDENTITY UPDATE and the
+ * index is never contended. Widen the USING and the statement sweeps both rows onto one
+ * id, and only then does the index refuse it. So the shape distinguishes the two cases
+ * cleanly, in both directions — which is why the decline was withdrawn and `tenants`
+ * carries `reparentAll` like every other table.
+ *
+ * THIS TABLE IS THE FAILING HALF OF THAT MEASUREMENT, AS PERMANENT DDL. `id` is both the
+ * primary key and the owner column, the UPDATE policy's USING is widened and its WITH
+ * CHECK left correct — `isolation_owner_theft_canary`'s defect on `tenants`'s shape. The
+ * passing half runs on every CI run too: it is `tenants` itself, in the main battery.
+ *
+ * WHAT IT SCORES, AND THE HONEST NARROWNESS OF IT. `reparentAll` here is refused with
+ * 23505, which `classifyRefusal()` scores `unrecognised` — so the attempt is UNVERIFIED
+ * and names the surface, rather than FAIL naming a victim. That is a red run and a named
+ * surface, which is strictly more than the decline gave this shape, and it is less than
+ * `reparentAll` gives a table whose owner column is not its primary key.
+ *
+ * NO FOREIGN KEY TO `tenants`, deliberately: `insertOwnedBy` plants a tenant id that is
+ * never seeded, and a foreign key would refuse it with 23503 before the policy could,
+ * which is the very confusion this control exists to disprove.
+ */
+export function createPkOwnerCanary(): void {
+  run(
+    `DROP TABLE IF EXISTS ${PK_OWNER_CANARY_TABLE};
+
+     CREATE TABLE ${PK_OWNER_CANARY_TABLE} (
+       id    uuid PRIMARY KEY,
+       label text NOT NULL
+     );
+
+     ${grantAll(PK_OWNER_CANARY_TABLE)}
+
+     INSERT INTO ${PK_OWNER_CANARY_TABLE} (id, label) VALUES
+       ('${TENANT_A}', '${CONTROL_A_LABEL}'),
+       ('${TENANT_B}', '${CONTROL_B_LABEL}');
+
+     ALTER TABLE ${PK_OWNER_CANARY_TABLE} ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE ${PK_OWNER_CANARY_TABLE} FORCE  ROW LEVEL SECURITY;
+
+     CREATE POLICY ${PK_OWNER_CANARY_TABLE}_select ON ${PK_OWNER_CANARY_TABLE}
+       FOR SELECT USING (id = ${TENANT_ID});
+     CREATE POLICY ${PK_OWNER_CANARY_TABLE}_insert ON ${PK_OWNER_CANARY_TABLE}
+       FOR INSERT WITH CHECK (id = ${TENANT_ID});
+     CREATE POLICY ${PK_OWNER_CANARY_TABLE}_delete ON ${PK_OWNER_CANARY_TABLE}
+       FOR DELETE USING (id = ${TENANT_ID});
+     -- THE DEFECT, on the cascade root's shape: USING widened, WITH CHECK left correct.
+     CREATE POLICY ${PK_OWNER_CANARY_TABLE}_update ON ${PK_OWNER_CANARY_TABLE}
+       FOR UPDATE USING (true) WITH CHECK (id = ${TENANT_ID});`,
+  );
+}
+
+/**
+ * =========================================================================
+ * F-344. THE POSITIVE CONTROL: A WITH CHECK STRICTER THAN ITS USING, AND NOTHING WRONG.
+ * =========================================================================
+ *
+ * NOT A LEAK. This table is CORRECTLY ISOLATED — one `FOR ALL` policy whose USING is the
+ * production predicate — and it carries one ordinary business predicate beyond tenancy in
+ * its WITH CHECK. Soft-delete guards, immutability-on-archive and plan-limit checks all
+ * produce exactly this shape, and both seeded rows are `status = 'locked'` so the clause
+ * bites on the ACTOR'S OWN ROW in both directions.
+ *
+ * WHY IT IS HERE. r3's rule — an unqualified write refused by row-level security is
+ * `unverified` rather than `pass` (F-330) — fires on this table, measured: tenant A sees
+ * exactly its own row, and `update <t> set label = '...'` is refused with
+ * `new row violates row-level security policy` because the resulting row is still locked.
+ * The run went permanently red on a table with nothing wrong with it, and the message's
+ * own suggested remedy — re-issue as `reparentAll` — was refused identically, because
+ * setting `tenant_id` leaves `status` untouched. A check that goes red on correct code is
+ * the check that gets deleted rather than fixed.
+ *
+ * THE ESCAPE IS THE STATEMENT, NOT A DECLARATION (F-342's lesson). The registration says
+ * which columns the WITH CHECK requires and the unqualified writes assign them too, so the
+ * statement is ADMITTED and judged on its row count — which is the judgement that sees a
+ * wide-open USING. Nothing about `refusalProvesDenial` is softened: a refusal on an
+ * unqualified write is still never a pass. What changed is that a correct table can now
+ * produce a statement that is not refused.
+ *
+ * SO A GREEN RUN OVER THIS TABLE MEANS: all sixteen attempts passed, and the two
+ * unqualified updates were ADMITTED and reported exactly one row each — the actor's own.
+ * Deleting `unqualifiedWritesAlsoSet` from its registration turns those four attempts
+ * `unverified` and the suite red, which is the mutation this control exists to fail on.
+ */
+export function createGuardedCheckCanary(): void {
+  run(
+    `${createTable(GUARDED_CHECK_CANARY_TABLE, `,
+       status text NOT NULL DEFAULT 'active'`)}
+
+     ${grantAll(GUARDED_CHECK_CANARY_TABLE)}
+
+     -- BOTH rows locked: the WITH CHECK must bite on the acting tenant's OWN row, in
+     -- both directions, or the control is only about the other tenant's rows.
+     INSERT INTO ${GUARDED_CHECK_CANARY_TABLE} (id, tenant_id, label, status) VALUES
+       ('${CONTROL_A_ROW_ID}', '${TENANT_A}', '${CONTROL_A_LABEL}', 'locked'),
+       ('${CONTROL_B_ROW_ID}', '${TENANT_B}', '${CONTROL_B_LABEL}', 'locked');
+
+     ALTER TABLE ${GUARDED_CHECK_CANARY_TABLE} ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE ${GUARDED_CHECK_CANARY_TABLE} FORCE  ROW LEVEL SECURITY;
+
+     -- CORRECT ISOLATION, plus one ordinary business predicate. The USING clause is
+     -- exactly what tenantScopedPolicies() emits.
+     CREATE POLICY ${GUARDED_CHECK_CANARY_TABLE}_tenant_isolation ON ${GUARDED_CHECK_CANARY_TABLE}
+       FOR ALL USING (tenant_id = ${TENANT_ID})
+               WITH CHECK (tenant_id = ${TENANT_ID} AND status <> 'locked');`,
+  );
+}
+
+/**
  * F-296. A tenant-scoped table added by a later wave whose author forgot the one
  * `registerTenantScopedSurfaces()` call. It is correct in every way `db:check-policies`
  * can see — `tenant_id`, ENABLE, FORCE, a policy — and the isolation suite must still
@@ -491,6 +640,8 @@ export function dropControlTables(): void {
       HALF_SEEDED_CANARY_TABLE,
       UNQUALIFIED_WRITE_CANARY_TABLE,
       OWNER_THEFT_CANARY_TABLE,
+      PK_OWNER_CANARY_TABLE,
+      GUARDED_CHECK_CANARY_TABLE,
       UNREGISTERED_TABLE_PROBE,
       ...OWNER_COLUMN_PROBE_PROTECTIONS.map(ownerColumnProbeTable),
     ]

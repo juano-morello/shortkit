@@ -27,11 +27,14 @@
  */
 import { sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
 import {
   createRlsFixture,
   RLS_FIXTURE_TABLE,
+  TENANT_A,
+  TENANT_B,
   TENANT_C_NEVER_SEEDED,
 } from '../support/rls-fixture';
 
@@ -48,21 +51,26 @@ import {
   createDirectionCanary,
   createGrantGapCanary,
   createHalfSeededCanary,
+  createGuardedCheckCanary,
   createMaskedRefusalCanary,
   createOwnerTheftCanary,
+  createPkOwnerCanary,
   createUnqualifiedWriteCanary,
   DIRECTION_CANARY_TABLE,
   GRANT_GAP_CANARY_TABLE,
+  GUARDED_CHECK_CANARY_TABLE,
   HALF_SEEDED_CANARY_TABLE,
   MASKED_REFUSAL_CANARY_TABLE,
   OWNER_THEFT_CANARY_TABLE,
+  PK_OWNER_CANARY_TABLE,
   UNQUALIFIED_WRITE_CANARY_TABLE,
 } from './controls';
 import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
 
 /**
- * The seven statement shapes every tenant-scoped table is attacked with. They are the
- * rows of isolation-coverage.md's "Attempt semantics" table, made concrete:
+ * The EIGHT statement shapes every tenant-scoped table is attacked with — every table,
+ * with no exceptions since r4 withdrew the one decline (F-342). They are the rows of
+ * isolation-coverage.md's "Attempt semantics" table, made concrete:
  *
  *   findAll          unfiltered read           -> must return none of the target's rows
  *   findOwnedBy      read filtered to target   -> must return zero rows
@@ -71,6 +79,8 @@ import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
  *   insertOwnedBy    write planting a new row  -> rejected, or zero rows affected
  *   updateAll        write with NO WHERE       -> at most the actor's own rows affected
  *   deleteAll        write with NO WHERE       -> at most the actor's own rows affected
+ *   reparentAll      write with NO WHERE, assigning the OWNER COLUMN
+ *                                              -> at most the actor's own rows affected
  *
  * `findAll` is deliberately unfiltered: a `where owner = actor` here would assert the
  * WHERE clause rather than the policy, which is the mistake `tenant-context.int-spec.ts`
@@ -123,7 +133,17 @@ import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
  *    A registration whose writes all name the owning tenant in a WHERE clause is blind
  *    to a wide-open UPDATE or DELETE policy, because PostgreSQL routes such a write
  *    through the SELECT policy and it reports zero rows (F-302). `tableAccess()` below
- *    supplies both shapes; a hand-written registration owes them itself.
+ *    supplies both shapes; a hand-written registration owes them itself. Since r4 the
+ *    declaration is CHECKED AGAINST THE SQL at registration time and a disagreement
+ *    throws (F-345) — the label was the one thing three rounds of judgement rested on
+ *    that no mechanism verified.
+ *
+ * 5. NO SHAPE MAY BE DECLINED (F-342). A table whose WITH CHECK asks for more than
+ *    tenancy names the columns it asks for in `unqualifiedWritesAlsoSet`, so the two
+ *    unqualified updates are ADMITTED rather than refused (F-344); a table that cannot
+ *    answer at all comes back `unverified` and fails the run. What is not available is
+ *    declaring a shape inapplicable: r3 had that mechanism, its only use rested on a
+ *    premise that measured false, and the artifact published the premise as a fact.
  */
 interface TableAccessSpec {
   readonly table: string;
@@ -142,31 +162,126 @@ interface TableAccessSpec {
   readonly plantedOwnerId: (target: TenantFixture) => string;
   readonly plantedRow: (ownerId: string) => SQL;
   /**
-   * F-330. Set when `UPDATE <t> SET <ownerColumn> = <actor>` is not a statement this
-   * table can express at all. The string is the reason, it is required to remove the
-   * shape, and it is carried into `report.json` via the registration's `declinedShapes`
-   * — a shape that vanishes silently is the failure mode three rounds of audit have
-   * found here.
+   * ==========================================================================
+   * F-344. THE COLUMNS THIS TABLE'S `WITH CHECK` REQUIRES, ASSIGNED BY THE TWO
+   * UNQUALIFIED UPDATES SO THEY ARE ADMITTED RATHER THAN REFUSED.
+   * ==========================================================================
+   *
+   * A WITH CHECK stricter than its USING is an ordinary, CORRECT policy shape — a
+   * soft-delete guard, an immutability-on-archive predicate, a plan limit. On such a
+   * table `update <t> set <mutable> = <constant>` is refused by the check even though the
+   * USING clause admitted only the actor's own row, and r3's rule scores that refusal
+   * `unverified`: a red run, permanently, on a table with nothing wrong with it.
+   * Measured on `isolation_guarded_check_canary`, and `reparentAll` — the remedy the
+   * message used to offer — is refused identically.
+   *
+   * WHAT THIS IS NOT. It is not a declaration that the table is fine, and it cannot hide
+   * a leak: the statement still carries no WHERE clause, so it still sweeps every row the
+   * USING clause admits, and `affected > actorOwnRowsVisible` still fires. It can only
+   * turn a refusal that proved nothing into a row count that proves something. A
+   * registration that omits it when the table needs it goes `unverified` and red — the
+   * failure stays closed and names the surface.
+   *
+   * It is deliberately NOT applied to the owner-qualified writes: those name the target
+   * in a WHERE clause, PostgreSQL routes them through the SELECT policy, and a refusal on
+   * one of them is already complete evidence (F-302, F-330).
    */
-  readonly declineReparentAllBecause?: string;
+  readonly unqualifiedWritesAlsoSet?: SQL;
 }
 
 /**
- * F-330. `tenants` is the cascade root: its owner column IS its primary key, so
- * `UPDATE tenants SET id = <actor>` with no WHERE sets every visible row's id to the
- * same value and collides on the primary key — a 23505 raised by the index BEFORE any
- * policy is consulted, which is indistinguishable from the 42501 a policy owes us. It is
- * also not a statement any real code path issues: re-parenting a tenant to itself is not
- * an operation. Recorded rather than silently skipped, and printed into the artifact.
+ * F-345. Compiled, never executed: the two fixtures below exist so that every statement a
+ * shape can build has concrete arguments at REGISTRATION time, which is what lets the
+ * declared `qualification` be checked against the SQL rather than trusted.
  */
-export const TENANTS_DECLINES_REPARENT =
-  'tenants is the cascade root and its owner column `id` is its primary key. An ' +
-  'unqualified `UPDATE tenants SET id = <actor>` sets every row the USING clause admits ' +
-  'to one value and is refused by the primary key index with 23505 before any policy is ' +
-  'evaluated, so it could never distinguish a correct policy from a wide-open one. ' +
-  'CONSEQUENCE, STATED: on the migrated production table the F-302/F-330 mechanism rests ' +
-  'on `updateAll` alone per direction — `deleteAll` there is inert for the reason F-329 ' +
-  'records, and this shape is inapplicable.';
+const COMPILE_ONLY_ACTOR: TenantFixture = { id: TENANT_A, name: 'compiled, never executed' };
+const COMPILE_ONLY_TARGET: TenantFixture = { id: TENANT_B, name: 'compiled, never executed' };
+
+interface StatementShape {
+  readonly name: string;
+  readonly kind: 'read' | 'write';
+  readonly reaches: 'existing-row' | 'new-row';
+  readonly qualification: 'owner-qualified' | 'unqualified';
+  readonly statement: (actor: TenantFixture, target: TenantFixture) => SQL;
+}
+
+/**
+ * One statement shape, with its declared `qualification` CHECKED AGAINST THE SQL before
+ * the method exists (F-345). The check runs here rather than in `coverage.ts` because
+ * this is the layer that owns the SQL; the runner never sees a statement, only a closure.
+ */
+function shape(spec: StatementShape): TenantScopedMethod {
+  assertDeclaredQualification(
+    spec.name,
+    spec.qualification,
+    spec.statement(COMPILE_ONLY_ACTOR, COMPILE_ONLY_TARGET),
+  );
+
+  return {
+    name: spec.name,
+    kind: spec.kind,
+    reaches: spec.reaches,
+    qualification: spec.qualification,
+    attempt: (actor, target) =>
+      (spec.kind === 'read' ? reads : writes)(spec.statement(actor, target))(actor),
+  };
+}
+
+/**
+ * ============================================================================
+ * F-345. `qualification` IS DERIVED FROM THE STATEMENT, NOT TAKEN ON TRUST.
+ * ============================================================================
+ *
+ * The field drives three separate judgements — the count rule (`affected > 0` versus
+ * `affected > actorOwnRowsVisible`), the F-330 refusal rule (`pass` versus `unverified`)
+ * and the post-attempt `reset()` — and until now it was a string literal sitting next to
+ * the SQL it claimed to describe, with nothing but review between the two. A registration
+ * labelling an unqualified statement `owner-qualified` restores F-330's blind spot for
+ * that surface: its row-level-security refusal scores a pass again.
+ *
+ * THE RULE, AND WHY INSERT IS NOT AN EXCEPTION MADE FOR CONVENIENCE. A statement is
+ * `owner-qualified` when it names the rows it may touch: an UPDATE or DELETE does that in
+ * a WHERE clause, and an INSERT does it in the row it supplies. The distinction the field
+ * exists for is which half of a policy a refusal is evidence about, and an INSERT policy
+ * HAS NO USING CLAUSE AT ALL — only a WITH CHECK — so a WITH CHECK refusal is complete
+ * evidence for that statement, which is exactly what `owner-qualified` means to the
+ * runner. An UPDATE or DELETE with no WHERE is the only shape whose refusal leaves the
+ * USING clause unproven.
+ */
+export function qualificationOfStatement(statement: SQL): 'owner-qualified' | 'unqualified' {
+  // Compiled by the production dialect rather than pattern-matched over the template's
+  // chunks: `sql.identifier()` and every nested fragment are resolved here exactly as
+  // they are when the statement runs, and the bound values become `$1`, so no fixture
+  // value can spell a keyword into the text.
+  const text = new PgDialect().sqlToQuery(statement).sql;
+
+  return /^\s*insert\b/i.test(text) || /\bwhere\b/i.test(text)
+    ? 'owner-qualified'
+    : 'unqualified';
+}
+
+/**
+ * F-345. Throws at REGISTRATION TIME — which is import time — when a shape's declared
+ * `qualification` disagrees with the SQL it issues.
+ */
+export function assertDeclaredQualification(
+  name: string,
+  declared: 'owner-qualified' | 'unqualified',
+  statement: SQL,
+): void {
+  const derived = qualificationOfStatement(statement);
+
+  if (derived !== declared) {
+    throw new Error(
+      `${name} declares qualification '${declared}' and issues a statement the harness ` +
+        `reads as '${derived}': ${new PgDialect().sqlToQuery(statement).sql}. An UPDATE or ` +
+        'DELETE with no WHERE clause is unqualified; anything naming the rows it may ' +
+        'touch — a WHERE clause, or an INSERT supplying the row — is owner-qualified. ' +
+        'The field decides whether a row-level-security refusal on this statement is a ' +
+        'pass or `unverified`, so a wrong label restores F-330 for this surface.',
+    );
+  }
+}
 
 function reads(statement: SQL) {
   return async (actor: TenantFixture): Promise<CrossTenantAttemptResult> =>
@@ -185,54 +300,58 @@ function writes(statement: SQL) {
 function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
   const table = sql.identifier(spec.table);
   const owner = sql.identifier(spec.ownerColumn);
+  const mutable = sql.identifier(spec.mutableColumn);
   const projection = sql.join(
     spec.projection.map((column) => sql.identifier(column)),
     sql`, `,
   );
+  // F-344. Empty for every table whose WITH CHECK asks nothing beyond tenancy, which is
+  // every table in this repository today.
+  const alsoSets =
+    spec.unqualifiedWritesAlsoSet === undefined
+      ? sql.empty()
+      : sql`, ${spec.unqualifiedWritesAlsoSet}`;
 
-  const shapes: TenantScopedMethod[] = [
-    {
+  return [
+    shape({
       name: 'findAll',
       kind: 'read',
       reaches: 'existing-row',
       qualification: 'unqualified',
-      attempt: (actor) => reads(sql`select ${projection} from ${table} order by id`)(actor),
-    },
-    {
+      statement: () => sql`select ${projection} from ${table} order by id`,
+    }),
+    shape({
       name: 'findOwnedBy',
       kind: 'read',
       reaches: 'existing-row',
       qualification: 'owner-qualified',
-      attempt: (actor, target) =>
-        reads(sql`select ${projection} from ${table} where ${owner} = ${target.id}::uuid`)(actor),
-    },
-    {
+      statement: (_actor, target) =>
+        sql`select ${projection} from ${table} where ${owner} = ${target.id}::uuid`,
+    }),
+    shape({
       name: 'updateOwnedBy',
       kind: 'write',
       reaches: 'existing-row',
       qualification: 'owner-qualified',
-      attempt: (actor, target) =>
-        writes(
-          sql`update ${table}
-                 set ${sql.identifier(spec.mutableColumn)} = ${'overwritten-by-another-tenant'}
-               where ${owner} = ${target.id}::uuid`,
-        )(actor),
-    },
-    {
+      statement: (_actor, target) =>
+        sql`update ${table}
+               set ${mutable} = ${'overwritten-by-another-tenant'}
+             where ${owner} = ${target.id}::uuid`,
+    }),
+    shape({
       name: 'deleteOwnedBy',
       kind: 'write',
       reaches: 'existing-row',
       qualification: 'owner-qualified',
-      attempt: (actor, target) =>
-        writes(sql`delete from ${table} where ${owner} = ${target.id}::uuid`)(actor),
-    },
-    {
+      statement: (_actor, target) => sql`delete from ${table} where ${owner} = ${target.id}::uuid`,
+    }),
+    shape({
       name: 'insertOwnedBy',
       kind: 'write',
       reaches: 'new-row',
       qualification: 'owner-qualified',
-      attempt: (actor, target) => writes(spec.plantedRow(spec.plantedOwnerId(target)))(actor),
-    },
+      statement: (_actor, target) => spec.plantedRow(spec.plantedOwnerId(target)),
+    }),
     /**
      * F-302. NO WHERE CLAUSE, AND NO REFERENCE TO AN EXISTING COLUMN.
      *
@@ -245,26 +364,28 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
      *
      * `reaches: 'existing-row'`: with nothing of the target's there, an unqualified
      * write has nothing to leak and its row count proves nothing (F-295).
+     *
+     * F-344: `alsoSets` is empty unless the table's WITH CHECK asks for more than
+     * tenancy, in which case the registration names the columns it asks for and this
+     * statement is ADMITTED rather than refused. It still carries no WHERE clause, so it
+     * still reaches every row the USING clause admits, and the count rule still judges it.
      */
-    {
+    shape({
       name: 'updateAll',
       kind: 'write',
       reaches: 'existing-row',
       qualification: 'unqualified',
-      attempt: (actor) =>
-        writes(
-          sql`update ${table}
-                 set ${sql.identifier(spec.mutableColumn)} = ${'overwritten-by-an-unqualified-write'}`,
-        )(actor),
-    },
+      statement: () =>
+        sql`update ${table} set ${mutable} = ${'overwritten-by-an-unqualified-write'}${alsoSets}`,
+    }),
     /** F-302. `DELETE FROM <t>` — the auditor's measurement: DELETE 0 qualified, DELETE 2 not. */
-    {
+    shape({
       name: 'deleteAll',
       kind: 'write',
       reaches: 'existing-row',
       qualification: 'unqualified',
-      attempt: (actor) => writes(sql`delete from ${table}`)(actor),
-    },
+      statement: () => sql`delete from ${table}`,
+    }),
     /**
      * =========================================================================
      * F-330. THE ONLY SHAPE THAT WRITES THE OWNER COLUMN, AND IT IS THE THEFT.
@@ -294,26 +415,37 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
      * count rule sees `UPDATE 2` against one visible own row, and `foreignRowLines()`
      * sees the target's row LEAVE the foreign set, which names the victim.
      *
+     * =========================================================================
+     * F-342. EVERY TABLE CARRIES IT, INCLUDING THE ONE WHOSE OWNER COLUMN IS ITS KEY.
+     * =========================================================================
+     *
+     * r3 let a registration DECLINE this shape by name, and `tenants` was the first and
+     * only use — on the premise that `UPDATE tenants SET id = <actor>` is refused by the
+     * primary key index "before any policy is evaluated". Measured on the migrated table,
+     * as `shortkit_app` in an ordinary tenant-A transaction, on 2026-08-11:
+     *
+     *   tenants_self_update USING (id = ctx)  [the migration's] -> UPDATE 1, NO ERROR
+     *   tenants_self_update USING (true), WITH CHECK correct    -> ERROR 23505
+     *   tenants_self_update USING (true) WITH CHECK (true)      -> ERROR 23505
+     *
+     * The policy is evaluated FIRST and is what prevents the collision: the USING clause
+     * admits only the actor's own row, so the assignment is an IDENTITY UPDATE and the key
+     * is never contended. The shape separates the cases cleanly, so THE DECLINE AND THE
+     * MECHANISM BEHIND IT ARE BOTH GONE. Its failing answer on such a table is a 23505,
+     * which lands as `unverified` rather than as a named leak — a red run naming the
+     * surface, which is narrower than a `fail` and far more than the decline gave it.
+     *
      * Ordinary code paths that issue it: a re-parent, a move-between-workspaces, an
      * upsert, an ORM `save()` on a hydrated entity whose owner field was rebound.
      */
-    {
+    shape({
       name: 'reparentAll',
       kind: 'write',
       reaches: 'existing-row',
       qualification: 'unqualified',
-      attempt: (actor) =>
-        writes(sql`update ${table} set ${owner} = ${actor.id}::uuid`)(actor),
-    },
+      statement: (actor) => sql`update ${table} set ${owner} = ${actor.id}::uuid${alsoSets}`,
+    }),
   ];
-
-  // F-330. The declined shape is REMOVED HERE AND NOWHERE ELSE, and only against a
-  // stated reason — which the registration also carries into `report.json`. A shape that
-  // can be dropped without a reason is a shape that gets dropped.
-  return shapes.filter(
-    (shape) =>
-      !(shape.name === 'reparentAll' && spec.declineReparentAllBecause !== undefined),
-  );
 }
 
 const PLANTED_FIXTURE_ROW_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1';
@@ -342,18 +474,33 @@ const PLANTED_FIXTURE_ROW_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1';
  * SELECT policy rather than the write policy — that is F-302's finding restated as an
  * accounting fact, not a separate defect.
  *
- * SO, ON THE MIGRATED PRODUCTION TABLE: `updateAll` is the ONLY live unqualified write
- * attempt per direction. `deleteAll` is inert for the reason above and `reparentAll` is
- * inapplicable for the reason `TENANTS_DECLINES_REPARENT` gives. One attempt per
- * direction is what stands between this table and F-302's class of defect, and that
- * number belongs at the gate rather than in a footnote.
+ * ---------------------------------------------------------------------------
+ * SO, ON THE MIGRATED PRODUCTION TABLE — RESTATED FOR r4 (F-342), BECAUSE THE PREVIOUS
+ * VERSION OF THIS PARAGRAPH RESTED ON A PREMISE THAT MEASURES FALSE
+ * ---------------------------------------------------------------------------
+ *
+ * It said `updateAll` was the ONLY live unqualified write attempt per direction, because
+ * `reparentAll` had been declined here as inapplicable. It is applicable, and it runs:
+ *
+ *   updateAll    `UPDATE tenants SET name = <constant>`  -> live. UPDATE 1 under the
+ *                migration's policies; UPDATE 2 (fail) if both halves are widened; 42501
+ *                (unverified) if only the USING is.
+ *   reparentAll  `UPDATE tenants SET id = <actor>`       -> live. UPDATE 1 under the
+ *                migration's policies, because the USING clause admits only the actor's
+ *                own row and the assignment is an IDENTITY UPDATE; ERROR 23505 under
+ *                EITHER widened shape, which lands as `unverified` and names the surface.
+ *                All three measured on this machine on 2026-08-11.
+ *   deleteAll    `DELETE FROM tenants`                   -> inert, for the reason above.
+ *
+ * TWO live unqualified write attempts per direction, one of which reports its failure as
+ * `unverified` rather than as a named leak. That is the honest accounting, and it is
+ * narrower than a `fail` — but a decline recorded as a fact was not evidence at all.
  */
 const tenantsAccess: TenantScopedSurfaceRegistration = {
   subject: 'TenantsTableAccess',
   table: 'tenants',
   ownerColumn: 'id',
   reset: createRlsFixture,
-  declinedShapes: [{ shape: 'reparentAll', because: TENANTS_DECLINES_REPARENT }],
   methods: tableAccess({
     table: 'tenants',
     ownerColumn: 'id',
@@ -363,7 +510,6 @@ const tenantsAccess: TenantScopedSurfaceRegistration = {
     plantedRow: (ownerId) =>
       sql`insert into ${sql.identifier('tenants')} (id, name)
           values (${ownerId}::uuid, ${'planted-by-another-tenant'})`,
-    declineReparentAllBecause: TENANTS_DECLINES_REPARENT,
   }),
 };
 
@@ -439,6 +585,8 @@ function controlAccess(
   subject: string,
   table: string,
   reset: () => void,
+  /** F-344. One control needs the two unqualified updates to satisfy a stricter WITH CHECK. */
+  unqualifiedWritesAlsoSet?: SQL,
 ): TenantScopedSurfaceRegistration {
   return {
     subject,
@@ -454,6 +602,7 @@ function controlAccess(
       plantedRow: (ownerId) =>
         sql`insert into ${sql.identifier(table)} (id, tenant_id, label)
             values (${PLANTED_CONTROL_ROW_ID}::uuid, ${ownerId}::uuid, ${'planted-by-another-tenant'})`,
+      unqualifiedWritesAlsoSet,
     }),
   };
 }
@@ -530,6 +679,46 @@ export const ownerTheftCanaryAccess = controlAccess(
   createOwnerTheftCanary,
 );
 
+/**
+ * F-342. The cascade root's shape — owner column IS the primary key — with the UPDATE
+ * policy's USING widened and its WITH CHECK left correct. See `createPkOwnerCanary()`.
+ * Written out rather than built by `controlAccess()`, which assumes `tenant_id`.
+ */
+export const pkOwnerCanaryAccess: TenantScopedSurfaceRegistration = {
+  subject: 'PkOwnerCanaryTableAccess',
+  table: PK_OWNER_CANARY_TABLE,
+  ownerColumn: 'id',
+  reset: createPkOwnerCanary,
+  methods: tableAccess({
+    table: PK_OWNER_CANARY_TABLE,
+    ownerColumn: 'id',
+    projection: ['id', 'label'],
+    mutableColumn: 'label',
+    // A tenant the fixture never seeds, for the reason `tenants` needs one: an insert
+    // carrying the target's id would collide on the primary key and the 23505 would be
+    // indistinguishable from the 42501 the INSERT policy owes us.
+    plantedOwnerId: () => TENANT_C_NEVER_SEEDED,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier(PK_OWNER_CANARY_TABLE)} (id, label)
+          values (${ownerId}::uuid, ${'planted-by-another-tenant'})`,
+  }),
+};
+
+/**
+ * F-344. CORRECTLY ISOLATED, and its WITH CHECK carries one ordinary business predicate
+ * beyond tenancy. See `createGuardedCheckCanary()`. The one control in this file that
+ * must come back entirely GREEN.
+ */
+export const guardedCheckCanaryAccess = controlAccess(
+  'GuardedCheckCanaryTableAccess',
+  GUARDED_CHECK_CANARY_TABLE,
+  createGuardedCheckCanary,
+  // The one column this table's WITH CHECK asks about beyond tenancy. Without it both
+  // unqualified updates are refused, score `unverified`, and the run is red over a table
+  // that is correctly isolated — which is the measurement F-344 is.
+  sql`${sql.identifier('status')} = ${'active'}`,
+);
+
 /** Every surface id this wave covers, hand-written so a battery quietly losing a method fails. */
 export const EXPECTED_SURFACE_IDS = [
   'repo:RlsFixtureRowsTableAccess.deleteAll',
@@ -545,6 +734,7 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:TenantsTableAccess.findAll',
   'repo:TenantsTableAccess.findOwnedBy',
   'repo:TenantsTableAccess.insertOwnedBy',
+  'repo:TenantsTableAccess.reparentAll',
   'repo:TenantsTableAccess.updateAll',
   'repo:TenantsTableAccess.updateOwnedBy',
 ] as const;
