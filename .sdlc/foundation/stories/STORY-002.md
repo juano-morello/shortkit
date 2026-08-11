@@ -2,7 +2,7 @@
 id: STORY-002
 epic: EPIC-001
 title: Deployable skeleton with CI
-status: in-progress
+status: done
 tasks: [TASK-002, TASK-003, TASK-004, TASK-059, TASK-060]
 depends_on: [STORY-001]
 ---
@@ -128,3 +128,34 @@ an ADR recording that no deploy target is chosen. That discharges **F-142**, whi
 been undischarged since 2026-08-05: `migrations.md:120` says the Fly release command runs
 migrations while `fly.toml` deliberately has none, which sends a reader to `fly deploy` by
 hand against an unmigrated schema with `/health` still reporting green.
+
+## Verification at Ship — 2026-08-11 (F-397)
+
+**No STORY in this initiative recorded its Definition of Done until Ship.** Twenty acceptance
+criteria and twenty DoD items across four cards, every one still `- [ ]` while ten TASKs were
+`done`. The evidence existed in `state.yaml`, the acceptance report and the integration report; it
+was absent from the cards a reader opens. Found by the Ship traceability pass, not by any of the
+six audits that ran today.
+
+**Checkboxes are deliberately left unticked and this block records the state instead.** A tick is a
+claim with no room for a caveat, and three of this initiative's criteria are not the kind of thing a
+tick can honestly carry — one is untestable by construction, one was met by an artifact that no
+longer exists, and one has never been observed in the environment it gates. Evidence below, per
+criterion, with what is *not* proven stated beside what is.
+
+| AC | State | Evidence |
+|---|---|---|
+| **AC-5** | met in definition, **never observed on a runner** | `ci.yml` has `quality` and `integration` jobs and a `gate` asserting both. No CI run has been observed — the remote has never received a push. |
+| **AC-6** | **met** | Measured 2026-08-11 on a clean tree at `04ae31a`, zero dirty files: `GET /health` → 200, `status: "ok"`, `commit` equal to `HEAD`. Narrowed by ADR-0037 — see the AC's own text. |
+| **AC-7** | **met** | Live curl 2026-08-06, 200 `text/html`. |
+| **AC-113** | **met** | Re-measured 2026-08-11 by image inspection with `apps/web/.env.local` present: no `.env*` outside `node_modules`, no canary under `.next`, neither secret value in the bundle. |
+| **AC-114** | met in definition, **never observed on a runner** | Same caveat as AC-5. |
+| **AC-115** | **met** | Fifteen clauses, exit 0, verified independently by the orchestrator and the integrator. |
+| **AC-116** | **met** | All three clauses; the enumeration derives its set rather than listing paths, and the lint rule fires at an arbitrary new path and at both formerly exempted files. |
+
+**DoD.** All ACs green as automated tests: **partly** — AC-5, AC-7, AC-113 and AC-114 are CI- and
+shell-level rather than vitest, which `AC-113`'s own amendment records as consistent. Auditors clear
+of blocker/major: **yes**, both Ship blockers closed. Docs updated: **yes**, and F-388 is why —
+the README described three subsystems that did not exist. Observability per config: **yes**, and
+AC-116 is what makes the contract's "nothing may opt out" true. Traceable: **yes for feature
+commits**; five orphans touch source and are named in F-398.

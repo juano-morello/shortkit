@@ -14,7 +14,12 @@ report. It was not overwritten. It now lives at
 | HEAD when the run ended | `6a90d35` |
 | Last commit touching non-`.sdlc` source | `6916a24`, 2026-08-11 19:09 |
 | Verifier | `sdlc-integrator` |
-| Verdict | **changes-requested** |
+| Verdict at time of writing | **changes-requested** |
+| Verdict after the addendum below | **clear** |
+
+> **Addendum, 2026-08-11, tree `4a5ab8a`.** Both blocking reasons closed after this report
+> was written, and INT-001 was ruled. See "Addendum" at the end. The body below is left as
+> it was measured. Read the addendum for the current standing.
 
 ## What tree this measured, exactly
 
@@ -555,3 +560,270 @@ It is not clear to ship, for reasons that are decisions rather than breakage:
 3. **F-390 leaves the only system-level check ungated.** A `package.json` alias is not CI.
 4. Nothing in this report covers the dirty `README.md` and `package.json`. Re-run at least
    `pnpm lint`, `pnpm typecheck` and `./scripts/check-compose-stack.sh` after they commit.
+
+---
+
+# Addendum, 2026-08-11, tree `4a5ab8a`
+
+Two commits landed after the body above was written: `cf59466` (`.sdlc` only) and `4a5ab8a`,
+which carries the two blocker fixes. The verdict moves from changes-requested to **clear**.
+
+## Blocking reason 1, F-388: closed
+
+Verified by reading `README.md` at `4a5ab8a`, not by accepting the claim.
+
+The three present-tense subsystems are gone. The opening now says Shortkit "is being built
+as" a multi-tenant URL shortener, then states **"None of that is here yet"** followed by the
+count: one migrated table, one route, one static page. `.sdlc/roadmap.md` is named as where
+the five increments live. A separate paragraph says the redirect hot path is on the roadmap
+and that there is no redirect, no cache and no link table.
+
+The isolation bullet now carries the boundary. It names the two tables, says "no routes and
+no repositories, because none exist", and closes with the sentence
+`apps/api/test/isolation/coverage.ts:597` prints on every run: **"It does not mean the
+system has no uncovered cross-tenant surface: most of the system is unwritten."** Checked
+against the source. The claim and the artifact now say the same thing.
+
+GC-13 passes.
+
+## Blocking reason 2, F-390: closed
+
+`grep -n "compose" .github/workflows/ci.yml` at `4a5ab8a`. There is a `compose` job at
+line 309 running `pnpm test:compose` at line 338, and the `gate` job now reads
+`needs: [quality, integration, compose]` at line 372, with all three results asserted at
+lines 383 to 406. `pnpm test:compose` is in `package.json`.
+
+This is a gating CI job rather than a script alias, which is what F-390's `required_change`
+asked for. One caveat, carried into the release note's risk table: **nobody has watched
+this job go green on a runner.** The first CI run is what proves it. `roadmap.md:158` already
+records how to de-gate it if the first run is environmentally red.
+
+## INT-001, no rollback path: ruled, closed
+
+Filed as F-392 and ruled by Juano on 2026-08-11: **revert and migrate forward, no
+down-migrations.** Valid while the schema stays additive-only and no production database
+exists, revisited when either stops being true. An architect is writing it into ADR-0004 and
+`docs/architecture/migrations.md`.
+
+INT-001 asked for a recorded decision rather than code, and it now has one. Closed as ruled.
+
+**Verified, not assumed.** Commit `078b1e4` landed while this addendum was being written and
+adds 94 lines to `adr-0004-schema-layout-and-migrations.md` under the heading
+"Rollback: revert the commit, migrate forward. Recorded 2026-08-11 (F-392)", plus 16 lines
+to `docs/architecture/migrations.md`. The ADR opens the section by naming the gap:
+"This ADR never used the word rollback, and neither did `docs/architecture/migrations.md`."
+It also carries a consequence, "No migration can be undone in place (F-392)", and a deferred
+follow-up owned by whoever writes the first destructive migration. INT-001's
+`required_change` is met.
+
+## Re-run evidence
+
+Run by the coordinator on the changed tree at `4a5ab8a`, reported to me rather than executed
+by me, and labelled that way: unit 189/189, typecheck 0, lint 0, build 0, AC-115 fifteen
+clauses exit 0, tree clean. **I did not re-run these myself in this dispatch.** The
+measurements in the body above are mine and were taken at the `6916a24` source tree.
+
+## INT-002 and INT-003 stand
+
+Neither was addressed by `4a5ab8a` and neither blocks. INT-002 (the two deployables boot
+green and nothing connects them) is a minor, disclosed in three places, now four with the
+README. INT-003 (the wrong-identity guarantee documented for one entry point of two) is a
+nit against `docs/architecture/migrations.md`, which an architect is editing for F-392 and
+could fold in.
+
+## Still open, not blocking
+
+`F-386`, major, unruled: `mail-sender.md` binds the live Resend sender when `NODE_ENV` is
+`production`, which `Dockerfile:83` sets under compose. It does not refuse to boot. Not
+reachable today because mail is unwritten, and carried on the roadmap to whichever increment
+writes mail.
+
+Three findings remain `status: escalated`: F-102 (TASK-040), F-236 (TASK-054), F-239
+(TASK-009). All three belong to deferred TASKs, none belongs to a TASK in this initiative,
+and `ship.md` rule 50's bar is an escalated TASK rather than an escalated finding on
+deferred work. Stated explicitly rather than passed over.
+
+---
+
+# Traceability, Ship step 5
+
+Measured at `4a5ab8a`.
+
+## Every TASK has a commit
+
+All ten. Each `head` sha recorded in `state.yaml` resolves to a real commit that is an
+ancestor of HEAD.
+
+| TASK | Ledger `head` | Code commits carrying the id | Ledger head is the last code commit |
+|---|---|---|---|
+| TASK-001 | `bd89924` | 4 | yes |
+| TASK-002 | `2627867` | 7 | **no**, 2 later (last `19f0c81`, 2026-08-08) |
+| TASK-003 | `f379953` | 19 | **no**, 16 later (last `43e10e7`, 2026-08-10) |
+| TASK-004 | `2627867` | 6 | n/a, see below |
+| TASK-005 | `9eb654a` | 8 | **no**, 3 later (last `cdb1070`, 2026-08-08) |
+| TASK-006 | `6e24416` | 6 | yes |
+| TASK-007 | `7913b16` | 9 | yes |
+| TASK-008 | `7e42183` | 9 | yes |
+| TASK-059 | `6916a24` | 4 | yes |
+| TASK-060 | `c7bc5f3` | 2 | yes |
+
+Three `head` fields are stale. TASK-003's is the widest gap: sixteen code commits carrying
+`[TASK-003]` landed after `f379953`, including the whole ADR-0028 log-allowlist
+implementation across `apps/api/src/observability/logger.ts`, `main.ts` and
+`eslint.config.mjs`. TASK-005 gained three, including `check-policies.mts` moving from
+`information_schema` to `pg_attribute`. TASK-002 gained two, both on `.github/workflows/ci.yml`.
+
+This is the same class `state.yaml` documented against itself seven times on 2026-08-11: a
+field with no writer after the event that should have updated it. The ledger also carries
+`fix_base`, `fix2_base` and `reaudit_range` for several TASKs, so `head` may have been
+meant as the head of one audit round rather than the TASK's last commit. Either way, a
+reader diffing `base..head` for TASK-003 today sees a fraction of the work.
+
+TASK-004's `head` is `2627867`, whose subject carries `[TASK-002]` and not `[TASK-004]`. Its
+last commit carrying `[TASK-004]` is `91d81d6`, which precedes `2627867`. Benign as a range
+endpoint, and worth knowing before anyone greps for it.
+
+## Every STORY's DoD
+
+**Not recorded. This is the finding.**
+
+| STORY | `status:` | ACs ticked | DoD items ticked |
+|---|---|---|---|
+| STORY-001 | `done` | 0 of 5 | 0 of 5 |
+| STORY-002 | `in-progress` | 0 of 7 | 0 of 5 |
+| STORY-003 | `in-progress` | 0 of 5 | 0 of 5 |
+| STORY-004 | `in-progress` | 0 of 3 | 0 of 5 |
+
+Twenty acceptance criteria, all `- [ ]`. Twenty DoD items across four cards, all `- [ ]`.
+Three of four STORY cards say `in-progress` and `EPIC-001.md` says `in-progress`, while all
+ten TASKs are `done`, both wave gates are approved and the initiative is in Ship.
+
+The evidence exists. It sits in `state.yaml`'s per-TASK `acceptance:` lists, in
+`ship/acceptance-report.md`, and in this report. What is missing is the recording on the
+cards that carry the DoD. Anyone reading `STORY-003.md` at `4a5ab8a` sees five unmet
+acceptance criteria on an in-progress story, and that is not what shipped.
+
+Filed as INT-004.
+
+## Orphan commits
+
+257 commits total. 193 carry a `[TASK-nnn]` id. **64 do not.**
+
+Of those 64, **59 touch nothing outside `.sdlc/`.** They are workflow bookkeeping,
+`docs(sdlc):` and `docs(design):`, tagged `[launch-core]` or `[F-nnn]`. Expected, and not
+where scope creep hides.
+
+**Five orphans touch real files. These are the ones to look at.**
+
+| Commit | Date | Subject | Non-`.sdlc` files |
+|---|---|---|---|
+| `1a3291f` | 2026-08-04 | `docs(sdlc): re-attribute better-auth pin to TASK-009, design audit clean [launch-core]` | `.gitignore` |
+| `c5e1165` | 2026-08-06 | `fix: restate the .env.example negation after vercel's .env* rule` | `.gitignore` |
+| `dbe8202` | 2026-08-08 | `docs(sdlc): wave 2 test phase complete, file F-236..F-238 [launch-core]` | `.gitignore` |
+| `6189c5b` | 2026-08-09 | `refactor(sdlc): re-scope launch-core to one shippable increment` | `.github/scripts/provision-test-database.sql`, `apps/api/src/observability/logger-contract-drift.spec.ts`, `apps/api/test/auth/credential-auth.int-spec.ts`, `docs/security/ci-secrets.md` |
+| `4a5ab8a` | 2026-08-11 | `docs(readme,ci): say what exists, and gate the compose check [F-388][F-390]` | `.github/workflows/ci.yml`, `README.md`, `package.json` |
+
+Three of the five are one-line `.gitignore` edits riding along with a bookkeeping commit.
+`c5e1165` carries no tag of any kind.
+
+The two that matter:
+
+- **`6189c5b`, the re-scope.** It touched four non-`.sdlc` files including a test file and a
+  CI SQL script, under a `refactor(sdlc):` subject with no TASK id and no finding id. Juano
+  ruled the re-scope, so this is authorised work rather than drift, and the ruling is
+  recorded in `state.yaml` and `roadmap.md`. It is still source and test change with no card
+  owning it.
+- **`4a5ab8a`, today's blocker fixes.** Real changes to `README.md`, `package.json` and a CI
+  workflow, tagged `[F-388][F-390]` with no TASK id. Both findings named
+  `sdlc-implementer-backend` as owner and no TASK was minted to carry them. This is the
+  clean example of the pattern: findings filed at the Ship gate get fixed directly, and the
+  commit convention has no slot for them.
+
+Neither is scope creep in the sense of unrequested work. Both are work that no TASK card
+accounts for, which means `base..head` for every TASK in this initiative will not reproduce
+the shipped tree.
+
+Filed as INT-005.
+
+## GC-4, checked again on the new artifacts
+
+`git log --all` scan for `Co-Authored-By: Claude`, `Generated with Claude` and the robot
+emoji: **0 hits**, unchanged. The three files written in this dispatch carry no AI
+attribution.
+
+## Additional findings
+
+```yaml
+- id: INT-004
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 2
+  severity: minor
+  kind: process
+  file: .sdlc/foundation/stories/STORY-003.md
+  line: 16
+  summary: >-
+    NO STORY RECORDS ITS DoD AND THREE OF FOUR STILL SAY in-progress. Across STORY-001 to
+    STORY-004: 20 acceptance criteria, all `- [ ]`; 20 DoD items, all `- [ ]`. STORY-002,
+    STORY-003 and STORY-004 read `status: in-progress`, as does EPIC-001, while all ten
+    TASKs are done, both wave gates are approved and the initiative is in Ship.
+  failure_scenario: >-
+    The evidence exists in state.yaml's per-TASK acceptance lists, in
+    ship/acceptance-report.md and in ship/integration-report.md. It is absent from the four
+    cards that carry the DoD, which are what a reader opens to ask whether a STORY is done.
+    Someone reading STORY-003.md at 4a5ab8a sees five unmet acceptance criteria on an
+    in-progress story. Same class as the seven state.yaml fields corrected on 2026-08-11 -
+    a field with no writer after the event that should have updated it - one level up, and
+    nothing caught it there.
+  required_change: >-
+    Tick the ACs and DoD items that the acceptance report and the integration report
+    evidence, and flip STORY-002, STORY-003, STORY-004 and EPIC-001 to done. Any AC that
+    cannot be ticked gets a one-line note saying why, which is the useful half.
+  owner_slot: sdlc-orchestrator
+  status: open
+
+- id: INT-005
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 2
+  severity: nit
+  kind: process
+  file: .sdlc/config.yaml
+  line: 80
+  summary: >-
+    FIVE COMMITS CHANGED NON-.sdlc FILES WITH NO TASK ID. 257 commits, 193 carry [TASK-nnn],
+    64 do not, and 59 of those 64 touch only .sdlc. The five that do not are 1a3291f,
+    c5e1165, dbe8202 (one-line .gitignore edits), 6189c5b (the re-scope, which touched a
+    test file, a CI SQL script and a security doc) and 4a5ab8a (today's F-388/F-390 fixes to
+    README.md, package.json and ci.yml). c5e1165 carries no tag of any kind.
+  failure_scenario: >-
+    `base..head` for the ten TASKs does not reproduce the shipped tree. Neither of the two
+    substantial orphans is unrequested work - Juano ruled the re-scope and both of today's
+    findings are recorded - but no card accounts for either. The commit convention has a
+    slot for a TASK id and none for a finding fixed at the Ship gate, which is where this
+    keeps landing.
+  required_change: >-
+    Decide whether Ship-gate finding fixes get a minted TASK or whether `[F-nnn]` is an
+    accepted subject tag, and write the answer into config.yaml's commit_convention. Either
+    is fine; the ambiguity is what produces untracked source commits.
+  owner_slot: sdlc-orchestrator
+  status: open
+```
+
+## Verdict, revised
+
+**clear.**
+
+Both blocking reasons are closed and verified against the tree rather than accepted on
+report. INT-001 is ruled. What remains open is a minor, two nits and a major on unwritten
+mail code, none of which blocks: INT-002, INT-003, INT-004, INT-005 and F-386.
+
+One thing I could not verify, named rather than implied: **the new `compose` CI job has
+never run on a GitHub runner.** Everything it invokes passed locally, and `roadmap.md:158`
+records how to de-gate it if the first run is environmentally red, but the job itself is
+unproven in CI until the next push.
+
+One thing I did not run: the re-run at `4a5ab8a` is the coordinator's measurement, not mine.
+My numbers come from the `6916a24` source tree.

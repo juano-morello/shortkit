@@ -43,3 +43,25 @@ exactly the workspaces", which `pnpm -r list --depth -1` cannot satisfy literall
 prints the workspace root as a fourth line, and `--no-include-workspace-root` does not
 suppress it (verified). The AC now names the three packages and states the root line is
 expected. The id is unchanged and STORY-001 still holds 5 ACs.
+
+## Verification at Ship — 2026-08-11 (F-397)
+
+**No STORY in this initiative recorded its Definition of Done until Ship.** Twenty acceptance
+criteria and twenty DoD items across four cards, every one still `- [ ]` while ten TASKs were
+`done`. The evidence existed in `state.yaml`, the acceptance report and the integration report; it
+was absent from the cards a reader opens. Found by the Ship traceability pass, not by any of the
+six audits that ran today.
+
+**Checkboxes are deliberately left unticked and this block records the state instead.** A tick is a
+claim with no room for a caveat, and three of this initiative's criteria are not the kind of thing a
+tick can honestly carry — one is untestable by construction, one was met by an artifact that no
+longer exists, and one has never been observed in the environment it gates. Evidence below, per
+criterion, with what is *not* proven stated beside what is.
+
+See `.sdlc/foundation/ship/acceptance-report.md` for the per-criterion verdict and
+`ship/integration-report.md` for the evidence. **SC-1 is `untestable`, not "partly met"** — it
+quantifies over "every repository method and every authenticated endpoint" and both sets are empty,
+so a verbatim reading is vacuously true, which is the shape the harness's own F-295 rule refuses.
+
+**DoD.** Auditors clear of blocker/major: **yes**. Docs updated: **yes**. Observability per config:
+**yes**. Traceable: **yes for feature commits**, with five source-touching orphans named in F-398.

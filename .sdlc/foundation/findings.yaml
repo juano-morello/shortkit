@@ -13330,3 +13330,68 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-397
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 1
+  severity: major
+  kind: process
+  file: .sdlc/foundation/stories/STORY-002.md
+  line: 1
+  summary: >-
+    NO STORY RECORDS ITS DEFINITION OF DONE. Across STORY-001 to STORY-004: TWENTY acceptance
+    criteria, ALL `- [ ]`. TWENTY DoD items, ALL `- [ ]`. STORY-002, STORY-003, STORY-004 and
+    EPIC-001 all still read `status: in-progress` while ten TASKs are done and the initiative is in
+    Ship.
+  failure_scenario: >-
+    Ship step 5 requires every STORY's DoD to be recorded, and implement.md requires the DoD to be
+    walked explicitly at STORY completion. The evidence exists - in state.yaml, in the acceptance
+    report, in the integration report - and it is ABSENT FROM THE FOUR CARDS A READER ACTUALLY
+    OPENS.
+    SAME CLASS AS THE TEN state.yaml FIELDS CORRECTED TODAY, ONE LEVEL UP, AND NOTHING CAUGHT IT
+    THERE. Every one of those was found because someone read the file for another reason; the STORY
+    cards were never read for another reason, so the drift ran the whole initiative.
+  required_change: >-
+    Each STORY records its verification state with evidence, and the statuses reflect reality. Tick
+    only what is substantiated - an AC marked met without evidence is worse than one left open.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "orchestrator 2026-08-11"
+  resolved_round: 1
+  resolution: >-
+    CLOSED. All four STORIEs and EPIC-001 now read `status: done`, and each STORY carries a `Verification at Ship` block. CHECKBOXES ARE DELIBERATELY LEFT UNTICKED and the block records the state instead: a tick is a claim with no room for a caveat, and three criteria here are not the kind a tick can honestly carry - AC-5 and AC-114 are met in DEFINITION but have NEVER BEEN OBSERVED ON A RUNNER because the remote has never received a push, and SC-1 is untestable by construction. Each entry states what is NOT proven beside what is.
+
+- id: F-398
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 1
+  severity: minor
+  kind: process
+  file: .sdlc/foundation/state.yaml
+  line: 1
+  summary: >-
+    FIVE ORPHAN COMMITS TOUCH REAL FILES, and three TASK `head` fields are stale so `base..head`
+    across the ten TASKs will not reproduce the shipped tree. TASK-003's head is sixteen code
+    commits behind - it excludes THE ENTIRE ADR-0028 ALLOWLIST IMPLEMENTATION. TASK-005 is three
+    behind, TASK-002 two.
+  failure_scenario: >-
+    257 commits, 193 carry a TASK id, 64 do not - and 59 of those touch nothing outside .sdlc/.
+    The five that touch source are: three `.gitignore` edits (one with NO TAG AT ALL), the
+    2026-08-09 re-scope, and today's Ship fixes.
+    NEITHER SUBSTANTIAL ORPHAN IS UNREQUESTED WORK, which is the point - orphan commits are how
+    scope creep hides, and here they hide nothing. What they break is reproducibility from the
+    ledger. And 4a5ab8a is the clean example of the mechanism: SHIP-GATE FINDINGS GET FIXED
+    DIRECTLY, AND THE COMMIT CONVENTION HAS A SLOT FOR A TASK ID AND NONE FOR A FINDING.
+  required_change: >-
+    Correct the three head fields. The convention gap - no slot for a finding id - is a retro item
+    for GC-10 rather than a fix.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "orchestrator 2026-08-11"
+  resolved_round: 1
+  resolution: >-
+    PARTLY CLOSED. The three stale head fields are corrected - TASK-003 f379953 -> 43e10e7, TASK-005 9eb654a -> cdb1070, TASK-002 2627867 -> 19f0c81 - each with the correction recorded inline. The five source-touching orphans are NOT retro-tagged: rewriting 257 commits of published history to add tags is the change Juano already rejected for the branch question, for the same reason.
+    THE CONVENTION GAP IS THE RETRO ITEM AND IT IS THE INTEGRATOR'S OBSERVATION, WHICH IS BETTER THAN MY FRAMING: Ship-gate findings get fixed directly, and GC-10's commit convention HAS A SLOT FOR A TASK ID AND NONE FOR A FINDING. Today's own fix commit, 4a5ab8a, is the clean example - it carries [F-388][F-390] because there was nothing else to carry.

@@ -38,10 +38,10 @@ the product are named in `.sdlc/roadmap.md`, in the order they have to land.
   db:check-policies` fails the build if you forget.
 - A cross-tenant isolation suite that runs against a real database. Register a surface with
   one `registerTenantScopedSurfaces()` call and it attempts eight statement shapes in both
-  directions between two tenants. Eleven negative controls sit beside it, each one a
-  deliberately broken policy that the harness must report as failing, so a green run means
-  the harness still detects leaks rather than having stopped looking. A drift check fails
-  the run when a tenant-scoped table exists that nobody registered.
+  directions between two tenants. Thirteen negative controls sit beside it, each one a
+  deliberately broken policy the harness must report as failing, so a green run means the
+  harness still detects leaks rather than having stopped looking. A drift check fails the
+  run when a tenant-scoped table exists that nobody registered.
 - The suite states its own coverage boundary on every run and writes it into `report.json`.
   Today that boundary is two tables, no routes and no repositories, because none exist. A
   green run proves the mechanism works. It does not prove the system has no uncovered
