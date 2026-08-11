@@ -1,6 +1,6 @@
 /**
  * Contract: design/contracts/web-api-client.md
- * ADR: adr-0014-web-session-handling.md, adr-0005, adr-0013, adr-0029
+ * ADR: adr-0014-web-session-handling.md, adr-0005, adr-0013, adr-0029, adr-0038
  * Produced by: TASK-008
  * Consumed by: TASK-012, 015, 019, 022, 026, 028, 041, 044, 047, 050, 052, 055, 057
  *
@@ -9,6 +9,11 @@
  * Amended 2026-08-10 (F-284, F-285, F-286, F-287, F-288, F-292; ADR-0029): route templates
  * replace the raw `path`, abort is its own error class, the request is sent with explicit
  * `credentials` and `redirect`, and the proxy sets its own Cache-Control.
+ *
+ * Amended 2026-08-11 (F-305, F-310, F-311, F-313, F-314; ADR-0029 amended, ADR-0038):
+ * no error carries a `cause` but RequestAbortedError, a template may not repeat a
+ * placeholder, `isMutatingMethod` is a denylist that uppercases, and
+ * `invalidParamValueMessage` names the condition F-312 gave it.
  */
 import { isErrorEnvelope } from '@shortkit/contracts';
 import type { z } from 'zod';
@@ -22,8 +27,16 @@ export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
  * ============================================================================
  *
  * `path` is a ROUTE TEMPLATE and a string literal in the source. Caller-supplied values
- * go in `params` and reach the URL, the wire, and NOTHING ELSE — not a message, not an
- * own enumerable property, not the message of a validation failure that rejects them.
+ * go in `params` and reach the URL and the wire. They reach NO ERROR THIS MODULE RAISES —
+ * not a message, not an own enumerable property, not `cause`, not the message of a
+ * validation failure that rejects them.
+ *
+ * Corrected 2026-08-11 (F-310). This said "the URL, the wire, and NOTHING ELSE" and that
+ * was measurably false: under Node's fetch the platform rejection handed to `{ cause }`
+ * carries the RESOLVED URL in its own message, and util.inspect prints it — which is what
+ * console.error(err) calls and what pino's err serialiser walks. The check that cleared
+ * the old claim (the spread, Object.keys, JSON.stringify) cannot see `cause`, because
+ * `cause` is non-enumerable. See "cause is a channel, and it is closed" in the contract.
  *
  *   apiClient({ method: 'GET', path: '/invitations/:token',
  *               params: { token: raw }, contract: invitationContract })
@@ -40,7 +53,8 @@ export interface ApiRequest<TRes, TBody = unknown> {
   path: string;
   /**
    * Exactly one entry per placeholder in `path`. No extras, no omissions, and no template
-   * that repeats a placeholder name — there is no key that could fill it twice (F-306).
+   * that repeats a placeholder name — there is no key that could fill it twice, and
+   * `/members/:id/workspace/:id` is the typo the real endpoint invites (F-306, F-313).
    */
   params?: Record<string, string | number>;
   /** The response IS validated against this. A mismatch throws ContractViolationError. */
@@ -80,6 +94,11 @@ export const ROUTE_ASSERTION_BASE = 'https://route-assertion.invalid';
  * suspicion, and a rejection that echoes what it rejected is the leak wearing a different
  * hat. `invalidParamValueMessage` names no value, for the same reason and always.
  *
+ * `invalidParamValueMessage`'s text widened 2026-08-11 (F-314). It read "is empty, '.' or
+ * '..'" while F-312 had given step 3 a fourth condition, so a lone surrogate was rejected
+ * with a sentence naming three conditions none of which had occurred. One message for
+ * step 3, four conditions, no fifth constant: the value is unusable either way.
+ *
  * Reached only through CLIENT_MESSAGES, which exists so a spec can assert the exact text
  * without copying the literals. No screen calls them.
  */
@@ -96,7 +115,7 @@ const invalidRouteMessage = (m: HttpMethod): string =>
 const unresolvedParamsMessage = (m: HttpMethod, p: string): string =>
   `apiClient: params do not match ${m} ${p}.`;
 const invalidParamValueMessage = (m: HttpMethod, p: string): string =>
-  `apiClient: a param value for ${m} ${p} is empty, '.' or '..'.`;
+  `apiClient: a param value for ${m} ${p} is empty, '.', '..' or cannot be percent-encoded.`;
 
 /** For specs. The client builds its own messages; no screen calls these. */
 export const CLIENT_MESSAGES = {
@@ -142,26 +161,43 @@ export class ApiError extends Error {
   }
 }
 
-/** AC-15: raised instead of returning malformed data. */
+/**
+ * AC-15: raised instead of returning malformed data.
+ *
+ * IT TAKES NO ErrorOptions, so it cannot be given a `cause` (F-310). That is deliberate
+ * and it is the only mechanical enforcement available: no gate compares this file to the
+ * design stub, and no test that asserts a clean `message` can see a `cause`, because
+ * `cause` is non-enumerable. Adding the parameter back is the defect, not the fix.
+ */
 export class ContractViolationError extends Error {
   /** The ROUTE TEMPLATE. Never a resolved path, never a param value (ADR-0029). */
   readonly path: string;
   readonly issues: z.ZodIssue[];
 
-  constructor(method: HttpMethod, path: string, issues: z.ZodIssue[], options?: ErrorOptions) {
-    super(contractViolationMessage(method, path), options);
+  constructor(method: HttpMethod, path: string, issues: z.ZodIssue[]) {
+    super(contractViolationMessage(method, path));
     this.name = 'ContractViolationError';
     this.path = path;
     this.issues = issues;
   }
 }
 
+/**
+ * A transport failure, on the send leg or the body-read leg.
+ *
+ * IT TAKES NO ErrorOptions (F-310). Under Node's fetch the rejection this class used to
+ * be handed carries the RESOLVED URL in its own message, so chaining it put the
+ * credential back into anything that calls util.inspect — console.error(err), pino's err
+ * serialiser. The platform detail is gone with it, deliberately: a browser reports DNS,
+ * TLS, CORS and offline all as TypeError('Failed to fetch') anyway, and the leg where the
+ * detail was worth having is the leg that leaked.
+ */
 export class NetworkError extends Error {
   /** The ROUTE TEMPLATE. */
   readonly path: string;
 
-  constructor(message: string, path: string, options?: ErrorOptions) {
-    super(message, options);
+  constructor(message: string, path: string) {
+    super(message);
     this.name = 'NetworkError';
     this.path = path;
   }
@@ -174,13 +210,23 @@ export class NetworkError extends Error {
  * a network-failure state for its own cancellation, and a retry wrapper keyed on
  * NetworkError must not re-issue a request the caller deliberately cancelled.
  *
- * `cause` is the platform rejection or `signal.reason`. `signal.reason` is CALLER-SUPPLIED
- * and sits outside ADR-0029's guarantee for `message` and `path`.
+ * THE ONLY CLASS IN THIS MODULE THAT CARRIES A `cause`, and its `cause` is
+ * `signal.reason` — read off `req.signal`, NEVER taken from the caught rejection.
+ * Amended 2026-08-11 (F-310): it used to be "the platform rejection or signal.reason",
+ * and the platform-rejection half is the leak. An abort racing a genuine transport
+ * failure hands the catch a platform rejection, and under Node that one carries the
+ * resolved URL; reading the signal makes `cause` caller-owned in every case, which is the
+ * same tie-breaking rule as the discriminator itself.
+ *
+ * `signal.reason` is CALLER-SUPPLIED and sits outside ADR-0029's guarantee for `message`
+ * and `path`. A CALLER MUST NOT PASS A CREDENTIAL TO abort(reason); a telemetry sink that
+ * serialises this `cause` serialises a value the caller chose.
  */
 export class RequestAbortedError extends Error {
   /** The ROUTE TEMPLATE. */
   readonly path: string;
 
+  /** `options.cause` is `req.signal.reason` and nothing else (F-310). */
   constructor(method: HttpMethod, path: string, options?: ErrorOptions) {
     super(requestAbortedMessage(method, path), options);
     this.name = 'RequestAbortedError';
@@ -241,16 +287,20 @@ function appendQuery(url: string, query: ApiRequest<unknown>['query']): string {
  *
  *   1. ROUTE_TEMPLATE_PATTERN.test(path) === false -> invalidRouteMessage(method)
  *   2. placeholder set !== Object.keys(params ?? {}) -> unresolvedParamsMessage.
- *      A template that REPEATS a placeholder is rejected outright, whatever params carries
- *      (F-306). Compared as sets ALONE, `/a/:x/:x` with `{ x }` would pass and one supplied
- *      value would be expanded into two segments; counting instead of comparing sets was the
- *      opposite hole, where `/members/:id/workspace/:id` with `{ id, workspaceId }` matched
- *      on length and sent a DELETE to workspace `id` with `workspaceId` silently dropped.
+ *      A template that REPEATS a placeholder is rejected outright, whatever params
+ *      carries (F-306, F-313). Compared as sets ALONE, `/a/:x/:x` with `{ x }` would pass
+ *      and one supplied value would be expanded into two segments; counting instead of
+ *      comparing sets was the opposite hole, where `/members/:id/workspace/:id` with
+ *      `{ id, workspaceId }` matched on length and sent a DELETE to workspace `id` with
+ *      `workspaceId` silently dropped. Both holes are closed and neither reopens without
+ *      the other: keep all three clauses.
  *   3. encodeURIComponent(String(value)) is '' or '.' or '..' -> invalidParamValueMessage
  *      ('..' survives encodeURIComponent because dot is unreserved; the browser then
  *      normalises it away and escapes the prefix. THIS is the check that stops F-285.)
  *      A value encodeURIComponent cannot encode at all — a lone surrogate, which throws
- *      URIError — rejects with the same message rather than leaving by a fifth exit (F-312).
+ *      URIError — rejects with the same message rather than leaving by a fifth exit
+ *      (F-312). The URIError is NOT chained onto it: the value that threw is
+ *      caller-supplied and ADR-0029 keeps those off the error.
  *   4. substitute the ENCODED values into the template
  *   5. BFF_PATH_PREFIX + resolved, then the query from URLSearchParams
  *   6. assert new URL(url, ROUTE_ASSERTION_BASE).pathname starts with BFF_PATH_PREFIX + '/'
@@ -410,6 +460,20 @@ function tryParseJson(raw: string): unknown {
  * The abort discriminator is `req.signal?.aborted`, NOT `cause.name === 'AbortError'`:
  * abort(reason) makes fetch reject with signal.reason, which has no guaranteed `name`.
  *
+ * BOTH catch blocks discard the caught rejection (F-310). The abort branch reads
+ * `req.signal.reason`; the transport branch passes nothing:
+ *
+ *   } catch {
+ *     if (req.signal?.aborted === true) {
+ *       throw new RequestAbortedError(req.method, req.path, { cause: req.signal.reason });
+ *     }
+ *     throw new NetworkError(networkSendMessage(req.method, req.path), req.path);
+ *   }
+ *
+ * `req.signal?.aborted === true` already narrows `req.signal` to defined, so no non-null
+ * assertion is needed and none belongs here. The binding is dropped from `catch` because
+ * nothing reads it; `catch (cause)` would fail lint as an unused variable.
+ *
  * 429/`Retry-After` normalisation is NOT implemented here. It is TASK-052's (AC-87), which
  * is deferred; `ApiError.retryAfterSeconds` is therefore always undefined today. A 429
  * arrives through step 2 as an ordinary `ApiError` with `code: 'rate_limited'`.
@@ -421,28 +485,29 @@ export async function apiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes> {
 
   try {
     response = await fetch(url, requestInit(req));
-  } catch (cause) {
+  } catch {
     // Step 7 before step 6: a cancellation the caller asked for is not a failure, and the
-    // tie goes to the signal.
+    // tie goes to the signal. `cause` is read off the SIGNAL, never off the rejection
+    // (F-310) — on this exact race the rejection is the platform's URL-bearing one.
     if (req.signal?.aborted === true) {
-      throw new RequestAbortedError(req.method, req.path, { cause });
+      throw new RequestAbortedError(req.method, req.path, { cause: req.signal.reason });
     }
 
     // Step 6. `fetch` rejects only on a transport failure; an HTTP error status resolves.
-    throw new NetworkError(networkSendMessage(req.method, req.path), req.path, { cause });
+    throw new NetworkError(networkSendMessage(req.method, req.path), req.path);
   }
 
   let raw: string;
 
   try {
     raw = await response.text();
-  } catch (cause) {
+  } catch {
     if (req.signal?.aborted === true) {
-      throw new RequestAbortedError(req.method, req.path, { cause });
+      throw new RequestAbortedError(req.method, req.path, { cause: req.signal.reason });
     }
 
     // The response headers arrived and the body did not. Still transport, still step 6.
-    throw new NetworkError(networkReadMessage(req.method, req.path), req.path, { cause });
+    throw new NetworkError(networkReadMessage(req.method, req.path), req.path);
   }
 
   if (!response.ok) {
@@ -594,9 +659,14 @@ export const PROXY_RESPONSE_CACHE_CONTROL = 'no-store' as const;
  * Mutating methods ONLY. The CSRF check does not run on GET, so a GET would forward an
  * unvalidated attacker-chosen value; and Better Auth skips the origin check on GET
  * anyway (dist/api/middlewares/origin-check.mjs:43), so GET /api/auth/token and
- * /get-session need none.
+ * /get-session need none. WHICH methods those are is isMutatingMethod's answer and
+ * nothing else's (ADR-0038):
  *
- * F-288: these three exports are NOT optional and are not deferred with the proxy route
+ *   if (isMutatingMethod(request.method)) {
+ *     upstreamHeaders.set('origin', request.headers.get('origin')!);
+ *   }
+ *
+ * F-288: these exports are NOT optional and are not deferred with the proxy route
  * above. web-api-client.md names this file as its normative form, so the proxy implementer
  * reads THIS, not the contract. A file that offers one allowlist under a docblock
  * enumerating what is deliberately absent tells that reader the set is complete.
@@ -605,16 +675,45 @@ export const PROXY_RESPONSE_CACHE_CONTROL = 'no-store' as const;
  */
 export const FORWARDED_REQUEST_HEADERS_MUTATING_ONLY = ['origin'] as const;
 
-/** Methods on which the proxy runs the CSRF check and forwards `Origin`. */
+/**
+ * The only two methods the proxy neither CSRF-checks nor forwards `Origin` on. Added
+ * 2026-08-11 (ADR-0038). This is the definition; everything else is mutating.
+ */
+export const NON_MUTATING_METHODS = ['GET', 'HEAD'] as const;
+
+/**
+ * The mutating methods THIS DESIGN USES. Ruled 2026-08-11 (ADR-0038, F-305):
+ * DESCRIPTIVE, NOT THE DEFINITION. isMutatingMethod does not read it. Adding a method
+ * here changes no behaviour and leaving one out changes no behaviour, which is the whole
+ * point — the four-item allowlist used to BE the predicate, and a method missing from it
+ * lost its Origin and got F-233's 403 in production with every test green.
+ *
+ * PUT is listed and `ApiRequest.method` does not offer it: no PUT /api/* endpoint exists
+ * today, and the proxy is a public HTTP surface that can be sent one regardless.
+ */
 export const MUTATING_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'] as const;
 
 /**
  * True when the proxy must require `Origin` to equal the deployment origin (403
- * otherwise) and then forward it upstream. The allowlist above is the whole answer; a
- * method absent from it is not mutating.
+ * otherwise) and then forward it upstream. Ruled 2026-08-11 (ADR-0038; F-305, F-311).
+ *
+ * A DENYLIST THAT FAILS CLOSED. Anything that is not GET or HEAD is mutating, including
+ * OPTIONS, including a method this design does not use, including a garbage token. The
+ * two failure directions are not symmetric: a method wrongly called non-mutating loses
+ * its Origin and 403s in production with every test green (F-233), while a method wrongly
+ * called mutating gets the CSRF check, which has already pinned the header to the
+ * deployment origin. Silent-and-expensive versus loud-and-harmless.
+ *
+ * IT UPPERCASES ITS OWN INPUT, and that is not defensive padding:
+ * `new Request(u, { method: 'post' }).method` normalises to 'POST', but
+ * `new Request(u, { method: 'patch' }).method` STAYS 'patch', because PATCH is absent
+ * from the Fetch spec's normalise list — and PATCH is one of the four methods
+ * `ApiRequest.method` allows. Normalising HERE and not at the call site is the point: a
+ * docblock telling TASK-012 to uppercase first is a rule enforced by nobody (F-288).
+ * The proxy passes `request.method` straight in.
  */
 export function isMutatingMethod(method: string): boolean {
-  return (MUTATING_METHODS as readonly string[]).includes(method);
+  return !(NON_MUTATING_METHODS as readonly string[]).includes(method.toUpperCase());
 }
 
 /**
