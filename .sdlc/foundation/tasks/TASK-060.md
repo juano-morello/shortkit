@@ -62,10 +62,25 @@ interpolation.
 
 ## The lint rule is the half that makes this stick
 
-**F-268's rule bans importing `pino` and says nothing about `Logger` from `@nestjs/common`.**
-So the cheapest possible way to opt out of the entire logging policy passes lint today, and a
-later TASK copying either file inherits the bypass silently. AC-116 names the rule for that
-reason: without it this TASK fixes three lines and the class reopens on the fourth.
+**CORRECTED 2026-08-11 (F-358) — the premise below was mine and it was stale.** I wrote that
+F-268's rule "says nothing about `Logger` from `@nestjs/common`". At HEAD it does: `eslint.config.mjs`
+restricts that import, and then **`ignores` `db/client.ts` and `tenancy/tenant-context.ts` by
+name**. Verified at `eslint.config.mjs:84-99`. The comment there calls them "ADR-0028's named,
+bounded exemption" and states that "A THIRD `new Logger(…)` is a finding, not a precedent".
+
+**So the lint work is removing two exemptions and widening `importNames`, not writing a rule.**
+The red step measured it: the `Logger` fixture reports 1 error at an arbitrary new API path and
+**0 at either exempted path**, so the rule works and the exemptions are the whole of what stands.
+
+Widen `importNames` to cover `ConsoleLogger` as well — the other logger `@nestjs/common` exports,
+and the test architect's reading of AC-116's "or any other logger". That reading is kept.
+
+Do not simply delete the two `ignores` entries and stop: the comment above them explains that a
+plain `ignores` would also switch off `no-console` and the `pino` restriction for those files,
+"which is more than the exemption is for". Whatever replaces it must keep those two rules on.
+
+The original text follows for the reasoning it carries about *why* the rule matters, which stands:
+without it this TASK fixes three lines and the class reopens on the fourth.
 
 The rule needs an escape hatch decided deliberately if `main.ts`'s pre-pino bootstrap path
 needs one — say which, and why, in the rule's own comment.

@@ -6,9 +6,9 @@ title: Whole stack up from nothing with docker compose, seeded
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001, TASK-003, TASK-005]
-paths: ["docker-compose.yml", "docker-compose.test.yml", "Dockerfile", "apps/web/Dockerfile", ".dockerignore", "fly.toml", "infra/**", "apps/api/scripts/seed.mts", "apps/api/package.json", "package.json", "docs/architecture/migrations.md", "README.md", ".env.example", "apps/web/.env.example"]
+paths: ["docker-compose.yml", "docker-compose.test.yml", "Dockerfile", "apps/web/Dockerfile", ".dockerignore", "fly.toml", "infra/**", "apps/api/scripts/seed.mts", "apps/api/package.json", "package.json", "docs/architecture/migrations.md", "README.md", ".env.example", "apps/web/.env.example", "scripts/**"]
 contracts: ["design/contracts/rls-policy-template.md", "design/contracts/tenant-context.md"]
-test_files: []
+test_files: ["scripts/check-compose-stack.sh"]
 acceptance: [AC-115]
 rework_count: 0
 ---

@@ -12070,3 +12070,134 @@
     no behaviour behind them. Routed to whoever next opens apps/api/test/isolation/**, alongside
     F-354, which has the same disposition and the same destination. Recorded rather than rolled up,
     so the Ship review inherits the list.
+
+# ---- TASK-059 and TASK-060 red steps. Both found a premise wrong in an artifact already accepted.
+
+- id: F-356
+  phase: test
+  task: TASK-059
+  source: sdlc-test-architect
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/foundation/design/adr-0032-compose-persistence-and-reset.md
+  line: 1
+  summary: >-
+    THE TWO COMPOSE STACKS DO NOT COEXIST, AND THE COLLISION DESTROYS THE INTEGRATION SUITE'S
+    DATABASE. docker-compose.test.yml runs in Compose project `shortkit` with service `postgres`;
+    the new stack takes THE SAME PROJECT NAME - the directory basename, since ADR-0032 declines
+    `name:` - and THE SAME SERVICE NAME. Ports do not separate Compose stacks.
+  failure_scenario: >-
+    `docker compose up` at the repository root would RECREATE the integration suite's container,
+    and `docker compose down -v` would DELETE ITS VOLUME. Measured by the red step, which refuses
+    with exit 2 rather than clobbering and names both repairs.
+    ADR-0032 declined pinning `name:` for a good reason - F-318's remedy discussion established
+    that pinning makes the TWO-CLONE collision unconditional. That reasoning is sound and it
+    created this collision, which is a different one: two stacks in ONE directory rather than one
+    stack in two directories. The ADR settled the case it was asked about.
+  required_change: >-
+    Separate the two stacks - distinct project name, distinct service name, or both - without
+    reintroducing the two-clone collision ADR-0032 rejected `name:` to avoid. The red step names
+    two repairs; either is acceptable and the ADR must say which and why.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-357
+  phase: test
+  task: TASK-059
+  source: sdlc-test-architect
+  round: 1
+  severity: major
+  kind: security
+  file: .sdlc/foundation/design/adr-0036-compose-health-and-ordering.md
+  line: 71
+  summary: >-
+    THE POSTGRES HEALTH PROBE DOES NOT AUTHENTICATE, AND TWO ACCEPTED ADRs REST ON THE CLAIM THAT
+    IT DOES. `postgres:17-alpine` ships `host all all 127.0.0.1/32 trust` AHEAD of the scram line
+    the entrypoint appends, so a probe over loopback never uses its password.
+  failure_scenario: >-
+    ORCHESTRATOR-REPRODUCED against the running container, both directions:
+      wrong password over 127.0.0.1   -> ACCEPTED
+      wrong password over 172.18.0.2  -> FATAL: password authentication failed
+    CONSEQUENCE, AND IT INVERTS THE STATED FAILURE MODE: ADR-0031 and ADR-0036 both claim the
+    F-315 empty-credential defect makes Postgres UNHEALTHY in about 40 seconds on the first `up`.
+    IT DOES NOT. The red step reproduced it: `up -d --wait` returned 0 with `postgres` HEALTHY over
+    two passwordless roles. So F-315 fails SILENTLY GREEN rather than loudly - which is the exact
+    property the design pass believed protected it, and it is why the check's guards connect to the
+    bridge address rather than to loopback.
+    THIS ALSO WEAKENS THE EXISTING TEST STACK. docker-compose.test.yml's probe carries a long
+    comment explaining why it is better than pg_isready - "Executes a statement AS shortkit_app,
+    over TCP on 127.0.0.1... all three halves are load-bearing". Two of the three hold: the roles
+    exist and the real server is accepting TCP. The third does not: it never proves the password
+    is right, because the trust line answers first.
+  required_change: >-
+    The probe stays - it is still the right shape and it still beats pg_isready. What must change
+    is the CLAIM attached to it in ADR-0031 and ADR-0036, and the reasoning that treated F-315 as
+    self-announcing. If a probe that proves credentials is wanted, it connects to the container's
+    own address rather than loopback. docker-compose.test.yml's comment needs the same correction.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-358
+  phase: test
+  task: TASK-060
+  source: sdlc-test-architect
+  round: 1
+  severity: minor
+  kind: docs
+  file: .sdlc/foundation/tasks/TASK-060.md
+  line: 1
+  summary: >-
+    THE CARD'S LINT PREMISE IS STALE, AND IT IS MY ERROR. TASK-060 says "F-268's rule bans
+    importing pino and says nothing about Nest's Logger". At HEAD, eslint.config.mjs ALREADY
+    restricts `Logger` from `@nestjs/common` - and `ignores` tenant-context.ts and client.ts BY
+    NAME.
+  failure_scenario: >-
+    ORCHESTRATOR-VERIFIED at eslint.config.mjs:84-99. The two violating files are a deliberate,
+    documented exemption - the comment calls them "ADR-0028's named, bounded exemption" and says
+    "A THIRD `new Logger(...)` is a finding, not a precedent". So the lint work is REMOVING TWO
+    EXEMPTIONS AND WIDENING importNames, not writing a rule.
+    I wrote the card's premise from F-268's text rather than from the config. The config is the
+    artifact; the finding described its state on the day it was filed. Same class as F-346, which
+    I closed from a report rather than from the file, on the same day.
+    Measured by the red step: the `Logger` fixture reports 1 error at an arbitrary new API path
+    and 0 at either exempted path - so the rule works and the exemptions are what stand.
+  required_change: >-
+    TASK-060's card corrected. The implementer removes the two `ignores` entries and widens
+    `importNames`; the red step also asserts `ConsoleLogger`, which is its reading of the AC's "or
+    any other logger" and which I am keeping.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "orchestrator 2026-08-11"
+  resolved_round: 1
+  resolution: >-
+    Card corrected, with the stale premise KEPT and marked rather than deleted, because the reasoning
+    it carries about WHY the rule matters still stands. The correction also carries the part the red
+    step would otherwise have had to rediscover: a plain `ignores` deletion would switch `no-console`
+    and the pino restriction back on for those files too, which the config comment says is more than
+    the exemption is for - so whatever replaces it must keep those two rules on.
+
+- id: F-359
+  phase: test
+  task: TASK-060
+  source: sdlc-test-architect
+  round: 1
+  severity: nit
+  kind: implementation
+  file: apps/api/package.json
+  line: 1
+  summary: >-
+    `eslint` is an UNDECLARED DEPENDENCY of @shortkit/api. It resolves through the root today, so
+    nothing fails - until something hoists differently or the workspace is built alone.
+  failure_scenario: >-
+    Found because the red step needed to invoke eslint programmatically to test the rule. One line
+    in apps/api/package.json; outside the test architect's write surface.
+  required_change: Declare it.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
