@@ -12201,3 +12201,75 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-360
+  phase: implement
+  task: TASK-060
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/logging-and-headers.md
+  line: 1
+  summary: >-
+    THREE ARTIFACTS NOW DESCRIBE THE EXEMPTION TASK-060 REMOVED. logging-and-headers.md's
+    "Consumed by" bullet still names the two exempted files and is now FALSE. ADR-0028's Migration
+    step 3 table still says those two sites do not reach the allowlist. And `sqlstate` is not on
+    LOGGABLE_FIELDS, which is why site 3 carries its SQLSTATE in `msg` as free text.
+  failure_scenario: >-
+    Disclosed by the implementer that made them false, not found later. The first two are the
+    ordinary shape - a document describing the state before the fix - and both are outside an
+    implementer's paths.
+    The third is the interesting one and its reasoning should survive: the implementer REJECTED
+    reusing the allowlisted `code` field, because `code` is documented as a DomainError code and
+    reusing it would COLLIDE TWO VOCABULARIES UNDER ONE FIELD NAME. Adding `sqlstate` properly
+    means editing the normative fence in logging-and-headers.md in the same commit, because the
+    drift spec compares them for EQUALITY - so it is an architect edit and a code edit that cannot
+    be separated, which is exactly why it was not smuggled into this round.
+  required_change: >-
+    Correct the "Consumed by" bullet and ADR-0028's Migration step 3 table. Decide whether
+    `sqlstate` joins LOGGABLE_FIELDS; if it does, the fence and the call site move in one commit.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-361
+  phase: implement
+  task: TASK-060
+  source: orchestrator
+  round: 1
+  severity: minor
+  kind: implementation
+  file: apps/api/src/db/client.ts
+  line: 1
+  summary: >-
+    ORCHESTRATOR ERROR - I DESTROYED AN IMPLEMENTER'S UNCOMMITTED WORK WITH `git checkout --`.
+    Verifying the lint claim, I appended a Logger import to client.ts to prove the rule fires at a
+    formerly exempted path. It fired. I then cleaned up my probe with
+    `git checkout -- apps/api/src/db/client.ts`, which reverted the file to HEAD AND TOOK THE
+    UNCOMMITTED FIX WITH IT.
+  failure_scenario: >-
+    Scoped and measured immediately: client.ts reverted, `new Logger('Database')` back at :55;
+    tenant-context.ts, eslint.config.mjs, apps/api/package.json and pnpm-lock.yaml all intact; four
+    of 123 API tests failing, all site 3's.
+    THE VERIFICATION ITSELF WAS RIGHT AND THE CLEANUP WAS NOT. Writing a probe into a file that
+    already carries uncommitted work, then reverting the file wholesale, is a destructive operation
+    on a live tree - the class this initiative has logged four times as concurrency errors, arriving
+    a fifth time through a different door. The correct probe was a scratch file at an arbitrary new
+    path, which I ALSO RAN, first, and which had already proved the rule fires.
+    Recovered by re-dispatching the implementer that wrote it rather than reconstructing it myself:
+    GC-11 forbids the main loop writing feature code, and a hand-rebuild from a report is how a file
+    ends up subtly different from the record a reviewer reads it against.
+  required_change: >-
+    None in code. The rule for me: never `git checkout --` a path that `git status` shows modified.
+    A probe goes in a new file, or the cleanup is a targeted revert of the probe's own lines.
+  owner_slot: null
+  status: parked
+  resolved_by: "orchestrator, 2026-08-11"
+  resolved_round: null
+  ruling: >-
+    Recorded rather than quietly fixed. The retro should have it: the second time today a
+    verification step damaged the thing it was verifying, after the F-282 test architect's
+    drop-mutant collided with a concurrent gate run - and both times the METHOD was right and the
+    CLEANUP was the defect.
