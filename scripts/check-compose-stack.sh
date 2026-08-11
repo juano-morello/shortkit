@@ -204,12 +204,74 @@ for override in compose.override.yaml compose.override.yml \
   fi
 done
 
-for noisy in GIT_COMMIT_SHA POSTGRES_SUPERUSER_PASSWORD COMPOSE_PROJECT_NAME; do
+# Names, never values (F-379). `refuse` twenty lines up prints the NAME of a contaminating
+# variable and nothing else; these notices are the same class of message and print the same
+# thing. POSTGRES_SUPERUSER_PASSWORD is in this list, `.env.example` invites overriding it
+# BY NAME, and this repository's convention is to paste check output verbatim into a
+# committed report — so a value printed here reaches a terminal scrollback, a captured log
+# and plausibly a public repository, from which a credential is rotated rather than deleted.
+#
+# The NAME is still printed, for the secret-shaped one too, rather than a count or a
+# category. A name is not a secret: POSTGRES_SUPERUSER_PASSWORD is committed in
+# `.env.example`. And the name is the entire actionable content of a message whose only
+# claim is "this check does not assert it" — "one credential variable is exported" leaves
+# the reader nothing to unset.
+#
+# The two loops after the first are an assertion, not decoration. They re-read the text the
+# first one produced and will not let it out if an exported value turns up inside, because
+# putting `(%s)` and `"${!noisy}"` back is a one-token edit that reads as an improvement and
+# F-379 is what it costs. The notices are built into a variable rather than printed as they
+# are produced for exactly this reason: nothing can be asserted about a line already on the
+# terminal.
+#
+# Two loops, not one, because this list holds two classes of name. A value that appears
+# inside the notice text is a REINTRODUCED LEAK if the name is credential-shaped, and is far
+# likelier to be a COINCIDENCE if it is not -- `COMPOSE_PROJECT_NAME=check` collides with the
+# word "check" in the message and is a name someone would really choose. So the credential
+# pass fails closed (exit 2, nothing measured, not one notice printed), and the other pass
+# drops the notices, which are a courtesy, and says so without saying what collided. The
+# credential pass is matched on the name's shape rather than a second hand-written list, so
+# a name added to NOISY_NAMES later gets the strict half by default.
+NOISY_NAMES=(GIT_COMMIT_SHA POSTGRES_SUPERUSER_PASSWORD COMPOSE_PROJECT_NAME)
+NOISY_NOTES=''
+for noisy in "${NOISY_NAMES[@]}"; do
   if [ -n "${!noisy:-}" ]; then
-    printf 'note: $%s is exported (%s). AC-115 does not require it and this check does not assert it.\n' \
-      "$noisy" "${!noisy}" >&2
+    NOISY_NOTES+="$(printf 'note: $%s is exported. AC-115 does not require it and this check does not assert it.' \
+      "$noisy")"$'\n'
   fi
 done
+
+for noisy in "${NOISY_NAMES[@]}"; do
+  noisy_value="${!noisy:-}"
+  [ -n "$noisy_value" ] || continue
+  case "$noisy" in *PASSWORD*|*SECRET*|*TOKEN*|*KEY*) ;; *) continue ;; esac
+  case "$NOISY_NOTES" in
+    *"$noisy_value"*)
+      refuse "the notice for \$${noisy} would have printed its value, and this check prints no values." \
+        'Its output is pasted verbatim into committed reports, so a value written here' \
+        'leaves the machine and gets rotated rather than deleted (F-379). Nothing was' \
+        'printed and nothing was measured.' \
+        'Look at the printf that builds NOISY_NOTES: it interpolates the NAME, only.' \
+        'If that printf is already correct then the value of this variable happens to be' \
+        'a word inside the notice text. Unset it and re-run.'
+      ;;
+  esac
+done
+
+for noisy in "${NOISY_NAMES[@]}"; do
+  noisy_value="${!noisy:-}"
+  [ -n "$noisy_value" ] || continue
+  case "$NOISY_NOTES" in
+    *"$noisy_value"*)
+      NOISY_NOTES=''
+      printf 'note: the exported-variable notices were dropped. The value of $%s occurs inside their text, which is either a coincidence or a value being printed where only names may be (F-379). Nothing depends on these notices.\n' \
+        "$noisy" >&2
+      break
+      ;;
+  esac
+done
+
+printf '%s' "$NOISY_NOTES" >&2
 
 # COMPOSE_FILE would silently retarget every `docker compose` below at something other
 # than the repository root's file, which is the one AC-115 names.
@@ -544,11 +606,25 @@ fi
 # `tenants` carries FORCE ROW LEVEL SECURITY and `tenants_self_select` admits only the row
 # whose id equals current_setting('app.tenant_id'), so the flag is set first. That is the
 # same statement shape tenant-context.md specifies.
+#
+# THE THIRD ARGUMENT IS `true`, transaction-scoped, which is the normative form (GC-5,
+# rls-policy-template.md, seed.mts:246) and no query path is exempt from it including this
+# one (F-381). It is correct here and not merely copied: psql documents that a `-c` string
+# holding multiple commands is processed in ONE implicit transaction, so the `select count`
+# that follows the semicolon runs inside the transaction the setting is scoped to. A
+# session-scoped `false` would also work in a one-shot psql, and that is exactly why it does
+# not belong here — this file is the kind of worked example someone lifts into a pooled
+# connection, where `false` leaks one tenant's id onto the next request that borrows it.
+#
+# The tenant id is interpolated rather than bound, which the normative form does with $1.
+# `psql -c` takes no bind parameters. It is safe only because DEMO_TENANT_ID is a literal
+# frozen by ADR-0034 forty lines above and never reaches this script from outside it; a
+# value from anywhere else must be bound, not pasted.
 # ---------------------------------------------------------------------------
 
 printf '\n-- seed\n' >&2
 seed_row_visible() {
-  psql_app "select set_config('app.tenant_id', '$DEMO_TENANT_ID', false); select count(*) from tenants where id = '$DEMO_TENANT_ID'" \
+  psql_app "select set_config('app.tenant_id', '$DEMO_TENANT_ID', true); select count(*) from tenants where id = '$DEMO_TENANT_ID'" \
     2>"$TMPDIR_CHECK/seed.err" | tail -n1 | tr -d '[:space:]'
 }
 
