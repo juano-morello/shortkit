@@ -90,6 +90,22 @@ Two consequences:
     the volume is what holds the already-applied state, and it survives
     `docker compose down` (ADR-0032).
 
+## There is no down migration
+
+`drizzle-kit` has no `down` command. `drop` is not one, despite the name: it edits
+`apps/api/drizzle/meta/_journal.json`, deletes the `.sql` and the snapshot from disk, and
+never opens a connection. Run it on a migration you already applied and the table stays,
+the row stays in `__drizzle_migrations`, and no file on disk describes either.
+
+To undo a schema change, revert the commit and write a **new** migration that takes the
+database from where it is to where the reverted code expects it. Locally you have the
+shorter route from the previous section: drop the database and re-apply from scratch.
+
+This posture holds on two conditions. The schema only adds, and no production database
+exists. ADR-0004, "Rollback: revert the commit, migrate forward", carries both, plus the
+two things that end them. Read it before you generate a migration that drops a table or a
+column.
+
 ## Running the integration suite wipes the migrated tables
 
 `apps/api/test/support/rls-fixture.ts` drops and recreates `tenants` and its own fixture

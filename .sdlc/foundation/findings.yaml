@@ -13213,9 +13213,27 @@
     forward` is a legitimate answer for an additive-only schema with no production database - it
     just has to be the written one.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect under Juano's ruling"
+  resolved_round: 1
+  resolution: >-
+    CLOSED. ADR-0004 gains a Rollback subsection carrying all four items, and migrations.md gets a
+    POINTER rather than a copy - matching the precedent already in that file, where the six deploy
+    constraints are named once and pointed at ADR-0030.
+    IT CHECKED drizzle-kit AGAINST THE INSTALLED BUNDLE RATHER THAN THE DOCS, and found something
+    worse than `no down exists`. Nine CLI commands, no `down`. And `drop` READS meta/_journal.json,
+    rmSyncs THE .sql AND THE SNAPSHOT, REWRITES THE JOURNAL, AND OPENS NO CONNECTION - so on a
+    migrated database it leaves the table AND the __drizzle_migrations row while REMOVING THE ONLY
+    FILE THAT DESCRIBES THEM. The command a reader would reach for actively creates an inconsistent
+    state; it does not merely fail to help.
+    ADDITIVE-ONLY CONFIRMED RATHER THAN INHERITED FROM MY DISPATCH: one migration, one journal entry
+    at idx 0, one schema file; every statement creates something new, and a grep for destructive
+    keywords returns three hits that are all false positives - the FOR UPDATE and FOR DELETE clauses
+    inside policies, plus a comment. It recorded the one judgement call: ENABLE and FORCE ROW LEVEL
+    SECURITY are state changes, but they target a table created three statements earlier, so a
+    commit revert removes both together.
+    The rejected down-migration mechanism is recorded INSIDE the section with its reasoning, so the
+    absence reads as a decision rather than as a gap.
 
 - id: F-393
   phase: ship
@@ -13258,6 +13276,57 @@
     ADR-0033 wanted. The doc describes one of the two paths to it.
   required_change: Document both entry points.
   owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-395
+  phase: ship
+  task: null
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: .sdlc/foundation/design/adr-0004-schema-layout-and-migrations.md
+  line: 1
+  summary: >-
+    THE ROLLBACK POSTURE'S TWO CONDITIONS ARE UNENFORCED. Nothing fails a PR whose migration
+    contains `DROP COLUMN`, and the posture is only valid while the schema is additive-only.
+  failure_scenario: >-
+    The architect logged it as an ACCEPTED COST inside the ADR rather than as a follow-up TASK,
+    because nobody owns it and building the check is outside both its write surface and Ship's job -
+    and it said explicitly that if Ship wants it, it needs its own finding. This is that finding.
+    THE SHAPE IS FAMILIAR AND THAT IS WHY IT IS WORTH ONE: a decision whose validity condition is
+    checked by nobody is the same class as F-390's check wired into nothing, and as ADR-0039's own
+    admission that it `replaces a missing drift gate with a missing retirement gate`. Three
+    instances now, all recorded, none enforced.
+  required_change: >-
+    A CI check that fails a migration containing a destructive statement while the posture stands -
+    or a note on the roadmap saying the condition is maintained by review. Either is defensible.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-396
+  phase: ship
+  task: null
+  source: sdlc-architect
+  round: 1
+  severity: nit
+  kind: contract
+  file: .sdlc/foundation/design/adr-0030-no-deploy-target.md
+  line: 1
+  summary: >-
+    POSSIBLE TENSION WITH ADR-0030, FLAGGED RATHER THAN SILENTLY RESOLVED. ADR-0030 says the
+    repository does not promise "a rollback story"; ADR-0004 now documents one.
+  failure_scenario: >-
+    The architect read ADR-0030 as refusing an operational SLA for a hosted deploy rather than a
+    documented developer procedure, judged the two compatible, and left ADR-0030 alone - which was
+    also outside its write surface. If a reader takes the stronger reading, ADR-0030 needs one
+    reconciling sentence.
+  required_change: One sentence in ADR-0030 if the stronger reading is the intended one.
+  owner_slot: sdlc-architect
   status: open
   resolved_by: null
   resolved_round: null

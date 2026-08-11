@@ -132,6 +132,83 @@ line into the manifest is not, and F-075 is escalated.
 own semver, so the two move together. Upgrade both in one commit, regenerate the
 migration set against an empty database, and run the integration job before merging.
 
+### Rollback: revert the commit, migrate forward. Recorded 2026-08-11 (F-392)
+
+This ADR never used the word rollback, and neither did `docs/architecture/migrations.md`.
+Ship step 4 asks for a feature flag, a revert, or a migration-down, and the initiative had
+none of the three written anywhere. An absence a reader infers from a missing CLI
+subcommand is not a posture. Here is the posture.
+
+**There are no down migrations, and none will be written for this initiative.** Rolling
+back a schema change means two things and nothing else: revert the commit that introduced
+the schema file and its migration, then write a **new** forward migration that moves the
+database from where it is to where the reverted code expects it. Migration numbers only go
+up. `__drizzle_migrations` only grows.
+
+Removing the migration file from git is not part of the procedure and does not help. The
+migrator compares the most recent `created_at` in `__drizzle_migrations` against the
+journal and never compares hashes, so deleting or editing a file that has already been
+applied changes nothing on any database that applied it. `docs/architecture/migrations.md`,
+"The migrator compares timestamps, not contents", has the failure mode in full.
+
+**Why there is no mechanism, factually.** Checked 2026-08-11 against the installed
+`drizzle-kit` 0.31.10, not against the documentation:
+
+- The CLI dispatches nine commands: `generate`, `migrate`, `push`, `pull`, `check`, `up`,
+  `drop`, `export`, `studio`. There is no `down`, and no flag on `migrate` that reverses.
+- `drop` is not an undo. Its implementation (`src/cli/commands/drop.ts`, bundled into
+  `bin.cjs`) reads `apps/api/drizzle/meta/_journal.json`, prompts for an entry, `rmSync`s
+  the matching `NNNN_*.sql` and `meta/NNNN_snapshot.json`, and rewrites the journal. It
+  opens no connection and issues no SQL. Run it against a database that already applied the
+  migration and you get a table that still exists, a row still in `__drizzle_migrations`,
+  and no file on disk describing either. That is worse than doing nothing.
+
+Generating a reverse migration from the snapshots is possible in principle, since Drizzle
+keeps one snapshot per migration and diffs in either direction, but nothing in `drizzle-kit`
+exposes it and this initiative is not building it.
+
+**Two conditions make forward-only valid. Both must hold, not either.**
+
+1. **The schema is additive-only.** Verified at `4a5ab8a` rather than assumed. The migration
+   set is one file, `apps/api/drizzle/0000_odd_betty_ross.sql`, and `_journal.json` has one
+   entry at `idx: 0`. Every statement in it creates something that did not exist: `CREATE
+   TABLE "tenants"`, `ALTER TABLE "tenants" ENABLE ROW LEVEL SECURITY`, the matching `FORCE`,
+   and the four `CREATE POLICY` statements from ADR-0003's cascade-root template. No `DROP`,
+   no `ALTER COLUMN`, no `RENAME`, no `TRUNCATE`, no `UPDATE` or `DELETE` against rows. (A
+   grep for those keywords hits only the `FOR UPDATE` and `FOR DELETE` clauses inside the
+   policy definitions and one comment.) Reverting the commit and rebuilding from empty
+   destroys nothing that predates the commit, because nothing predates it.
+2. **No production database exists.** ADR-0030 is explicit that the repository does not
+   promise "an uptime story, a rollback story, or a production database". The only two
+   databases are the development stack's volume (port 55432) and the integration suite's
+   tmpfs container (port 55433), and `docker compose down -v` resets either one in seconds.
+   Every row in both is either seeded by `apps/api/scripts/seed.mts` or built by a test
+   fixture, so no rollback has to preserve anything.
+
+**What ends this posture.** Either one alone, not both together:
+
+- **A destructive migration.** `DROP TABLE` or `DROP COLUMN`, an `ALTER COLUMN` that narrows
+  a type, a `RENAME`, or DML that rewrites existing rows. Forward-only recovery needs the
+  data the migration destroyed, and there is no copy of it. The commit that introduces the
+  first destructive migration must carry its own reversal plan, and it needs its own ADR
+  superseding this section before it merges. An expand-migrate-contract sequence keeps the
+  posture intact as long as the contract step is a separate, later commit.
+- **A deploy target holding data nobody can regenerate.** The moment a database exists whose
+  contents `db:seed` cannot rebuild, `docker compose down -v` stops being the reset and the
+  window between a bad migration applying and the fix migration shipping becomes a window
+  with real rows in a bad state. Whoever picks the platform (the open question ADR-0030 left)
+  owns replacing this section, alongside the six constraints in ADR-0030's "What survives
+  the deletion".
+
+**Rejected: writing a down-migration mechanism now.** Hand-authored `NNNN_down.sql` files
+plus a runner that walks `__drizzle_migrations` backwards is maybe 150 lines and a fair
+amount of care around transactions and the journal. It loses on two counts. It would ship
+untested, because the only database it could be exercised against is one that `down -v`
+already resets, so the tests would prove the runner runs and nothing about whether it
+recovers anything. And the sole migration it could reverse today is a single `CREATE TABLE`.
+Build it when the first destructive migration needs it, against a database where being
+wrong costs something.
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not |
@@ -172,6 +249,16 @@ migration set against an empty database, and run the integration job before merg
   `infra/deploy.sh` applies no DDL at all and fails open. Both are stated in full at
   `fly.toml:20-61`, which is normative for them; this ADR names them so a reader of the
   decision above does not have to find out from the deploy script.
+- **No migration can be undone in place (F-392).** Recovery from a bad migration takes a
+  revert, a new migration, a review and a deploy, not one command. Between the bad
+  migration applying and the fix landing, the database sits in the bad state. That is
+  affordable only because both databases are disposable and neither holds data anyone
+  needs, which is condition 2 above and is a circumstance rather than a property of the
+  design. The cost scales with the first real dataset.
+- **The two conditions are unenforced.** Nothing in CI fails a pull request that adds
+  `DROP COLUMN` to a migration, and `db:check-policies` does not look at it. A destructive
+  migration merges as easily as an additive one, and the only thing standing between it
+  and the schema is a reviewer who has read this section.
 
 ### Follow-ups this creates
 
@@ -185,3 +272,10 @@ migration set against an empty database, and run the integration job before merg
   the migration before `fly deploy`. Nothing is outstanding here.
 - Waves 4 and 7: the second TASK to merge rebases. The orchestrator picks which one
   before dispatching, so neither implementer decides mid-merge.
+- **F-392.** `docs/architecture/migrations.md` gains a short "There is no down migration"
+  section that states the operator action and points here. The posture, the two conditions
+  and what ends them live in this ADR only, so there is one copy to keep true.
+- **F-392, deferred and owned by whoever triggers it.** The first destructive migration,
+  or the first deploy target with data that `db:seed` cannot rebuild, supersedes the
+  rollback section above. Neither is scheduled. A reviewer who sees `DROP`, `RENAME` or a
+  narrowing `ALTER COLUMN` in a generated migration should stop and ask for the ADR.
