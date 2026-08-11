@@ -99,11 +99,53 @@ and strips from every inbound request. It has no default. It is worded against t
 not against a header name, so that a change of platform is a change of configuration rather
 than a change of source in seven places.
 
-`assertTrustedClientIpHeaderConfigured()` fails boot in production when the variable is
-unset, empty, not a valid lowercase header name, or names a hop-by-hop forwarding header.
-It mirrors `assertBffProxySecretConfigured()` and it applies the same criterion F-033
-applied: what is locally checkable is asserted. That a declared header is actually stripped
-by the hop in front is not locally checkable, exactly as "the BFF's secret matches" is not.
+`assertTrustedClientIpHeaderConfigured()` fails boot when the variable is unset, empty, not a
+valid lowercase header name, or names a hop-by-hop forwarding header. It applies the same
+criterion F-033 applied: what is locally checkable is asserted. That a declared header is
+actually stripped by the hop in front is not locally checkable, exactly as "the BFF's secret
+matches" is not.
+
+### The trigger is the declared trust boundary, not `NODE_ENV`
+
+Amended 2026-08-11 (F-380). **The first version of this decision gated the assertion on
+`NODE_ENV === 'production'` and justified it with "there is no production".
+`Dockerfile:83` is `ENV NODE_ENV=production`**, in the image `docker compose` runs, so the
+justification was false against an artifact shipped the same day and the gate would have
+refused to boot `api` on a developer's laptop the moment TASK-009 landed.
+
+This is this ADR's own argument one level up. The precondition is worded against the property
+rather than against a header name because a hardcoded name preserves the defect's shape.
+`NODE_ENV` is a build flag standing in for "is this a real deployment", and the compose
+stack, a local stack legitimately running the production image, is the case that proves the
+stand-in wrong.
+
+```
+CLIENT_TRUST_BOUNDARY = proxy | direct        # unset is read as direct
+```
+
+| Value | Meaning | `TRUSTED_CLIENT_IP_HEADER` |
+|---|---|---|
+| `proxy` | a hop in front terminates client connections and sets and strips the declared header | **required**, and boot fails without it |
+| `direct` | clients reach this process directly, and no header is trusted | ignored for the assertion |
+| unset | read as `direct`. This is the default and it asserts nothing | not required |
+| anything else | **boot fails, in every environment.** A typo must not silently mean `direct` |
+
+Two checks, and only one of them is conditional. **The value's validity is asserted
+unconditionally**, so `Proxy`, `true` and `prod` are caught in tests, in CI and in compose
+rather than only where someone remembered to look. **The header requirement is conditional on
+the declared boundary**, so a stack that declares nothing asserts nothing.
+
+A local compose stack declares nothing, so no assertion fires, no principal is established,
+and requests fail open with signal. That is the behaviour this ADR already ruled, now reached
+without a build flag standing in for a trust boundary.
+
+The **read** is untouched by this amendment. `readTrustedClientAddress`'s four rules depend
+on `TRUSTED_CLIENT_IP_HEADER` and on nothing else, so `CLIENT_TRUST_BOUNDARY` governs whether
+forgetting the header is an error and never governs what is read. The integration suite may
+therefore declare the header alone, and declares both so its intent is on the record.
+
+The exact error strings, including the new one for an invalid boundary value, are in
+`trusted-client-address.md`. They are stated there once and this ADR does not repeat them.
 
 ### The read
 
@@ -146,6 +188,14 @@ The normative mechanism, including the exact error strings and the shared source
   six-different-IPs test now isolates the email bucket for the reason it claims to.
 - Choosing a deploy target acquires a named precondition instead of an inherited assumption.
   ADR-0030's list carries it.
+- **The gate no longer depends on a build flag.** Added 2026-08-11 (F-380). `NODE_ENV` is set
+  by the `Dockerfile`, by test runners and by framework defaults, none of which knows anything
+  about who terminates client connections. Keying on the trust boundary means the same image
+  runs unchanged on a laptop and behind a proxy, and the difference is one declared variable
+  rather than a flag that also switches logging, error output and dependency resolution.
+- **A malformed boundary value fails everywhere, not only in production.** The one check that
+  can be made unconditional was made unconditional, so a typo surfaces in the environment that
+  runs it rather than in the one nobody runs yet.
 
 ### The cost accepted
 
@@ -163,13 +213,31 @@ The normative mechanism, including the exact error strings and the shared source
 - **No IP-keyed limit applies in any environment that exists today.** Compose, CI and local
   dev all run without a declared header, so the three Express auth buckets and the `@Public()`
   bucket do not bind there. F-018's connection-pool protection for the invitation routes is
-  off in exactly those environments. The boot assertion makes the state impossible in
-  production, and there is no production. `authBodyCap` at 32 KiB and the email-keyed bucket
+  off in exactly those environments. ~~The boot assertion makes the state impossible in
+  production, and there is no production.~~ **Struck 2026-08-11 (F-380).** Both halves were
+  wrong. `Dockerfile:83` is `ENV NODE_ENV=production`, in the image `docker compose` runs, so
+  a production `NODE_ENV` exists on a developer's laptop and the gate would have refused to
+  boot `api` there the day TASK-009 landed. The assertion no longer keys on `NODE_ENV` at
+  all; it keys on the declared trust boundary, and the state stays possible wherever no
+  boundary is declared. `authBodyCap` at 32 KiB and the email-keyed bucket
   are unaffected and still bind, so the credential surface is not unprotected, only less
   protected.
 - **The boot assertion does not exist and will not for months.** It lands with TASK-009, which
   is deferred with EPIC-002. Until then this whole decision is a document, and the mitigation
   it relies on is the part that is not written.
+- **The gate is now opt-in, so a genuinely forgotten configuration boots cleanly.** Added
+  2026-08-11 (F-380), and it is what the repair costs. Under the `NODE_ENV` gate an operator
+  who deployed the production image and forgot the header got a refusal. Under this one, an
+  operator who forgets **both** variables gets a running process with no IP-keyed limit and no
+  boot-time complaint, because nothing local can tell a bare process that it was supposed to
+  be behind a proxy. The state is observable rather than silent:
+  `trusted_client_ip_unresolved_total` is nonzero from the first request, and that counter is
+  now load-bearing rather than decorative. It is a weaker signal than a refusal and it is the
+  honest price of not letting a build flag decide a trust question.
+- **A second environment variable to get right**, and the two can disagree.
+  `CLIENT_TRUST_BOUNDARY=proxy` with a header naming something the hop does not set produces
+  a process that boots, asserts clean, and trusts nothing, which reads at a glance like a
+  working trusted-proxy deployment.
 - **`ip_hash` collapses to one value per tenant wherever no header is declared.** Every click
   in such an environment hashes the sentinel, so unique-visitor counts there are meaningless.
   That is strictly better than the current design, where the visitor picks the hash, and it is
@@ -186,7 +254,18 @@ The normative mechanism, including the exact error strings and the shared source
 ### Follow-ups this creates
 
 - TASK-009 writes `assertTrustedClientIpHeaderConfigured` and calls it in `main.ts` beside
-  `assertBffProxySecretConfigured`.
+  `assertBffProxySecretConfigured`. The call site is unconditional; the gating is inside the
+  function.
+- **`assertBffProxySecretConfigured` has the same defect, independently, and this ADR does not
+  fix it.** Added 2026-08-11 (F-380), named rather than repaired because it is a separate
+  finding. Its specification in `rate-limit.md` and in the design stub is "throws when
+  `NODE_ENV === 'production'` and `BFF_PROXY_SECRET` is unset or empty". `Dockerfile:83` sets
+  that `NODE_ENV`, and ADR-0035 records that the compose stack does not set
+  `BFF_PROXY_SECRET`, so the sibling assertion refuses to boot `api` under
+  `docker compose up` for exactly the reason this amendment removed from its neighbour.
+  **Repairing this ADR alone therefore does not unbreak `docker compose up`.** Whoever owns
+  that finding has `CLIENT_TRUST_BOUNDARY` available: `proxy` is precisely the condition under
+  which a BFF secret is required. TASK-009 must not ship the `NODE_ENV` form.
 - The shared source `apps/api/src/common/net/trusted-client-address.ts` has no design stub.
   Its full source is fenced in the contract instead. Whichever of TASK-009 and TASK-033 lands
   first materialises it, and the other imports it, which puts a cross-EPIC import edge between

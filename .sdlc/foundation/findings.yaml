@@ -12830,9 +12830,13 @@
     ESCALATED TO JUANO - the gate choice is his, not the architect's. The question is what the
     assertion is gated on, given that the local stack legitimately runs the production image.
   owner_slot: sdlc-architect
-  status: escalated
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect under Juano's ruling"
+  resolved_round: 1
+  resolution: >-
+    APPLIED under Juano's ruling. The trigger is now CLIENT_TRUST_BOUNDARY = proxy | direct, with unset read as direct: `proxy` requires the header and fails boot without it; `direct` and unset assert nothing, so no principal and fail-open-with-signal, which is what was already ruled. AND ANY OTHER VALUE FAILS BOOT UNCONDITIONALLY - a typo must not silently mean the permissive thing, so `Proxy` or `true` is caught in tests and CI rather than only where nobody looks yet. The one check that CAN be unconditional now is.
+    THE READ IS UNTOUCHED: readTrustedClientAddress's four rules key on TRUSTED_CLIENT_IP_HEADER alone, so the boundary governs whether FORGETTING the header is an error and never governs what is read. Blast radius is the assertion. :167 struck in place with Dockerfile:83 as the disproof.
+    RE-PRICED HONESTLY, WITH TWO NEW COSTS. The gate is now OPT-IN, so an operator who forgets BOTH variables in a real deployment boots cleanly with no limit and no complaint - weaker than a refusal, and the stated price of not letting a build flag decide a trust question; trusted_client_ip_unresolved_total is promoted from decorative to load-bearing as the mitigation. And two variables can now disagree: `proxy` plus a header the hop does not set boots, asserts clean, trusts nothing, AND READS LIKE A WORKING DEPLOYMENT.
 
 - id: F-381
   phase: implement
@@ -12921,5 +12925,39 @@
   required_change: Add tenant_id to the record.
   owner_slot: sdlc-implementer-backend
   status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-385
+  phase: implement
+  task: TASK-059
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/foundation/design/contracts/rate-limit.md
+  line: 1
+  summary: >-
+    `assertBffProxySecretConfigured` HAS THE SAME DEFECT AS F-380 AND IT IS NOT COLLATERAL - IT IS
+    THE SAME LIVE BREAK IN THE SAME STACK, INDEPENDENTLY. It is specified as
+    `NODE_ENV === 'production'` in rate-limit.md and in the stub; Dockerfile:83 sets that NODE_ENV;
+    ADR-0035 records that compose DOES NOT SET BFF_PROXY_SECRET.
+  failure_scenario: >-
+    SO REPAIRING ADR-0040 ALONE DOES NOT UNBREAK `docker compose up`. The sibling still refuses to
+    boot `api` the day TASK-009 lands. I framed this as collateral of a rejected repair when I
+    dispatched F-380; the architect corrected me and said plainly it is worse than that framing.
+    THE ARCHITECT ALSO BOUNDED IT RATHER THAN LEAVING THE SET OPEN: readBuildCommitSha() and
+    assertRuntimeRoleCannotBypassRls() both run UNCONDITIONALLY inside assertBootPreconditions() at
+    main.ts:158 and read no NODE_ENV, and a grep across non-test source returns ONE NODE_ENV hit -
+    logger.ts:154, a log base field, not a gate. The defect is confined to the two unwritten
+    assertions specified for TASK-009.
+    Not exploitable today: both assertions are unwritten and TASK-009 is deferred.
+  required_change: >-
+    Juano's call, and it is the same question one variable over. rate-limit.md's two-assertion table
+    is where BOTH triggers are written down, and it also still says
+    assertTrustedClientIpHeaderConfigured() "fails boot in production when..." which F-380 just made
+    stale - so both belong in ONE edit.
+  owner_slot: sdlc-architect
+  status: escalated
   resolved_by: null
   resolved_round: null
