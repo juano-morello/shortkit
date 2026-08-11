@@ -69,6 +69,7 @@ export const GRANT_GAP_CANARY_TABLE = 'isolation_grant_gap_canary';
 export const MASKED_REFUSAL_CANARY_TABLE = 'isolation_masked_refusal_canary';
 export const HALF_SEEDED_CANARY_TABLE = 'isolation_half_seeded_canary';
 export const UNQUALIFIED_WRITE_CANARY_TABLE = 'isolation_unqualified_write_canary';
+export const OWNER_THEFT_CANARY_TABLE = 'isolation_owner_theft_canary';
 
 /**
  * F-296's probe. A tenant-scoped table that NOBODY REGISTERS — the wave-3 table the
@@ -79,12 +80,13 @@ export const UNQUALIFIED_WRITE_CANARY_TABLE = 'isolation_unqualified_write_canar
 export const UNREGISTERED_TABLE_PROBE = 'wave3_workspaces_probe';
 
 /**
- * F-303's probe. The same omission as `UNREGISTERED_TABLE_PROBE` — nobody called
- * `registerTenantScopedSurfaces()` — on a table whose owner column is NOT called
- * `tenant_id`. The drift check enumerated on that literal name, so this table was
- * invisible to the one mechanism F-296 added to close exactly this class.
+ * F-303's probe, and since r3 the stem of three of them. The same omission as
+ * `UNREGISTERED_TABLE_PROBE` — nobody called `registerTenantScopedSurfaces()` — on a
+ * table whose owner column is NOT called `tenant_id`. The drift check enumerated on that
+ * literal name, so this table was invisible to the one mechanism F-296 added to close
+ * exactly this class.
  *
- * The auditor's measured shape, reproduced here on 2026-08-11 before the fix:
+ * The auditor's measured shape, reproduced here on 2026-08-11 before the F-303 fix:
  * `audit_events(owning_tenant)` with ENABLE + FORCE and `USING (true)` returns
  * `bob@tenant-b.example` inside tenant A's transaction, while the suite is 15 passed,
  * `registryDrift` is empty in both directions and `db:check-policies` calls it
@@ -326,6 +328,53 @@ export function createUnqualifiedWriteCanary(): void {
 }
 
 /**
+ * F-330. THE SIBLING OF THE ABOVE, AND THE WORSE HALF. The UPDATE policy's USING is
+ * widened and its WITH CHECK IS LEFT EXACTLY AS `tenantScopedPolicies()` WRITES IT — one
+ * token of difference from the production builder, and the difference between the two
+ * canaries is three characters.
+ *
+ * WHY IT NEEDS ITS OWN TABLE. `isolation_unqualified_write_canary` widens both halves,
+ * so `updateAll` sails through the WITH CHECK, reports `UPDATE 2`, and the count rule
+ * catches it. Tighten the WITH CHECK back and that same statement is REFUSED with 42501
+ * on the first foreign row it reaches — which the harness scored as a pass until r3,
+ * because a refusal looked like a denial. Measured on the migrated `tenants` table:
+ * every attempt green, `verdict: pass`, over a policy admitting every row of every
+ * tenant.
+ *
+ * WHAT IT PERMITS, WHICH IS THEFT RATHER THAN VANDALISM. The WITH CHECK is satisfied by
+ * any row that ends up belonging to the actor, so `UPDATE <t> SET tenant_id = <actor>`
+ * takes every row the widened USING admits. Measured on a probe carrying this exact
+ * policy: `UPDATE 2`, and `row-owned-by-tenant-b` afterwards read `tenant_id = <A>`.
+ *
+ * Expected outcomes over the eight shapes, and the middle one is the point:
+ *   findAll, findOwnedBy, updateOwnedBy, deleteOwnedBy, insertOwnedBy, deleteAll -> pass
+ *   updateAll    -> UNVERIFIED (refused by the WITH CHECK, proves the wrong half)
+ *   reparentAll  -> FAIL, naming the tenant whose row moved
+ */
+export function createOwnerTheftCanary(): void {
+  run(
+    `${createTable(OWNER_THEFT_CANARY_TABLE)}
+
+     ${grantAll(OWNER_THEFT_CANARY_TABLE)}
+
+     ${seedBothTenants(OWNER_THEFT_CANARY_TABLE)}
+
+     ALTER TABLE ${OWNER_THEFT_CANARY_TABLE} ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE ${OWNER_THEFT_CANARY_TABLE} FORCE  ROW LEVEL SECURITY;
+
+     CREATE POLICY ${OWNER_THEFT_CANARY_TABLE}_select ON ${OWNER_THEFT_CANARY_TABLE}
+       FOR SELECT USING (tenant_id = ${TENANT_ID});
+     CREATE POLICY ${OWNER_THEFT_CANARY_TABLE}_insert ON ${OWNER_THEFT_CANARY_TABLE}
+       FOR INSERT WITH CHECK (tenant_id = ${TENANT_ID});
+     CREATE POLICY ${OWNER_THEFT_CANARY_TABLE}_delete ON ${OWNER_THEFT_CANARY_TABLE}
+       FOR DELETE USING (tenant_id = ${TENANT_ID});
+     -- THE DEFECT, AND IT IS ONE TOKEN: USING widened, WITH CHECK left correct.
+     CREATE POLICY ${OWNER_THEFT_CANARY_TABLE}_update ON ${OWNER_THEFT_CANARY_TABLE}
+       FOR UPDATE USING (true) WITH CHECK (tenant_id = ${TENANT_ID});`,
+  );
+}
+
+/**
  * F-296. A tenant-scoped table added by a later wave whose author forgot the one
  * `registerTenantScopedSurfaces()` call. It is correct in every way `db:check-policies`
  * can see — `tenant_id`, ENABLE, FORCE, a policy — and the isolation suite must still
@@ -346,50 +395,88 @@ export function dropUnregisteredTableProbe(): void {
 }
 
 /**
- * F-303. The same forgotten registration, on a table whose owner column is called
- * `owning_tenant`. Everything else about it is a plausible wave-3 table: a foreign key
- * to `tenants` with the cascade every schema TASK declares, ENABLE, FORCE, and a policy.
+ * F-303 / F-333. THE SAME FORGOTTEN REGISTRATION, ON A TABLE WHOSE OWNER COLUMN IS NOT
+ * CALLED `tenant_id` — IN ALL THREE STATES OF PROTECTION.
  *
- * `USING (true)` rather than a correct predicate, so this is not merely unregistered but
- * ACTIVELY LEAKING — `actor_email` from tenant B is readable inside tenant A's
- * transaction. That is what makes the drift check the only thing standing between this
- * table and a green run: nothing attempts anything against a table nobody registered, so
- * naming it in `inDatabaseNotRegistered` is the entire defence.
+ * Everything else about each is a plausible wave-3 table: a foreign key to `tenants` with
+ * the cascade every schema TASK declares, and one row owned by tenant B and none by
+ * tenant A, so every row tenant A can read is one it does not own and the leak needs no
+ * arithmetic to see.
+ *
+ * ALL THREE LEAK `bob@tenant-b.example` TO TENANT A, and r3 measured that only the third
+ * was named:
+ *
+ *   norls    no row-level security at all       -> arms 1-4: NOT NAMED
+ *   noforce  ENABLE, no FORCE, USING (true)     -> arms 1-4: NOT NAMED
+ *   forced   ENABLE + FORCE, USING (true)       -> arms 1-4: named, by arm 3
+ *
+ * The first two were caught only by `db:check-policies`, which is a DIFFERENT GATE — so
+ * the drift check was neither second nor independent for the unprotected shape, which is
+ * exactly what coverage.ts's header claimed it was. Arm 5, a foreign key to `tenants(id)`,
+ * is what names all three. These probes are why that arm cannot be removed without a red
+ * run.
  *
  * The policy DDL is written out rather than built from `tenantScopedPolicies()`, which
- * hard-codes the column name `tenant_id` — the same assumption this probe exists to
- * break.
+ * hard-codes the column name `tenant_id` — the same assumption these probes exist to
+ * break. None of them is in `SUITE_OWNED_CONTROL_TABLES`; being caught is the point.
+ *
+ * The address is a fixture value in a probe table that reaches a test log and never a
+ * pino body (GC-9).
  */
-export function createUnregisteredOwnerColumnProbe(): void {
-  run(
-    `DROP TABLE IF EXISTS ${UNREGISTERED_OWNER_COLUMN_PROBE};
+type OwnerColumnProbeProtection = 'norls' | 'noforce' | 'forced';
 
-     CREATE TABLE ${UNREGISTERED_OWNER_COLUMN_PROBE} (
+const OWNER_COLUMN_PROBE_PROTECTION: Record<OwnerColumnProbeProtection, (table: string) => string> = {
+  norls: () => '',
+  noforce: (table) =>
+    `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;
+     CREATE POLICY ${table}_tenant_isolation ON ${table} FOR ALL USING (true) WITH CHECK (true);`,
+  forced: (table) =>
+    `ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE ${table} FORCE  ROW LEVEL SECURITY;
+     CREATE POLICY ${table}_tenant_isolation ON ${table} FOR ALL USING (true) WITH CHECK (true);`,
+};
+
+export function ownerColumnProbeTable(protection: OwnerColumnProbeProtection): string {
+  return `${UNREGISTERED_OWNER_COLUMN_PROBE}_${protection}`;
+}
+
+/** Every shape of the F-333 probe, in the order the re-audit measured them. */
+export const OWNER_COLUMN_PROBE_PROTECTIONS: readonly OwnerColumnProbeProtection[] = [
+  'norls',
+  'noforce',
+  'forced',
+];
+
+export function createUnregisteredOwnerColumnProbe(
+  protection: OwnerColumnProbeProtection,
+): void {
+  const table = ownerColumnProbeTable(protection);
+
+  run(
+    `DROP TABLE IF EXISTS ${table};
+
+     CREATE TABLE ${table} (
        id            uuid PRIMARY KEY,
        owning_tenant uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
        actor_email   text NOT NULL
      );
 
-     GRANT SELECT, INSERT, UPDATE, DELETE ON ${UNREGISTERED_OWNER_COLUMN_PROBE} TO :"app_role";
+     GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO :"app_role";
 
-     -- Only tenant B has a row, so every row tenant A can read is one it does not own
-     -- and the leak needs no arithmetic to see. The address is a fixture value and
-     -- matches the auditor's measurement, which is the point of it (GC-9: it never
-     -- reaches a log body).
-     INSERT INTO ${UNREGISTERED_OWNER_COLUMN_PROBE} (id, owning_tenant, actor_email) VALUES
+     INSERT INTO ${table} (id, owning_tenant, actor_email) VALUES
        ('${CONTROL_B_ROW_ID}', '${TENANT_B}', 'bob@tenant-b.example');
 
-     ALTER TABLE ${UNREGISTERED_OWNER_COLUMN_PROBE} ENABLE ROW LEVEL SECURITY;
-     ALTER TABLE ${UNREGISTERED_OWNER_COLUMN_PROBE} FORCE  ROW LEVEL SECURITY;
-
-     CREATE POLICY ${UNREGISTERED_OWNER_COLUMN_PROBE}_tenant_isolation
-       ON ${UNREGISTERED_OWNER_COLUMN_PROBE}
-       FOR ALL USING (true) WITH CHECK (true);`,
+     ${OWNER_COLUMN_PROBE_PROTECTION[protection](table)}`,
   );
 }
 
-export function dropUnregisteredOwnerColumnProbe(): void {
-  execSql(migrationDsn(), `DROP TABLE IF EXISTS ${UNREGISTERED_OWNER_COLUMN_PROBE};`);
+export function dropUnregisteredOwnerColumnProbes(): void {
+  execSql(
+    migrationDsn(),
+    OWNER_COLUMN_PROBE_PROTECTIONS.map(
+      (protection) => `DROP TABLE IF EXISTS ${ownerColumnProbeTable(protection)};`,
+    ).join('\n'),
+  );
 }
 
 /** Every control table this file builds, dropped in the suite's `afterAll`. */
@@ -403,8 +490,9 @@ export function dropControlTables(): void {
       MASKED_REFUSAL_CANARY_TABLE,
       HALF_SEEDED_CANARY_TABLE,
       UNQUALIFIED_WRITE_CANARY_TABLE,
+      OWNER_THEFT_CANARY_TABLE,
       UNREGISTERED_TABLE_PROBE,
-      UNREGISTERED_OWNER_COLUMN_PROBE,
+      ...OWNER_COLUMN_PROBE_PROTECTIONS.map(ownerColumnProbeTable),
     ]
       .map((table) => `DROP TABLE IF EXISTS ${table};`)
       .join('\n'),

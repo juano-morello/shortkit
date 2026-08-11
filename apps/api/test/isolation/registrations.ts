@@ -49,11 +49,13 @@ import {
   createGrantGapCanary,
   createHalfSeededCanary,
   createMaskedRefusalCanary,
+  createOwnerTheftCanary,
   createUnqualifiedWriteCanary,
   DIRECTION_CANARY_TABLE,
   GRANT_GAP_CANARY_TABLE,
   HALF_SEEDED_CANARY_TABLE,
   MASKED_REFUSAL_CANARY_TABLE,
+  OWNER_THEFT_CANARY_TABLE,
   UNQUALIFIED_WRITE_CANARY_TABLE,
 } from './controls';
 import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
@@ -139,7 +141,32 @@ interface TableAccessSpec {
    */
   readonly plantedOwnerId: (target: TenantFixture) => string;
   readonly plantedRow: (ownerId: string) => SQL;
+  /**
+   * F-330. Set when `UPDATE <t> SET <ownerColumn> = <actor>` is not a statement this
+   * table can express at all. The string is the reason, it is required to remove the
+   * shape, and it is carried into `report.json` via the registration's `declinedShapes`
+   * — a shape that vanishes silently is the failure mode three rounds of audit have
+   * found here.
+   */
+  readonly declineReparentAllBecause?: string;
 }
+
+/**
+ * F-330. `tenants` is the cascade root: its owner column IS its primary key, so
+ * `UPDATE tenants SET id = <actor>` with no WHERE sets every visible row's id to the
+ * same value and collides on the primary key — a 23505 raised by the index BEFORE any
+ * policy is consulted, which is indistinguishable from the 42501 a policy owes us. It is
+ * also not a statement any real code path issues: re-parenting a tenant to itself is not
+ * an operation. Recorded rather than silently skipped, and printed into the artifact.
+ */
+export const TENANTS_DECLINES_REPARENT =
+  'tenants is the cascade root and its owner column `id` is its primary key. An ' +
+  'unqualified `UPDATE tenants SET id = <actor>` sets every row the USING clause admits ' +
+  'to one value and is refused by the primary key index with 23505 before any policy is ' +
+  'evaluated, so it could never distinguish a correct policy from a wide-open one. ' +
+  'CONSEQUENCE, STATED: on the migrated production table the F-302/F-330 mechanism rests ' +
+  'on `updateAll` alone per direction — `deleteAll` there is inert for the reason F-329 ' +
+  'records, and this shape is inapplicable.';
 
 function reads(statement: SQL) {
   return async (actor: TenantFixture): Promise<CrossTenantAttemptResult> =>
@@ -163,7 +190,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
     sql`, `,
   );
 
-  return [
+  const shapes: TenantScopedMethod[] = [
     {
       name: 'findAll',
       kind: 'read',
@@ -238,21 +265,95 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       qualification: 'unqualified',
       attempt: (actor) => writes(sql`delete from ${table}`)(actor),
     },
+    /**
+     * =========================================================================
+     * F-330. THE ONLY SHAPE THAT WRITES THE OWNER COLUMN, AND IT IS THE THEFT.
+     * =========================================================================
+     *
+     * `UPDATE <t> SET <ownerColumn> = <actor>`, unqualified. It exists because F-302's
+     * fix closed the half of the defect that permits OVERWRITING and left the half that
+     * permits TAKING — and the second is worse.
+     *
+     * Widen a policy's USING and leave its WITH CHECK correct — one token away from what
+     * `tenantScopedPolicies()` emits — and every other shape in this battery reports a
+     * pass. Measured on a probe carrying exactly that policy:
+     *
+     *   findAll / findOwnedBy        -> correct rows            -> pass
+     *   updateOwnedBy / deleteOwnedBy-> 0 rows (SELECT policy)  -> pass
+     *   insertOwnedBy                -> 42501 RLS refusal       -> pass
+     *   updateAll   (F-302's)        -> 42501, WITH CHECK held  -> pass
+     *   deleteAll   (F-302's)        -> DELETE 1 == own rows    -> pass
+     *   UPDATE probe SET tenant_id = <A>            -> UPDATE 2, AND B'S ROW IS NOW A'S
+     *
+     * That last statement is this method. The WITH CHECK is satisfied precisely BECAUSE
+     * the resulting row belongs to the actor, which is why it slips past the clause that
+     * refuses every other write — and why the count rule and the digest, which never see
+     * a statement that is never issued, both stayed silent.
+     *
+     * It is judged by the two mechanisms that already exist and needs no third: the
+     * count rule sees `UPDATE 2` against one visible own row, and `foreignRowLines()`
+     * sees the target's row LEAVE the foreign set, which names the victim.
+     *
+     * Ordinary code paths that issue it: a re-parent, a move-between-workspaces, an
+     * upsert, an ORM `save()` on a hydrated entity whose owner field was rebound.
+     */
+    {
+      name: 'reparentAll',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'unqualified',
+      attempt: (actor) =>
+        writes(sql`update ${table} set ${owner} = ${actor.id}::uuid`)(actor),
+    },
   ];
+
+  // F-330. The declined shape is REMOVED HERE AND NOWHERE ELSE, and only against a
+  // stated reason — which the registration also carries into `report.json`. A shape that
+  // can be dropped without a reason is a shape that gets dropped.
+  return shapes.filter(
+    (shape) =>
+      !(shape.name === 'reparentAll' && spec.declineReparentAllBecause !== undefined),
+  );
 }
 
 const PLANTED_FIXTURE_ROW_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1';
 
 /**
  * The cascade root. `id` is its own owner column, and its four policies are the bespoke
- * set `apps/api/drizzle/0000_*.sql` hand-appends — not `tenantScopedPolicies()`. It has
- * no ordinary DELETE policy at all (F-005), which is what `deleteOwnedBy` exercises.
+ * set `apps/api/drizzle/0000_*.sql` hand-appends — not `tenantScopedPolicies()`.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT `tenants`'s GREEN ATTEMPTS ACTUALLY PROVE (F-329, F-334) — READ THIS BEFORE
+ * QUOTING A COUNT OF THEM
+ * ---------------------------------------------------------------------------
+ *
+ * `tenants` has NO ORDINARY DELETE POLICY AT ALL (F-005). An earlier version of this
+ * comment said that "is what `deleteOwnedBy` exercises", which reads as coverage; it is
+ * the opposite. BOTH delete attempts on this table rest on that absence:
+ *
+ *   deleteOwnedBy  `DELETE FROM tenants WHERE id = <target>`  -> 0, whatever else is true
+ *   deleteAll      `DELETE FROM tenants`                      -> 0, whatever else is true
+ *
+ * Four green attempts (two shapes x two directions) that prove a policy is ABSENT rather
+ * than that a policy is CORRECT. They start meaning something the day a DELETE policy
+ * lands here, and not before.
+ *
+ * And the eight owner-qualified write attempts across both registered tables prove the
+ * SELECT policy rather than the write policy — that is F-302's finding restated as an
+ * accounting fact, not a separate defect.
+ *
+ * SO, ON THE MIGRATED PRODUCTION TABLE: `updateAll` is the ONLY live unqualified write
+ * attempt per direction. `deleteAll` is inert for the reason above and `reparentAll` is
+ * inapplicable for the reason `TENANTS_DECLINES_REPARENT` gives. One attempt per
+ * direction is what stands between this table and F-302's class of defect, and that
+ * number belongs at the gate rather than in a footnote.
  */
 const tenantsAccess: TenantScopedSurfaceRegistration = {
   subject: 'TenantsTableAccess',
   table: 'tenants',
   ownerColumn: 'id',
   reset: createRlsFixture,
+  declinedShapes: [{ shape: 'reparentAll', because: TENANTS_DECLINES_REPARENT }],
   methods: tableAccess({
     table: 'tenants',
     ownerColumn: 'id',
@@ -262,6 +363,7 @@ const tenantsAccess: TenantScopedSurfaceRegistration = {
     plantedRow: (ownerId) =>
       sql`insert into ${sql.identifier('tenants')} (id, name)
           values (${ownerId}::uuid, ${'planted-by-another-tenant'})`,
+    declineReparentAllBecause: TENANTS_DECLINES_REPARENT,
   }),
 };
 
@@ -415,6 +517,19 @@ export const unqualifiedWriteCanaryAccess = controlAccess(
   createUnqualifiedWriteCanary,
 );
 
+/**
+ * F-330. THE SIBLING OF THE ABOVE, AND THE ONE THE r2 FIX LEFT OPEN. Its UPDATE policy
+ * carries `USING (true)` with the WITH CHECK left exactly as `tenantScopedPolicies()`
+ * writes it, so the refusal-scored-as-a-pass and the owner-column write are both live on
+ * it. Three characters of DDL separate it from `unqualifiedWriteCanaryAccess`, and that
+ * is the distance between vandalism and theft.
+ */
+export const ownerTheftCanaryAccess = controlAccess(
+  'OwnerTheftCanaryTableAccess',
+  OWNER_THEFT_CANARY_TABLE,
+  createOwnerTheftCanary,
+);
+
 /** Every surface id this wave covers, hand-written so a battery quietly losing a method fails. */
 export const EXPECTED_SURFACE_IDS = [
   'repo:RlsFixtureRowsTableAccess.deleteAll',
@@ -422,6 +537,7 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:RlsFixtureRowsTableAccess.findAll',
   'repo:RlsFixtureRowsTableAccess.findOwnedBy',
   'repo:RlsFixtureRowsTableAccess.insertOwnedBy',
+  'repo:RlsFixtureRowsTableAccess.reparentAll',
   'repo:RlsFixtureRowsTableAccess.updateAll',
   'repo:RlsFixtureRowsTableAccess.updateOwnedBy',
   'repo:TenantsTableAccess.deleteAll',

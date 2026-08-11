@@ -12,15 +12,18 @@
  *
  * IT SAYS: for the two tables that exist today — `tenants` and `rls_fixture_rows` — a
  * tenant transaction belonging to either tenant cannot read, filter for, update, delete
- * or plant a row belonging to the other, through any of SEVEN statement shapes, IN
- * EITHER DIRECTION; that two of those seven carry NO WHERE CLAUSE, so a wide-open UPDATE
- * or DELETE policy cannot hide behind a correctly scoped SELECT policy (F-302); each
- * acting tenant demonstrably could see its own row while being refused the other's;
- * every refusal the run scored as a pass was a row-level security refusal and says so in
+ * or plant a row belonging to the other, or TAKE OWNERSHIP OF ONE, through any of EIGHT
+ * statement shapes, IN EITHER DIRECTION; that three of those eight carry NO WHERE CLAUSE,
+ * so a wide-open UPDATE or DELETE policy cannot hide behind a correctly scoped SELECT
+ * policy (F-302), and that one of the three ASSIGNS THE OWNER COLUMN, so a widened USING
+ * cannot hide behind a correct WITH CHECK either (F-330); each acting tenant demonstrably
+ * could see its own row while being refused the other's; every refusal the run scored as
+ * a pass was a row-level security refusal ON AN OWNER-QUALIFIED WRITE and says so in
  * `report.json`; and the set of tables carrying a tenant boundary in the database — by
- * four independent properties, none of which assumes the owner column is called
- * `tenant_id` (F-303) — is exactly the set the registry knows about. Every one of those
- * is a real statement against a live Postgres, issued through `withTenantTransaction` as
+ * five independent properties, none of which assumes the owner column is called
+ * `tenant_id` and one of which does not assume the table is protected at all (F-303,
+ * F-333) — is exactly the set the registry knows about. Every one of those is a real
+ * statement against a live Postgres, issued through `withTenantTransaction` as
  * `shortkit_app`, a role holding neither SUPERUSER nor BYPASSRLS.
  *
  * IT DOES NOT SAY the system has no uncovered cross-tenant surface. Most of the system
@@ -37,20 +40,22 @@
  *
  * Declined 2026-08-06: a test asserting that a test helper works is the shape this
  * initiative has twice called hollow. Every assertion below is about what Postgres
- * answered — including the seven negative controls, which are real tables carrying real
+ * answered — including the eight negative controls, which are real tables carrying real
  * defects that really do leak, not assertions about the harness's shape.
  *
- * ONE TEST BELOW IS THE EXCEPTION AND IT SAYS SO: the F-304 test asserts what is in
- * `report.json` on disk part-way through a run. That is not a helper's shape, it is the
- * artifact SC-1 points at and F-297 is about to upload, and the measured defect was that
- * the file kept the PREVIOUS run's verdict when a run died.
+ * TWO TESTS BELOW ARE THE EXCEPTION AND THEY SAY SO: the F-304 and F-331 tests assert
+ * what is in `report.json` on disk part-way through a run. That is not a helper's shape,
+ * it is the artifact SC-1 points at and F-297 is about to upload, and the measured
+ * defects were that the file kept the PREVIOUS run's verdict when a run died (F-304) and
+ * then published THIS run's `pass` before the tests that could disprove it had run
+ * (F-331).
  *
  * ---------------------------------------------------------------------------
- * THE SEVEN CONTROLS, AND THE FINDING EACH ONE ANSWERS
+ * THE EIGHT CONTROLS, AND THE FINDING EACH ONE ANSWERS
  * ---------------------------------------------------------------------------
  *
- * Two audit rounds measured this suite reporting `pass` over a database that was not
- * isolated, six ways. Each way is now a table the suite builds, attacks and requires a
+ * Three audit rounds measured this suite reporting `pass` over a database that was not
+ * isolated, seven ways. Each way is now a table the suite builds, attacks and requires a
  * non-`pass` answer for, so the measurement runs on every CI run instead of once:
  *
  *   isolation_leak_canary             no row-level security at all      (the r1 control)
@@ -63,9 +68,14 @@
  *                                     wide-open UPDATE and DELETE behind a correct
  *                                     SELECT policy — invisible to every write that
  *                                     names the owner in a WHERE clause      (F-302)
+ *   isolation_owner_theft_canary      the same USING widened, WITH CHECK LEFT CORRECT —
+ *                                     so the unqualified write is REFUSED and the
+ *                                     refusal looked like a denial, while a statement
+ *                                     assigning the owner column takes the row  (F-330)
  *
- * ...plus two probes for tables nobody registered, `wave3_workspaces_probe` (F-296) and
- * `wave3_audit_events_probe` (F-303), which the drift check has to name.
+ * ...plus four probes for tables nobody registered: `wave3_workspaces_probe` (F-296) and
+ * `wave3_audit_events_probe_{norls,noforce,forced}` (F-303, F-333), which the drift check
+ * has to name whether or not they are protected.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -78,6 +88,7 @@ import { withTenantTransaction } from '../../src/tenancy/tenant-context';
 import {
   beginIsolationReport,
   createTenantFixtures,
+  finishIsolationReport,
   formatIsolationReport,
   ISOLATION_EXCLUSIONS,
   registeredSubjects,
@@ -87,14 +98,20 @@ import {
   writeIsolationReport,
   assertNoTenantIdAltered,
 } from './coverage';
-import type { AttemptOutcome, IsolationReport, TenantFixtures } from './coverage';
+import type {
+  AttemptOutcome,
+  IsolationReport,
+  SuiteOutcome,
+  TenantFixtures,
+} from './coverage';
 import {
   createUnregisteredOwnerColumnProbe,
   createUnregisteredTableProbe,
   dropControlTables,
-  dropUnregisteredOwnerColumnProbe,
+  dropUnregisteredOwnerColumnProbes,
   dropUnregisteredTableProbe,
-  UNREGISTERED_OWNER_COLUMN_PROBE,
+  ownerColumnProbeTable,
+  OWNER_COLUMN_PROBE_PROTECTIONS,
   UNREGISTERED_TABLE_PROBE,
 } from './controls';
 import { createLeakCanary, dropLeakCanary, leakCanaryProtection } from './leak-canary';
@@ -106,6 +123,8 @@ import {
   halfSeededCanaryAccess,
   leakCanaryAccess,
   maskedRefusalCanaryAccess,
+  ownerTheftCanaryAccess,
+  TENANTS_DECLINES_REPARENT,
   unqualifiedWriteCanaryAccess,
 } from './registrations';
 import { querySql } from '../support/psql';
@@ -119,6 +138,57 @@ import {
 } from '../support/rls-fixture';
 
 const REPORT_PATH = fileURLToPath(new URL('report.json', import.meta.url));
+
+/**
+ * ===========================================================================
+ * F-332. AT MODULE SCOPE, AND THAT IS THE WHOLE POINT OF WHERE IT IS.
+ * ===========================================================================
+ *
+ * This ran inside `beforeAll` until r3. vitest does not run `beforeAll` when every test
+ * in the file is filtered out, so a run that selected nothing left the PREVIOUS run's
+ * `pass` on disk with no marker at all — measured:
+ *
+ *   npx vitest run ... -t 'a name that matches no test'
+ *   -> Test Files 1 skipped (1), Tests 18 skipped (18), EXIT=0, 489ms
+ *   -> report.json unchanged: verdict=pass, runAt=<the previous run's>
+ *
+ * Exit 0 and a green artifact, over a run that asserted nothing. Module scope executes at
+ * COLLECTION, which happens for a filtered run, so the stale pass is replaced by
+ * `incomplete` before any test is selected or skipped.
+ *
+ * `readFileSync` immediately after is the capture the F-304 and F-331 tests assert on:
+ * what was on disk while this run was in flight.
+ */
+beginIsolationReport(REPORT_PATH);
+
+const reportOnDiskWhileTheRunWasInFlight = readFileSync(REPORT_PATH, 'utf8');
+
+/**
+ * F-331. What the runner observed of THIS FILE's tests, read in `afterAll` — which vitest
+ * runs after every test in the file, and also runs when `beforeAll` threw (measured: the
+ * tasks then read `skip`).
+ *
+ * Anything that is not "every test passed" is not a pass. A `skip` is `incomplete` rather
+ * than `fail` because a filtered or aborted run has not disproved anything; a `fail` is a
+ * `fail`.
+ */
+function suiteOutcomeOf(suite: unknown): SuiteOutcome {
+  const tasks =
+    (suite as { tasks?: { type?: string; result?: { state?: string } }[] }).tasks ?? [];
+  const states = tasks
+    .filter((task) => task.type === 'test')
+    .map((task) => task.result?.state);
+
+  if (states.length === 0) {
+    return 'incomplete';
+  }
+
+  if (states.includes('fail')) {
+    return 'fail';
+  }
+
+  return states.every((state) => state === 'pass') ? 'pass' : 'incomplete';
+}
 
 interface TableProtection extends Record<string, unknown> {
   row_security: boolean;
@@ -161,19 +231,30 @@ function withOutcome(
 
 describe('cross-tenant isolation over every registered tenant-scoped surface', () => {
   let fixtures: TenantFixtures;
-  let report: IsolationReport;
-  /** F-304. What was on disk between the run starting and the run finishing. */
-  let reportOnDiskWhileTheRunWasInFlight: string;
+  let report: IsolationReport | null = null;
+
+  /**
+   * The run's judged report. `report` is nullable so that `afterAll` can tell a run that
+   * never produced one from a run that did (F-331); a test reaching for it when
+   * `beforeAll` threw gets a clear sentence rather than a TypeError.
+   */
+  function judged(): IsolationReport {
+    if (report === null) {
+      throw new Error(
+        'the isolation run produced no report — beforeAll threw before judging any ' +
+          'attempt. The failure above is the one to read.',
+      );
+    }
+
+    return report;
+  }
 
   beforeAll(async () => {
-    // F-304. FIRST, BEFORE ANYTHING THAT CAN THROW. Everything below this line can:
+    // The `incomplete` marker is already on disk — it is written at module scope, above,
+    // for the reason F-332 gives. Everything in this hook can throw:
     // `assertAppRoleCannotBypassRls()` throws on a bypassing role and
     // `createTenantFixtures()` throws on a leak that is already present, which is the
-    // single most alarming failure this harness has. Until r2's second round the
-    // artifact was written once, at the end, so each of those left the PREVIOUS run's
-    // `"verdict": "pass"` on disk for CI to publish as evidence.
-    beginIsolationReport(REPORT_PATH);
-    reportOnDiskWhileTheRunWasInFlight = readFileSync(REPORT_PATH, 'utf8');
+    // single most alarming failure this harness has.
 
     // Without this every assertion below passes vacuously: a role exempt from row-level
     // security makes a correct implementation and a missing one look identical.
@@ -182,15 +263,26 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     fixtures = await createTenantFixtures();
     report = await runCrossTenantAttempts(registeredSubjects(), fixtures);
 
+    // F-331. This writes the ATTEMPTS and deliberately leaves `verdict: incomplete`.
+    // Eleven of this file's tests run after this line, including
+    // `assertNoTenantIdAltered()`, and any of them can disprove an attempt battery that
+    // judged itself clean. The verdict is published in `afterAll` and nowhere else.
     writeIsolationReport(report, REPORT_PATH);
     // AC-12's "its output enumerates which methods were exercised", in the run log.
     console.log(formatIsolationReport(report));
   }, 300_000);
 
-  afterAll(() => {
-    dropLeakCanary();
-    dropControlTables();
-    dropRlsFixture();
+  afterAll((suite) => {
+    try {
+      dropLeakCanary();
+      dropControlTables();
+      dropRlsFixture();
+    } finally {
+      // F-331. THE ONLY WRITE THAT CAN PUBLISH `pass`, and it happens after every test in
+      // this file has a result. `report` is null when `beforeAll` threw — vitest runs
+      // this hook anyway (measured) — and the `incomplete` marker then stands.
+      finishIsolationReport(REPORT_PATH, report, suiteOutcomeOf(suite));
+    }
   });
 
   it('AC-12: no registered method lets one tenant reach another tenant\'s rows', () => {
@@ -209,48 +301,61 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       policies: 2,
     });
 
-    expect(leakedSurfaces(report)).toEqual([]);
-    expect(withOutcome(report, 'unverified')).toEqual([]);
-    expect(report.verdict).toBe('pass');
+    expect(leakedSurfaces(judged())).toEqual([]);
+    expect(withOutcome(judged(), 'unverified')).toEqual([]);
+    expect(judged().verdict).toBe('pass');
   });
 
   it('AC-12: the report enumerates every method it exercised, and reports pass or fail for each', () => {
     // Hand-written in registrations.ts and compared here, so a battery that quietly
     // loses a statement shape — or a registration that stops registering — fails with
     // the missing id named, rather than reporting a smaller clean run.
-    expect([...report.covered].sort()).toEqual([...EXPECTED_SURFACE_IDS]);
+    expect([...judged().covered].sort()).toEqual([...EXPECTED_SURFACE_IDS]);
 
-    expect(report.attempts.map((outcome) => outcome.outcome)).toEqual(
-      report.attempts.map(() => 'pass'),
+    expect(judged().attempts.map((outcome) => outcome.outcome)).toEqual(
+      judged().attempts.map(() => 'pass'),
     );
 
-    // Fourteen surfaces, each attempted in both directions (F-293). Reads and writes
-    // are both exercised: AC-94 covers the reads and AC-95 the writes, and a battery
-    // that had lost all of one kind would still satisfy the count above.
-    expect(report.attempts).toHaveLength(28);
-    expect(report.attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(8);
-    expect(report.attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(20);
+    // FIFTEEN surfaces, each attempted in both directions (F-293) — eight shapes on
+    // `rls_fixture_rows` and seven on `tenants`, which declines `reparentAll`. Reads and
+    // writes are both exercised: AC-94 covers the reads and AC-95 the writes, and a
+    // battery that had lost all of one kind would still satisfy the count above.
+    expect(judged().attempts).toHaveLength(30);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(8);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(22);
 
-    // F-302. Four of those twenty writes carry NO WHERE CLAUSE — `updateAll` and
-    // `deleteAll` per table, per direction. Hand-derived, because a battery that
-    // silently lost them is a battery that cannot see a wide-open UPDATE policy, and
-    // the counts above would not move if `updateAll` were quietly replaced by a second
-    // owner-qualified statement.
+    // F-302, F-330. Ten of those twenty-two writes carry NO WHERE CLAUSE. Hand-derived,
+    // because a battery that silently lost them is a battery that cannot see a wide-open
+    // UPDATE policy, and the counts above would not move if `updateAll` were quietly
+    // replaced by a second owner-qualified statement.
     expect(
       labelled(
-        report.attempts.filter(
+        judged().attempts.filter(
           (outcome) => outcome.kind === 'write' && outcome.qualification === 'unqualified',
         ),
       ),
     ).toEqual([
       'A->B deleteAll',
       'A->B deleteAll',
+      'A->B reparentAll',
       'A->B updateAll',
       'A->B updateAll',
       'B->A deleteAll',
       'B->A deleteAll',
+      'B->A reparentAll',
       'B->A updateAll',
       'B->A updateAll',
+    ]);
+
+    // F-330. `tenants` declines the owner-column write, and the artifact says so with the
+    // reason — so a table that never had the strongest shape in the battery cannot be
+    // confused with one that quietly lost it.
+    expect(judged().declinedShapes).toEqual([
+      {
+        table: 'tenants',
+        shape: 'reparentAll',
+        because: TENANTS_DECLINES_REPARENT,
+      },
     ]);
   });
 
@@ -259,8 +364,8 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // `method.attempt(fixtures.tenantA, fixtures.tenantB)`, so the actor was always A
     // and a policy that leaks only to B was never attempted. Both lists are the same
     // ten ids, which is what "both directions" means.
-    const forward = report.attempts.filter((outcome) => outcome.direction === 'A->B');
-    const reverse = report.attempts.filter((outcome) => outcome.direction === 'B->A');
+    const forward = judged().attempts.filter((outcome) => outcome.direction === 'A->B');
+    const reverse = judged().attempts.filter((outcome) => outcome.direction === 'B->A');
 
     expect(forward.map((outcome) => outcome.id).sort()).toEqual([...EXPECTED_SURFACE_IDS]);
     expect(reverse.map((outcome) => outcome.id).sort()).toEqual([...EXPECTED_SURFACE_IDS]);
@@ -292,19 +397,43 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // identical string `error [42501]` — the string report.json carried for two
     // attempts. A refusal that cannot be told apart from a permission error is not
     // evidence of anything.
-    const refused = report.attempts.filter((outcome) => outcome.refusedWith !== undefined);
+    const refused = judged().attempts.filter((outcome) => outcome.refusedWith !== undefined);
 
+    // ---------------------------------------------------------------------------
+    // THE INVARIANT FIRST, THEN THE ROSTER. Both are here on purpose (F-330).
+    // ---------------------------------------------------------------------------
+    //
+    // The roster below is a literal enumeration, and the re-audit caught it doing
+    // something it was never designed for: under `tenants_self_update USING (true)` it
+    // was THE ONLY THING that turned the run red, because `updateAll` joined the list.
+    // Not one attempt had been judged a leak. An accidental tripwire whose message —
+    // `expected [...(5)] to deeply equal [...(3)]` — named no boundary crossing at all,
+    // and which any future registration with a refused write would be extended past.
+    //
+    // So the invariant is asserted first and derived from the outcomes, not listed: a
+    // refusal may only be scored a pass on an OWNER-QUALIFIED write. On an unqualified
+    // one it proves the WITH CHECK clause held and says nothing about the USING clause,
+    // which is the half that decides which existing rows the statement could reach.
+    for (const outcome of judged().attempts.filter(
+      (o) => o.outcome === 'pass' && o.refusedWith !== undefined,
+    )) {
+      expect(outcome.qualification).toBe('owner-qualified');
+      expect(outcome.refusalKind).toBe('row-level-security');
+      expect(outcome.refusedWith).toMatch(/violates row-level security policy/);
+    }
+
+    // AND THE ROSTER, KEPT DELIBERATELY AS A TRIPWIRE. It is a hand-written list of every
+    // attempt this run expects the database to refuse at all, and its value is that a
+    // statement shape which starts being refused — for any reason, in any direction —
+    // cannot slip in unnoticed. Extending it is the correct response to adding a
+    // registration; extending it WITHOUT understanding why the new entry is refused is
+    // the mistake, and the invariant above is what catches that.
     expect(labelled(refused)).toEqual([
       'A->B insertOwnedBy',
       'A->B insertOwnedBy',
       'B->A insertOwnedBy',
       'B->A insertOwnedBy',
     ]);
-
-    for (const outcome of refused) {
-      expect(outcome.refusalKind).toBe('row-level-security');
-      expect(outcome.refusedWith).toMatch(/violates row-level security policy/);
-    }
   });
 
   it('F-296: the registry and the database agree on which tables carry a tenant boundary', () => {
@@ -315,7 +444,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       inDatabaseNotRegistered: [],
       registeredNotInDatabase: [],
     });
-    expect(report.registryDrift).toEqual({
+    expect(judged().registryDrift).toEqual({
       inDatabaseNotRegistered: [],
       registeredNotInDatabase: [],
     });
@@ -358,7 +487,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // the run on a write, and an attempt reported `unverified` here would mean the
     // control had stopped being a leak.
     expect(control.attempts.filter((outcome) => outcome.outcome !== 'fail')).toEqual([]);
-    expect(control.attempts).toHaveLength(14);
+    expect(control.attempts).toHaveLength(16);
     expect(control.verdict).toBe('fail');
 
     // ...and each one says WHOSE row leaked, which is what makes a real red run
@@ -366,8 +495,8 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     const forward = control.attempts.filter((outcome) => outcome.direction === 'A->B');
     const reverse = control.attempts.filter((outcome) => outcome.direction === 'B->A');
 
-    expect(forward).toHaveLength(7);
-    expect(reverse).toHaveLength(7);
+    expect(forward).toHaveLength(8);
+    expect(reverse).toHaveLength(8);
 
     for (const outcome of forward) {
       expect(outcome.leaks.join(' ')).toContain(fixtures.tenantB.id);
@@ -391,7 +520,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     expect(labelled(control.attempts.filter((outcome) => outcome.outcome !== 'pass'))).toEqual([
       'B->A insertOwnedBy',
     ]);
-    expect(control.attempts).toHaveLength(14);
+    expect(control.attempts).toHaveLength(16);
 
     const [leaked] = control.attempts.filter((outcome) => outcome.outcome === 'fail');
 
@@ -411,7 +540,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     const control = await runCrossTenantAttempts([baselineLeakCanaryAccess], fixtures);
 
     expect(control.attempts.filter((outcome) => outcome.outcome === 'pass')).toEqual([]);
-    expect(control.attempts).toHaveLength(14);
+    expect(control.attempts).toHaveLength(16);
 
     // Every attempt on the table carries the census evidence, naming the tenant that
     // could see a row it does not own.
@@ -435,15 +564,17 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       'A->B deleteAll',
       'A->B deleteOwnedBy',
       'A->B insertOwnedBy',
+      'A->B reparentAll',
       'A->B updateAll',
       'A->B updateOwnedBy',
       'B->A deleteAll',
       'B->A deleteOwnedBy',
       'B->A insertOwnedBy',
+      'B->A reparentAll',
       'B->A updateAll',
       'B->A updateOwnedBy',
     ]);
-    expect(control.attempts).toHaveLength(14);
+    expect(control.attempts).toHaveLength(16);
 
     // The reads are granted and the policies are the production ones, so those four
     // are real passes — which is what makes the six above a statement about the
@@ -477,7 +608,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     const masked = control.attempts.filter((outcome) => outcome.outcome === 'unverified');
 
     expect(labelled(masked)).toEqual(['A->B insertOwnedBy', 'B->A insertOwnedBy']);
-    expect(control.attempts).toHaveLength(14);
+    expect(control.attempts).toHaveLength(16);
 
     for (const outcome of masked) {
       expect(outcome.refusalKind).toBe('unrecognised');
@@ -502,8 +633,10 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // tenant whose rows a statement with no WHERE clause reached.
     expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'fail'))).toEqual([
       'A->B deleteAll',
+      'A->B reparentAll',
       'A->B updateAll',
       'B->A deleteAll',
+      'B->A reparentAll',
       'B->A updateAll',
     ]);
 
@@ -542,11 +675,11 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'pass'))).toEqual([
       'A->B insertOwnedBy',
     ]);
-    expect(control.attempts).toHaveLength(14);
+    expect(control.attempts).toHaveLength(16);
 
     const unverified = control.attempts.filter((outcome) => outcome.outcome === 'unverified');
 
-    expect(unverified).toHaveLength(13);
+    expect(unverified).toHaveLength(15);
     expect(unverified.filter((outcome) => outcome.unverifiedBecause === undefined)).toEqual([]);
 
     // The row counts that make "denied" and "found nothing" different answers, in the
@@ -579,11 +712,13 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // ownership census is clean for the same reason.
     expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'fail'))).toEqual([
       'A->B deleteAll',
+      'A->B reparentAll',
       'A->B updateAll',
       'B->A deleteAll',
+      'B->A reparentAll',
       'B->A updateAll',
     ]);
-    expect(control.attempts).toHaveLength(14);
+    expect(control.attempts).toHaveLength(16);
     expect(control.attempts.filter((outcome) => outcome.outcome === 'unverified')).toEqual([]);
 
     // Each failure names what leaked and to whom: the row count the statement itself
@@ -598,7 +733,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     expect(control.verdict).toBe('fail');
   }, 180_000);
 
-  it('F-303: a tenant-scoped table whose owner column is not called tenant_id is named, rather than silently uncovered', async () => {
+  it('F-303/F-333: a tenant-scoped table whose owner column is not called tenant_id is named whether or not it is protected', async () => {
     // `tenantScopedTableDrift()` enumerated on the LITERAL column name `tenant_id`, so
     // the one mechanism F-296 added to catch an unregistered table could not see a table
     // that spells its owner column any other way — which ADR-0019 records as an accepted
@@ -609,32 +744,126 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // `USING (true)`, returned tenant B's `actor_email` inside tenant A's transaction
     // while the suite was 15 passed, `registryDrift` was empty in both directions and
     // `db:check-policies` reported "OK: 2 table(s) in schema public, all protected".
-    createUnregisteredOwnerColumnProbe();
+    // F-333. ALL THREE STATES OF PROTECTION, because r3 measured that arms 3 and 4 are
+    // properties of a table being PROTECTED and the UNPROTECTED shape is the worst one.
+    // Before arm 5 (a foreign key to `tenants`), only the third of these was named; the
+    // other two were caught solely by `db:check-policies`, which is a different gate, so
+    // this check was neither second nor independent for them.
+    for (const protection of OWNER_COLUMN_PROBE_PROTECTIONS) {
+      createUnregisteredOwnerColumnProbe(protection);
+    }
 
     try {
       expect(tenantScopedTableDrift()).toEqual({
-        inDatabaseNotRegistered: [UNREGISTERED_OWNER_COLUMN_PROBE],
+        inDatabaseNotRegistered: [...OWNER_COLUMN_PROBE_PROTECTIONS]
+          .map(ownerColumnProbeTable)
+          .sort(),
         registeredNotInDatabase: [],
       });
 
-      // ...and it really does leak, so the drift check is the only thing between this
-      // table and a green run. Read through the production path as `shortkit_app`, in
-      // tenant A's transaction: a correct policy answers zero rows here.
-      const seenByTenantA = await withTenantTransaction(
-        fixtures.tenantA.id,
-        async (db): Promise<{ owning_tenant: string }[]> => {
-          const result = await db.execute<{ owning_tenant: string }>(
-            sql`select owning_tenant from ${sql.identifier(UNREGISTERED_OWNER_COLUMN_PROBE)}`,
-          );
+      // ...and every one of them really does leak, so the drift check is the only thing
+      // between these tables and a green run: nothing attempts anything against a table
+      // nobody registered. Read through the production path as `shortkit_app` inside
+      // tenant A's transaction — a correct policy answers zero rows here.
+      for (const protection of OWNER_COLUMN_PROBE_PROTECTIONS) {
+        const table = ownerColumnProbeTable(protection);
+        const seenByTenantA = await withTenantTransaction(
+          fixtures.tenantA.id,
+          async (db): Promise<{ owning_tenant: string }[]> => {
+            const result = await db.execute<{ owning_tenant: string }>(
+              sql`select owning_tenant from ${sql.identifier(table)}`,
+            );
 
-          return [...result.rows];
-        },
-      );
+            return [...result.rows];
+          },
+        );
 
-      expect(seenByTenantA.map((row) => row.owning_tenant)).toEqual([fixtures.tenantB.id]);
+        expect({ table, owners: seenByTenantA.map((row) => row.owning_tenant) }).toEqual({
+          table,
+          owners: [fixtures.tenantB.id],
+        });
+      }
     } finally {
-      dropUnregisteredOwnerColumnProbe();
+      dropUnregisteredOwnerColumnProbes();
     }
+  }, 180_000);
+
+  it('F-330: a widened USING with a correct WITH CHECK is reported as failing, and its refusal is not a pass', async () => {
+    // THE SIBLING OF F-302, AND THE WORSE HALF. `isolation_owner_theft_canary` is
+    // `isolation_unqualified_write_canary` with three characters changed: the UPDATE
+    // policy's WITH CHECK is tightened back to what `tenantScopedPolicies()` actually
+    // emits, leaving only the USING widened. One token from the production builder.
+    //
+    // MEASURED BEFORE THIS ROUND, on the migrated production table:
+    //   ALTER POLICY tenants_self_update ON tenants USING (true);   -- WITH CHECK correct
+    //   -> pass A->B updateAll (affected 0) — refused: error [42501]
+    //   -> pass B->A updateAll (affected 0) — refused: error [42501]
+    //   -> report.json: verdict=pass, failed=[], unverified=[], 28 attempts
+    // Every attempt green over a policy admitting every row of every tenant. The count
+    // rule never fired because no row count was ever reported, and the digest never
+    // fired because nothing the harness issued changed anything.
+    const control = await runCrossTenantAttempts([ownerTheftCanaryAccess], fixtures);
+
+    // MECHANISM 1. The refusal proves the WITH CHECK held and says nothing about the
+    // USING clause — which is the half deciding which existing rows the statement could
+    // reach. `unverified`, not `pass`.
+    const refusedUnqualified = control.attempts.filter(
+      (outcome) => outcome.outcome === 'unverified',
+    );
+
+    expect(labelled(refusedUnqualified)).toEqual(['A->B updateAll', 'B->A updateAll']);
+
+    for (const outcome of refusedUnqualified) {
+      expect(outcome.refusalKind).toBe('row-level-security');
+      expect(outcome.unverifiedBecause).toContain('proves the WITH CHECK clause held');
+    }
+
+    // MECHANISM 2. The statement that assigns the owner column. The WITH CHECK admits it
+    // precisely BECAUSE the resulting row belongs to the actor, which is what lets it
+    // through the clause that refuses every other write — and it is theft rather than
+    // vandalism: the target's row is not damaged, it changes hands.
+    expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'fail'))).toEqual([
+      'A->B reparentAll',
+      'B->A reparentAll',
+    ]);
+
+    for (const outcome of control.attempts.filter((o) => o.outcome === 'fail')) {
+      expect(outcome.leaks.join(' ')).toContain(outcome.target ?? '');
+      expect(outcome.leaks.join(' ')).toContain('2 row(s) affected');
+    }
+
+    // Twelve of the sixteen still pass, and that is the finding rather than an aside:
+    // every other shape in the battery reads this table as isolated.
+    expect(control.attempts).toHaveLength(16);
+    expect(control.attempts.filter((outcome) => outcome.outcome === 'pass')).toHaveLength(12);
+    expect(control.verdict).toBe('fail');
+  }, 180_000);
+
+  it('F-331: report.json carries no verdict while the tests that could disprove it are still running', async () => {
+    // MEASURED, in the same run that reproduced F-330: `Tests 1 failed | 17 passed (18)`,
+    // EXIT=1, and `report.json` read `verdict=pass attempts=28 failed=[]` FOR THAT RUN —
+    // not a stale one. `writeIsolationReport()` was the last statement in `beforeAll`,
+    // and eleven of this file's tests run after it, including `assertNoTenantIdAltered()`
+    // — whose failure is BY CONSTRUCTION something no attempt judged.
+    //
+    // So while this test is executing, the artifact must carry the attempts and NO
+    // verdict. The break this catches: the final write moved back into `beforeAll`.
+    const inFlight = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
+
+    expect(inFlight.verdict).toBe('incomplete');
+    expect(inFlight.suiteOutcome).toBe('incomplete');
+
+    // ...and it is not an empty marker: the attempts are this run's and were judged, so a
+    // process killed here strands the evidence without stranding a verdict.
+    expect(inFlight.attempts).toHaveLength(30);
+    expect(inFlight.attemptVerdict).toBe('pass');
+    expect(inFlight.incompleteBecause).toContain('had not finished');
+
+    // The conjunction is only computed in `afterAll`, so no assertion in this file can
+    // observe the final write. What CAN be asserted here is that the attempt judgement
+    // alone is not enough to publish a pass — `assertNoTenantIdAltered()` runs after this
+    // test and is exactly the check that would contradict it.
+    await expect(assertNoTenantIdAltered()).resolves.toBeUndefined();
   }, 180_000);
 
   it('F-304: report.json says `incomplete` from the moment a run starts, so a run that dies leaves no stale pass', () => {
@@ -646,28 +875,27 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // harness has was precisely the one that stranded a green artifact, and F-297 is
     // about to start uploading that artifact from CI.
     //
-    // The break this catches: `beginIsolationReport()` removed from `beforeAll`, or
-    // moved below anything that can throw. Both put a stale `pass` back on disk.
-    const inFlight = JSON.parse(reportOnDiskWhileTheRunWasInFlight) as IsolationReport;
+    // The break this catches: `beginIsolationReport()` removed from module scope, or
+    // moved back below anything that can throw. Both put a stale `pass` back on disk.
+    const marker = JSON.parse(reportOnDiskWhileTheRunWasInFlight) as IsolationReport;
 
-    expect(inFlight.verdict).toBe('incomplete');
-    expect(inFlight.incompleteBecause).toContain('NOTHING HERE IS EVIDENCE OF ISOLATION');
-    expect(inFlight.attempts).toEqual([]);
+    expect(marker.verdict).toBe('incomplete');
+    expect(marker.incompleteBecause).toContain('NOTHING HERE IS EVIDENCE OF ISOLATION');
+    expect(marker.attempts).toEqual([]);
+    expect(marker.failed).toEqual([]);
 
-    // ...and the completed run overwrote it, which is the other half: an artifact
-    // permanently stuck at `incomplete` would satisfy the assertion above and tell CI
-    // nothing.
+    // ...and the run moved past it, which is the other half: an artifact permanently
+    // stuck at the empty marker would satisfy every assertion above and tell CI nothing.
+    // The file now on disk is THIS run's attempts, written after they were judged.
     //
-    // Deliberately NOT asserted as `pass` here. Whether this run passed is what the
-    // AC-12 test above decides; coupling that verdict into this one would make the
-    // F-304 assertion fail on every genuine leak, which is precisely when a reader most
-    // needs to know the artifact is this run's and not the last one's.
-    const finished = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
+    // The final verdict is deliberately NOT read here. It is published in `afterAll`,
+    // after this test has finished, for the reason F-331 gives — and no assertion inside
+    // a suite can observe its own suite's last write. That step is measured externally
+    // and recorded in the round's report.
+    const afterTheAttempts = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
 
-    expect(finished.verdict).not.toBe('incomplete');
-    expect(finished.incompleteBecause).toBeUndefined();
-    expect(finished.attempts).toHaveLength(28);
-    expect(finished.runAt).not.toBe(inFlight.runAt);
+    expect(afterTheAttempts.attempts).toHaveLength(30);
+    expect(afterTheAttempts.runAt).not.toBe(marker.runAt);
   });
 
   it('AC-12: no row changed tenant across the run (AC-95)', async () => {

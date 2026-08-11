@@ -27,14 +27,19 @@
  * pulled forward: it needs no `tenantScopedTables()` artifact, and TASK-053 and TASK-056
  * are both deferred.
  *
- * IT ASKS FOUR INDEPENDENT QUESTIONS, NOT ONE, AND THE FIRST VERSION ASKED ONLY ONE.
+ * IT ASKS FIVE INDEPENDENT QUESTIONS, NOT ONE, AND THE FIRST VERSION ASKED ONLY ONE.
  * r1 matched on the literal column name `tenant_id` — the assumption ADR-0019 itself
  * files under "accepted cost" — and r2 measured what that misses: a table whose owner
  * column is called `owning_tenant`, force-RLS'd with a `USING (true)` policy, leaking
  * every row to every tenant, invisible to the drift check, named in no artifact, and
- * called protected by `db:check-policies`. The four arms are at
- * `tenantScopedTableDrift()` below. Module-graph discovery of routes and repositories
- * remains TASK-056's, and nothing here pretends otherwise.
+ * called protected by `db:check-policies`. r3 measured that arms 3 and 4 are properties
+ * of a table being PROTECTED, so the UNPROTECTED shape of the same table was still
+ * invisible — caught then only by `db:check-policies`, which is a different gate, which
+ * is not what "second, independent enumeration" means. Arm 5 is a foreign key to
+ * `tenants(id)` and depends on neither protection nor a column name. The five arms, and
+ * the shape that still escapes all of them, are at `tenantScopedTableDrift()` below.
+ * Module-graph discovery of routes and repositories remains TASK-056's, and nothing here
+ * pretends otherwise.
  *
  * ===========================================================================
  * WHAT THIS HARNESS COVERS TODAY, AND WHAT A PASSING RUN THEREFORE PROVES
@@ -56,18 +61,31 @@
  *
  * SO A GREEN RUN OF `cross-tenant-isolation.int-spec.ts` SAYS EXACTLY THIS: for the two
  * tables that exist, a tenant transaction belonging to A cannot read, update, delete or
- * plant a row belonging to B, through any of the SEVEN statement shapes below — five
- * that name the owning tenant in a WHERE clause and TWO THAT NAME NOTHING AT ALL — and
- * no such attempt moved, removed or overwrote a row belonging to another tenant.
+ * plant a row belonging to B, OR TAKE OWNERSHIP OF ONE, through any of the EIGHT
+ * statement shapes below — five that name the owning tenant in a WHERE clause and THREE
+ * THAT NAME NOTHING AT ALL — and no such attempt moved, removed or overwrote a row
+ * belonging to another tenant.
  *
- * THE LAST TWO ARE r2's BLOCKER (F-302) AND THEY ARE NOT A DETAIL. Every write the
- * harness attempted until then was qualified by the owner column, so PostgreSQL routed
- * it through the SELECT policy — the rule `test/support/rls-fixture.ts:175-188` already
- * had measured and written down — and reported zero rows however wide open the UPDATE or
- * DELETE policy was. Measured on the migrated production table: `tenants_self_update`
- * altered to `USING (true) WITH CHECK (true)`, then `UPDATE tenants SET name = 'x'` with
- * no WHERE, in an ordinary tenant-A transaction, reported UPDATE 2 and destroyed tenant
- * B's row — while this suite reported 15 passed, exit 0, and `db:check-policies` OK.
+ * THE LAST THREE ARE THE BLOCKERS OF TWO CONSECUTIVE ROUNDS, AND THEY ARE NOT A DETAIL.
+ *
+ * `updateAll` and `deleteAll` are r2's (F-302). Every write the harness attempted until
+ * then was qualified by the owner column, so PostgreSQL routed it through the SELECT
+ * policy — the rule `test/support/rls-fixture.ts:175-188` already had measured and
+ * written down — and reported zero rows however wide open the UPDATE or DELETE policy
+ * was. Measured on the migrated production table: `tenants_self_update` altered to
+ * `USING (true) WITH CHECK (true)`, then `UPDATE tenants SET name = 'x'` with no WHERE,
+ * in an ordinary tenant-A transaction, reported UPDATE 2 and destroyed tenant B's row —
+ * while this suite reported 15 passed, exit 0, and `db:check-policies` OK.
+ *
+ * `reparentAll` is r3's (F-330), and it is the worse half. Tighten that WITH CHECK back
+ * to the predicate the production builder actually emits — leaving only the USING
+ * widened — and the statement above is REFUSED with 42501, which the harness scored as a
+ * denial. Measured: every attempt green, `verdict: pass`, over a policy admitting every
+ * row of every tenant. A refusal proves the WITH CHECK held and says NOTHING about the
+ * USING clause, and no shape in this harness had ever written the owner column — which
+ * is the statement that defect permits. `UPDATE <t> SET tenant_id = <actor>` reports
+ * UPDATE 2 and leaves tenant B's row belonging to tenant A. Theft rather than vandalism,
+ * and every mechanism r2 added was blind to it.
  *
  * IT DOES NOT SAY that the system
  * has no cross-tenant surface — most of the system is not written. Ruled 2026-08-06:
@@ -247,6 +265,17 @@ export interface TenantScopedSurfaceRegistration {
    */
   readonly reset: () => void | Promise<void>;
   readonly methods: readonly TenantScopedMethod[];
+  /**
+   * F-330. Statement shapes this table cannot express, and why. `tenants` is the case
+   * that forced it: its owner column IS its primary key, so the owner-column-writing
+   * attempt collides on the index before any policy is consulted.
+   *
+   * Declared rather than omitted, and carried into `report.json`, because "this table
+   * never had that attempt" and "this table quietly lost that attempt" have to look
+   * different to a reader. Every round of this TASK's audit has turned on that
+   * distinction.
+   */
+  readonly declinedShapes?: ReadonlyArray<{ shape: string; because: string }>;
 }
 
 export type AttemptDirection = 'A->B' | 'B->A';
@@ -312,8 +341,48 @@ export interface AttemptOutcome {
  *
  * SEQUENCING, NAMED BY THE AUDITOR: this lands BEFORE F-297's CI upload. Upload the
  * artifact first and CI starts publishing a stale pass as evidence.
+ *
+ * ============================================================================
+ * F-331. AND THE OTHER HALF: THE WINDOW *AFTER* THE WRITE WAS OPEN TOO.
+ * ============================================================================
+ *
+ * F-304 closed "a stale pass from a previous run". It left "a confident pass from THIS
+ * run that this run then disproved". `writeIsolationReport()` was the last statement in
+ * `beforeAll`, and ELEVEN OF THE EIGHTEEN TESTS RUN AFTER IT — the protection-count
+ * assertions, all seven control runs, both drift probes, the refusal roster, and
+ * `assertNoTenantIdAltered()`. None of them could reach the artifact.
+ *
+ * MEASURED, in the same run that reproduced F-330: `Tests 1 failed | 17 passed (18)`,
+ * EXIT=1, and `report.json` read `verdict=pass attempts=28 failed=[]` FOR THAT RUN. The
+ * suite is strictly stronger than its own report, because `verdict` was computed from
+ * the attempt judgements alone. The most alarming case is `assertNoTenantIdAltered()`
+ * failing — a row changed tenant across the run — which is BY CONSTRUCTION something no
+ * attempt judged.
+ *
+ * So the artifact is now written TWICE AND ONLY TWICE, and neither write can produce a
+ * `pass` that the suite goes on to contradict:
+ *
+ *   1. at module scope, before anything            -> verdict `incomplete`, no attempts
+ *   2. at the end of `beforeAll`, after the run    -> verdict STILL `incomplete`, and
+ *                                                     the attempts, so a process killed
+ *                                                     mid-suite strands the data without
+ *                                                     stranding a verdict
+ *   3. in `afterAll`, which vitest runs after every test in the file and ALSO runs when
+ *      `beforeAll` threw (measured)                -> the final verdict, which is the
+ *                                                     CONJUNCTION of the attempt
+ *                                                     judgement and what the runner
+ *                                                     observed of this file's tests
+ *
+ * THE BOUND, STATED RATHER THAN OVERCLAIMED. `verdict: 'pass'` on disk implies every
+ * attempt passed AND every test in THIS FILE passed. It cannot imply the process exited
+ * 0: a failure in another spec file exits the process non-zero and is invisible from
+ * here. `suiteOutcome` carries the half this file can observe, so an uploader that wants
+ * the stronger property keys on the job's exit code as well.
  */
 export type IsolationVerdict = 'pass' | 'fail' | 'incomplete';
+
+/** F-331. What the test runner observed of this file's own tests. */
+export type SuiteOutcome = 'pass' | 'fail' | 'incomplete';
 
 export interface IsolationReport {
   runAt: string;
@@ -347,8 +416,31 @@ export interface IsolationReport {
   noTenantTransactionRoutes: ReadonlyArray<{ id: SurfaceId; justification: string }>;
   /** Covered by named integration tests rather than by enumeration. */
   unenumerable: ReadonlyArray<{ id: string; reason: string; coveredBy: string }>;
+  /**
+   * F-330. Statement shapes a registration declined, and why. A table that silently
+   * lost the strongest attempt in the battery would otherwise be indistinguishable from
+   * one that never had it — which is the accounting failure this file keeps repeating.
+   */
+  declinedShapes?: ReadonlyArray<{ table: string; shape: string; because: string }>;
   /** Stated in the artifact itself, so a reader of report.json sees the boundary. */
   coverageBoundary: string;
+  /**
+   * F-331. THE JUDGEMENT OVER THE ATTEMPTS ALONE — what `verdict` used to mean, and
+   * what the control runs in the suite assert against. Kept as its own field so that
+   * `verdict` can be the stronger, conjoined answer without losing this one.
+   */
+  attemptVerdict?: 'pass' | 'fail';
+  /**
+   * F-331. What the runner observed of this file's tests. `incomplete` until `afterAll`
+   * has run, which is also what a killed process leaves behind.
+   */
+  suiteOutcome?: SuiteOutcome;
+  /**
+   * F-331. In `report.json` this is the CONJUNCTION of `attemptVerdict` and
+   * `suiteOutcome`: `pass` only when both are. On the in-memory report that
+   * `runCrossTenantAttempts()` returns it is the attempt judgement alone, because that
+   * is the question a control run is asking.
+   */
   verdict: IsolationVerdict;
   /** F-304. Present iff the verdict is `incomplete`: what the artifact is not saying. */
   incompleteBecause?: string;
@@ -403,31 +495,45 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-006, wave 2, revised r2. Covers the two tables that carry a tenant boundary ' +
+  'TASK-006, wave 2, revised r3. Covers the two tables that carry a tenant boundary ' +
   'today: `tenants` (the migrated table, four bespoke policies) and `rls_fixture_rows` ' +
   '(a FIXTURE TABLE this suite creates and drops per run, built from the production ' +
   'tenantScopedPolicies()). No routes and no repositories are enumerated, because none ' +
   'exist — route and repository discovery is TASK-056. ' +
   'HOW THE COVERED SET IS BOUNDED: it is the registry in registrations.ts, and the ' +
   'registry is cross-checked against the database on every run. A relation in schema ' +
-  'public must be registered if ANY of four independent properties holds — it is ' +
+  'public must be registered if ANY of FIVE independent properties holds — it is ' +
   '`tenants`; it carries a column named tenant_id; row-level security is enabled AND ' +
-  'forced on it; or one of its policies reads app.tenant_id — and a difference in ' +
-  'either direction fails the run and names the table (ADR-0019, SQL half). The last ' +
-  'two arms are F-303: enumerating on the literal column name alone made a table whose ' +
-  'owner column is spelled any other way invisible to the check, measured. ' +
+  'forced on it; one of its policies reads app.tenant_id; or it declares a FOREIGN KEY ' +
+  'to tenants(id) — and a difference in either direction fails the run and names the ' +
+  'table (ADR-0019, SQL half). Arms 3 and 4 are F-303: enumerating on the literal ' +
+  'column name alone made a table whose owner column is spelled any other way invisible ' +
+  'to the check, measured. Arm 5 is F-333: arms 3 and 4 are properties of a table being ' +
+  'PROTECTED, so the UNPROTECTED shape of that same table was invisible to all four and ' +
+  'was caught only by db:check-policies, which is a different gate. WHAT STILL ESCAPES ' +
+  'ALL FIVE: a table that is not `tenants`, spells its owner column something other ' +
+  'than tenant_id, declares no foreign key to tenants, carries no policy reading ' +
+  'app.tenant_id, and is not force-RLS\'d — three simultaneous departures from ' +
+  'ADR-0019\'s stated convention. ' +
   'WHAT A PASS MEANS: every registered method was attempted in BOTH directions, each ' +
   'acting tenant was shown to see its own row first, every refusal scored as a pass ' +
   'was a row-level security refusal recorded with its SQLSTATE and message, and no ' +
   'tenant could see a row it does not own before or after any attempt. An attempt that ' +
   'proved nothing is reported `unverified` and fails the run. ' +
-  'SEVEN STATEMENT SHAPES PER TABLE SINCE r2, and two of them carry NO WHERE CLAUSE ' +
+  'EIGHT STATEMENT SHAPES PER TABLE SINCE r3, and THREE of them carry NO WHERE CLAUSE ' +
   '(F-302): an owner-qualified write is routed through the SELECT policy by PostgreSQL ' +
   'and reports zero rows however wide open the UPDATE or DELETE policy is, so an ' +
   'unqualified write is the only shape that can see that class of defect. It is judged ' +
   'on the row count the statement itself reported, against the number of its own rows ' +
   'the acting tenant was shown to see, and separately on a per-row digest of every row ' +
   'the actor does not own — because an overwrite preserves ownership. ' +
+  'ONE OF THE THREE ASSIGNS THE OWNER COLUMN (F-330), because widening a policy\'s USING ' +
+  'while leaving its WITH CHECK correct — one token from the production builder — makes ' +
+  'every other shape report a pass: the unqualified write is REFUSED by the WITH CHECK, ' +
+  'which proves that clause held and nothing about the USING clause. Such a refusal is ' +
+  'scored `unverified`, never `pass`. A table whose owner column cannot be written — ' +
+  '`tenants`, whose owner column is its primary key — DECLINES that shape by name, with ' +
+  'the reason recorded in `declinedShapes` in this artifact. ' +
   'It does not mean the system has no uncovered cross-tenant surface: most of the ' +
   'system is unwritten, and the module-graph enumeration, the four grep clauses and ' +
   'the pg_policies shape assertion are TASK-056\'s.';
@@ -531,12 +637,39 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
  *      Catches a table protected by a tenant policy that arm 3 would miss because FORCE
  *      was forgotten — which is a leak in its own right and one this arm names.
  *
+ * ARM 5, ADDED FOR F-333, IS THE ONE THAT DOES NOT DEPEND ON PROTECTION OR ON A NAME.
+ * Arms 3 and 4 are properties of a table being PROTECTED, so the re-audit measured what
+ * they cannot see: three probes, each with owner column `owning_tenant` and each leaking
+ * `bob@tenant-b.example` to tenant A —
+ *
+ *   wave3_audit_norls    no RLS at all                    -> arms 1-4: NOT NAMED
+ *   wave3_audit_noforce  ENABLE, no FORCE, USING (true)   -> arms 1-4: NOT NAMED
+ *   wave3_audit_forced   ENABLE + FORCE, USING (true)     -> arms 1-4: named, by arm 3
+ *
+ * The unprotected shape is the WORST one, and it was invisible to every arm except the
+ * literal column name F-303 was filed against. `db:check-policies` did catch the other
+ * two and `ci.yml` runs it first, so the composite gate held — but that made this check
+ * neither second nor independent for that shape, which is what its own header claimed.
+ *
+ * 5. a FOREIGN KEY to `tenants(id)`. That is the property every tenant-scoped table in
+ *    this schema actually has: `TENANT_ID_COLUMN_SQL` in `src/db/rls.ts` declares
+ *    `REFERENCES tenants(id) ON DELETE CASCADE`, ADR-0019 requires it of every schema
+ *    TASK, and AC-90's residue check depends on it. It holds whatever the column is
+ *    called and whether or not anyone remembered to protect the table.
+ *
+ * WHAT STILL ESCAPES ALL FIVE, STATED SO THE CLAIM IS NOT READ AS STRONGER THAN IT IS:
+ * a table that is not `tenants`, spells its owner column something other than
+ * `tenant_id`, declares NO foreign key to `tenants`, carries no policy reading
+ * `app.tenant_id`, and is not force-RLS'd. That table violates ADR-0019's stated
+ * convention in three independent ways at once, and nothing here would name it.
+ *
  * ACCEPTED COST, STATED. Arms 3 and 4 are properties of protection rather than of
  * tenancy, so a table force-RLS'd for some other reason — a future audit log locked to
- * one role, say — would be reported as drift. That fails CLOSED: the run goes red and
- * names the table, and the remedy is a registration or a justified entry in a closed
- * list, both of which are one-line diffs a reviewer sees. The alternative failed OPEN,
- * and this file has now measured that twice.
+ * one role, say — would be reported as drift, and so would a table with a foreign key to
+ * `tenants` that carries no tenant's data. That fails CLOSED: the run goes red and names
+ * the table, and the remedy is a registration or a justified entry in a closed list,
+ * both of which are one-line diffs a reviewer sees. The alternative failed OPEN, and
+ * this file has now measured that twice.
  */
 export function tenantScopedTableDrift(
   registrations: readonly TenantScopedSurfaceRegistration[] = registeredSubjects(),
@@ -570,6 +703,14 @@ export function tenantScopedTableDrift(
                            and p.tablename = c.relname
                            and (coalesce(p.qual, '') like '%app.tenant_id%'
                                 or coalesce(p.with_check, '') like '%app.tenant_id%'))
+             -- 5. F-333: a foreign key to tenants(id). Independent of protection AND of
+             --    the column's name — the only arm that sees an UNPROTECTED table whose
+             --    owner column is not called tenant_id, which is the worst shape.
+             or exists (select 1
+                          from pg_constraint fk
+                         where fk.conrelid = c.oid
+                           and fk.contype = 'f'
+                           and fk.confrelid = 'public.tenants'::regclass)
             )`,
   ).map((row) => row.table_name);
 
@@ -923,7 +1064,7 @@ function classifyRefusal(error: unknown): Refusal {
 /**
  * F-295. THE PREMISE AN ATTEMPT NEEDS BEFORE ITS ANSWER MEANS ANYTHING.
  *
- * Four of the five statement shapes return zero rows when the target owns no row,
+ * Most of the statement shapes return zero rows when the target owns no row,
  * whatever the policy says, and every one of them returns zero rows if the tenant
  * context never reached the database. Both are indistinguishable from a denial unless
  * the harness establishes, through the tenants' own transactions, that there was
@@ -1025,18 +1166,60 @@ async function attempt(
     result = await method.attempt(actor, target);
   } catch (error) {
     const refusal = classifyRefusal(error);
+    // ========================================================================
+    // WHAT A REFUSAL IS EVIDENCE OF, AND F-330: IT DEPENDS ON THE STATEMENT.
+    // ========================================================================
+    //
     // RLS NEVER REFUSES A SELECT — it returns zero rows. A read that threw did not run,
-    // so whatever it proves, it is not that a policy denied it.
-    const refusalProvesDenial = method.kind === 'write' && refusal.kind === 'row-level-security';
+    // so whatever it proves, it is not that a policy denied it (F-294).
+    //
+    // AND A REFUSAL PROVES THE WITH CHECK HELD, NOT THAT THE USING DID. Those are
+    // different halves of a policy and they answer different questions: USING decides
+    // WHICH EXISTING ROWS the statement may reach, WITH CHECK decides WHAT THE RESULTING
+    // ROW MAY LOOK LIKE. For an owner-qualified write the distinction does not matter —
+    // the statement names the target, so a refusal on any ground means the target's row
+    // was not written. For an UNQUALIFIED write it is the whole question: the statement
+    // sweeps every row the USING clause admits, and a WITH CHECK refusal on the FIRST
+    // foreign row it reaches is exactly what a wide-open USING with a correct WITH CHECK
+    // produces.
+    //
+    // MEASURED, on the migrated production table. `ALTER POLICY tenants_self_update ON
+    // tenants USING (true)` — WITH CHECK left exactly as the migration wrote it — and:
+    //
+    //   pass  A->B  updateAll  (write on tenants, affected 0)
+    //         — refused: error [42501]: new row violates row-level security policy
+    //   pass  B->A  updateAll  — the same
+    //   report.json: verdict=pass, failed=[], unverified=[], 28 attempts
+    //
+    // Every attempt green over a table whose UPDATE policy admits every row of every
+    // tenant. The count rule (F-302) never fires because no row count is ever reported,
+    // and the digest never fires because nothing the harness issued changed anything.
+    // So an unqualified write that was refused is `unverified`: it proved something, and
+    // the something is not the property this suite exists to assert.
+    const refusalProvesDenial =
+      method.kind === 'write' &&
+      refusal.kind === 'row-level-security' &&
+      method.qualification === 'owner-qualified';
     const because = refusalProvesDenial
       ? unverifiedBecause
-      : `the database refused this attempt for a reason the harness cannot attribute to a ` +
-        `policy: ${refusal.description}. ` +
-        (method.kind === 'read'
-          ? 'Row-level security refuses a read by returning zero rows, never by raising, ' +
-            'so a read that threw never ran (F-294).'
-          : 'Only a row-level security refusal is evidence that a policy denied the write ' +
-            '(F-294).');
+      : method.kind === 'write' &&
+          refusal.kind === 'row-level-security' &&
+          method.qualification === 'unqualified'
+        ? `this UNQUALIFIED write was refused by row-level security: ${refusal.description}. ` +
+          'That proves the WITH CHECK clause held. It proves NOTHING about the USING ' +
+          'clause, which is the half that decides which existing rows the statement ' +
+          'could reach — and an unqualified statement reaches every row USING admits. A ' +
+          'wide-open USING with a correct WITH CHECK produces exactly this refusal, and ' +
+          'it was measured producing it on the migrated `tenants` table while every ' +
+          'attempt in the run scored a pass (F-330). Re-issue the statement in a form ' +
+          'the WITH CHECK admits — `reparentAll` is that form — or narrow the shape.'
+        : `the database refused this attempt for a reason the harness cannot attribute to a ` +
+          `policy: ${refusal.description}. ` +
+          (method.kind === 'read'
+            ? 'Row-level security refuses a read by returning zero rows, never by raising, ' +
+              'so a read that threw never ran (F-294).'
+            : 'Only a row-level security refusal is evidence that a policy denied the write ' +
+              '(F-294).');
 
     if (leaks.length > 0) {
       return {
@@ -1188,6 +1371,14 @@ export async function runCrossTenantAttempts(
   // of what the suite knows about versus what the database holds, and a control run
   // over one canary must not report the whole registry as missing.
   const registryDrift = tenantScopedTableDrift();
+  const attemptVerdict =
+    failed.length === 0 &&
+    unverified.length === 0 &&
+    uncovered.length === 0 &&
+    registryDrift.inDatabaseNotRegistered.length === 0 &&
+    registryDrift.registeredNotInDatabase.length === 0
+      ? 'pass'
+      : 'fail';
 
   const report: IsolationReport = {
     runAt: new Date().toISOString(),
@@ -1198,20 +1389,23 @@ export async function runCrossTenantAttempts(
     failed,
     unverified,
     registryDrift,
+    declinedShapes: registrations.flatMap((registration) =>
+      (registration.declinedShapes ?? []).map((declined) => ({
+        table: registration.table,
+        ...declined,
+      })),
+    ),
     excluded: ISOLATION_EXCLUSIONS.map((exclusion) => ({ ...exclusion })),
     // TASK-056 fills both from the module graph. No route exists to enumerate.
     publicRoutes: [],
     noTenantTransactionRoutes: [],
     unenumerable: UNENUMERABLE_SURFACES.map((surface) => ({ ...surface })),
     coverageBoundary: COVERAGE_BOUNDARY,
-    verdict:
-      failed.length === 0 &&
-      unverified.length === 0 &&
-      uncovered.length === 0 &&
-      registryDrift.inDatabaseNotRegistered.length === 0 &&
-      registryDrift.registeredNotInDatabase.length === 0
-        ? 'pass'
-        : 'fail',
+    attemptVerdict,
+    // F-331. The attempt judgement alone on the in-memory report — which is the question
+    // a control run asks. `finishIsolationReport()` is what conjoins it with what the
+    // runner observed before anything reaches disk.
+    verdict: attemptVerdict,
   };
 
   lastReport = report;
@@ -1228,25 +1422,107 @@ export function isolationReport(): IsolationReport {
   return lastReport;
 }
 
-/** `apps/api/test/isolation/report.json` — the artifact SC-1 points at. */
+/**
+ * `apps/api/test/isolation/report.json` — the artifact SC-1 points at.
+ *
+ * F-331. WRITE 2 OF 3, AND IT DELIBERATELY DOES NOT PUBLISH A VERDICT. The attempts are
+ * this run's and worth stranding on disk if the process dies mid-suite; the verdict is
+ * not, because eleven of this file's tests have yet to run and any of them can disprove
+ * it. `finishIsolationReport()` is the only function that ever writes `pass`.
+ */
 export function writeIsolationReport(report: IsolationReport, path: string): void {
-  writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  const inFlight: IsolationReport = {
+    ...report,
+    verdict: 'incomplete',
+    suiteOutcome: 'incomplete',
+    incompleteBecause:
+      'The attempts below are THIS run\'s and were judged: see `attemptVerdict`. The ' +
+      'run itself had not finished when this was written — the control runs, the drift ' +
+      'probes, the protection-count assertions and assertNoTenantIdAltered() all run ' +
+      'after it, and any of them can disprove an attemptVerdict of `pass`. If you are ' +
+      'reading this, the suite did not reach its afterAll: treat `attemptVerdict` as ' +
+      'evidence and `verdict` as unanswered (F-331).',
+  };
+
+  writeFileSync(path, `${JSON.stringify(inFlight, null, 2)}\n`, 'utf8');
 }
 
 /**
- * F-304. CALLED FIRST, BEFORE ANYTHING THAT CAN THROW.
+ * F-331. WRITE 3 OF 3, FROM `afterAll`, AND THE ONLY ONE THAT CAN SAY `pass`.
+ *
+ * `suiteOutcome` is what the runner observed of this file's own tests, so the verdict on
+ * disk is the conjunction: an attempt battery that passed AND a suite that did not
+ * contradict it. A red run can no longer leave a green artifact.
+ *
+ * `report` is null when `beforeAll` threw — vitest still runs `afterAll` in that case
+ * (measured), and there is no report to publish, so the `incomplete` marker stands.
+ */
+export function finishIsolationReport(
+  path: string,
+  report: IsolationReport | null,
+  suiteOutcome: SuiteOutcome,
+): void {
+  if (report === null) {
+    beginIsolationReport(path, 'the run threw before it judged any attempt.');
+
+    return;
+  }
+
+  // Anything that is not an explicit `pass` is a `fail` for the attempt half: there is no
+  // third answer once the attempts have been judged, and defaulting the other way is how
+  // a report with a missing field would publish a pass.
+  const attemptVerdict: 'pass' | 'fail' =
+    report.attemptVerdict ?? (report.verdict === 'pass' ? 'pass' : 'fail');
+  const verdict: IsolationVerdict =
+    suiteOutcome === 'incomplete'
+      ? 'incomplete'
+      : attemptVerdict === 'pass' && suiteOutcome === 'pass'
+        ? 'pass'
+        : 'fail';
+
+  const finished: IsolationReport = {
+    ...report,
+    attemptVerdict,
+    suiteOutcome,
+    verdict,
+    ...(verdict === 'incomplete'
+      ? {
+          incompleteBecause:
+            'The attempts were judged, but the runner did not report a result for every ' +
+            'test in this file — the suite was filtered, skipped, or died (F-331).',
+        }
+      : { incompleteBecause: undefined }),
+  };
+
+  writeFileSync(path, `${JSON.stringify(finished, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * F-304. WRITE 1 OF 3. CALLED AT MODULE SCOPE, BEFORE ANYTHING THAT CAN THROW.
  *
  * Stamps the artifact `incomplete` so that a run which dies — a fixture that throws on a
  * pre-existing leak, a dropped connection, a killed process — leaves a file that says it
- * did not finish, rather than the last successful run's `"verdict": "pass"`. Overwritten
- * by `writeIsolationReport()` when the run completes.
+ * did not finish, rather than the last successful run's `"verdict": "pass"`.
  *
  * Deleting the file instead would also be unambiguous and it is what the finding offers
  * as an alternative. This is the stronger of the two: absence is indistinguishable from
  * a job that never ran the suite at all, and a `runAt` plus a reason tells whoever finds
  * the stranded artifact which run stranded it.
+ *
+ * F-332. IT IS CALLED AT MODULE SCOPE AND NOT FROM `beforeAll`, AND THAT IS THE FIX.
+ * vitest does not run `beforeAll` when every test in the file is filtered out, so
+ * `-t 'a name that matches no test'` gave 18 skipped, EXIT=0, and the PREVIOUS run's
+ * `pass` still on disk with no marker at all — measured. Module scope runs at collection,
+ * which happens for a filtered run.
+ *
+ * WHAT MODULE SCOPE STILL DOES NOT COVER, STATED: a collection error. If an import throws
+ * — `registerTenantScopedSurfaces()` rejecting a duplicate subject, say — the module body
+ * never executes and the stale artifact survives. Closing that needs `globalSetup` in
+ * `vitest.integration.config.ts`, which is outside this TASK's `paths`. Recorded for
+ * F-297: an upload step that fails when the artifact's `runAt` predates the job closes it
+ * from the other side, and is the more robust place for it anyway.
  */
-export function beginIsolationReport(path: string): void {
+export function beginIsolationReport(path: string, because?: string): void {
   const marker: IsolationReport = {
     runAt: new Date().toISOString(),
     discovered: [],
@@ -1260,11 +1536,13 @@ export function beginIsolationReport(path: string): void {
     noTenantTransactionRoutes: [],
     unenumerable: UNENUMERABLE_SURFACES.map((surface) => ({ ...surface })),
     coverageBoundary: COVERAGE_BOUNDARY,
+    suiteOutcome: 'incomplete',
     verdict: 'incomplete',
     incompleteBecause:
-      'This run started at the runAt above and has not written its result yet. If you ' +
-      'are reading this, the run did not finish: it threw before judging its attempts, ' +
-      'or the process was killed. NOTHING HERE IS EVIDENCE OF ISOLATION — an empty ' +
+      `This run started at the runAt above and has not written its result yet. ${
+        because ?? 'If you are reading this, the run did not finish: it threw before ' +
+          'judging its attempts, or the process was killed.'
+      } NOTHING HERE IS EVIDENCE OF ISOLATION — an empty ` +
       '`failed` list means no attempt was scored, not that no attempt leaked. This ' +
       'marker exists because the artifact previously kept the PREVIOUS run\'s ' +
       '"verdict": "pass" in exactly this situation (F-304).',
