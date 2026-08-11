@@ -12810,3 +12810,91 @@
   status: escalated
   resolved_by: null
   resolved_round: null
+
+- id: F-381
+  phase: implement
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: implementation
+  file: scripts/check-compose-stack.sh
+  line: 551
+  summary: >-
+    `set_config(..., false)` where GC-5's normative form and seed.mts:246 both use `true`.
+  failure_scenario: >-
+    Session-scoped rather than transaction-scoped. The check is not production code and a one-shot
+    psql invocation behaves the same, so it is a nit - but GC-5 says no query path may bypass the
+    transaction rule, and a check demonstrating the wrong form is a worked example someone copies.
+  required_change: Match the normative form, or say in the script why this site legitimately differs.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-382
+  phase: implement
+  task: TASK-060
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: eslint.config.mjs
+  line: 122
+  summary: >-
+    DEEPER THAN F-369 AND MEASURED THE SAME WAY. `@nestjs/common/services/logger.service` resolves,
+    exports `Logger`, and is caught by NEITHER the lint rule NOR logging-opt-out.spec.ts - both test
+    the exact specifier. The auditor emitted the resulting line: `[Nest] 322215 - ... WARN [Probe]`.
+    AND A THIRD SHAPE: both controls key on `.ts`, so a `.mts` or `.tsx` file under apps/api/src with
+    `Logger` and `console.log` measures ZERO ERRORS.
+  failure_scenario: >-
+    Two independent auditors found the subpath class in the same pass, at different depths, both by
+    emitting a real Nest line rather than reasoning about the matcher. The extension gap is a third
+    door in the same wall: no second mechanism stands behind the first anywhere in this fence.
+  required_change: >-
+    Fold into F-369's fix - specifier family and extension set both, so the lint rule and the
+    enumeration agree on what they cover.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-383
+  phase: implement
+  task: TASK-060
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: docs
+  file: apps/api/src/db/client.ts
+  line: 88
+  summary: >-
+    The new docblock says "nothing a caller or a driver controls is interpolated here" - THE
+    DRIVER'S `code` IS. Emitted: `...(sqlstate 57P01 MARKER)`. Bounded by the server rather than by
+    this code, which is a different guarantee from the one the sentence makes.
+  required_change: One sentence, same file, same owner as F-373.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-384
+  phase: implement
+  task: TASK-060
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/api/src/tenancy/tenant-context.ts
+  line: 247
+  summary: >-
+    The site-1 line carries no `tenant_id` and no `request_id`. `scopedTo` is ONE LINE UP and
+    `tenant_id` is already on LOGGABLE_FIELDS.
+  failure_scenario: >-
+    An afterCommit failure on a per-request tenant path is unattributable to a tenant - which is
+    most of what makes such a line useful. Cheap, adjacent, and the field is already allowlisted.
+  required_change: Add tenant_id to the record.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
