@@ -13048,3 +13048,129 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+# ---- Ship step 3, initiative-level acceptance: changes-requested. TWO BLOCKERS.
+# Full text: .sdlc/foundation/ship/acceptance-report.md
+
+- id: F-388
+  phase: ship
+  task: null
+  source: sdlc-product-auditor
+  round: 1
+  severity: blocker
+  kind: behavior
+  file: README.md
+  line: 14
+  summary: >-
+    THE README DESCRIBES THREE SUBSYSTEMS THAT DO NOT EXIST, IN PRESENT TENSE - "The redirect path
+    stays isolated. It reads a cache..." at :14-16, "and the redirect" at :25, "App Router
+    dashboard" at :26 - and states the isolation claim at :10-13 WITHOUT the coverage boundary
+    every other artifact prints on every run. GC-13, "README stays current", fails.
+  failure_scenario: >-
+    The evaluator is refinement.md's THIRD NAMED USER and, under its own portfolio-first framing,
+    "the user who decides whether this initiative was worth building". They read four confident
+    claims, clone, and find ONE TABLE, ONE ROUTE, ONE STATIC PAGE.
+    THE THING DAMAGED IS THE EXACT THING THE REPOSITORY EXISTS TO DEMONSTRATE - that its author
+    distinguishes proving from asserting. And the auditor's sharpest line is that the file convicts
+    itself: README:82-95 and :104-112 ARE SCRUPULOUS. The top of the file is not written to the
+    standard the bottom is.
+  required_change: >-
+    Present tense only for what exists; unbuilt parts named as roadmap rather than as architecture;
+    and the isolation claim carries the boundary the suite prints on every run.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-389
+  phase: ship
+  task: null
+  source: sdlc-product-auditor
+  round: 1
+  severity: blocker
+  kind: process
+  file: .sdlc/roadmap.md
+  line: 1
+  summary: >-
+    SIX KNOWN-OPEN OBLIGATIONS BELONGING TO DEFERRED WORK HAVE NO CARRIER PAST THIS INITIATIVE.
+    F-018's reopening (its record still reads `status: fixed`), ADR-0040:277's TASK-009 boot
+    assertion (TASK-009.md mentions neither ADR-0040 nor the assertion nor F-018), and parked
+    F-036, F-037, F-300/F-362 and F-350. roadmap.md carries NONE of them.
+  failure_scenario: >-
+    A refiner opens roadmap item 1, reads roadmap.md, and plans invitations knowing nothing of the
+    unlimited @Public() routes, the withdrawn fix, or the unwritten boot assertion. findings.yaml is
+    770KB and the record says `fixed`.
+    THIS IS THE F-142 SHAPE THE INITIATIVE HAS NOW NAMED FOUR TIMES IN ITS OWN LOGS - including as
+    the stated reason the ADR-0041, ADR-0042 and F-369 cards ARE on the roadmap. The auditor's
+    closing argument is the one that makes it a blocker: SHIP IS THE LAST GATE WHERE THE RECORD IS
+    STILL IN ONE PLACE.
+    On F-018 specifically it is precise rather than alarmist: the reopening bears on no criterion
+    this initiative claimed and on no shipped surface - no invitation routes, no limiter,
+    trustedClientIp is a stub. It is a DESIGN STATE, not a live exposure. It bears on the HANDOFF.
+  required_change: >-
+    A "Carried forward" block in roadmap.md naming each item, its inheriting roadmap entry, and the
+    ruling ADR or finding.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "orchestrator 2026-08-11"
+  resolved_round: 1
+  resolution: >-
+    A `Carried forward from foundation` block now heads the roadmap, naming all six with the entry
+    that inherits each and the ruling that produced it - and F-386, which the auditor did not have
+    because it was filed twenty minutes after its pass. The block states WHY it exists rather than
+    pointing at findings.yaml: a refiner who opens an entry reads roadmap.md, and does not grep a
+    770 KB ledger.
+    F-018 KEEPS `status: fixed` DELIBERATELY, and the row says so. The fix it describes was real and
+    correct against the design of the day; what changed is the design underneath it. Flipping the
+    status would lose that distinction, and the auditor is right that leaving it unannounced would
+    lose the obligation - so the annotation stays on the finding AND the obligation is now on the
+    roadmap, which is the reader's path rather than the greppers'.
+
+- id: F-390
+  phase: ship
+  task: null
+  source: sdlc-product-auditor
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: scripts/check-compose-stack.sh
+  line: 1
+  summary: >-
+    AC-115 REPLACED AC-6's DEPLOY CLAUSE AND IS NOW THE SOLE EVIDENCE THE SUBSTRATE RUNS AS A
+    SYSTEM - AND ITS CHECK IS WIRED INTO NOTHING. Not ci.yml, not package.json. Measured once, on
+    2026-08-11.
+  failure_scenario: >-
+    A change to the Dockerfile, the compose file, the roles SQL, migrate or seed breaks it silently,
+    and the next person to find out is the next person to clone. roadmap.md:67 holds this project to
+    the opposite standard in its own words - the isolation harness item exists precisely because a
+    measurement that runs once is not a gate.
+  required_change: >-
+    Wire it into CI or a scheduled job, or record it on the roadmap as a manual gate WITH A NAMED
+    CADENCE.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-391
+  phase: ship
+  task: null
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: scope
+  file: packages/contracts/src/roles.ts
+  line: 1
+  summary: >-
+    ROUGHLY 330 LINES OF CONTRACTS AND TENANCY SURFACE WHOSE ONLY CONSUMERS ARE DEFERRED TASKS SHIP
+    FROM THE PACKAGE'S SINGLE PUBLISHED ENTRY POINT - roles.ts, slug.ts, domains/reserved-hostnames.ts,
+    pagination.ts, and three throwing decorators at tenant-context.ts:358, :393 and :400.
+  failure_scenario: >-
+    ADR-0039 retired the design stubs on exactly this reasoning; THE MATERIALISED COPIES STAYED and
+    the 2026-08-09 re-scope did not sweep them. Same class as the stub question, one artifact over.
+  required_change: >-
+    Decide whether they ship or wait, the way ADR-0039 decided it for stubs.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null

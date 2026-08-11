@@ -132,3 +132,25 @@ obligation survives, which is the F-142 lesson.
 
 Also riding item 3: two stale quotations of the retired exemption at
 `apps/api/src/observability/logging-opt-out.spec.ts:15-16` and `:25`.
+
+## Carried forward from `foundation` (F-389, 2026-08-11)
+
+**Six obligations belong to deferred work and had no carrier past this initiative.** Ship is the
+last gate where the record is still in one place — `findings.yaml` is 770 KB, and one of these
+items has a record that reads `status: fixed`. Each is named here with the roadmap entry that
+inherits it and the ruling that produced it.
+
+| Obligation | Inherited by | Ruling |
+|---|---|---|
+| **F-018 is reopened** — `@Public()` invitation routes have no IP-keyed limit in any environment that exists today. Its record still reads `status: fixed`, annotated but not flipped, deliberately: the fix it describes was real and correct against the design of the day, and what changed is the design underneath it. | Item 1 (invitations, auth) | ADR-0040 + Juano's fail-open ruling, 2026-08-11 |
+| **The TASK-009 boot assertion** — `assertTrustedClientIpHeaderConfigured()` and `assertBffProxySecretConfigured()`, both gated on a declared property rather than `NODE_ENV`. `TASK-009.md` mentions neither ADR-0040, nor the assertions, nor F-018. | Item 1 | ADR-0040 (F-380), rate-limit.md (F-385) |
+| **F-036, F-037** — parked majors on the architect, from the design phase. | whichever entry revives their subject | parked at the design cap |
+| **F-300 / F-362** — `invitation-tokens.md` invariant 5 is corrected but the mechanism is undecided: the raw token sits in the URL path on **both** the `GET` and the `POST` accept legs, so the two recorded fixes are **not** equivalent. A redirect covers the GET and not the POST. | Item 1 | Juano's park-and-correct ruling, 2026-08-11 |
+| **F-350** — the drift repair reached the isolation suite and not the GDPR paths. `tenantScopedTables()` still has no name-independent derivation, and it is what export and erasure iterate. | Item 4, and any entry adding a tenant-scoped table | ADR-0019 amendment, 2026-08-11 |
+| **F-386** — `mail-sender.md` binds the **live Resend sender** when `NODE_ENV` is `production`, which `Dockerfile:83` sets under `docker compose up`. It does not refuse to boot; it waits, and sends real email the first time anyone invites someone from a local stack. | Item 1, or whichever entry writes mail | filed 2026-08-11, unruled |
+
+**Why this block exists rather than a pointer to `findings.yaml`.** The initiative named the same
+defect four times in its own logs — a routing recorded as a resolution, a record that lagged its
+artifact, a fix that landed where the finding pointed and survived everywhere it did not. It is
+also the stated reason the ADR-0041, ADR-0042 and F-369 cards above are on this roadmap at all.
+A refiner who opens an entry reads this file; they do not grep a 770 KB ledger.
