@@ -1,7 +1,7 @@
 ---
 id: ADR-0032
 slug: foundation
-title: Postgres data lives in a named volume, and `down -v` is the only reset
+title: Postgres data lives in a named volume, the stack takes its own compose project name, and `down -v` is the only reset
 status: accepted
 supersedes: null
 date: 2026-08-11
@@ -45,6 +45,51 @@ developer who does not know `down -v` will debug a stale database for an afterno
 won: the failure it allows is documented and recoverable; the failures the others allow are
 a DoD violation and a permissions trap.
 
+### For the compose project name (added 2026-08-11, F-356)
+
+The problem these answer is stated in the Decision below: `docker-compose.yml` and
+`docker-compose.test.yml` sit in one directory, so they take one default project name, and
+they both declare a service called `postgres`. Ports do not separate compose stacks.
+
+**Pin `name:` on `docker-compose.yml`.** Pros: the new stack gets its own project, its own
+containers, its own network and its own volume, so `up`, `down -v` and `--remove-orphans` at
+the repository root cannot reach the integration suite's container in either direction. It
+touches only a file that does not exist yet, so a `done` TASK's file stays untouched and no
+existing volume needs migrating. `scripts/check-compose-stack.sh` reads the project name from
+`docker compose config` and needs no edit; its refusal guard simply stops firing, which is
+the correct outcome rather than a suppressed one. Cons: two clones now collide
+unconditionally on the pinned name instead of only when their directory basenames match
+(F-318). Why it won: the collision it worsens is between a developer's own two copies and
+produces a stale database; the collision it removes deletes a running test database from
+under a suite.
+
+**Set `COMPOSE_PROJECT_NAME` in `docker-compose.test.yml`'s documented workflow.** Pros: no
+change to either compose file's behaviour; the dev stack keeps the plain `shortkit` name.
+Cons: it is a convention, not a mechanism. It protects the developer who remembers it on
+every one of the four commands in that file's header and nobody else, it does not protect
+CI or a script, and the failure when it is forgotten is the destructive one. It also puts
+the burden on the file that already works. Why it lost: a documented habit is not a boundary,
+and this boundary destroys data when it is crossed.
+
+**Rename the dev stack's Postgres service, `postgres` to `db`, and share the project.**
+Pros: cheaper than a project rename in one respect, since the two stacks would no longer
+contend for the same service key, and Compose does not remove containers for services absent
+from the file unless it is told to. Cons: each stack's containers become **orphans** of the
+other's project, and Compose's response to an orphan is to print, on every single `up`, that
+you can run the command with `--remove-orphans` to clean it up. The mitigation is a message
+that recommends the destructive command. `scripts/check-compose-stack.sh` already passes
+`--remove-orphans` on its pre-`up` teardown, so the check written for AC-115 would delete the
+integration suite's container the first time it ran without its refusal guard. It also
+diverges the two stacks' service names for no reason a reader can see, costs `docker compose
+exec db psql` against `docker compose exec postgres psql` in the test stack, and forces edits
+to AC-115.2 in the check and to the service ADR-0033 and ADR-0036 name. Why it lost: it
+leaves a live destructive path behind a warning that points at it.
+
+**Document "stop one stack before starting the other".** Pros: free. Cons: it is the same
+convention argument as above with no mechanism at all, and it makes the two stacks
+mutually exclusive, so an integration run cannot happen while the dev stack is up. Why it
+lost: it costs more in daily use than the pinned name and protects less.
+
 ## Decision
 
 **One named volume, `pgdata`, mounted at `/var/lib/postgresql/data` on the `postgres`
@@ -52,12 +97,51 @@ service.** Compose namespaces it as `<project>_pgdata`. Nothing else in the stac
 stateful: the API and web containers hold no data, and the one-shot migrate and seed
 services write only to the database.
 
-**The project name is the directory basename, and two clones collide.** Corrected
+**`docker-compose.yml` sets `name: shortkit-dev`.** Ruled 2026-08-11 (F-356). This reverses
+the previous instruction not to set `name:`, and the reversal is explained below rather than
+left as a diff.
+
+The default project name is the directory basename, and `docker-compose.test.yml` is in that
+same directory. Measured on the running integration container: project `shortkit`, service
+`postgres`, config file `docker-compose.test.yml`. The new stack would take the same project
+name and ADR-0033 gives it a service called `postgres` too. Compose identifies a container by
+project plus service, and ports are not part of that identity, so `docker compose up` at the
+repository root would **recreate the integration suite's container** and
+`docker compose down -v`, which is this ADR's documented reset, would **delete it**. TASK-059's
+red step measured the collision and refuses with exit 2 rather than clobbering.
+
+With `name: shortkit-dev` the two stacks share nothing. Verified by execution on Docker
+29.7.2 / Compose v5.4.0:
+
+| | test stack | dev stack |
+|---|---|---|
+| project | `shortkit` | `shortkit-dev` |
+| container | `shortkit-postgres-1` | `shortkit-dev-postgres-1` |
+| network | `shortkit_default` | `shortkit-dev_default` |
+| volume | none, tmpfs | `shortkit-dev_pgdata` |
+
+Neither stack's containers are even orphans of the other's project, so Compose prints no
+orphan warning and never suggests `--remove-orphans`, and both stacks can run at once, which
+is what a developer running the integration suite against a working dev stack actually does.
+
+**`COMPOSE_PROJECT_NAME` still overrides `name:`, and the earlier claim that pinning would
+"take the override away" was wrong.** Measured, same versions. Compose's precedence, highest
+first, is the `-p` flag, then `COMPOSE_PROJECT_NAME`, then the file's top-level `name:`, then
+the directory basename. With `name: shortkit-dev` in the file, `COMPOSE_PROJECT_NAME=teamx
+docker compose config` reports project `teamx` and volume `teamx_pgdata`. So the two-clone
+escape hatch survives pinning intact.
+
+**What pinning does cost is real and is F-318's other half.** Two clones now share
+`shortkit-dev_pgdata` whatever their directories are called, where before, a clone into a
+differently named directory got its own volume by accident. A developer who separates copies
+by renaming the directory loses that and has to set `COMPOSE_PROJECT_NAME` instead.
+
+**The two clones still collide, and the rest of this section is unchanged.** Corrected
 2026-08-11 (F-318). Compose derives the default project name from the basename of the
 project directory, not from its path, and `git clone` names the directory after the
 repository. Verified by execution: `docker compose config` in a directory named `shortkit`
-emits `name: shortkit` whatever its parent path is. So `~/work/shortkit` and
-`~/scratch/shortkit` share one `shortkit_pgdata`, and the second clone gets the first's
+emits `name: shortkit` whatever its parent path is. So without an override `~/work/shortkit`
+and `~/scratch/shortkit` share one volume, and the second clone gets the first's
 schema, `__drizzle_migrations` rows, roles and passwords.
 
 Two of this ADR's own mechanisms then compound it. The init script does not re-run, because
@@ -69,8 +153,8 @@ database that matches neither working copy. If the two clones set different
 and the failure is an authentication dead end with no obvious cause.
 
 **`COMPOSE_PROJECT_NAME` is how a developer separates them**, and the README says so beside
-the reset ladder. `docker-compose.yml` does **not** set `name:`: pinning it would make the
-collision unconditional rather than merely likely, and it would take the override away.
+the reset ladder, with the precedence order, because a reader who sees `name: shortkit-dev`
+in the file will otherwise assume it is fixed.
 
 **The reset ladder, and each rung means exactly one thing.**
 
@@ -108,7 +192,14 @@ stated rather than guarded.
   a developer created, which is what makes the stack usable for more than one sitting.
 - Nothing writes to the worktree, so no `.gitignore` entry stands between a developer and a
   committed database.
-- The reset is one command with no arguments to get wrong.
+- The reset is one command with no arguments to get wrong, and after F-356 it can no longer
+  reach the integration suite's container. `docker compose down -v` at the repository root
+  is destructive to exactly one stack, which is the one the developer is looking at.
+- **Both stacks run at the same time.** The dev stack on 55432 and the integration suite on
+  55433 are independent projects, so `pnpm test:integration` does not require stopping the
+  thing being developed.
+- The AC-115 check runs while the integration suite is up. Its refusal guard stays in place
+  for the case that still collides, a clone into a directory literally named `shortkit-dev`.
 
 ### The cost accepted
 
@@ -122,9 +213,19 @@ stated rather than guarded.
 - **Disk grows and nothing reclaims it.** A developer who works on several branches
   accumulates one volume per project **name**, which is one per distinct directory basename
   rather than one per clone.
-- **Two clones with the same directory name share one database**, per the correction above.
-  A developer who clones a second copy specifically to avoid disturbing the first gets the
-  opposite of what they intended, and the symptom is a green stack rather than an error.
+- **Two clones share one database whatever their directories are called**, which is stronger
+  than the basename collision the correction above describes and is the price of pinning
+  `name:` (F-356). A developer who clones a second copy specifically to avoid disturbing the
+  first gets the opposite of what they intended, and the symptom is a green stack rather
+  than an error. `COMPOSE_PROJECT_NAME` is the fix and it still works.
+- **The project name no longer matches the repository name**, so `docker compose ls`,
+  `docker ps` and every volume and network name carry `shortkit-dev` while the test stack
+  carries the plain `shortkit`. The unadorned name belongs to the stack a developer touches
+  less often, which reads backwards. Correcting it means putting `name: shortkit-test` in a
+  `done` TASK's file, and this ADR does not take that.
+- **A directory named `shortkit-dev` reintroduces the collision**, because the test stack's
+  name is still the basename. It is a narrow case and it is the one the check's refusal
+  guard still exists for.
 
 ### What the volume holds, stated now while the answer is boring
 
@@ -154,8 +255,18 @@ rather than an omission.
 
 - README documents the reset ladder above, including the three situations that require
   `down -v`, that `down -v` destroys developer data with no confirmation, that
-  `COMPOSE_PROJECT_NAME` is how two clones are separated, and one sentence on what the
-  volume holds and how long.
+  `COMPOSE_PROJECT_NAME` is how two clones are separated **and that it overrides the pinned
+  `name:`**, and one sentence on what the volume holds and how long. It also says the two
+  stacks are separate projects and may both run, and names the volume `shortkit-dev_pgdata`
+  so `docker volume ls` output is recognisable.
+- **`docker-compose.test.yml` could take `name: shortkit-test` and let the dev stack drop
+  back to the basename.** That is a behaviour change to TASK-005's file and needs its owner.
+  The trigger is anyone opening that file for another reason; nothing forces it, because
+  `name: shortkit-dev` already separates the two.
+- `scripts/check-compose-stack.sh`'s refusal message explains the collision as "they share a
+  project name because Compose derives it from the directory basename", which stops being
+  the reason it can fire once the dev file pins `name:`. The guard is still correct; only its
+  explanation narrows. Routed to the check's owner, cosmetic.
 - `docs/architecture/migrations.md`'s existing "drop and recreate" instructions currently
   name `docker-compose.test.yml`. TASK-059 adds the local stack's equivalent beside them
   rather than replacing them; the two databases are different and both instructions are

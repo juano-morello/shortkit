@@ -67,16 +67,38 @@ services:
       - source: shortkit_roles_sql
         target: /docker-entrypoint-initdb.d/10-roles.sql
     healthcheck:
-      # Executes a statement AS shortkit_app, over TCP on 127.0.0.1, against
-      # shortkit_test (F-127). All three halves are load-bearing, and `pg_isready`
-      # has none of them: it does not authenticate — its -U and -d only affect what
-      # the server logs — and with no -h it uses the unix socket. The postgres
-      # entrypoint runs initdb, starts a TEMPORARY socket-only server, runs the init
-      # script, stops it, then starts the real one. A `pg_isready` probe landing in
-      # that window returns 0 and marks the container healthy, so `up -d --wait`
-      # returns and the next command gets ECONNREFUSED or "role shortkit_app does
-      # not exist". This probe is false until the roles exist, the database exists,
-      # and the real server is accepting TCP connections.
+      # Executes a statement AS shortkit_app, over TCP, against shortkit_test
+      # (F-127). All three halves are load-bearing, and `pg_isready` has none of
+      # them: it does not authenticate — its -U and -d only affect what the server
+      # logs — and with no -h it uses the unix socket. The postgres entrypoint runs
+      # initdb, starts a TEMPORARY socket-only server, runs the init script, stops
+      # it, then starts the real one. A `pg_isready` probe landing in that window
+      # returns 0 and marks the container healthy, so `up -d --wait` returns and the
+      # next command gets ECONNREFUSED or "role shortkit_app does not exist". This
+      # probe is false until the roles exist, the database exists, and the real
+      # server is accepting TCP connections.
+      #
+      # IT DOES NOT CHECK THE PASSWORD, and this comment used to claim it did
+      # (F-357, corrected 2026-08-11). postgres:17-alpine's generated pg_hba.conf
+      # puts `host all all 127.0.0.1/32 trust` AHEAD of the `scram-sha-256` line the
+      # entrypoint appends, and the first matching line wins, so a connection to
+      # 127.0.0.1 from inside this container is trusted and the `app` in the DSN
+      # below is never verified. Measured against a running container: a wrong
+      # password over 127.0.0.1 was accepted; the same wrong password over the
+      # container's own bridge address was refused.
+      #
+      # The gap is inert here, which is why the probe is left alone. Both passwords
+      # are literals, in the configs block below and in the DSNs at the top of this
+      # file, with no interpolation anywhere, so there is no mechanism that can make
+      # them disagree. The suite's own connections come from the host through the
+      # published port and arrive on the container's eth0 rather than its loopback,
+      # so the suite authenticates for real even though this probe does not.
+      #
+      # DO NOT COPY THE `127.0.0.1` INTO A STACK WHOSE PASSWORDS COME FROM THE
+      # ENVIRONMENT. There, a probe that skips authentication reports a database
+      # with unusable roles as healthy. docker-compose.yml uses `-h postgres` for
+      # exactly that reason (ADR-0036). Changing this probe to match is a behaviour
+      # change to TASK-005's file and needs that TASK's owner, not a drive-by.
       test:
         - 'CMD-SHELL'
         - 'psql "postgres://shortkit_app:app@127.0.0.1:5432/shortkit_test" -tAc "select 1" >/dev/null 2>&1'

@@ -90,6 +90,12 @@ Design ran for this TASK on 2026-08-11 and settled eight decisions. Each is an A
 rejected alternatives are in the ADRs and are worth reading before you write the compose
 file, not after.
 
+**Design rework round 2, 2026-08-11 (F-356, F-357), after the red step measured two of these
+decisions against real containers.** Two things changed and you must not write the earlier
+form: `docker-compose.yml` now sets `name: shortkit-dev`, and the Postgres health probe
+connects to `-h postgres` rather than `-h 127.0.0.1`. Both are marked below. One item moved
+off the unverified list: `mode: 0555` takes effect.
+
 **ADR-0037 was `proposed` and is now ACCEPTED — Juano ruled 2026-08-11.** Build with
 `GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-0000000000000000000000000000000000000000}` — git's null
 object id, forty zeros. It matches the Dockerfile guard's `/^[0-9a-f]{40}$/`, so **no `??`,
@@ -116,9 +122,15 @@ It does not fail loudly. The roles script would run `--username "" -v app_passwo
 libpq treats an empty user as unset and connects as `postgres`, PostgreSQL answers
 `PASSWORD ''` with a NOTICE rather than an error, `ON_ERROR_STOP=1` never fires, and the
 container reports initialisation complete with two passwordless roles that nothing else in
-the stack can authenticate as. The health probe would run `PGPASSWORD=""` and Postgres would
-never go healthy, so `migrate` never starts and `up --wait` exits non-zero. AC-115 red on its
-own command, on a clean machine, every time.
+the stack can authenticate as.
+
+**What the stack then does is in ADR-0036, "What the F-315 and F-316 defects actually do,
+measured", and that is the only place it is written.** Corrected 2026-08-11 (F-357): this
+card, ADR-0031 and ADR-0036 all used to claim the health probe caught this in about forty
+seconds, and the red step measured that it did not. The two facts you need here are that both
+defects still make AC-115 red on the first `up` on a clean machine, and that with the probe
+as now specified a single `$` in it makes the container unhealthy by itself, which it did not
+before.
 
 **So: `$$POSTGRES_USER`, `$$SHORTKIT_MIGRATOR_PASSWORD`, `$$SHORTKIT_APP_PASSWORD` inside
 `configs.*.content`, and `PGPASSWORD="$$SHORTKIT_APP_PASSWORD"` in the probe.** `$$` reaches
@@ -175,14 +187,31 @@ every published port binds `127.0.0.1`, Postgres on 55432, and the file carries 
 committed superuser password returns on every daemon start.
 
 **Persistence (ADR-0032).** One named volume `pgdata` at `/var/lib/postgresql/data`. No
-tmpfs, no bind mount. Do **not** set `name:` in the compose file. README carries the reset
+tmpfs, no bind mount. README carries the reset
 ladder and the three situations that require `down -v`, including the silent one: the roles
 script runs only against an empty data directory, so editing it changes nothing until
 `down -v`. Two more sentences for the README (F-318, F-325): Compose derives the project name
-from the **directory basename**, so two clones both named `shortkit` share one `pgdata` and
-`COMPOSE_PROJECT_NAME` is how a developer separates them; and the volume is unencrypted
+from the **directory basename** unless it is told otherwise, so two clones share one `pgdata`
+and `COMPOSE_PROJECT_NAME` is how a developer separates them; and the volume is unencrypted
 developer storage outside every repository-level clean, holding one synthetic tenant and no
 personal data today.
+
+**Project name (ADR-0032, changed in round 2 — F-356). Set `name: shortkit-dev` at the top of
+`docker-compose.yml`.** This reverses round 1's "do not set `name:`". Without it your file
+takes the directory basename `shortkit`, which is the project the integration suite's
+container already runs in, and it declares a service called `postgres`, which is that
+container's service name. Compose identifies a container by project plus service and not by
+port, so `docker compose up` at the root would recreate `shortkit-postgres-1` and
+`docker compose down -v` would delete it. That was measured, and `scripts/check-compose-stack.sh`
+refuses with exit 2 rather than clobbering it.
+
+With `name: shortkit-dev` your containers are `shortkit-dev-*`, your volume is
+`shortkit-dev_pgdata`, your network is `shortkit-dev_default`, and both stacks can run at
+once. Verified: `COMPOSE_PROJECT_NAME` **overrides** a pinned `name:` (precedence is `-p`,
+then `COMPOSE_PROJECT_NAME`, then `name:`, then the basename), so the two-clone escape hatch
+survives and the README must say so, or a reader who sees `name:` will assume it is fixed.
+The cost the README also states: two clones now share one volume whatever their directories
+are called.
 
 **Migrations and seed (ADR-0033).** A new `migrator` stage in the existing `Dockerfile`,
 `FROM build`, adding `drizzle.config.ts`, `drizzle/` and `scripts/`, commented as NOT
@@ -244,6 +273,21 @@ for these. Verify by creating `apps/web/.env.local`, building, and inspecting th
 **Health and ordering (ADR-0036).** Postgres gets the test stack's probe carried forward
 with its reasoning, using `PGPASSWORD="$$SHORTKIT_APP_PASSWORD"` rather than a DSN. API and
 web get `node -e` fetch probes; the API's asserts 200 and `status === 'ok'`.
+
+**The Postgres probe connects to `-h postgres`, not `-h 127.0.0.1`, and keeps stderr
+(changed in round 2 — F-357).** Measured: `postgres:17-alpine` ships
+`host all all 127.0.0.1/32 trust` ahead of the entrypoint's scram line, so a loopback probe
+inside the container never reads `PGPASSWORD`. A wrong password over `127.0.0.1` was accepted
+and the same wrong password over the container's own address was refused. `-h postgres`
+resolves over the compose network to that address, so the probe authenticates and travels the
+same path `migrate`, `seed` and `api` use. Write the redirection as `>/dev/null` with no
+`2>&1`, so psql's `FATAL:` line lands in `docker inspect`'s health log where you will look
+for it. **Verify on your first `up` that a compose service resolves its own name from inside
+its own container.** Design did not measure that. If it is wrong the container never goes
+healthy and the health log says the host name could not be translated; the fallback is
+`-h "$$(hostname -i)"`. Record which form you shipped and what the first `up` printed.
+Do not "restore" `127.0.0.1` when something else goes wrong: it makes the probe pass
+unconditionally.
 `start_period: 30s` on the API is coupled to `main.ts`'s 20-second
 `DATABASE_REACHABLE_BUDGET_MS` and the comment must say so, because that coupling currently
 lives in `fly.toml` and you are deleting it. Write in the compose file that a green `api`
@@ -261,15 +305,16 @@ started no containers and built no images. Three items from round 1 are now sett
 execution and are stated above as facts rather than assumptions: Compose interpolation of
 `configs.*.content` and `healthcheck.test`, that `$$` survives to the container as `$`, that
 `pull_policy: build` parses, and that the project name defaults to the directory basename.
-Still unverified: **that `mode: 0555` takes effect at all.** Docker's reference says `mode` is
-ignored for bind-mounted config content, which is how a `content:` config is delivered. It
-parses and is preserved; that is all that was measured. Set it and read the entrypoint's own
-log line, which says `running` or `sourcing`, and record which you got. Either outcome comes
-up: run means executed cleanly, sourced means the script's `set -eu` stays set in the
-entrypoint's shell for the rest of initialisation. That hazard is **latent, not live** —
-nothing the entrypoint executes afterwards dereferences an unset variable today, and the
-maintainers' own `# TODO swap to -Eeuo pipefail` on line 3 is the shape of it. Also
-unverified: that `service_completed_successfully` behaves as described on the installed
+
+**Settled in round 2 by execution, and no longer yours to verify: `mode: 0555` takes
+effect.** The config lands `-r-xr-xr-x` and the entrypoint logs `running`, not `sourcing`, so
+the script runs as a child process and its `set -eu` does not leak into the entrypoint's
+shell. Docker's "mode is ignored for bind-mounted config content" does not apply. Set the
+mode and move on. Also settled: `pg_hba.conf`'s loopback `trust` line, above.
+
+Still unverified and yours: **that a compose service resolves its own name from inside its
+own container**, which the new Postgres probe depends on and which fails loudly (see the
+health section); that `service_completed_successfully` behaves as described on the installed
 Compose; that `next start` in the runtime stage works with a prod install rather than a
 standalone build; and that `.dockerignore`'s recursion behaves as described, which needs a
 build to confirm. The `node -e` probe strings **were** checked and are fine as written.

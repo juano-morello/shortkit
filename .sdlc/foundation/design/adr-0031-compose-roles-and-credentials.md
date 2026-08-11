@@ -113,12 +113,14 @@ line 3 of that entrypoint carries their own
 sourcing works today. `mode: 0555` asks for the cleaner of two working paths rather than
 avoiding a live failure.
 
-**And whether the mode takes effect is not established.** Docker's reference says `mode` is
-ignored for bind-mounted config content, which is how Compose delivers a `content:` config.
-The setting parses and is preserved by `docker compose config`; that is all that was
-measured. Either outcome comes up: honoured means executed cleanly, ignored means sourced,
-which is a supported path with its own branch in the entrypoint. This question sits on
-TASK-059's unverified list, not in this Decision.
+**The mode takes effect. Measured 2026-08-11 (TASK-059 red step).** Docker's reference says
+`mode` is ignored for bind-mounted config content, which is how Compose delivers a
+`content:` config, and that reservation is what kept this on the unverified list. It does not
+apply here. A `content:` config mounted at `/docker-entrypoint-initdb.d/10-roles.sh` with
+`mode: 0555` lands as `-r-xr-xr-x` and the entrypoint logs
+`running /docker-entrypoint-initdb.d/10-roles.sh`, not `sourcing`. So the script executes as
+a child process, its `set -eu` does not leak into the entrypoint's shell, and the latent
+hazard above does not arise. Docker 29.7.2, Compose v5.4.0, `postgres:17-alpine`.
 
 Five more details are load-bearing:
 
@@ -157,9 +159,11 @@ scratch file:
   `--username "" -v migrator_password="" -v app_password=""`. libpq treats an empty user as
   unset and connects as `postgres`, PostgreSQL answers `PASSWORD ''` with a NOTICE rather
   than an error, `ON_ERROR_STOP=1` does not fire, and the script exits 0. Both roles exist
-  with a password no other part of the stack believes was set. Nothing can authenticate,
-  Postgres never goes healthy, and the only diagnostic is three warnings at the top of the
-  `up` output.
+  with a password no other part of the stack believes was set, and the only diagnostic at
+  that moment is three warnings at the top of the `up` output. **What the stack does next is
+  ADR-0036's to state.** This ADR used to state it too, and stated it wrongly: see that ADR's
+  section "What the F-315 and F-316 defects actually do, measured", which is now the one
+  normative account (corrected 2026-08-11, F-357).
 - Escaped, `$$POSTGRES_USER` is not a reference at all. Compose's interpolation lexer
   consumes `$$` as an escape before it ever looks for a name.
 
@@ -224,6 +228,13 @@ Every published port binds `127.0.0.1` explicitly: `127.0.0.1:55432:5432` for Po
 `127.0.0.1:3001:3001` for the API, `127.0.0.1:3000:3000` for the web app. 55432 sits beside
 the test stack's 55433 and is not 5432, so a Postgres already running on the developer's
 machine is neither shadowed nor connected to by accident.
+
+**A distinct port is not what keeps the two stacks apart. Corrected 2026-08-11 (F-356).** The
+sentence above is true of a foreign Postgres and was false of this repository's own test
+stack. Compose identifies a container by project plus service and not by port, and both files
+sit in one directory and both name a service `postgres`, so distinct ports did nothing to
+stop `docker compose up` at the root from recreating the integration suite's container.
+`name: shortkit-dev` in `docker-compose.yml` is what separates them (ADR-0032).
 
 **`docker-compose.yml` carries its own banner, in the same form as the test file's:**
 
@@ -294,7 +305,11 @@ It stops being safe under two conditions, and both are stated so they can be wat
 - **The shell layer is a shell script inside a YAML string.** It is not linted, not
   shellchecked, and a syntax error there surfaces as a Postgres container that starts and
   has no roles. The health probe in ADR-0036 is what turns that into a visible failure
-  rather than a confusing one.
+  rather than a confusing one. The scope of that is narrower than it reads. A missing role is
+  caught by either form of the probe, because `trust` still requires the role to exist. A
+  role that exists and cannot authenticate, which is what the interpolation defect produces,
+  was reported **healthy** by the loopback form this cluster specified until 2026-08-11
+  (F-357).
 - **The `$$` escaping is invisible in the rendered file and has no precedent to copy.**
   `docker compose config` prints `$$`, so reading the rendered output does not tell you
   whether the escaping is right; only running the container does.
