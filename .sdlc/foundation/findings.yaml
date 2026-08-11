@@ -12754,3 +12754,59 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-379
+  phase: implement
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: scripts/check-compose-stack.sh
+  line: 207
+  summary: >-
+    THE NOTICE LOOP PRINTS THE VALUE OF POSTGRES_SUPERUSER_PASSWORD TO STDERR - and the correct
+    pattern, name only, already exists TWENTY LINES UP IN THE SAME FILE.
+  failure_scenario: >-
+    ORCHESTRATOR-CONFIRMED at :207: `printf 'note: $%s is exported (%s)...' "$noisy" "${!noisy}"`.
+    The auditor reproduced it verbatim - `note: $POSTGRES_SUPERUSER_PASSWORD is exported
+    (hunter2-real-prod-password).` The loop runs before any Docker call.
+    THE ATTACKER IS NOT AT THE KEYBOARD. The path is that the new .env.example invites overriding
+    that variable BY NAME, and this repository's convention is to paste check output verbatim into a
+    committed report in a public repo. Lines 180-189 handle the same class correctly - name, no
+    value - so the fix is to match the pattern already in the file.
+  required_change: Print the name, not the value. One line.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-380
+  phase: implement
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/foundation/design/adr-0040-trusted-client-address-is-declared-and-may-be-absent.md
+  line: 167
+  summary: >-
+    ADR-0040 GATES ITS BOOT ASSERTION ON `NODE_ENV === 'production'` AND SAYS "there is no
+    production". `Dockerfile:83` IS `ENV NODE_ENV=production`, IN THE IMAGE COMPOSE RUNS.
+  failure_scenario: >-
+    ORCHESTRATOR-CONFIRMED both halves. Nothing is exploitable today - the assertion is unwritten
+    and TASK-009 is deferred - but the ADR's two supporting claims are false against the artifact
+    shipped in the same window, and it was accepted TODAY.
+    WHEN TASK-009 LANDS, `docker compose up` REFUSES TO BOOT `api`, and the three cheapest repairs
+    are all bad: declare a header in a stack with no stripping hop; set NODE_ENV=development, WHICH
+    SILENTLY DISABLES EVERY PRODUCTION-GATED ASSERTION INCLUDING assertBffProxySecretConfigured; or
+    widen the gate. The middle one is the one a developer reaches for at 6pm.
+    Found in design mode on an ADR accepted inside the diff under review - the auditor was auditing
+    TASK-059 and read the ADR its own compose file depends on.
+  required_change: >-
+    ESCALATED TO JUANO - the gate choice is his, not the architect's. The question is what the
+    assertion is gated on, given that the local stack legitimately runs the production image.
+  owner_slot: sdlc-architect
+  status: escalated
+  resolved_by: null
+  resolved_round: null

@@ -63,7 +63,17 @@ tasks:
 # TASK-011, TASK-012, TASK-054, TASK-058. They stay in findings.yaml (append-only), parked
 # with the deferral rather than closed.
 
-escalations: []
+escalations:
+  - task: TASK-059
+    findings: [F-380]
+    raised: 2026-08-11
+    reason: >-
+      ADR-0040 gates its boot assertion on NODE_ENV === 'production' and states "there is no
+      production". Dockerfile:83 is ENV NODE_ENV=production, in the image compose runs. Both halves
+      confirmed by the orchestrator. Nothing is exploitable today - the assertion is unwritten and
+      TASK-009 is deferred - but when it lands, `docker compose up` refuses to boot api, and the
+      cheapest repair a developer reaches for is NODE_ENV=development, which silently disables every
+      production-gated assertion including assertBffProxySecretConfigured. THE GATE CHOICE IS JUANO'S.
 # F-320 CLEARED 2026-08-11 by Juano's boot-assertion ruling. ADR-0040 and
 # design/contracts/trusted-client-address.md. One judgement inside it - what a null principal
 # means for the @Public() bucket - is put back to Juano rather than settled by the architect.
