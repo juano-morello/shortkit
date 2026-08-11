@@ -37,8 +37,15 @@ so the check runs over the same connection the API uses rather than over the own
 the migrator DSN and it runs as the owner instead, which is not what it was written to
 assert.
 
-For local work, `DATABASE_URL` and `DATABASE_MIGRATION_URL` point at the container in
-`docker-compose.test.yml`; the header of that file has the two exports.
+There are two local databases and they are different databases. For work against the
+integration suite's container, `DATABASE_URL` and `DATABASE_MIGRATION_URL` point at
+`docker-compose.test.yml` on port 55433; the header of that file has the two exports. The
+development stack (`docker-compose.yml`, port 55432, database `shortkit`) applies its own
+migrations as part of `docker compose up` and needs neither export.
+
+`db:seed` reads `DATABASE_URL` and **refuses any database that is not named `shortkit`**,
+which is what keeps the demo tenant out of `shortkit_test` when it is run from a shell
+that exported the suite's DSN.
 
 ## Policies are appended by hand
 
@@ -75,8 +82,13 @@ Two consequences:
 - A change to an applied migration needs a **new** migration. That is true of policy
   DDL, of a column type, of anything.
 - If you are still iterating locally and want the old file to be the one that runs, drop
-  the database and re-apply from scratch: `docker compose -f docker-compose.test.yml
-  down -v`, then `up -d --wait`, then `db:migrate`.
+  the database and re-apply from scratch. Which command depends on which database:
+  - integration suite: `docker compose -f docker-compose.test.yml down -v`, then
+    `up -d --wait`, then `db:migrate`;
+  - development stack: `docker compose down -v`, then `docker compose up`. The `migrate`
+    service re-applies everything against the empty volume. `down -v` and nothing weaker:
+    the volume is what holds the already-applied state, and it survives
+    `docker compose down` (ADR-0032).
 
 ## Running the integration suite wipes the migrated tables
 
@@ -115,43 +127,57 @@ conflict instead of producing a plausible wrong file.
 The regenerated migration has a different filename and hash from the one you tested on
 your branch. Anyone who applied the old one locally has to drop and recreate too.
 
-## At deploy
+## In the local stack
 
-`infra/deploy.sh` runs the migration. **There is no Fly release command, and there
-deliberately never will be.** `fly.toml` carries the settlement beside the absent
-`release_command`. A release command runs inside the built image, and `drizzle-kit` is a
-devDependency that the runtime stage's `pnpm install --prod` does not install, so
-`pnpm --filter @shortkit/api db:migrate` would fail at deploy time rather than at build
-time. Promoting `drizzle-kit` to a dependency loses on two counts: it puts
-GHSA-67mh-4wv8-2f99 into the production dependency graph through a non-optional edge,
-which fails `pnpm audit --prod --no-optional --audit-level moderate` and so blocks every
-merge; and it falsifies `docs/security/known-advisories.md`, whose reason for accepting
-that advisory is that no copy of `drizzle-kit` is deployed.
+**There is no deploy, and there is no deploy target** (ADR-0030). `fly.toml` and
+`infra/deploy.sh` are deleted; nothing in this repository ships the API anywhere. The one
+place migrations run outside a developer's shell is `docker compose up`.
 
-The script builds the image locally, applies the migration from the working copy as
-`shortkit_migrator`, then calls `fly deploy`. Migrations do not run from application
-boot, so machines starting together cannot race, and a failed migration blocks the
-deploy: `set -e` stops the script before it reaches `fly deploy`.
+`docker-compose.yml` runs them as a **one-shot `migrate` service** built from the
+`migrator` stage of the root `Dockerfile` (ADR-0033). The chain is:
 
-**Deploy through the script, never through bare `fly deploy`.** Three costs come with
-running the migration outside the platform:
+```
+postgres  healthy
+  -> migrate  drizzle-kit migrate, as DATABASE_MIGRATION_URL (shortkit_migrator)
+    -> seed   node apps/api/scripts/seed.mts, as DATABASE_URL (shortkit_app)
+      -> api
+```
 
-1. **The migrator credential moves off the platform and onto a workstation.** A release
-   command would have read `DATABASE_MIGRATION_URL` from Fly secrets, where the platform
-   holds it. Migrating from the working copy means the DSN of `shortkit_migrator`, the
-   role that owns every table and can run any DDL including `DROP`, lives in a
-   developer's shell instead. Keep it out of shell history and out of any committed
-   `.env`. The integration suite's copy points at a throwaway container, and the script
-   refuses a loopback target so the two cannot be confused.
-2. **Ordering.** Migrating before deploying means a failed image build could leave DDL
-   applied with the **old** image still serving. The script therefore builds the image
-   locally, from the same Dockerfile and the same tree, before it applies any DDL. The
-   residual gap is a build that succeeds locally and fails on Fly's builder, and that gap
-   is accepted.
-3. **Nothing but the script sequences the two.** `fly deploy` run by hand deploys code
-   against whatever schema is live. Nothing reports it: `/health` touches no database, so
-   it answers 200 and Fly's check passes while every DB-backed request 500s. On the
-   redirect path that is GC-8.
+Three things about that are decisions rather than convenience:
 
-Write migrations to be transactional where you can. A deploy that fails halfway through a
-non-transactional migration leaves the database in a state no file describes.
+1. **A separate image stage, because the API image cannot migrate.** The runtime stage
+   installs production dependencies only, and `drizzle-kit` is a devDependency. The
+   `migrator` stage is `FROM build`, so it has it, and it is marked NOT DEPLOYABLE in the
+   `Dockerfile` for the same reason: it carries the esbuild advisory that
+   `docs/security/known-advisories.md` accepts on the grounds that no copy of
+   `drizzle-kit` is deployed.
+2. **Never in `/docker-entrypoint-initdb.d`.** Postgres runs those files as the bootstrap
+   superuser, so every table would be owned by `postgres`,
+   `ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator` would apply to none of them, and
+   `shortkit_app` would get nothing. It also runs once and never again, and
+   `__drizzle_migrations` would not know the migration had been applied.
+3. **The seed runs as `shortkit_app`, and that is the grant check.** Migrating as any
+   identity other than `shortkit_migrator` produces tables the runtime role cannot touch.
+   That fails closed, but on its own it fails at runtime, inside whatever feature first
+   reads the table. The seed's insert turns it into `permission denied for table tenants`
+   during `docker compose up`, before the API starts, with the failing service named.
+
+`db:check-policies` is **not** in that chain. CI's integration job runs it, and AC-115
+does not ask for it. If it is ever added it belongs as a third one-shot service between
+`seed` and `api`, reading `DATABASE_URL`, for the reason above about running it as the
+runtime role.
+
+## What constrains any deploy target that is chosen later
+
+Six constraints are platform-independent and survive the deletion of the Fly artifacts.
+They are recorded once, in ADR-0030's "What survives the deletion", rather than restated
+here: migrations cannot run inside the production image, they do not run from application
+boot, a failed migration must block the deploy, the image must build before any DDL is
+applied, `GET /health` touches no database and cannot gate a deploy on its own, and boot
+spends up to 20 seconds reaching the database before it refuses.
+
+Whoever chooses a platform reads that list first. This document is the local procedure.
+
+Write migrations to be transactional where you can. A run that fails halfway through a
+non-transactional migration leaves the database in a state no file describes, and
+`docker compose down -v` is then the only repair.
