@@ -1,424 +1,557 @@
-# Integration report: launch-core wave 1
+# Integration report: foundation
 
-**This is an intermediate integration, not the Ship phase.** Juano ruled it on 2026-08-06:
-merge `feat/launch-core` into `main`, then continue to wave 2. No release changelog and no
-end-to-end acceptance pass against the eight success criteria appear here, because 53 of 58
-TASK cards are unimplemented and SC-2, SC-3 and SC-7 have no implementing TASK yet. That
-work belongs to the real Ship phase.
+Ship step 2. Full-system verification of all ten TASKs together, not per-TASK re-runs.
+
+The previous occupant of this path was the 2026-08-06 wave-1 intermediate integration
+report. It was not overwritten. It now lives at
+`.sdlc/foundation/ship/integration-report-wave-1.md`, unmodified.
 
 | | |
 |---|---|
-| Verified at | 2026-08-06 |
-| Branch | `feat/launch-core` @ `734b56e` |
-| Base | `origin/main` @ `cee06e4` |
-| Scope | TASK-001 (wave 0), TASK-002, TASK-004, TASK-005, TASK-007 (wave 1) |
+| Verified at | 2026-08-11, 19:31 to 19:47 local (UTC-3) |
+| Branch | `main` |
+| HEAD when the run started | `e40bbd9` |
+| HEAD when the run ended | `6a90d35` |
+| Last commit touching non-`.sdlc` source | `6916a24`, 2026-08-11 19:09 |
 | Verifier | `sdlc-integrator` |
+| Verdict | **changes-requested** |
 
-## The merge base question
+## What tree this measured, exactly
 
-Juano asked for the suite on the merge result rather than on the branch tip. The two are the
-same tree here, and that is established rather than assumed.
+HEAD moved three times during the run. Every one of those commits touched only `.sdlc/`:
+`e40bbd9`, `fe05ed5`, `6a90d35` are all `docs(sdlc)` or `docs(design)`. The last commit to
+change any file under `apps/`, `packages/`, `scripts/`, `docs/`, the Dockerfiles or either
+compose file is `6916a24` at 19:09, twenty-two minutes before the first command below ran.
+So every number here was measured against one source tree, and `git diff --name-only
+fe05ed5..HEAD` confirms it: three `.sdlc` paths and nothing else.
 
-`origin/main` is a direct ancestor of `HEAD`: 0 behind, 104 ahead. `git merge-tree
---write-tree origin/main HEAD` exits 0 with no conflicted paths and produces tree
-`87926071bce41db40a696a96fa95a96221a7bec0`, which is byte-identical to `HEAD^{tree}`.
+**After the last measurement, the tree went dirty and this report does not cover it.**
+`git status --porcelain` at 19:47 reads:
 
-The merge is a clean fast-forward. **No rebase is needed.** Every result below was produced
-against the exact tree the merge will publish.
+```
+ M README.md
+ M package.json
+```
 
-## Verification
+Those are an implementer's in-flight fixes for F-388 (README, open blocker) and F-390
+(wiring `check-compose-stack.sh` into `package.json` as `test:compose`). Nothing in this
+report was run against them. The report's evidence stops at the committed tree.
 
-| Check | Command | Result | Notes |
-|---|---|---|---|
-| Merge cleanliness | `git merge-tree --write-tree origin/main HEAD` | **PASS** | Exit 0, no conflicts. Merged tree equals `HEAD^{tree}`. |
-| Unit suite | `pnpm test` | **PASS** | 8 files, 65 tests, 556ms. Covers api, web and contracts. |
-| Integration suite | `pnpm test:integration` | **PASS** | 21 tests, 28.13s, against the live container. |
-| e2e suite | none | **SKIPPED** | No e2e suite exists. No Playwright, Cypress or Puppeteer in any manifest and no `e2e/` directory. Nothing to run. |
-| Lint | `pnpm lint` | **PASS** | Exit 0. |
-| Typecheck | `pnpm typecheck` | **PASS** | Root program plus 3 workspace projects, all Done. |
-| Build | `pnpm build` | **PASS** | api via tsup (`dist/main.js`, 565.74 KB); web via Next 16.3.0, 3 static routes. |
-| Coverage | none | **SKIPPED** | `testing.coverage_gate` is `null` in `.sdlc/config.yaml:50`. No coverage tooling installed and no threshold chosen, so there is no gate to measure against. |
-| Production audit | `pnpm audit --prod --audit-level moderate` | **PASS** | "No known vulnerabilities found". This is the merge-blocking audit. |
-| Whole-tree audit | `pnpm audit --audit-level moderate` | **FAILS, EXPECTED** | Exit 1 on GHSA-67mh-4wv8-2f99 (esbuild via drizzle-kit). Accepted and assessed in `docs/security/known-advisories.md`. See "What changes on merge" below. |
-| Migration forward, compose route | `db:migrate` on a `down -v` container | **PASS** | Exit 0. See "Migrations". |
-| Migration forward, CI route | `.github/scripts/provision-test-database.sql` then `db:migrate` | **PASS** | Run on a bare `postgres:17-alpine`. Both roles created `NOBYPASSRLS`. This SQL had never executed anywhere before now. |
-| Migration rollback | none | **NO ROLLBACK EXISTS** | Not a pass and not a skip. See "Migrations". |
-| Migrator compares timestamps | edited copy of an applied migration | **CAVEAT CONFIRMED** | Reported "migrations applied successfully!", exit 0, executed nothing. See "Migrations". |
-| Fixture wipes migrated tables | catalog inspection after the suite | **CAVEAT CONFIRMED** | Schema `public` holds 0 tables afterwards; `db:migrate` does not repair it. See "Migrations". |
-| RLS gate, positive | `pnpm db:check-policies` on a freshly migrated DB | **PASS** | `ok tenants`, exit 0. |
-| RLS gate, negative | 6 constructed databases | **PASS on 5, GAP on 1** | Exercised, not assumed. See "The RLS gate". |
-| Startup / smoke, API | `node dist/main.js` | **PASS** | Boots, listens, serves. See "Startup". |
-| Startup / smoke, production | `curl` the Vercel URL | **PASS** | HTTP 200, `text/html; charset=utf-8`, 0.234s. Verified fresh, not quoted. |
-| CI integration job, reproduced | migrate, check-policies, suite, collection assert | **PASS** | Run locally in CI's exact order. All four steps exit 0. |
-| AC-113 inlined-secret guard | `pnpm --filter @shortkit/web assert:no-secrets` | **PASS, WEAKENED** | Checked 54 files, no leaked value. Its positive control is inactive (F-171); it proves absence of the secret but not build/check environment agreement. Activates at TASK-008. |
-| AC-14 contract drift | `node .github/scripts/assert-contract-drift.mjs` | **PASS** | 2 mutations, each broke the consuming workspace's typecheck. Tree confirmed clean afterwards by `git diff --exit-code`. |
-| AC-114 collection assert | `node .github/scripts/assert-integration-collected.mjs` | **PASS** | Green on the real report (21 executed of 21 collected); exit 1 on a constructed zero-test report. |
-| Backward compatibility | none | **NOT APPLICABLE** | Stated rather than skipped. Nothing consumes these contracts. `main` is the scaffold commit; `@shortkit/contracts` has exactly two consumers, both inside this repo and both in this merge. No external client, no published package, no deployed API. No coordinated deploy is required. |
-| GC-4 authorship | `git log` scan of all 104 commits | **PASS** | Zero matches for `Co-Authored-By: Claude`, "Generated with Claude Code", the robot emoji, or "anthropic". All 104 commits authored by `Juano <me@juanomorello.dev>`. |
-| CI itself | GitHub Actions | **NOT VERIFIED** | No Actions run stands behind the final commits. Runners were backed up over an hour and every recent run was cancelled by a superseding push. Local verification in this report is currently the only verification. |
+## What ran
 
-## Migrations
+| # | Check | Command | Result | Evidence |
+|---|---|---|---|---|
+| 1 | Unit suite | `pnpm test` | **PASS** | 18 files, 189 tests, 189 passed, 0 failed, 1.28s |
+| 2 | Integration suite | `DATABASE_URL=... DATABASE_MIGRATION_URL=... pnpm test:integration` | **PASS** | 3 files, 62 tests, 62 passed, 0 failed, 200.92s |
+| 3 | Typecheck | `pnpm typecheck` | **PASS** | exit 0; root, `packages/contracts`, `apps/api`, `apps/web` all clean |
+| 4 | Lint | `pnpm lint` | **PASS** | exit 0, no output |
+| 5 | Build | `pnpm build` | **PASS** | exit 0; `apps/api` tsup `dist/main.js` 585.99 KB, `apps/web` next build 3 static routes |
+| 6 | RLS gate | `pnpm --filter @shortkit/api db:check-policies` | **PASS** | exit 0, `ok tenants`, 1 table protected, 5 exemptions unevaluated (tables absent) |
+| 7 | RLS gate in documented order | same, on a freshly migrated clean database | **PASS** | exit 0, same output; see "Migrations" |
+| 8 | AC-115 compose stack | `./scripts/check-compose-stack.sh` | **PASS** | exit 0, **all 15 clauses PASS** |
+| 9 | Migrations forward, clean DB | `db:migrate` against an empty database | **PASS** | 1 migration file, applied, `tenants` owned by `shortkit_migrator`, `rowsecurity=t`, 4 policies |
+| 10 | Migration rollback | none exists | **FINDING** | see INT-001 |
+| 11 | Startup / smoke | `GIT_COMMIT_SHA=$(git rev-parse HEAD) docker compose up -d --build --wait` | **PASS** | exit 0; api, web, postgres all healthy |
+| 12 | `GET /health` on the composed API | `curl http://127.0.0.1:3001/health` | **PASS** | `HTTP=200`, body `{"status":"ok","commit":"fe05ed5f821164386eb7df1f562e9cd5e90087ba"}` |
+| 13 | Two-stack coexistence (F-356) | dev stack up while the test stack runs | **PASS** | test container id and `RestartCount` unchanged; see below |
+| 14 | Wrong-identity migration fails closed | migrate as the bootstrap superuser, then `up` | **PASS** | seed exits 1 on `permission denied for table tenants`; api never leaves `Created` |
+| 15 | Contract drift, contracts to consumers | `node .github/scripts/assert-contract-drift.mjs` | **PASS** | exit 0, 2 mutations, each breaks exactly the consuming workspace |
+| 16 | Inlined-secret guard (AC-113) | `BFF_PROXY_SECRET=<probe> pnpm --filter @shortkit/web assert:no-secrets` | **PASS** | exit 0, 54 files checked across `.next/static` (9) and `.next/server/app` (45) |
+| 17 | Production dependency audit | `pnpm audit --prod --no-optional --audit-level moderate` | **PASS** | exit 0, `No known vulnerabilities found` |
+| 18 | GC-8, unresolvable request is not 5xx | curl probes on the composed artifacts | **PASS** | see below |
+| 19 | GC-4, no AI attribution | `git log --all` scan | **PASS** | 0 hits for `Co-Authored-By: Claude`, `Generated with Claude`, or the robot emoji, across all history |
+| 20 | Coverage gate | `testing.coverage_gate` | **UNSET** | see "Coverage" |
+| 21 | Backward compatibility | judged | **NOT APPLICABLE** | see "Backward compatibility" |
 
-### Forward
+### 1. Unit suite
 
-Clean and repeatable. Verified twice by two independent provisioning routes.
+```
+Test Files  18 passed (18)
+     Tests  189 passed (189)
+```
 
-Against a `docker compose down -v` container, `db:migrate` exits 0 and produces `tenants`
-with `relrowsecurity = t`, `relforcerowsecurity = t`, and all four hand-appended policies
-present with the right commands: `tenants_self_select` (r), `tenants_self_update` (w),
-`tenants_self_insert` (a), `tenants_privileged_erase` (d). The UPDATE policy carries both
-`USING` and `WITH CHECK`. One row lands in `drizzle.__drizzle_migrations`.
+The pino error envelopes printed to stderr during `exception-filter.spec.ts` are the specs
+asserting on their own log output, not failures.
 
-Against a bare `postgres:17-alpine` provisioned by `.github/scripts/provision-test-database.sql`,
-the same migration applies and the same policy check passes. That SQL is a TASK-002 artifact
-that had never run, in CI or anywhere else, until this verification.
+### 2. Integration suite
 
-### Rollback
+```
+Test Files  3 passed (3)
+     Tests  62 passed (62)
+  Duration  200.92s
+```
 
-**There is none.** Stating it plainly, as asked.
+`test/isolation/cross-tenant-isolation.int-spec.ts` (29), `test/tenancy/tenant-context.int-spec.ts`
+(25), `test/security/security-headers.int-spec.ts` (8). Run against the standing test stack,
+Compose project `shortkit`, port 55433.
 
-Drizzle Kit generates no down migrations. `apps/api/drizzle/` holds one `.sql`, one snapshot
-and `_journal.json`, and nothing else. No `db:down`, `db:rollback` or `db:revert` script
-exists in any manifest. Grepping the migration directory for down, rollback or revert
-returns nothing.
+**The isolation suite's own coverage boundary still applies and this run does not widen it.**
+It passes over two tables, `tenants` and `rls_fixture_rows`, which is every table this
+repository has, and enumerates ten repository-method surfaces with no routes and no
+repositories, because none exist. Green here does not mean the system has no uncovered
+cross-tenant surface. The suite prints that on every run and it is restated here rather
+than dropped.
 
-For local and test databases the reset is `docker compose -f docker-compose.test.yml down -v`,
-then `up -d --wait`, then `db:migrate`. The container stores its data in tmpfs, so this costs
-seconds and loses nothing anyone wanted.
+### 8. AC-115, fifteen clauses
 
-For production there is no equivalent, and no production database exists yet. The Fly release
-command runs `db:migrate` before a machine takes traffic, so a failed migration blocks the
-deploy. Undoing an applied migration would be hand-written SQL against a live database, with
-the `__drizzle_migrations` row deleted by hand so the migrator will re-apply. Nothing in the
-repo automates or tests that path.
+`./scripts/check-compose-stack.sh` exited **0**. Exit 2 would have meant nothing was
+measured; it did not occur.
 
-This is not a finding for this merge. The migration is additive, it creates one table, and no
-production database has it applied. It is recorded so nobody later reads "migrations verified"
-as "rollback verified". No ADR claims a rollback path exists, so nothing was accepted and
-then broken.
+```
+AC-115.0 PASS  a compose file exists at the repository root and Compose can parse it
+AC-115.1 PASS  the stack comes up from a clean state with one command
+AC-115.2 PASS  Postgres reaches a healthy state
+AC-115.3 PASS  the API reaches a healthy state
+AC-115.4 PASS  the web app reaches a healthy state
+GUARD-1  PASS  shortkit_app authenticates over TCP with the fixture password
+GUARD-2  PASS  shortkit_app is refused over TCP with a wrong password
+AC-115.5 PASS  the migrations have been applied: table public.tenants exists in database shortkit
+AC-115.6 PASS  1 migration(s) recorded applied for 1 migration file(s)
+AC-115.7 PASS  the demo tenant 00000000-0000-4000-8000-000000000001 is present and readable by shortkit_app
+AC-115.8 PASS  GET /health returned 200
+AC-115.9 PASS  the response body has status "ok"
+DOD-1    PASS  a second `up` against the existing volume returned 0
+DOD-2    PASS  tenants held 1 row(s) before and after the second up
+DOD-3    PASS  tenants still holds 1 row(s) after 'docker compose restart'
 
-### Caveat 1: the migrator compares timestamps, not hashes
+AC-115: GREEN. Every clause passed.
+```
 
-`docs/architecture/migrations.md` says appending to an already-applied migration is a silent
-no-op. Confirmed empirically, without modifying the repository.
+The script's own teardown ran `docker compose down -v --rmi local --remove-orphans` against
+project `shortkit-dev`. The standing test stack came through it untouched, which is check 13.
 
-A copy of `apps/api/drizzle/` was made in a scratch directory, `CREATE TABLE caveat1_probe`
-was appended to the already-applied `0000_odd_betty_ross.sql`, and `drizzle-kit migrate` ran
-against the already-migrated database through a scratch config. It printed **"migrations
-applied successfully!"** and exited 0. `caveat1_probe` was never created and
-`__drizzle_migrations` still held exactly 1 row.
+### 9. Migrations forward on a clean database
 
-The caveat holds exactly as documented. Editing an applied migration reports success and does
-nothing.
+The standing test container had to survive, so this was not run by recreating it. A scratch
+database was created inside the live container with the same ownership and default-privilege
+setup the init script gives `shortkit_test`:
 
-### Caveat 2: the integration fixture wipes the migrated tables
+```
+CREATE DATABASE shortkit_fwdcheck OWNER shortkit_migrator;
+GRANT USAGE ON SCHEMA public TO shortkit_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO shortkit_app;
+```
 
-Also confirmed. After `pnpm test:integration`, schema `public` held **zero tables**, not an
-unprotected `tenants`. Re-running `db:migrate` printed "migrations applied successfully!",
-exited 0, and left schema `public` still empty. `db:check-policies` against that database then
-failed correctly with exit 1 and "schema public holds no tables".
+`db:migrate` against it: `migrations applied successfully`, exit 0. Then `db:check-policies`
+in the order `docs/architecture/migrations.md` says to run it, after migrate and before the
+suite, exit 0. Catalog state read back as `shortkit_migrator`:
 
-Both caveats hold. Together they make CI's step ordering load-bearing, and `.github/workflows/ci.yml`
-gets it right: `db:migrate`, then `db:check-policies`, then the suite. Reordering those three
-would produce a green job that asserted nothing.
+```
+ Schema |  Name   | Type  |       Owner
+ public | tenants | table | shortkit_migrator
 
-## The RLS gate
+ tablename |        policyname        |  cmd
+ tenants   | tenants_privileged_erase | DELETE
+ tenants   | tenants_self_insert      | INSERT
+ tenants   | tenants_self_select      | SELECT
+ tenants   | tenants_self_update      | UPDATE
 
-`pnpm db:check-policies` passes against a freshly migrated database: `ok tenants`, exit 0, with
-the four Better Auth exemptions correctly reported as not evaluated because those tables do not
-exist yet.
+ tablename | rowsecurity
+ tenants   | t
+```
 
-It was also made to fail, on six constructed databases, rather than trusted to.
+`shortkit_fwdcheck` was dropped afterwards. AC-115.5 and AC-115.6 covered the same ground
+independently, through `docker compose up` against an empty named volume.
 
-| Case | Expected | Actual |
+The check on line 6 of this table was run after the integration suite, which
+`migrations.md` warns leaves the database holding a fixture-built `tenants`. It passed, and
+the clean-database run on line 7 is the one that carries the claim.
+
+### 10. Rollback
+
+**No down-migration mechanism exists in this repository. Stated explicitly because silence
+here would be the wrong answer.**
+
+- `apps/api/drizzle/` holds one file, `0000_odd_betty_ross.sql`, forward DDL only. It
+  contains no down section and no `DROP`.
+- `drizzle-kit`'s command list is `generate, migrate, introspect, push, studio, up, check,
+  drop, export`. `drop` removes a migration file from the journal folder. It does not touch
+  a database. There is no `down`.
+- `docs/architecture/migrations.md` does not use the words rollback, down migration,
+  revert or reversible anywhere. Neither does ADR-0004.
+- The only documented way back to a previous schema state is destructive:
+  `docker compose down -v` then `up`, or `docker compose -f docker-compose.test.yml down -v`
+  then `up -d --wait` then `db:migrate`. Both discard all data.
+
+ADR-0004 does not explicitly accept irreversibility. It accepts an adjacent cost, a
+half-applied non-transactional migration, and says nothing about reversing a fully applied
+one. Filed as INT-001 below. It is mitigated rather than resolved by ADR-0030: there is no
+deploy target and no production database, so today the only thing a rollback would recover
+is a developer's local volume.
+
+### 11 and 12. Startup and smoke
+
+Built and brought up with real provenance:
+
+```
+GIT_COMMIT_SHA="fe05ed5f821164386eb7df1f562e9cd5e90087ba" docker compose up -d --build --wait
+```
+
+exit 0. Container states and published ports:
+
+```
+shortkit-dev-api-1       api        Up (healthy)   127.0.0.1:3001->3001/tcp
+shortkit-dev-postgres-1  postgres   Up (healthy)   127.0.0.1:55432->5432/tcp
+shortkit-dev-web-1       web        Up (healthy)   127.0.0.1:3000->3000/tcp
+```
+
+`GET http://127.0.0.1:3001/health` returned `HTTP=200`,
+`application/json; charset=utf-8`, body:
+
+```json
+{"status":"ok","commit":"fe05ed5f821164386eb7df1f562e9cd5e90087ba"}
+```
+
+That is the ADR-0027 and ADR-0037 seam holding across TASK-003 and TASK-059: the sha the
+build was given is the sha `/health` reports, and it is not the forty-zero sentinel.
+`GET http://127.0.0.1:3000/` returned `HTTP=200`.
+
+`assertBootPreconditions()` had a reachable Postgres carrying NOBYPASSRLS roles throughout,
+so F-116 had nothing to refuse and the api container went healthy. No boot failure occurred.
+
+Security headers on the composed API response, read live rather than from the spec:
+`Content-Security-Policy`, `Cross-Origin-Opener-Policy: same-origin`,
+`Cross-Origin-Resource-Policy: same-origin`, `Referrer-Policy: no-referrer`,
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`,
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 0`.
+
+The stack was torn down with `docker compose down -v` afterwards.
+
+### 13. The two stacks genuinely coexist (F-356)
+
+The test container's identity was recorded before any compose work and re-read three times:
+after the AC-115 script (which runs `down -v --rmi local --remove-orphans`), after the dev
+stack came up alongside it, and after the final teardown.
+
+```
+Id=729b1105e4d7aad7c6bf0c7fa5c74c8fcfa91855da230efef013d68bedd48f13
+RestartCount=0
+StartedAt=2026-08-11T19:37:26  (unchanged across all four reads)
+Health=healthy
+```
+
+With both stacks up at once:
+
+```
+NAME           STATUS         CONFIG FILES
+shortkit       running(1)     docker-compose.test.yml
+shortkit-dev   running(3)     docker-compose.yml
+```
+
+Ports 55433 and 55432 bound simultaneously. A query issued as `shortkit_app` against
+`shortkit_test` returned `test-stack-alive` after the dev stack was up, and again after it
+was torn down with `down -v`. The test container was neither recreated nor removed at any
+point. F-356's property holds.
+
+The mechanism is `name: shortkit-dev` at `docker-compose.yml:74`, and
+`check-compose-stack.sh` additionally refuses to take over a project holding containers
+from a foreign compose file rather than trusting the port separation.
+
+### 14. Wrong-identity migration fails before the API starts
+
+The claim under test is `docs/architecture/migrations.md`: the seed connects as
+`shortkit_app` on purpose, so a stack migrated as any other identity fails there rather
+than inside whatever feature first reads the table. Tested both entry points.
+
+**Entry point A, the documented one.** Clean volume, `up` with the migrate service's
+`DATABASE_MIGRATION_URL` overridden to the bootstrap superuser through an override file
+outside the repository. Result:
+
+```
+service "seed" didn't complete successfully: exit 1
+error: permission denied for table tenants
+  severity: 'ERROR',  routine: 'aclcheck_error'
+
+api    Created          <- never started
+seed   Exited (1)
+migrate Exited (0)
+```
+
+Exactly as documented, down to the error string. The API never started.
+
+**Entry point B, a wrongly migrated database re-entered by a correct `up`.** Also fails
+closed, one service earlier and with a different error:
+
+```
+service "migrate" didn't complete successfully: exit 1
+ERROR: permission denied for schema drizzle
+
+ tableowner | tablename
+ postgres   | __drizzle_migrations
+ postgres   | tenants
+```
+
+`api` stayed in `Created`. The guarantee holds in both directions. The doc describes only
+entry point A; that is a documentation gap, not a defect, and it is filed as INT-003.
+
+### 18. GC-8, no unresolvable request returns 5xx
+
+Probed live against both composed deployables:
+
+| Target | Path | Result |
 |---|---|---|
-| Empty schema `public` | FAIL | FAIL, exit 1, "schema public holds no tables" |
-| `links` with `tenant_id`, no RLS | FAIL | FAIL, exit 1, "missing ENABLE ROW LEVEL SECURITY and FORCE ROW LEVEL SECURITY" |
-| F-147: `user` is in `EXEMPT` but has `tenant_id`, no RLS | FAIL, exemption refused | FAIL, exit 1, printed "exemption does not apply: this table has a tenant_id column" |
-| Same table with RLS enabled and forced | PASS, exemption still refused | PASS, exit 0, still routed through the real check |
-| `user` with `tenant_id` dropped | PASS, exemption honoured | PASS, "confirmed: no tenant_id column" |
-| F-146: table named `constructor`, no RLS | FAIL, must not read as exempt | FAIL, exit 1 |
+| api | `/health` | `200` `{"status":"ok",...}` |
+| api | `/api/nope` | `404` `{"code":"not_found","message":"The requested resource was not found."}` |
+| api | `/nope` | `404` same envelope |
+| api | `/api/bff/x` | `404` same envelope |
+| web | `/` | `200` |
+| web | `/nope` | `404` |
+| web | `/api/bff/anything` | `404` |
 
-**F-147's exemption cross-check works as designed, and F-146's `Map` holds.** The gate refuses
-to honour an exemption whose premise no longer holds, and it does so on a real database rather
-than in a comment.
+No 5xx on any unresolvable path. The branded visitor 404 GC-8 names belongs to the redirect
+path, which is deferred to the roadmap and has no code here; what is measurable today is
+the error envelope, and it holds.
 
-One gap was found in that cross-check. It is written up as F-213 below.
+## What was skipped, and why
 
-## Startup
+| Check | Why |
+|---|---|
+| End-to-end suite | **None exists.** No `playwright`, `@playwright/test` or `cypress` in the root manifest, in either app's manifest, in `packages/contracts` or in `pnpm-workspace.yaml`. There is no e2e layer to run, so this is absence rather than omission. |
+| Coverage measurement | **No coverage tooling is installed and `testing.coverage_gate` is `null` in `.sdlc/config.yaml`.** Reporting the line rather than dropping it: the gate is unset, no threshold was ever chosen, and no coverage number appears anywhere in this report because none was produced. |
+| `pnpm test:compose` under that name | The script was wired into `package.json` after the last measurement, as part of the in-flight F-390 fix. `./scripts/check-compose-stack.sh` was run directly and is the same code path. The new alias itself is unverified. |
+| GC-1 (p99 at 500 RPS) and GC-2 (5-second destination propagation) | No implementing code in this initiative. Both constrain the redirect and cache paths, which left with EPIC-002 and later. Nothing to measure. |
+| AC-7, the live Vercel deploy | TASK-004's acceptance, met on 2026-08-06 by a curl at 200 `text/html`. Outside this dispatch and not re-measured. |
+| Fresh audit of the 88 open minors and nits | Not this step's job. They carry to the Ship triage as recorded. |
+| CI executed on GitHub | The CI job steps were run locally, one by one, as the table above shows. The workflow itself was not triggered on a runner. |
 
-The API boots. It does more than exit cleanly, so the honest answer is better than the one the
-dispatch expected.
+## What only shows up in combination
 
-`node dist/main.js` with `PORT=3111` logs "Nest application successfully started", stays alive,
-and serves HTTP. `GET /api/anything` returns 404 with TASK-007's envelope,
-`{"code":"not_found","message":"The requested resource was not found."}`, at
-`application/json`. Shutdown on SIGTERM was clean.
+Everything below passed its own TASK. These are the seams.
 
-`GET /health` also returns 404. `main.ts` excludes `health` from the global `/api` prefix so a
-platform health check never depends on the API surface, but no controller provides that route
-yet. That is a reservation, not a regression, and it is recorded as F-217 because it becomes a
-real deployment defect the moment the API is deployed with a health check configured.
+### The web deployable can reach nothing (already disclosed, confirmed live)
 
-The web app is live. `https://shortkit-bp22uipii-juanomorellos-projects.vercel.app` returned
-HTTP 200, `text/html; charset=utf-8`, in 0.234s, verified during this run.
+TASK-008 built `apps/web/src/lib/api/client.ts`. Every browser-side call it makes targets
+the same-origin BFF proxy at `BFF_PATH_PREFIX = '/api/bff'`, and the client asserts that
+prefix on every URL before it fetches. **That route does not exist.** `apps/web/app/api`
+is not a directory; the whole of `apps/web/app` is `page.tsx` and `not-found.tsx`.
 
-## Cross-TASK interaction
+Measured: `GET http://127.0.0.1:3000/api/bff/anything` on the composed web container
+returns `404`.
 
-Everything green in isolation and broken together is what this phase exists to catch. Wave 1
-has four seams, and CI has never completed a run, so none of them had been exercised end to end.
-All four were run locally here.
+This is disclosed rather than hidden. `client.ts:577-581` says the proxy is
+`app/api/bff/[...path]/route.ts`, that its owning work left with EPIC-002, and that no
+card's `paths` cover `apps/web/app/api/bff/**`. `docker-compose.yml` repeats it: two green
+containers are not evidence of a working frontend-to-backend path. Both of GC-7's
+deployables boot and serve, and nothing connects them. Correct for a foundation, and it
+means the compose stack's green is not a system-works signal. Filed as INT-002 so it is
+routed rather than assumed known.
 
-1. **TASK-002 CI meets TASK-005 database scripts.** CI's integration job was reproduced step by
-   step in its exact order against a clean container: provision, `db:migrate`, `db:check-policies`,
-   suite with the JSON reporter, collection assertion. All exit 0. The ordering comment in
-   `ci.yml` is correct and the two migration caveats prove why it has to be.
-2. **TASK-002 CI meets TASK-004 web.** `pnpm --filter @shortkit/web build` followed by
-   `assert:no-secrets` under a single job-level `BFF_PROXY_SECRET`, as `ci.yml` does it. Passes,
-   with the disclosed limitation that the positive control is inactive until TASK-008.
-3. **TASK-002 harness meets TASK-007 contracts meets TASK-004 web.** `assert-contract-drift.mjs`
-   ran both mutations. Renaming an `ERROR_CODES` member broke `apps/web`'s typecheck; renaming
-   `FORM_ERROR_KEY` broke `apps/api`'s. Each mutation was reverted and the tree confirmed clean
-   by `git diff --exit-code`. AC-14 genuinely holds across three separately-implemented TASKs.
-4. **TASK-001 bootstrap meets TASK-007 exception filter.** The built binary boots and the filter
-   answers, verified over HTTP rather than in a unit test.
+### AC-115's check is wired into nothing (confirms F-390, independently)
 
-No seam defect was found.
+`grep -rn "check-compose-stack" .github/ package.json apps/` returned nothing at the
+committed tree. AC-115 replaced AC-6's deploy clause and is the only evidence the substrate
+runs as a system; a change to the Dockerfile, either compose file, the roles SQL, migrate
+or seed breaks it with no gate firing. An implementer is fixing this now, in the dirty
+`package.json` this report does not cover. Adding a script alias is not the same as adding
+a CI job, and F-390's `required_change` asks for CI or a named manual cadence.
+
+### The inlined-secret guard refuses to run without a value, and that is correct
+
+`pnpm --filter @shortkit/web assert:no-secrets` with no `BFF_PROXY_SECRET` in the
+environment exits 1 with:
+
+```
+FAIL: BFF_PROXY_SECRET is not set. This check searches the built output for this
+variable's value; without a real value there is nothing to search for, and the check
+would pass without having checked anything.
+```
+
+Not a defect. It is the fail-closed behaviour `ci.yml:119-130` is built around. Re-run with
+a probe value it exits 0 over 54 files. Recorded because a reader running the CI steps by
+hand will hit this and it looks like a break.
+
+It also prints a live caveat worth carrying: no compiled read of
+`NEXT_PUBLIC_API_BASE_URL` exists anywhere under `.next`, so the positive control is
+inactive and this run does not prove build and check environments agree.
+
+### Seams that held
+
+- **`packages/contracts` to both consumers.** `assert-contract-drift.mjs` mutated
+  `ERROR_CODES` and `FORM_ERROR_KEY` and each mutation broke the typecheck of exactly the
+  workspace that consumes it, `apps/web` and `apps/api` respectively. ADR-0005's
+  no-generated-client arrangement works in both directions.
+- **TASK-060's lint rule across all three workspaces.** `pnpm lint` exits 0 at the root,
+  and `logger-lint-rule.spec.ts` runs eslint in-process to prove the rule actually fails on
+  a Nest `Logger` import. Rule and codebase agree.
+- **TASK-003's `/health` and TASK-059's build provenance.** The composed API reported the
+  sha the build was handed, not the sentinel.
+- **TASK-007's error envelope through the composed artifact.** The `not_found` envelope
+  came back from a real container, not from a Nest testing module.
+- **Migration, seed and RLS as one chain.** `postgres -> migrate -> seed -> api` ordering
+  held, the seed was idempotent across a second `up` (DOD-2), and the data survived
+  `restart` (DOD-3).
+
+## Backward compatibility
+
+**Does not apply, and here is the reasoning rather than the assertion.**
+
+Public contracts changed in this initiative: `packages/contracts` gained the error shapes
+(TASK-007), and `apps/web`'s api client gained its surface (TASK-008). Neither has a
+released consumer.
+
+- `packages/contracts` is `"private": true`, version `0.0.0`, and is consumed only through
+  `workspace:*` by `@shortkit/api` and `@shortkit/web` inside this repository. It is not
+  published to any registry.
+- Both apps are `"private": true` at `0.0.0`.
+- ADR-0030 records that there is no deploy target. Nothing from this repository is running
+  anywhere that an old client could be pointed at, with the single exception of TASK-004's
+  Vercel page, which serves static HTML and calls no API.
+- No git tag exists that marks a released version.
+
+There is no old client and no coordinated deploy to sequence. The first initiative that
+ships a consumer inherits this question.
+
+## Global Constraints, checked
+
+| GC | Verdict | Evidence |
+|---|---|---|
+| GC-3, infra under $25/month | Not measurable here | No deploy target exists (ADR-0030). Nothing is provisioned and nothing is billed. |
+| GC-4, no AI attribution | **PASS** | `git log --all` scan for `Co-Authored-By: Claude`, `Generated with Claude` and the robot emoji: **0 hits** across all history. |
+| GC-5, RLS transaction rule | **PASS** | 25 tenant-context integration tests and 29 isolation tests, plus `db:check-policies` on a clean migration. Bounded by the isolation suite's stated coverage boundary. |
+| GC-7, one backend and one frontend deployable | **PASS** | `docker compose ps` shows `api` and `web` and no third service. `migrate` and `seed` are one-shots that exit. |
+| GC-8, no 5xx to a visitor | **PASS** | Seven live probes above, all 200 or 404. |
+| GC-9, pino, no PII in log bodies | **PASS** by suite | 54 logger and allowlist tests in the unit suite, including the field allowlist and the contract-drift specs. Not independently re-derived here. |
+| GC-13, README stays current | **FAIL** | F-388, open blocker, filed by `sdlc-product-auditor` in Ship step 1. Inherited, not found here. A fix is in flight in the dirty tree. |
+| GC-14, one focused sitting | Out of scope for integration | |
 
 ## Findings
 
-Ids continue from F-212, the highest in `findings.yaml`. **They are proposed, not appended.**
-This agent writes only to `ship/**`, so nothing was added to `.sdlc/foundation/findings.yaml`.
+Three new. Ids are `INT-nnn` to avoid colliding with `findings.yaml`, which another agent
+is writing concurrently; whoever routes these should renumber into the F-series.
 
 ```yaml
-- id: F-213
+- id: INT-001
   phase: ship
+  task: null
   source: sdlc-integrator
   round: 1
   severity: major
-  kind: security
-  file: apps/api/scripts/check-policies.mts
-  line: 93
-  summary: >-
-    F-147's exemption cross-check queries information_schema.columns, which Postgres filters
-    by privilege, so an exempt table the app role holds no grant on is reported as
-    "confirmed: no tenant_id column" when it has one.
-  failure_scenario: >-
-    Verified on a live database, not reasoned about. A table named `session` was created with a
-    `tenant_id` column, no RLS, and `REVOKE ALL ... FROM shortkit_app`. As shortkit_app,
-    information_schema.columns returned 0 rows for it, so the cross-check saw no tenant_id and
-    honoured the exemption. check-policies printed
-    "skip session - exempt: Better Auth. No tenant_id (ADR-0003, ADR-0015) (confirmed: no
-    tenant_id column)" and exited 0 on a tenant-bearing table with row security off. The word
-    "confirmed" is the false claim. All four EXEMPT names are the Better Auth tables TASK-009
-    creates, and Better Auth applies its own schema through its own tooling, which need not be
-    shortkit_migrator. docker-compose.test.yml's own header documents exactly this: ALTER
-    DEFAULT PRIVILEGES is scoped to the identity shortkit_migrator, so a deploy that runs
-    migrations as any other role grants shortkit_app nothing. The gate is the only thing that
-    looks at RLS, and this is the one path that walks past it while printing a confirmation.
-  required_change: >-
-    Replace the information_schema.columns query with a pg_attribute join, which is not
-    privilege-filtered. Verified on the same database in the same session: as shortkit_app,
-    information_schema.columns returned 0 rows and
-    `select c.relname from pg_attribute a join pg_class c on c.oid = a.attrelid join pg_namespace n
-    on n.oid = c.relnamespace where n.nspname = 'public' and a.attname = 'tenant_id'
-    and a.attnum > 0 and not a.attisdropped` returned `session`. The TABLES query above it
-    already reads pg_class for the same reason, so this makes the file consistent with itself.
-  owner_slot: implementer
-  owner_task: TASK-005
-  status: open
-  blocking: false
-  note: >-
-    Not blocking this merge. No EXEMPT table exists today and `tenants` is not exempt, so the
-    gate is sound on the current schema. It must be fixed before TASK-009 lands, which is the
-    next wave. F-122 made this script a blocking prerequisite for TASK-023.
-
-- id: F-214
-  phase: ship
-  source: sdlc-integrator
-  round: 1
-  severity: major
-  kind: process
-  file: .sdlc/foundation/state.yaml
-  line: 22
-  summary: >-
-    The tasks: block still records TASK-004 as in-audit with AC-7 blocked, contradicting the
-    wave-1 gate approval in the same file.
-  failure_scenario: >-
-    Line 16 approves implement.wave_1 over "TASK-002, TASK-004, TASK-005, TASK-007" and log line
-    733 records "TASK-001 (wave 0), TASK-002, TASK-004, TASK-005 and TASK-007 all done" with AC-7
-    re-verified live at 200 text/html. Line 22 still reads
-    `status: in-audit, ac_blocked: [AC-7], blocked_on: "AC-7 needs a deployed Vercel URL; repo has
-    no git remote and no Vercel credentials."` and the escalation at line 29 still asserts "AC-7
-    stays open; TASK-004 still cannot reach done." All three claims in that blocked_on string are
-    now false: the remote exists, the deploy is live, and AC-7 was verified twice. state.yaml is
-    the file the workflow resumes from, so an agent reading the tasks: block rather than the log
-    concludes wave 1 is incomplete and re-dispatches finished work. TASK-004's recorded head
-    fad4d28 is also stale; 91d81d6 landed under TASK-004 afterwards.
-  required_change: >-
-    Set TASK-004 status: done, clear ac_blocked and blocked_on, update head to the real final
-    commit, and retire or annotate the two stale TASK-004 escalation entries.
-  owner_slot: orchestrator
-  status: open
-  blocking: false
-
-- id: F-215
-  phase: ship
-  source: sdlc-integrator
-  round: 1
-  severity: minor
-  kind: process
-  file: .gitignore
+  kind: design
+  file: .sdlc/foundation/design/adr-0004-schema-layout-and-migrations.md
   line: 1
-  summary: Orphan commit c5e1165 carries no TASK id and no ledger scope.
-  failure_scenario: >-
-    `fix: restate the .env.example negation after vercel's .env* rule` modifies .gitignore,
-    findings.yaml and state.yaml. The work is legitimate and well explained in its body: `vercel
-    link` appended `.env*` below the `!.env.example` negation and overrode it. But it is
-    attributable to TASK-004, and its own body says F-169 requires TASK-009 to add
-    apps/api/.env.example, so the change is enabling work for a TASK two waves out. Untagged
-    commits are where scope creep hides, which is the reason the traceability rule exists.
-  required_change: >-
-    Attribute it in the ledger to TASK-004, or record it as accepted out-of-band housekeeping
-    with a reason. Do not rewrite the commit; it is already pushed.
-  owner_slot: orchestrator
-  status: open
-  blocking: false
-
-- id: F-216
-  phase: ship
-  source: sdlc-integrator
-  round: 1
-  severity: minor
-  kind: process
-  file: .sdlc/foundation/stories/STORY-001.md
-  line: 5
   summary: >-
-    STORY-001 has all its TASKs done and the wave-1 gate approved, but its front-matter still
-    reads status: todo and none of its five DoD boxes is ticked.
+    NO DOWN-MIGRATION MECHANISM EXISTS, AND NO ADR ACCEPTS ITS ABSENCE. drizzle-kit has no
+    `down` command; its `drop` removes a file from the journal folder and never touches a
+    database. The one migration file is forward DDL only. Neither ADR-0004 nor
+    docs/architecture/migrations.md uses the words rollback, down migration, revert or
+    reversible anywhere.
   failure_scenario: >-
-    STORY-001 holds exactly one TASK, TASK-001, done since wave 0. Its Definition of Done lists
-    five items, all unchecked, including "Traceable: commits reference TASK ids" which this report
-    verifies as met. phases/ship.md step 5 requires every STORY's DoD to be recorded, so a
-    completed STORY carrying no record leaves the real Ship phase with nothing to cite.
-    STORY-002, STORY-003 and STORY-004 are correctly still todo: each contains an unfinished TASK
-    (TASK-003, TASK-006 and TASK-008 respectively). STORY-001 is the only one at fault.
-  required_change: Record STORY-001's DoD and set its status.
-  owner_slot: orchestrator
-  status: open
-  blocking: false
-
-- id: F-217
-  phase: ship
-  source: sdlc-integrator
-  round: 1
-  severity: minor
-  kind: implementation
-  file: apps/api/src/main.ts
-  line: 47
-  summary: >-
-    main.ts excludes GET /health from the global prefix so a platform health check never depends
-    on the API surface, but no controller serves /health, so it returns 404.
-  failure_scenario: >-
-    Verified against the built binary: GET /health returns 404 with the not_found envelope. The
-    API is not deployed today, so nothing is broken now. A Fly deployment configured with an HTTP
-    health check on /health would never pass it, and the platform would cycle machines that are
-    in fact healthy. The exclusion in main.ts reads as though the route exists.
+    The only documented way back from an applied migration is `docker compose down -v`,
+    which destroys the data. That is fine today because ADR-0030 means there is no
+    production database to protect. It stops being fine on the first day one exists, and
+    the decision to live without a rollback path will not have been made by anyone - it
+    will have been inherited from a tool default that no ADR ever examined.
   required_change: >-
-    Either land the health controller with the TASK that first deploys the API, or note in
-    main.ts that the exclusion is a reservation and name the TASK that fills it.
-  owner_slot: implementer
-  owner_task: TASK-003
+    Either ADR-0004 gains an explicit clause accepting forward-only migrations and naming
+    what replaces rollback, or a down-migration convention is chosen before a deploy target
+    is. This is a decision to record, not code to write today.
+  owner_slot: sdlc-architect
   status: open
-  blocking: false
 
-- id: F-218
+- id: INT-002
   phase: ship
+  task: null
   source: sdlc-integrator
   round: 1
   severity: minor
-  kind: process
-  file: .github/workflows/ci.yml
+  kind: behavior
+  file: apps/web/src/lib/api/client.ts
+  line: 246
+  summary: >-
+    THE TWO DEPLOYABLES BOOT GREEN AND NOTHING CONNECTS THEM. Every browser-side call
+    apiClient() makes targets BFF_PATH_PREFIX = '/api/bff', asserted on every URL before
+    the fetch. apps/web/app/api does not exist; apps/web/app is page.tsx and not-found.tsx.
+    Measured live on the composed stack - GET http://127.0.0.1:3000/api/bff/anything
+    returns 404.
+  failure_scenario: >-
+    A green `docker compose up` reads as "the system works" and it does not mean that. It
+    means both halves boot. Filed as minor rather than major BECAUSE IT IS ALREADY
+    DISCLOSED IN THREE PLACES - client.ts:577-581, docker-compose.yml's web service
+    comment, and TASK-008's ledger note - and no screen calls the client today. It is filed
+    at all so the gap is routed rather than remembered.
+  required_change: >-
+    No code. The roadmap entry that lands apps/web/app/api/bff/[...path]/route.ts names
+    this integration as its acceptance, so the first initiative to wire the two deployables
+    proves the path end to end rather than assuming it.
+  owner_slot: sdlc-implementer-backend
+  status: open
+
+- id: INT-003
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 1
+  severity: nit
+  kind: docs
+  file: docs/architecture/migrations.md
   line: 1
-  summary: No GitHub Actions run stands behind the commits being merged.
+  summary: >-
+    The wrong-identity guarantee is documented for one entry point of two. The doc says a
+    stack migrated as any other identity fails at the seed with `permission denied for
+    table tenants`. Measured true. But a database already migrated by the wrong identity,
+    re-entered by a correct `up`, fails one service EARLIER, at `migrate`, with
+    `permission denied for schema drizzle`.
   failure_scenario: >-
-    Runners were backed up over an hour and every recent run was cancelled by a superseding push,
-    which is correct behaviour under the concurrency block F-190 scoped to non-default refs. The
-    consequence is that every control in ci.yml is verified by local reproduction only. This
-    report reproduces all of them, including the three scripts that had never executed anywhere,
-    but a local run does not prove the workflow YAML parses, that the services: block starts, or
-    that the runner image behaves as assumed.
+    Someone debugging a migrate-service failure searches the doc for the error they have,
+    finds the seed's error instead, and concludes the two are unrelated. The guarantee
+    itself holds in both cases: api never leaves `Created`.
   required_change: >-
-    Let CI run to completion on main after the merge and read the result before wave 2 dispatches.
-  owner_slot: orchestrator
+    One sentence in the same section naming the second entry point and its error string.
+  owner_slot: sdlc-implementer-backend
   status: open
-  blocking: false
 ```
 
-## Traceability
+### Inherited, not found here, and blocking
 
-104 commits on `origin/main..HEAD`, all authored by `Juano <me@juanomorello.dev>`.
+`F-388`, severity **blocker**, status **open**, owner `sdlc-implementer-backend`. The README
+describes three subsystems in present tense that do not exist, and states the isolation
+claim without the coverage boundary. GC-13 fails. Filed by `sdlc-product-auditor` in Ship
+step 1. A fix is in flight in the dirty tree this report does not cover.
 
-| | |
-|---|---|
-| Commits referencing a TASK id | 32 |
-| `docs(sdlc)` ledger commits | 70 |
-| Orphans | 2 |
+Also open and unrouted at ship: `F-386` (major, the third NODE_ENV trap, `ResendMailSender`
+binds live under compose, fails silently rather than loudly), `F-390` (major, AC-115 wired
+into nothing). Still escalated: `F-102` (TASK-040, deferred), `F-236` (TASK-054, deferred),
+`F-239` (TASK-009, deferred). All three escalations belong to deferred TASKs and none of
+them blocks this initiative, but ship.md rule 50 should be read against them explicitly
+rather than around them.
 
-Per-TASK commit counts: TASK-001 17, TASK-002 26, TASK-004 9, TASK-005 20, TASK-007 36.
-TASK-009 appears once, in `1a3291f docs(sdlc): re-attribute better-auth pin to TASK-009`,
-which is a ledger commit re-attributing a dependency pin rather than implementation work.
-TASK-009 is not claimed done, so this is correct.
+Findings tally read from `findings.yaml` at `6a90d35`: 241 fixed, 88 open, 43 routed, 15
+parked, 3 escalated, 1 routed-later.
 
-**Orphan commits** (neither a TASK id nor a `docs(sdlc)` ledger commit):
+## Machine state
 
-- `c5e1165` `fix: restate the .env.example negation after vercel's .env* rule`. Real product
-  change, no TASK id. Filed as F-215.
-- `98306e1` `chore(sdlc): rename branch to feat/launch-core, align branch_prefix [launch-core]`.
-  Touches only `.sdlc/config.yaml` and `.sdlc/foundation/state.yaml`, carries the `[launch-core]`
-  tag, and is a ledger commit in everything but the `docs(sdlc)` prefix. Benign. Recorded here
-  and not filed.
+Left as found. Verified after the last teardown:
 
-**TASKs marked done with no commit:** none. Every recorded head SHA resolves and sits on the
-branch: `bd89924` (TASK-001), `2627867` (TASK-002), `fad4d28` (TASK-004), `9eb654a` and
-`cdb07e4` (TASK-005), `7913b16` (TASK-007).
+```
+NAME       STATUS       CONFIG FILES
+shortkit   running(1)   docker-compose.test.yml
 
-**Ledger contradiction:** TASK-004 is recorded `done` by the wave-1 gate and `in-audit` by the
-`tasks:` block of the same file. Filed as F-214.
+shortkit-postgres-1   Up 3 hours (healthy)   project=shortkit
+Id=729b1105e4d7...  RestartCount=0  Health=healthy
+select 'test-stack-alive' -> test-stack-alive
+```
 
-**Incomplete DoDs:** STORY-001 only. Filed as F-216. STORY-002, STORY-003 and STORY-004 each
-still contain an unfinished TASK, so their `status: todo` is correct rather than stale.
-
-**AI attribution:** none. All 104 commit messages were scanned for `Co-Authored-By: Claude`,
-"Generated with Claude Code", the robot emoji and "anthropic". Zero matches. GC-4 holds.
-
-## What changes on merge
-
-Two things start happening that have never happened, both intended, one of which will look like
-a failure.
-
-`dependencies.yml` begins running. `schedule:` only fires from the default branch and the file
-exists only on `feat/launch-core`, which is Juano's stated reason for merging now. Its first
-Monday run at 06:17 UTC **will fail**, exit 1 on GHSA-67mh-4wv8-2f99. That is the documented,
-accepted advisory in `docs/security/known-advisories.md`, and the register deliberately takes no
-`--ignore` so an accepted advisory still fails and still has to be re-read. Reproduced in this
-run: `--prod` exits 0, whole-tree exits 1 on that row. Expect the email.
-
-Branch protection and the `gate` job start guarding something real. Until now `main` was the
-scaffold commit and neither existed there.
+The `shortkit-dev` project holds no containers, no volume and no network. The scratch
+database `shortkit_fwdcheck` was dropped. Nothing under `.sdlc/foundation/design/` was
+written. The only files this dispatch created are in `.sdlc/foundation/ship/`.
 
 ## Verdict
 
-**Safe to merge.** No blocking finding.
+**changes-requested.**
 
-The merge is a clean fast-forward to a tree that passes unit, integration, lint, typecheck,
-build and the production audit, whose migration applies forward on a clean database by two
-independent provisioning routes, whose RLS gate was made to fail on five of six constructed
-databases, and whose four cross-TASK seams were each exercised end to end.
+Every gate this dispatch could measure is green: 189 unit tests, 62 integration tests,
+typecheck, lint, build, the RLS gate on a clean migration, all fifteen AC-115 clauses, the
+smoke path, and the two-stack coexistence property. The system does work as a whole to the
+extent that anything is wired together.
 
-Six findings are open, all non-blocking. **F-213 is the one to fix first**, and it should be
-fixed before TASK-009 rather than before the merge: it is the only finding that weakens a
-security control, and TASK-009 creates the exact four tables that trigger it.
+It is not clear to ship, for reasons that are decisions rather than breakage:
 
-The honest caveat on everything above: CI has never run green on these commits, so this local
-verification is currently the only verification.
+1. **F-388 is an open blocker.** GC-13 fails. A fix is in flight and unverified.
+2. **INT-001, no rollback path, is undecided rather than accepted.** One line in ADR-0004
+   closes it.
+3. **F-390 leaves the only system-level check ungated.** A `package.json` alias is not CI.
+4. Nothing in this report covers the dirty `README.md` and `package.json`. Re-run at least
+   `pnpm lint`, `pnpm typecheck` and `./scripts/check-compose-stack.sh` after they commit.

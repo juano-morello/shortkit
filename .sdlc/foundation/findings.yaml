@@ -13174,3 +13174,83 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+# ---- Ship step 2, integration verification: changes-requested. Filed by the orchestrator from
+# the integrator's INT-001..003, which it id-prefixed because findings.yaml was being written
+# concurrently - a good call. Full text: .sdlc/foundation/ship/integration-report.md
+
+- id: F-392
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/foundation/design/adr-0004-schema-layout-and-migrations.md
+  line: 1
+  summary: >-
+    NO DOWN-MIGRATION MECHANISM EXISTS AND NO ADR ACCEPTS ITS ABSENCE. `drizzle-kit` has no `down`;
+    its `drop` removes a journal file and never touches a database. NEITHER ADR-0004 NOR
+    migrations.md USES THE WORDS rollback, revert OR reversible.
+  failure_scenario: >-
+    Ship step 4 requires a rollback plan stated EXPLICITLY - feature flag, revert, or
+    migration-down - and this initiative has none of the three written down. The gap is not that
+    rollback is impossible; it is that nobody decided, so the answer lives in a tool's absence
+    rather than in a decision.
+    Mitigated today only by ADR-0030: there is no production database to roll back. That is a
+    circumstance, not an acceptance.
+    Found by the integrator because Ship asked it to verify the rollback path, which is exactly
+    the kind of question per-TASK verification never poses.
+  required_change: >-
+    One ADR-0004 clause: state the rollback posture and why. `revert the commit and re-migrate
+    forward` is a legitimate answer for an additive-only schema with no production database - it
+    just has to be the written one.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-393
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/web/src/lib/api/client.ts
+  line: 246
+  summary: >-
+    BOTH DEPLOYABLES BOOT GREEN AND NOTHING CONNECTS THEM. `apiClient()` targets `/api/bff`, which
+    does not exist. MEASURED LIVE against the running stack: `GET :3000/api/bff/anything` -> 404.
+  failure_scenario: >-
+    Minor because it is already disclosed in three places - ADR-0035's end-to-end table, TASK-008's
+    card and the acceptance report - and because TASK-012's proxy is deferred with EPIC-002. Filed
+    so the disclosure has a finding id rather than living only in prose, and because it is the
+    concrete form of the acceptance auditor's `horizontally no`.
+  required_change: None now. It closes when TASK-012 builds the proxy route.
+  owner_slot: null
+  status: parked
+  resolved_by: "recorded at Ship, 2026-08-11"
+  resolved_round: null
+
+- id: F-394
+  phase: ship
+  task: null
+  source: sdlc-integrator
+  round: 1
+  severity: nit
+  kind: docs
+  file: docs/architecture/migrations.md
+  line: 1
+  summary: >-
+    The wrong-identity guarantee is documented for ONE entry point of two. A re-entered
+    wrongly-migrated database fails one service EARLIER, at `migrate`, with `permission denied for
+    schema drizzle` rather than at `seed` with `permission denied for table tenants`.
+  failure_scenario: >-
+    The guarantee holds either way - the stack refuses before the API starts, which is the property
+    ADR-0033 wanted. The doc describes one of the two paths to it.
+  required_change: Document both entry points.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
