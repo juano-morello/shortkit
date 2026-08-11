@@ -1,7 +1,7 @@
 # Contract: click event emission, buffering, and the append-only surface
 
 - **Boundary:** the redirect hot path to the click store; the tenant-facing read surface; the privileged eraser.
-- **Normative form:** `apps/api/src/clicks/click-event.types.ts` (stub: `design/stubs/apps/api/src/clicks/click-event.types.ts`).
+- **Normative form:** `apps/api/src/clicks/click-event.types.ts`, not yet written. The design stub at `design/stubs/apps/api/src/clicks/click-event.types.ts` stands in until TASK-033 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-033 (schema, writer, reader), TASK-034 (buffer, emission).
 - **Consumed by:** TASK-029/030 (redirect path), TASK-053 (export), TASK-054 (eraser), TASK-056 (enumeration).
 - **ADRs:** ADR-0010, ADR-0019. Amendment A-2 governs the append-only scoping.

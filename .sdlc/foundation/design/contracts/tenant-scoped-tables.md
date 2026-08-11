@@ -1,7 +1,7 @@
 # Contract: table enumeration, GDPR export, and privileged erasure
 
 - **Boundary:** the enumeration shared by export, deletion, and the isolation suite.
-- **Normative form:** `apps/api/src/gdpr/tenant-scoped-tables.ts` (stub: `design/stubs/apps/api/src/gdpr/tenant-scoped-tables.ts`).
+- **Normative form:** `apps/api/src/gdpr/tenant-scoped-tables.ts`, not yet written. The design stub at `design/stubs/apps/api/src/gdpr/tenant-scoped-tables.ts` stands in until TASK-053 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-053 (`tenantScopedTables`, export), TASK-054 (eraser, residue check).
 - **Consumed by:** TASK-054, TASK-055, TASK-056.
 - **ADRs:** ADR-0019, ADR-0003, ADR-0015. Amendment A-2 governs erasure.

@@ -1,7 +1,7 @@
 # Contract: rate limiting
 
 - **Boundary:** every route under `/api`, including `@Public()` routes and the pre-auth `/api/auth/*` surface; and the web client that renders a 429.
-- **Normative form:** `apps/api/src/common/rate-limit/rate-limit.types.ts`, `apps/api/src/auth/ports/auth-rate-limit.port.ts`, and `apps/api/src/auth/resolve-rate-limit-principal.ts` (stubs under `design/stubs/`).
+- **Normative form:** `apps/api/src/common/rate-limit/rate-limit.types.ts`, `apps/api/src/auth/ports/auth-rate-limit.port.ts`, and `apps/api/src/auth/resolve-rate-limit-principal.ts`, none yet written. The design stubs at the matching paths under `design/stubs/` stand in until TASK-051 and TASK-009 land the files and are retired then (ADR-0039). They are design-gate scaffolds, not normative forms.
 - **Produced by:** TASK-009 (auth surface: body cap, IP buckets, email hook, the port) and TASK-051 (`RateLimitGuard`, the Redis implementations). See the ownership table below.
 - **Consumed by:** TASK-052 (web handling), TASK-056 (enumeration).
 - **ADRs:** ADR-0012, ADR-0006, ADR-0013.

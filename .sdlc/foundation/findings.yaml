@@ -4519,8 +4519,21 @@
     Mark the section as ADR-0004's intended state owned by TASK-003 and cross-reference F-119, or
     drop it until TASK-003 settles it.
   owner_slot: sdlc-implementer-backend
-  status: fixed
+  status: open
   ruling: DEFERRED AND ROUTED TO TASK-003 alongside F-119 and F-141, for the same reason.
+  correction_2026_08_11: >-
+    STATUS CORRECTED fixed -> open, AND THE MISLABEL IS THE POINT. This was marked `fixed` when it
+    was DEFERRED AND ROUTED, which are different things: TASK-003 never discharged it, and
+    migrations.md:120 still says the Fly release command runs migrations while fly.toml
+    deliberately has none. The orchestrator's own TASK-003 escalation text has been carrying the
+    note "F-142 is undischarged" since 2026-08-10 while this record read `fixed`.
+    THIRD INSTANCE OF THE SAME CLASS on this initiative - F-233 was `fixed` with its fix living
+    only in a design stub (became the F-288 blocker), the re-scope sweep found 11 more `fixed`
+    findings whose owner TASK is deferred, and here a routing was recorded as a resolution. A
+    finding is not fixed because someone decided who would fix it.
+    RE-ROUTED to TASK-059 under Amendment A-8, which deletes fly.toml and infra/deploy.sh outright
+    and therefore discharges this by removing the thing the document lies about. TASK-059's DoD
+    carries "F-142 confirmed discharged" as an explicit item rather than as a side effect.
 
 - id: F-143
   phase: implement
@@ -5628,9 +5641,27 @@
     One line on TASK-008's card: do not give NEXT_PUBLIC_API_BASE_URL a hardcoded fallback, let it
     fail loudly. Orchestrator-applied, since tasks/** is outside an implementer's paths.
   owner_slot: null
-  status: open
-  resolved_by: null
+  status: parked
+  resolved_by: "Juano ruling 2026-08-11"
   resolved_round: null
+  resolution: >-
+    PARKED AS A PLAN DEFECT, and the defect is larger than this nit. TASK-008 disclosed that
+    apiClient NEVER READS NEXT_PUBLIC_API_BASE_URL at all: web-api-client.md says the variable is
+    not used for anything authenticated, and apiClient IS the authenticated browser path, targeting
+    same-origin /api/bff/<path> relatively. So TASK-004's build-time positive control has no
+    activator and sits inactive at NOTICE / exit 0.
+    THAT CONTROL WAS THE SUBJECT OF TASK-004's SIX REWORK ROUNDS - F-156, F-161, F-171, F-174 - and
+    F-175 was authorised as a CAP EXCEPTION to land it, on the assumption TASK-008 would be its
+    activator. The assumption was wrong, and it was wrong in a way nobody could see until TASK-008
+    was implemented: the real consumer is TASK-012's BFF proxy, which left with EPIC-002.
+    The implementer refused to add an env read purely to green the control, and that was right -
+    it would breach the contract to satisfy a check.
+    RULED BY JUANO 2026-08-11: park, do not delete and do not activate. The control stays inactive
+    at NOTICE, and the constraint this finding states - no hardcoded fallback for
+    NEXT_PUBLIC_API_BASE_URL, let it fail loudly - is carried on the roadmap entry that revives the
+    BFF proxy, so whoever writes the read inherits it. Nothing is faked green and nothing is thrown
+    away. The retro should take the general shape: six rework rounds and a cap exception were spent
+    on a control whose activator was in a TASK not yet written.
 
 # ---- TASK-004 fix-round CAP reached (5/5). Every survivor adjudicated with a written ruling. ----
 
@@ -7708,6 +7739,21 @@
   status: fixed
   resolved_by: sdlc-architect
   resolved_round: 1
+  f288_clause_2_closed_2026_08_11: >-
+    F-288's SECOND CLAUSE IS CLOSED EXPLICITLY RATHER THAN BY SILENCE, which is what the round-2
+    reviewer asked for after finding this record untouched by the fix diff.
+    The clause was "F-233's status must be re-examined - `fixed` is false while the fix exists only
+    in design and its owner is deferred." RULING: `fixed` STANDS, and the reviewer's reasoning is
+    the ruling. This is a kind: design finding whose required_change was "ADR-0014 or
+    web-api-client.md must say what the BFF sends as Origin" - satisfied, in artifacts that are not
+    deferred. What made `fixed` MISLEADING was never this record; it was that the derived normative
+    form had lost the block, which is F-288 itself and is now fixed.
+    So both hold at once: F-288 was real and its blocker grading was right, AND F-233 was correctly
+    closed all along. They are findings about different artifacts. WHAT THE RE-SCOPE SWEEP SHOULD
+    CARRY FORWARD is that a design finding closed against a design artifact says NOTHING about
+    whether the code derived from it still carries the rule. There is no stub-versus-source gate
+    for apps/web - the same absence TASK-008's red step ran into when its typecheck stood red where
+    that gate should have been.
 
 - id: F-234
   phase: test
@@ -8247,6 +8293,7 @@
     the same default-deny message policy the shared logger now enforces. Leave F-243 clause 3's
     db/client.ts half at its current grade; it is gated on F-144 and leaks nothing.
   owner_slot: sdlc-implementer-backend
+  reassigned_2026_08_11: "TASK-003 -> TASK-060. Juano ruled: this finding had no owner able to discharge it - tenancy/** is TASK-005 (done), TASK-003 owns the logging policy but not the path and its own card says so. TASK-060 is minted with a fresh rework budget and paths that actually cover the three sites. AC-116 minted on STORY-002 under Amendment A-9, because an obligation with no acceptance criterion is one nobody checks - the fourth instance of that shape on this initiative."
   status: open
   resolved_by: null
   resolved_round: null
@@ -10175,9 +10222,11 @@
     browser client and its error types; serverApiClient, buildUpstreamUrl, mapBetterAuthError
     and <ErrorMessage /> defer with their consumers. Name where the deferral is recorded.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 3
+  resolution: >-
+    CLOSED, open since round 1 because adr-0014 was outside the architect's earlier write surface. The :220 follow-up bullet is struck through and replaced: TASK-008 owns apiClient, the path construction and the four error classes, while serverApiClient(), mapBetterAuthError() and buildUpstreamUrl() are DEFERRED and ship as throwing stubs. It names where the deferral is recorded - TASK-008.md under F-291 plus each docblock - says the bullet must not be read as the work being done, and adds that none of the three may be implemented elsewhere without re-scoping NOR deleted while web-api-client.md still specifies them.
 - id: F-302
   phase: implement
   task: TASK-006
@@ -10218,9 +10267,11 @@
     runs. Then fix cross-tenant-isolation.int-spec.ts:429, which currently asserts the wrong
     thing over a FOR UPDATE USING (true) canary.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor (re-audit r3)"
+  resolved_round: 2
+  resolution: >-
+    ADDRESSED at the round-3 re-audit by the auditor that raised it, and ORCHESTRATOR-REPRODUCED end to end first. The same mutation that made the old harness report `isolation coverage - PASS` with exit 0 now yields FAIL in BOTH DIRECTIONS on updateAll, exit 1, with the per-row digest as the evidence for the ownership-preserving overwrite: before digest=30dc9a94..., after digest=aae08b65..., on a row whose owner never changed. A count-only fix would have passed the mutation that motivated it and failed the next one. THE INSTANCE IS CLOSED; THE CLASS IS NOT - F-330 is its sibling and is the worse half.
 - id: F-303
   phase: implement
   task: TASK-006
@@ -10246,9 +10297,11 @@
     registry. Failing that, at minimum diff on the set of ownerColumn values the registry
     actually declares.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor (re-audit r3)"
+  resolved_round: 2
+  resolution: >-
+    ADDRESSED and re-measured rather than reasoned: arm 3 names wave3_audit_forced(owning_tenant) carrying ENABLE + FORCE + USING (true), so the auditor's own original case is caught. The implementer DECLINED the fallback this finding suggested - diffing on declared ownerColumn values - because tenants.ownerColumn is `id` and every table has one, so that fallback matches everything. The auditor endorsed the refusal explicitly. Residual is F-333: the four-arm union is a superset only in combination with db:check-policies, so the header's claim of a SECOND, INDEPENDENT enumeration is not yet true.
 - id: F-304
   phase: implement
   task: TASK-006
@@ -10273,9 +10326,11 @@
     it at the end, or delete it at the start of every run so absence is unambiguous. Land
     before F-297.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-security-auditor (re-audit r3)"
+  resolved_round: 2
+  resolution: >-
+    ADDRESSED, measured MID-RUN: report.json holds verdict `incomplete` between beginIsolationReport() and the attempts, and is overwritten with a fresh runAt at the end. The stale-pass-from-a-previous-run case is closed. TWO SIBLINGS REMAIN and both are filed - F-331, the artifact can say pass while the suite exits 1 because eleven of eighteen tests run after the write; and F-332, a run selecting no test leaves the previous verdict with no marker.
 - id: F-305
   phase: implement
   task: TASK-008
@@ -10301,6 +10356,1672 @@
     Make the two passages agree. State the predicate once and have the allowlist derive from it,
     or say explicitly that the allowlist is exhaustive and the other phrasing is descriptive.
   owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "verdicted at the round-3 re-review"
+  resolved_round: 3
+  resolution: >-
+    ADDRESSED at the round-3 re-review. ADR-0038 settles it: mutating means anything not GET or HEAD, OPTIONS is mutating, MUTATING_METHODS demoted to descriptive. Reviewer matched the shipped denylist to contract :453-499 and the ADR.
+
+# ---- TASK-008 audit round 2: the scoped re-review of the fix diff df498a3..2b6a4ef. ----
+# All five round-1 reviewer findings verdicted ADDRESSED. F-306 is new breakage IN the fix.
+
+- id: F-306
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 2
+  severity: major
+  kind: contract
+  file: apps/web/src/lib/api/client.ts
+  line: 263
+  summary: >-
+    buildRequestUrl step 2 compares placeholder COUNT plus Object.hasOwn instead of the placeholder
+    SET the contract specifies, so a template with a DUPLICATED placeholder passes the guard while
+    a param key is silently dropped.
+  failure_scenario: >-
+    ORCHESTRATOR-REPRODUCED BY IMPORTING THE SHIPPED MODULE, not by transcription - the auditor
+    measured it on a transcribed copy and I re-ran it against apps/web/src/lib/api/client.ts
+    itself under node with type stripping:
+      buildRequestUrl({ method: 'DELETE', path: '/members/:id/workspace/:id',
+                        params: { id: 'm1', workspaceId: 'w9' } })
+        -> '/api/bff/members/m1/workspace/m1'   NO THROW
+    `DELETE /api/members/:id/workspace/:workspaceId` is a real endpoint in the design and `:id`
+    copied twice is the typo that endpoint invites. placeholdersOf returns ['id','id'], length 2;
+    Object.keys(params) has length 2; and every placeholder satisfies Object.hasOwn(params,'id').
+    So the member id is substituted into the WORKSPACE segment and workspaceId is dropped without
+    a word - a delete aimed at the wrong resource from a call site that reads as correct.
+    AND ONE SHAPE WIDER THAN FILED, also reproduced by me: the duplicate makes the count check
+    satisfiable by ANY extra key, so
+      buildRequestUrl({ method: 'GET', path: '/a/:x/b/:x', params: { x: 'V', totallyIgnored: 'SECRET' } })
+        -> '/api/bff/a/V/b/V'                   NO THROW
+    An arbitrary unrelated param is accepted and discarded. The auditor filed the dropped-value
+    half; the accepted-junk half is the same defect seen from the other side, and it matters
+    because ADR-0029 makes params the channel that carries credentials.
+    web-api-client.md:93-95 states the rule as a SET comparison. Under the contract both calls
+    throw. The rework report claims "A duplicated placeholder (`/a/:x/:x`) therefore also rejects"
+    - TRUE ONLY WHEN ONE KEY IS SUPPLIED, which I confirmed does throw.
+    Not exploitable today: apiClient has no callers. That is the same reason F-284 and F-285 were
+    cheap to fix now - this is the frozen boundary thirteen TASKs build paths against, and the
+    guard exists for no purpose other than catching caller mistakes.
+  required_change: >-
+    Step 2 rejects whenever the placeholder SET and the param key set differ, including when the
+    template repeats a placeholder name. A duplicated placeholder is rejected regardless of what
+    params carries. If duplicates are instead meant to be legal, the contract says so and the
+    report's claim is corrected - but code and contract agree afterwards.
+  owner_slot: sdlc-implementer-frontend
+  status: fixed
+  resolved_by: "sdlc-implementer-frontend"
+  resolved_round: 2
+  resolution: >-
+    CLOSED IN FIX ROUND 2 AND ORCHESTRATOR-VERIFIED BY IMPORTING THE SHIPPED MODULE, not by reading the report. Step 2 now rejects on three clauses - the template repeats a placeholder, the sizes differ, or a supplied key is not a placeholder. All three measured cases throw: the dup-with-two-keys case, the dup-with-junk-key case I added, and the dup-with-one-key case; the control /members/:id/workspace/:workspaceId still builds correctly. That is mutation M-E, the required change verbatim, NOT the plain new Set comparison the red step had already killed with M-A. Commits 31b03af (red) and 97b9b8d (green). Re-verified at the round-3 re-review.
+  independent_convergence: >-
+    THE SECURITY AUDITOR FOUND THIS INDEPENDENTLY IN THE SAME ROUND, running concurrently and
+    blind to the reviewer, and filed it as its own F-309 (renumbered away; not re-filed here).
+    FOURTH INDEPENDENT CONVERGENCE ON THIS INITIATIVE. It measured all four cases and adds one the
+    reviewer did not: `/a/:x/:x/:x` with {x, b1, b2} is also accepted, and `/a/:x` with {x, extra}
+    correctly rejects - THE HOLE ONLY OPENS WHEN A PLACEHOLDER REPEATS.
+    IT DISSENTS ON SEVERITY AND THE DISSENT IS RECORDED RATHER THAN AVERAGED AWAY. It graded the
+    same mechanism a nit, declaring explicitly that it is not a security defect: templates are
+    source literals, a repeated placeholder is an authoring choice, and the failure direction is a
+    param being DROPPED, which is fail-safe. It routed the call to sdlc-reviewer as not its own.
+    ORCHESTRATOR RULING: MAJOR STANDS, and the split is about which failure you look at. Fail-safe
+    describes the dropped key; it does not describe the SUBSTITUTED one. The reviewer's case puts a
+    member id into the workspace segment of a real DELETE endpoint - a request aimed at the wrong
+    resource, not a request that fails. Both auditors are right about what they measured.
+    What neither raised, and I did when reproducing it: the accepted-junk direction means an
+    arbitrary extra key rides along, and ADR-0029 makes `params` the channel that carries
+    credentials. That is why it is filed against the contract rather than as a tidiness note.
+
+- id: F-307
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: test-coverage
+  file: apps/web/src/lib/api/client.spec.ts
+  line: 433
+  summary: >-
+    F-290's required change named three request shapes and only two were pinned. No test passes a
+    query containing an undefined value, so appendQuery's omission rule is unverified.
+  failure_scenario: >-
+    `grep -n 'query:' client.spec.ts` returns exactly one line, `query: { limit: 25 }`. Deleting
+    the `if (value !== undefined)` guard at client.ts:224 keeps all 31 tests green, and a caller
+    writing `query: { cursor: undefined, limit: 25 }` - the ordinary shape for an optional cursor -
+    would send `cursor=undefined` as a literal string. The behaviour is correct in the shipped code
+    and normative in web-api-client.md:100-101; what is missing is the assertion that KEEPS it
+    correct, which is the whole subject of F-290.
+  required_change: >-
+    One test asserting the URL handed to fetch for a request whose query carries an undefined value
+    alongside a defined one, so the omission branch dies under mutation like the other five
+    request-shape properties do.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "verdicted at the round-3 re-review"
+  resolved_round: 3
+  resolution: >-
+    ADDRESSED. Two tests at spec :800-818; deleting the undefined guard yields ?cursor=undefined&limit=25 and fails the first.
+
+- id: F-308
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: implementation
+  file: .sdlc/foundation/tasks/TASK-012.md
+  line: 32
+  summary: >-
+    F-291's required change said the deferral must re-point TASK-012's and TASK-052's Consumes.
+    Both cards are unchanged and still name a component that will not exist.
+  failure_scenario: >-
+    TASK-012.md:32 and TASK-052.md:32 both read "apiClient, ApiError, <ErrorMessage /> (TASK-008)",
+    and error-envelope.md:545 still specifies its fallback behaviour normatively. The only record
+    that it is not coming is a sentence inside TASK-008.md. When EPIC-002 returns, the TASK-012
+    implementer reads its own card, imports <ErrorMessage />, and gets a module-not-found at build
+    with no note on any artifact it was told to read. THAT IS F-288's SHAPE EXACTLY - a rule
+    recorded in a document the downstream reader has no reason to open - and F-291 was filed to
+    stop it. Lower than major only because TASK-012's depends_on names TASK-008, so the amended
+    Produces is one hop away, and because both consumers are deferred.
+  required_change: >-
+    Each deferred consumer card states, where its Consumes names <ErrorMessage />, that the
+    component was deferred by the 2026-08-10 F-291 ruling and does not exist. The record lives
+    where the reader is, not only where the ruling was made.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "verdicted at the round-3 re-review"
+  resolved_round: 3
+  resolution: >-
+    ADDRESSED. TASK-012.md:32-34 and TASK-052.md:32-34 strike the symbol in Consumes and carry the do-not-import block under it. Orchestrator-applied; tasks/** is outside every implementer path.
+  routing_note: >-
+    tasks/** is outside every implementer's paths (routing rule 0: approved artifacts). The
+    orchestrator applies this one, as it did F-174's card constraint.
+
+- id: F-309
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 2
+  severity: nit
+  kind: implementation
+  file: .sdlc/foundation/tasks/TASK-008.md
+  line: 74
+  summary: >-
+    The amended Produces enumerates ApiError, ContractViolationError and RequestAbortedError but
+    omits NetworkError, which apiClient raises and which F-292's retry semantics turn on.
+  failure_scenario: >-
+    A consumer TASK reading only the amended Produces builds its error handling around three
+    classes and meets a fourth at runtime. The pre-rework Produces omitted it too, so this is not a
+    regression - but the section's stated purpose is now "describe what it actually builds", and
+    the file exports it.
+  required_change: >-
+    NetworkError is named alongside the other three error classes in Produces.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "verdicted at the round-3 re-review"
+  resolved_round: 3
+  resolution: >-
+    ADDRESSED. TASK-008.md:74 names NetworkError. The same list then omitted NON_MUTATING_METHODS one round later, which is F-338 - so the instance was fixed and the defect was not, until F-338 added the rule beside the list.
+
+# ---- TASK-008 round 2, security half. IDS RENUMBERED 306-309 -> 310-312 BY THE ORCHESTRATOR:
+# the security auditor and the reviewer ran concurrently and both numbered from 306. Auditors
+# never assign ids (implement.md step 5); the collision is mine to resolve, not theirs.
+# Its fourth finding was a DUPLICATE of F-306 and is recorded there as a convergence, not re-filed.
+
+- id: F-310
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: security
+  file: apps/web/src/lib/api/client.ts
+  line: 410
+  summary: >-
+    `cause` IS THE THIRD CHANNEL AND IT IS NOT REDACTED. The credential does not survive in
+    message, path, the spread or the stack - the auditor measured all four - but under Node's
+    fetch the platform rejection handed to `{ cause }` carries the RESOLVED URL, and
+    util.inspect prints it. ADR-0029's decision text says caller values reach "the URL, the
+    wire, and NOTHING ELSE"; that sentence is measurably false through `cause`.
+  failure_scenario: >-
+    MEASURED BY THE AUDITOR, not reasoned. apiClient with path '/invitations/:token' and a real
+    token in params, against Node 24's global fetch: NetworkError.message is the clean template,
+    and util.inspect(err, {depth:5}) prints `[cause]: [TypeError: Failed to parse URL from
+    /api/bff/invitations/<full token>`. util.inspect is what console.error(err) calls and what
+    pino's err serialiser walks, so this is GC-9's "no PII in log bodies" on the platform-log side.
+    THE BROWSER LEG IS CLEAN AND IT CHECKED RATHER THAN ASSUMING: a browser-shaped
+    TypeError('Failed to fetch') carries no URL. The leak needs a Node runtime - apiClient
+    executing during SSR or reused from a route handler - which is plausible PRECISELY BECAUSE
+    serverApiClient is a throwing stub, so the natural workaround for a developer needing a
+    server-side call today is to reach for apiClient. Attacker: whoever reads the platform log
+    or the SSR console, replaying the invitation before expiry.
+    SECOND SITE, NEW IN THIS DIFF: RequestAbortedError also takes { cause }, and abort(reason)
+    puts a caller-constructed value there.
+    NOT A REGRESSION. { cause } predates this diff and the fix strictly reduced the exposed
+    surface. It is filed because the round-1 finding asked for the credential to be kept off the
+    error, and THE FIX'S OWN ADR STATES A STRONGER GUARANTEE THAN IT DELIVERS.
+  required_change: >-
+    Decide one of two, and write it where a reader of the class will find it. Either the guarantee
+    covers `cause` - drop it on NetworkError, or wrap it in a value the client constructed - or
+    ADR-0029's Decision paragraph is amended to carve `cause` out for ALL four classes, not only
+    RequestAbortedError, and the class docblocks say "do not log `cause`". The ADR's existing
+    carve-out at :169-171 names only RequestAbortedError.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "verdicted at the round-3 re-review"
+  resolved_round: 3
+  resolution: >-
+    ADDRESSED, AND THE HEADLINE WAS RE-MEASURED IN THE CHANNEL IT WAS FILED ON. The auditor executed the shipped apiClient across 8 paths with a real token: NetworkError on both legs and ContractViolationError on both arms carry own props stack,message,path,name with hasOwnProperty(cause) FALSE, clean under inspect(depth:10), String, .stack, spread-JSON and getOwnPropertyNames. Exactly two `{ cause` sites remain, both abort branches. The carve-out is as narrow as it reads: cause is the only channel signal.reason reaches, and nothing platform-supplied can put a URL there - abort() no-arg gives DOMException [AbortError], AbortSignal.timeout gives [TimeoutError]. ORCHESTRATOR-CONFIRMED separately by emitting util.inspect and finding no token. THE DISCIPLINE THE AMENDMENT ADOPTED IS ITSELF DEFECTIVE - see F-339 - which does not reopen this finding but does mean the rule protecting it needs replacing.
+  orchestrator_note: >-
+    ADR-0029 IS AN APPROVED ARTIFACT AND ITS DECISION TEXT IS NOW KNOWN FALSE. Under
+    phases/design.md a kind: contract finding during Implement escalates rather than being quietly
+    patched. Held for Juano's ruling at the wave-2 gate alongside F-305 and F-311: the three of
+    them are one question - what ADR-0029 and web-api-client.md actually promise - and answering
+    them separately is how two individually-sound amendments contradict.
+
+- id: F-311
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: security
+  file: apps/web/src/lib/api/client.ts
+  line: 594
+  summary: >-
+    isMutatingMethod COMPARES CASE-SENSITIVELY AND FAILS OPEN. It is the predicate deciding
+    whether the proxy REQUIRES Origin to equal the deployment origin, so an unrecognised spelling
+    skips the CSRF check rather than refusing the request.
+  failure_scenario: >-
+    MEASURED: isMutatingMethod('patch') === false, ('post') === false, ('PoSt') === false. AND THE
+    CASE DIFFERENCE IS REACHABLE FROM A BROWSER, which is the non-obvious part and was measured
+    against a real Fetch implementation: new Request(u,{method:'post'}).method NORMALISES to
+    'POST', but new Request(u,{method:'patch'}).method STAYS 'patch', because PATCH is absent from
+    the Fetch spec's normalise list. PATCH is one of the four methods ApiRequest.method allows.
+    Consequence in the deferred proxy: the CSRF check does not run and Origin is not forwarded -
+    both directions F-233 documents, the permissive one and F-233's own 403.
+    HONEST REACHABILITY, AND IT IS WHY THIS IS MINOR. A cross-origin `patch` with a JSON
+    content-type is not a simple request, so it triggers a preflight the BFF route will not
+    answer, and the browser blocks it before the proxy sees anything. CORS is the control that
+    actually holds. What is left is a security predicate that FAILS OPEN on unexpected input, in a
+    file no non-deferred TASK can write after TASK-008 closes - the exact trap F-288 was about.
+    The implementer disclosed the case sensitivity in its rework report and correctly called the
+    uppercase-normalisation argument an inference about TASK-012's call site. It is one, and the
+    inference is wrong for PATCH specifically.
+  required_change: >-
+    Fold into F-305's resolution - same three lines, same architect. Either normalise before
+    comparing, or state normatively in the docblock that the proxy must uppercase request.method
+    before calling this and fail closed on anything outside the union. Whichever is chosen, one
+    test discriminates it; today none does, because the spec exercises only the six spellings both
+    readings agree on.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "verdicted at the round-3 re-review"
+  resolved_round: 3
+  resolution: >-
+    ADDRESSED and measured across the space rather than the example: GET/get/gEt/HEAD/head false; POST/patch/OPTIONS/TRACE/CONNECT/empty-string true; and `GET `, ` GET`, `GET\n` and fullwidth `GET` all TRUE, so whitespace and Unicode lookalikes FAIL CLOSED. A non-string throws TypeError - fails loud rather than open.
+
+- id: F-312
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: behavior
+  file: apps/web/src/lib/api/client.ts
+  line: 274
+  summary: >-
+    A FIFTH REJECTION PATH EXISTS THAT THE CONTRACT DOES NOT ENUMERATE. encodeURIComponent throws
+    URIError on a lone surrogate, so step 3 can exit with a platform error rather than one of the
+    four ordered rejections.
+  failure_scenario: >-
+    MEASURED: params { id: '\uD800' } exits buildRequestUrl with `URIError: URI malformed`, not
+    invalidParamValueMessage. NO LEAK - the URIError echoes nothing, which is why this is a nit
+    and not a finding about ADR-0029. What it costs is that the contract's "steps 1, 2, 3 and 6
+    throw a plain Error, they are programming defects" is not the whole truth, and a caller
+    handling those four messages meets a fifth class. A lone surrogate cannot arrive through a URL
+    path - percent-decoding malformed UTF-8 yields U+FFFD - so the realistic origin is a form
+    field or a JS-constructed string.
+  required_change: >-
+    Either catch the URIError at step 3 and re-throw invalidParamValueMessage, or add one line to
+    web-api-client.md's "Request path construction" saying step 3 may also throw the platform's
+    URIError. Cheapest is the contract line.
+  owner_slot: sdlc-implementer-frontend
+  status: fixed
+  resolved_by: "sdlc-implementer-frontend"
+  resolved_round: 2
+  resolution: >-
+    CLOSED IN FIX ROUND 2, code route rather than the contract line the finding called cheaper, and the implementer said why: the contract was not its write surface and the code route keeps the contract's "four ordered rejections" true with no amendment. ORCHESTRATOR-VERIFIED: params { id: '\uD800' } now exits with a plain Error rather than a platform URIError. ITS OWN DISCLOSURE BECAME F-314 - the message now under-describes its condition - and F-314 is where the covering test lands, since the message text changes under the cluster ruling and a test written first would have had to change with it.
+
+- id: F-313
+  phase: implement
+  task: TASK-008
+  source: sdlc-test-architect
+  round: 2
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/web-api-client.md
+  line: 93
+  summary: >-
+    THE CONTRACT'S STEP 2 PERMITS A DUPLICATED PLACEHOLDER AND F-306's REQUIRED CHANGE FORBIDS
+    IT. Read literally, "if that set !== the key set of (req.params ?? {})" makes
+    `/a/:x/:x` with `{x}` LEGAL - placeholder set {x}, key set {x}, equal - while the shipped
+    code throws and F-306's required_change says a duplicate "is rejected regardless of what
+    params carries". Three readings, two of them normative.
+  failure_scenario: >-
+    Surfaced by the test architect writing F-306's red step, which had to pick one and said so
+    rather than picking silently. It pinned the required-change reading in a test named
+    "refuses a repeated placeholder even when params carry exactly its one key", because the
+    contract's literal reading is a SILENT REGRESSION of current behaviour: today that call
+    throws, and a pure `new Set` comparison would start accepting it and build `/api/bff/a/v/v`.
+    IT PROVED THE DISTINCTION MATTERS RATHER THAN ASSERTING IT: mutation M-A applied the pure
+    set comparison - the cheapest fix for F-306 - and that test failed while the other two
+    passed. So the two readings are separated by exactly one test, and whichever way this is
+    ruled, one of them has to move.
+    Left open, the implementer picks a reading under time pressure and the contract keeps saying
+    the other thing. That is F-288's shape once more: the normative document and the shipped
+    normative form disagreeing with nothing able to see it.
+  required_change: >-
+    Step 2 says once whether a route template may repeat a placeholder name. If it may not -
+    which is what the code does and what the red step pins - say so as a property of the
+    template, alongside ROUTE_TEMPLATE_PATTERN, rather than leaving it implied by a comparison
+    that does not express it. If it may, the red step's third test comes back to the test
+    architect and MUST NOT be weakened without that ruling.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "verdicted at the round-3 re-review"
+  resolved_round: 3
+  resolution: >-
+    ADDRESSED BY DOING NOTHING, PROVEN MECHANICALLY. The ruling upheld the shipped guard, and the reviewer showed git diff 97b9b8d..a6dd8fb over non-comment lines is EXACTLY TWO HUNKS, both `catch (cause)` -> `catch {`. Step 2 is byte-identical and the red step T3 is unchanged.
+  orchestrator_note: >-
+    JOINS THE HELD CLUSTER with F-305, F-310 and F-311. All four ask what web-api-client.md and
+    ADR-0029 actually promise, and answering them in separate dispatches is how two
+    individually-sound amendments contradict. The implementer proceeds on the reject-duplicates
+    reading meanwhile, because that is what ships today and what the red pins - the ruling can
+    only widen it, and widening breaks no caller.
+
+- id: F-314
+  phase: implement
+  task: TASK-008
+  source: sdlc-implementer-frontend
+  round: 2
+  severity: nit
+  kind: contract
+  file: .sdlc/foundation/design/contracts/web-api-client.md
+  line: 98
+  summary: >-
+    invalidParamValueMessage NOW UNDER-DESCRIBES ITS OWN CONDITION. Its text says a param value
+    "is empty, '.' or '..'", and after the F-312 fix it is also what a lone surrogate gets. The
+    string is contract-normative and spec-asserted, so the implementer did not reword it and said
+    so rather than quietly widening a normative message.
+  failure_scenario: >-
+    VERIFIED BY THE ORCHESTRATOR by importing the shipped module: params { id: '\uD800' } now exits
+    with `apiClient: a param value for GET /a/:id is empty, '.' or '..'.` - the right CLASS of
+    error, carrying a description of a condition that did not occur. A developer reads the message,
+    checks that the value is none of those three things, and has been sent away from the real cause.
+    Small, and it is filed because it is the SECOND time in one round that this document's exact
+    wording turned out to be load-bearing in a way nobody had noticed - F-313 is the first.
+  required_change: >-
+    Either the message names the wider condition, or the contract states that this message covers
+    any value the encoder rejects. Whichever is chosen, one test asserts the surrogate case - it
+    has no covering test today, which the implementer disclosed rather than left.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "verdicted at the round-3 re-review"
+  resolved_round: 3
+  resolution: >-
+    ADDRESSED. The widened string is identical character-for-character in client.ts:118, the contract at :186, the stub at :131 and the spec at :428 and :957 - four artifacts checked rather than one asserted.
+  orchestrator_note: >-
+    JOINS THE HELD CLUSTER - F-305, F-310, F-311, F-313, F-314. Juano ruled 2026-08-11 that one
+    architect pass settles all of them together and he approves the result.
+
+# ---- TASK-059 DESIGN-MODE security pass, 2026-08-11. Full text and measurements:
+# .sdlc/foundation/work/TASK-059-design-security.md. Five findings clear phases/design.md's
+# rework bar (a concrete runtime failure the code would exhibit); the rest are notes on the
+# TASK's Approach and never a round. Design rework cap is 2 for track: full.
+
+- id: F-315
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: .sdlc/foundation/design/adr-0031-compose-roles-and-credentials.md
+  line: 78
+  summary: >-
+    COMPOSE INTERPOLATES `configs.*.content`, so the roles init script's "$POSTGRES_USER",
+    "$SHORTKIT_MIGRATOR_PASSWORD" and "$SHORTKIT_APP_PASSWORD" resolve against the HOST
+    environment at parse time - unset on AC-115's clean machine. ADR-0031:203-206 says
+    "interpolation is not used here, deliberately"; it is on by default.
+  failure_scenario: >-
+    AUDITOR-VERIFIED BY EXECUTION and ORCHESTRATOR-REPRODUCED INDEPENDENTLY on a throwaway
+    compose file in a scratchpad: `docker compose config` emits `The "POSTGRES_USER" variable is
+    not set. Defaulting to a blank string.` for names that appear NOWHERE in the file except
+    inside `configs.*.content`. Interpolation of that block is proven, not inferred.
+    The container therefore receives `--username "" -v migrator_password="" -v app_password=""`.
+    libpq treats an empty user as unset and connects as `postgres`, so THE SCRIPT DOES NOT FAIL:
+    both roles are created with an empty password and ON_ERROR_STOP=1 never fires, because
+    PostgreSQL answers an empty password with a NOTICE. The stack then cannot authenticate
+    anywhere, and the failure is far from its cause.
+    SECOND CONSEQUENCE, AND THE REASON THIS IS A SECURITY FINDING RATHER THAN A BUG: ADR-0031
+    rejected the copy-the-test-file alternative BECAUSE `PASSWORD '${VAR}'` has no escaping, and
+    the adopted shape reintroduces exactly that into a worse target. With
+    SHORTKIT_APP_PASSWORD=a"$(id)"b the stored content is `-v app_password="a"$(id)"b"` -
+    command substitution in a script the postgres entrypoint runs as root.
+  required_change: >-
+    Escape the shell forms compose must not touch ($$), or stop passing credentials through
+    `configs.*.content` at all. Whichever is chosen, ADR-0031:203-206's claim is corrected rather
+    than left standing, and the escaping is demonstrated in the ADR rather than asserted.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-316
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: .sdlc/foundation/design/adr-0036-compose-health-and-ordering.md
+  line: 71
+  summary: >-
+    SAME ROOT CAUSE, SECOND SITE. The Postgres health probe's `PGPASSWORD="$SHORTKIT_APP_PASSWORD"`
+    renders as `PGPASSWORD=""`, so Postgres never goes healthy, `migrate` never starts, and
+    `up -d --wait` exits non-zero. AC-115 is red on its own literal command, independently of F-315.
+  failure_scenario: >-
+    The security weight is not the outage - it is THE REPAIR IT INVITES. The three cheap fixes a
+    developer reaches for under time pressure are: a literal password in the probe, which is the
+    F-131 shape ADR-0031 exists to prevent; `pg_isready`, which is the EXACT failure ADR-0036
+    exists to prevent and whose reasoning is written out at length in docker-compose.test.yml; or
+    POSTGRES_HOST_AUTH_METHOD=trust, which removes authentication from the stack entirely.
+    AND THE REPOSITORY OFFERS NO WORKED EXAMPLE TO COPY: docker-compose.test.yml's probe contains
+    no `$` at all, so nothing here demonstrates the escaping that would make this work.
+  required_change: >-
+    Whatever F-315 settles, applied to the probe, with the escaped form written out in the ADR so
+    the next reader copies something that works.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-317
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: .dockerignore
+  line: 27
+  summary: >-
+    THE `.env` PATTERNS ARE ROOT-ANCHORED AND NOT RECURSIVE, so `apps/web/.env.local` - the file
+    `.env.example` line 1 tells developers to create, holding BFF_PROXY_SECRET - is inside the
+    build context of the new apps/web/Dockerfile that ADR-0035 introduces.
+  failure_scenario: >-
+    ORCHESTRATOR-CONFIRMED BY INSPECTION, and the file convicts itself: its author wrote BOTH
+    `dist` and `**/dist`, BOTH `.next` and `**/.next`, and then ONLY the root form for `.env`,
+    `.env.*`, `.npmrc`, `*.pem` and `*.key`. So the dual form was understood and not applied to
+    the secrets. `.gitignore` IS recursive, which is why nobody will notice.
+    ADR-0035 specifies only two of that Dockerfile's COPY requirements; with the natural
+    `COPY apps/web apps/web` the secret lands in an image layer and `next build` loads the file.
+    AND THE ONE GUARD THAT LOOKS IS ABSENT FROM THE PATH THAT GAINED THE EXPOSURE: the compose
+    build runs `next build` only, never `assert:no-secrets`, which is AC-113's mechanism.
+    Verified at 31b03af that .env.example does instruct the copy; not verified by building an
+    image - the recursion claim rests on Docker's documented matching semantics plus the file's
+    own dual-form evidence, and the auditor said so rather than implying it had built one.
+  required_change: >-
+    Add the recursive forms for every secret pattern, and have ADR-0035 specify the web
+    Dockerfile's COPY set exhaustively rather than partially. Consider whether the compose web
+    build should run assert:no-secrets, since it is now a build path AC-113 does not cover.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-318
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: .sdlc/foundation/design/adr-0032-compose-persistence-and-reset.md
+  line: 51
+  summary: >-
+    "Two clones do not share a database" IS FALSE. Compose derives the project name from the
+    directory BASENAME, and `git clone` names both `shortkit`.
+  failure_scenario: >-
+    The second clone gets the first's schema, migration rows and roles. The init script does not
+    re-run because the data directory is non-empty, and `db:migrate` compares timestamps rather
+    than hashes - so everything is green over a database matching NEITHER working copy. The
+    silent-stale-state situation ADR-0032 already warns about, arriving by a route it says
+    cannot happen.
+  required_change: >-
+    Set an explicit project name, or correct the claim and add this to the list of situations
+    requiring `down -v`.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-319
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: docs
+  file: .sdlc/foundation/design/adr-0037-compose-build-provenance.md
+  line: 97
+  summary: >-
+    THE README'S "REAL PROVENANCE" COMMAND IS A NO-OP AS WRITTEN. `docker compose up` builds only
+    when no image exists, and AC-115 forces a bare `up` first - so
+    `GIT_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up` finds the forty-zeros image and
+    reuses it.
+  failure_scenario: >-
+    The developer runs the documented command, sees the stack come up, and /health reports forty
+    zeros. The one mitigation ADR-0037 offers for its own accepted cost does not work, and it
+    fails in the direction that looks like success. Needs `--build`.
+  required_change: >-
+    The README's real-provenance form carries `--build`. Cheap, and it is the difference between
+    the accepted cost being mitigable and not.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-320
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: .sdlc/foundation/design/adr-0030-no-deploy-target.md
+  line: 1
+  summary: >-
+    DELETING FLY ORPHANS THE CLIENT-IP TRUST MODEL, and ADR-0030's precondition list does not
+    mention it. `resolveRateLimitPrincipal`'s "otherwise return Fly-Client-IP" and
+    click-events.md:51's unspoofable premise are what discharge F-009 for `ip_hash` and for every
+    IP-keyed rate-limit bucket. Remove the platform that made the header trustworthy and the
+    premise is gone while the code and the contract still assert it.
+  failure_scenario: >-
+    A trusted-header model is only ever as good as the proxy that strips it. With no deploy
+    target, nothing strips Fly-Client-IP, so whatever eventually fronts this must either
+    reproduce that property or the design has to change - and today no artifact says so. The
+    routing list also omits `design/stubs/**`, WHICH IS WHAT IMPLEMENTERS COMPILE AGAINST.
+  required_change: >-
+    ADR-0030's preconditions for choosing a deploy target gain the client-IP trust property
+    explicitly, and its routing list names design/stubs/**. Whether the rate-limit design itself
+    must change is not the architect's call alone.
+  owner_slot: sdlc-architect
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+  orchestrator_note: >-
+    ESCALATES TO JUANO. ADR-0030 is ACCEPTED as of today's ruling, and phases/design.md says a
+    finding against an approved artifact is never fixed by the architect. It is also NOT a
+    blocker for TASK-059's dispatch: every consumer of the client-IP model - rate limiting, click
+    events - left with EPIC-002..006, so nothing reachable depends on it today. The decision is
+    whether the precondition is recorded now or when a deploy target is chosen.
+
+# SEC-7 through SEC-12: notes rather than rounds - no concrete runtime failure. Full text at
+# .sdlc/foundation/work/TASK-059-design-security.md. Recorded compactly because they are real
+# and because a note nobody can find is a silent discard.
+- id: F-321
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: docs
+  file: .sdlc/foundation/design/adr-0030-no-deploy-target.md
+  line: 99
+  summary: >-
+    ADR-0030:99 says apps/web/src/lib/api/client.ts carries live Fly-Client-IP behaviour. FALSE at
+    31b03af - it is a docblock. The mistake routes the wrong artifact, which is how F-320's real
+    subject nearly got lost behind a comment.
+  required_change: Correct the claim and route F-320's actual sites instead.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-322
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/foundation/design/adr-0037-compose-build-provenance.md
+  line: 1
+  summary: >-
+    ADR-0037's containment - "nothing inherits this default" - is written as a FOLLOW-UP rather
+    than a CONDITION, and the compose stack builds `target: runtime`, which is the very image
+    AC-6 measures. The sentinel is one line of one local-only file only for as long as nobody
+    promotes that image.
+  required_change: Make the containment a condition of the decision, not a follow-up on it.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-323
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: .sdlc/foundation/design/adr-0033-compose-migrate-and-seed-services.md
+  line: 1
+  summary: >-
+    ADR-0033's grant-check claim SURVIVED THE AUDITOR'S ATTACK and it said so - ACL precedes RLS,
+    and ON CONFLICT DO NOTHING still checks INSERT. What defeats it is one token in the DSN, and
+    nothing prints the connected role. `db:seed` also has no DSN guard now that deploy.sh's
+    loopback refusal is deleted.
+  required_change: >-
+    Print the connected role, and decide whether db:seed needs the loopback refusal deploy.sh was
+    carrying.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-324
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: docs
+  file: .sdlc/foundation/design/adr-0031-compose-roles-and-credentials.md
+  line: 1
+  summary: >-
+    The NOBYPASSRLS RATIONALE was dropped in transcription. The attribute is present in both
+    copies and the auditor verified that; what is missing is the sentence saying a role that can
+    bypass RLS turns every isolation assertion into a tautology. That sentence is why nobody
+    removes it.
+  required_change: Carry the rationale, not only the attribute.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-325
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: docs
+  file: .sdlc/foundation/design/adr-0032-compose-persistence-and-reset.md
+  line: 1
+  summary: >-
+    ADR-0032 classifies nothing the durable volume will hold. tmpfs made the question moot; a
+    named volume outliving `down`, `git clean` and a branch switch does not.
+  required_change: Say what the volume may hold and what it may not.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+- id: F-326
+  phase: design
+  task: TASK-059
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: docs
+  file: .sdlc/foundation/design/adr-0030-no-deploy-target.md
+  line: 1
+  summary: >-
+    "The largest credential stops circulating" is overstated for what the deletion actually
+    removes.
+  required_change: State the narrower true claim.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  reaudit_2026_08_11: "ADDRESSED at the scoped design re-review by the auditor that raised it. Verdict clear overall; round 2 of the design cap stays UNSPENT."
+
+# ---- TASK-006 fix round 2 return. Disclosed BY THE IMPLEMENTING AGENT, not found by an auditor.
+# Full text: .sdlc/foundation/work/TASK-006-r2-rework-report.md, "Discovered and NOT fixed".
+
+- id: F-327
+  phase: implement
+  task: TASK-006
+  source: sdlc-test-architect
+  round: 2
+  severity: major
+  kind: contract
+  file: .sdlc/foundation/design/contracts/isolation-coverage.md
+  line: 1
+  summary: >-
+    THE CONTRACT NOW DESCRIBES THE HARNESS THAT F-302 PROVED INSUFFICIENT. Its "Attempt semantics"
+    table describes writes only as "rejected or zero rows affected" - EXACTLY the rule an
+    unqualified UPDATE defeats - and its verdict type is 'pass' | 'fail' where the shipped code
+    now has 'pass' | 'fail' | 'incomplete'.
+  failure_scenario: >-
+    Anyone reimplementing or extending this harness from its contract rebuilds the blind spot that
+    let a tenant overwrite another tenant's rows while the suite reported PASS with exit 0. The
+    rule F-302 established - that a write QUALIFIED BY THE OWNER COLUMN is routed through the
+    SELECT policy, so an unqualified one is a different attack that must be attempted separately -
+    exists today only in the code and in the finding.
+    THIS IS F-299's SHAPE ON THE SAME ARTIFACT, one round later: the document understating the
+    shipped harness in exactly the direction that lets a future change quietly weaken it. F-283 is
+    the same class on a third artifact.
+    Disclosed by the implementing agent rather than found by an audit - `.sdlc/**` was outside its
+    write surface this dispatch, so it could not amend the contract and said so instead of
+    letting the divergence ship silently.
+  required_change: >-
+    Amend isolation-coverage.md's verdict type and Attempt semantics table to the shipped
+    behaviour, including the unqualified-write rule and WHY it is separate from the qualified one.
+    The mechanism is already written down at rls-fixture.ts:175-188 and in F-302; the contract is
+    the one place it is missing.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 4
+  resolution: >-
+    CLOSED. isolation-coverage.md went 393 to 1029 lines. EIGHT wrong statements struck IN PLACE with the finding that disproved each, ADR-0029's precedent style - and FOUR OF THE EIGHT WERE FOUND WHILE RECONCILING rather than being on the dispatch list: the read row's `or a throw` (F-294 disproved it), `db:check-policies is the same assertion`, invariant 4's `reads the real module graph`, and DiscoveredSurface missing two fields. All nine report fields declared, the verdict's three values, four supporting types, and new sections for the eight statement shapes, the two independent judgements, what a refusal is evidence of, declined shapes, the five drift arms WITH THEIR RESIDUAL, db:check-policies as half a composite gate, the three-write discipline, and F-341's known-uncovered shapes in full. It also added a `Which copy of this is normative` section - shipped files are the behaviour, the contract is normative for what the harness must do, the stub is derived and stale with its three divergences named, ADRs are decisions not mechanism - and said plainly that NOTHING GATES ANY OF IT, so the rule is procedural until a gate exists.
+
+- id: F-328
+  phase: implement
+  task: TASK-006
+  source: sdlc-test-architect
+  round: 2
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    assertNoTenantIdAltered() IS NARROWLY WEAKER THAN BEFORE. An unqualified write that affected
+    rows now triggers a reset() immediately after the attempt, because `DELETE FROM
+    rls_fixture_rows` as tenant B legitimately removes B's own row and would otherwise leave the
+    fixture short for the rest of the run.
+  failure_scenario: >-
+    A cross-tenant write that the reset restores has ALREADY been judged, recorded in `leaks` and
+    reported as a fail naming the surface, and the post-run check is the contract's explicitly
+    weaker form - so the cost is bounded. It is filed because a bounded reduction in a safety
+    check should be a record rather than a discovery, and because the reasoning that makes it safe
+    lives in one agent's report.
+  required_change: >-
+    Confirm the bound holds at the next audit, or state it in isolation-coverage.md alongside
+    F-327's amendment so the weaker form is the documented one.
+  owner_slot: sdlc-test-architect
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-329
+  phase: implement
+  task: TASK-006
+  source: sdlc-test-architect
+  round: 2
+  severity: nit
+  kind: test-coverage
+  file: apps/api/test/isolation/registrations.ts
+  line: 1
+  summary: >-
+    `tenants.deleteAll` CANNOT AFFECT A ROW TODAY AND ITS PASS RESTS ON AN ABSENCE. `tenants` has
+    no ordinary DELETE policy at all (F-005), so `DELETE FROM tenants` reports 0 whatever else is
+    true.
+  failure_scenario: >-
+    The attempt is live and starts meaning something the day a DELETE policy is added. Today it
+    proves the absence of a policy rather than the correctness of one, and "14 green attempts"
+    should not be read as 14 equally strong statements. Named by the agent that added it, which is
+    the disclosure a coverage number cannot make for itself.
+  required_change: >-
+    None now. Re-read this the day a DELETE policy lands on tenants.
+  owner_slot: null
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+# ---- TASK-006 audit round 3. F-302, F-303 and F-304 all verdicted ADDRESSED; these are new.
+# Full measurements: .sdlc/foundation/work/TASK-006-r2-reaudit.md
+
+- id: F-330
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 3
+  severity: blocker
+  kind: security
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    F-302's SIBLING IS STILL GREEN AND IT IS THE WORSE HALF. The round-2 fix catches
+    `USING (true) WITH CHECK (true)`. Tighten the WITH CHECK to the correct predicate - ONE TOKEN
+    from tenantScopedPolicies() - and the unqualified write is refused with 42501, which
+    classifyRefusal() scores `row-level-security` and attempt() scores a PASS. And NO SHAPE IN THE
+    HARNESS EVER WRITES THE OWNER COLUMN, which is exactly the statement that defect permits.
+  failure_scenario: >-
+    ORCHESTRATOR-REPRODUCED END TO END. `ALTER POLICY tenants_self_update ON tenants USING (true)`
+    - leaving WITH CHECK correct - then the suite:
+      pass  A->B  updateAll  (write on tenants, saw 0, affected 0) - refused: error [42501]
+      pass  B->A  updateAll  (write on tenants, saw 0, affected 0) - refused: error [42501]
+      report.json: verdict=pass, failed=[], unverified=[], 28 attempts
+    THE SUITE EXITED 1 FOR AN INCIDENTAL REASON ONLY - the hand-written F-294 refusal roster is a
+    literal list that updateAll joined - and the artifact SC-1 points at says PASS.
+    The auditor measured the leak itself on a tenant_id-shaped probe carrying that policy: all
+    seven shapes pass, and `UPDATE probe SET tenant_id = '<A>'` reports UPDATE 2, leaving tenant
+    B's row OWNED BY TENANT A. A tenant taking ownership of another tenant's row is not a shape
+    this harness has ever attempted.
+    THIRD BLOCKER IN THREE CONSECUTIVE ROUNDS, all of one form: harness green while isolation
+    broken. Each previous fix was measured and each holds; what keeps failing is the METHOD -
+    enumerating statement shapes a human thought of. Recorded as a roadmap item by Juano's ruling
+    2026-08-11, alongside this fix rather than instead of it.
+  required_change: >-
+    Two concrete gaps. (1) Add owner-column-writing shapes - `UPDATE t SET <ownerColumn> = <other
+    tenant>` - so the statement the defect permits is actually attempted. (2) A 42501 refusal on an
+    UNQUALIFIED write must not score a pass on its own: an unqualified statement that Postgres
+    refuses proves the WITH CHECK held, not that the USING did.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 3
+  reaudit_r4: >-
+    ADDRESSED at the round-4 re-audit. Both required mechanisms shipped - reparentAll, and refusalProvesDenial now requiring owner-qualified. ORCHESTRATOR-REPRODUCED both ways: the same mutation that gave `pass` on both directions with verdict=pass now gives UNVERIFIED on both, exit 1, verdict=fail. THE DECLINE THAT SHIPPED WITH IT IS NOT SOUND and is F-342.
+  resolution: >-
+    CLOSED AND ORCHESTRATOR-REPRODUCED BOTH WAYS. Under the same mutation - ALTER POLICY tenants_self_update ON tenants USING (true), WITH CHECK left correct - the harness now reports UNVERIFIED on updateAll in BOTH directions, exit 1, report.json verdict=fail attemptVerdict=fail. Before this round it reported `pass` on both with verdict=pass. TWO MECHANISMS SHIPPED: a `reparentAll` shape that writes the OWNER COLUMN, so the statement the defect permits is actually issued; and a rule that an RLS refusal on an UNQUALIFIED write scores `unverified` rather than `pass`. AND THE MESSAGE TEACHES THE MECHANISM RATHER THAN JUST FAILING - it says the refusal proves the WITH CHECK held and proves NOTHING about the USING clause, which is the half deciding which existing rows the statement could reach. tenants DECLINES reparentAll by name, its owner column being its primary key, recorded in declinedShapes.
+
+- id: F-331
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: behavior
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    report.json CAN SAY `verdict: pass` WHILE THE SUITE EXITS 1. writeIsolationReport() is the last
+    statement in beforeAll, and ELEVEN OF EIGHTEEN TESTS RUN AFTER IT - including
+    assertNoTenantIdAltered().
+  failure_scenario: >-
+    Measured in the same run as F-330, and I saw it too: exit code 1, report.json verdict pass.
+    F-304 moved the artifact from "stale pass from a previous run" to "confident pass from THIS
+    run that the run then disproved", which is a different defect in the same place.
+    DIRECTLY ON F-297's PATH: F-304's own sequencing note said the artifact must be trustworthy
+    BEFORE the CI upload lands, and this is the remaining half of that.
+  required_change: >-
+    The artifact is written, or amended, after the assertions that can disprove it - not at the end
+    of beforeAll. Land before F-297's CI upload.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 3
+  reaudit_r4: >-
+    ADDRESSED. finishIsolationReport() is the only writer of `pass`, and suiteOutcome === 'incomplete' short-circuits before the conjunction. Clean run measured: verdict=pass attemptVerdict=pass suiteOutcome=pass attempts=30. ONE PATH DISAGREES THE WRONG WAY and is F-343 - suiteOutcomeOf() filters one level, so a nested describe hides a failure.
+  resolution: >-
+    CLOSED. The artifact is written THREE times and only the afterAll write can say `pass`, so it can no longer assert a verdict that eleven still-unrun tests might disprove. Measured by the agent with a behaviour-preserving fifth policy: the attempt battery judged itself clean (attemptVerdict=pass, failed=[]) while one test failed, and the artifact correctly said verdict=fail.
+
+- id: F-332
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: behavior
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    A run that selects NO TEST leaves the previous run's `pass` on disk with no marker.
+  failure_scenario: >-
+    Measured: `-t 'no such test'` gives 18 skipped, exit 0, and the artifact unchanged at the prior
+    runAt. F-304 closed the crash case; this is the no-op case, and it is quieter.
+  required_change: >-
+    Absence or staleness must be unambiguous - delete the artifact at process start, or carry a
+    runAt the reader is expected to check against the run it is reading about.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 3
+  reaudit_r4: >-
+    ADDRESSED. The module-scope marker executes at collection, and the collection-error residual the agent disclosed is accurate as stated.
+  resolution: >-
+    CLOSED. The incomplete marker moved to module scope, so a filtered run now leaves `incomplete` with a fresh runAt rather than the previous run's pass. Residual named by the agent: a COLLECTION error before module scope runs is still outside its reach and needs F-297's upload check or a globalSetup outside its paths.
+
+- id: F-333
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    THE FOUR-ARM DRIFT UNION IS A SUPERSET ONLY IN COMBINATION WITH db:check-policies, so the drift
+    check is not the "second, independent enumeration" its own header claims for the unprotected
+    shape.
+  failure_scenario: >-
+    Measured: three `owning_tenant` probes all leaked bob@tenant-b.example to tenant A, and the
+    drift query named ONLY the ENABLE+FORCE one. check-policies caught the other two and ci.yml:253
+    runs it first, so the COMPOSITE gate holds - which is why this is minor rather than major. The
+    defect is in the claim, and a claim of independence is what stops someone removing one of the
+    two.
+  required_change: >-
+    Either make the drift arms cover the unprotected shape, or correct the header to state that the
+    enumeration is composite and names db:check-policies as the other half.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 3
+  reaudit_r4: >-
+    ADDRESSED, AND THE AUDITOR VERIFIED THE RESIDUAL RATHER THAN THE RULE. Arm 5 shipped, and it MEASURED the header's claim: a table departing on all five properties does escape and does leak, exactly as the header says. Checking that a stated boundary is true is worth more than checking that the check works.
+  resolution: >-
+    CLOSED, AND IT TOOK THE HARDER HALF RATHER THAN ONLY THE CHEAPER ONE. The finding offered `fix the arms OR correct the claim`; the agent did both - added a FIFTH arm (a foreign key to tenants(id)) so all three probe shapes are named where only the force-RLS'd one was, AND rewrote the header to state WHAT STILL ESCAPES ALL FIVE: a table that is not tenants, spells its owner column something other than tenant_id, declares no foreign key to tenants, carries no policy reading app.tenant_id, and is not force-RLS'd - three simultaneous departures from ADR-0019's stated convention. A boundary stated as a residual rather than as a claim of completeness.
+
+- id: F-334
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 3
+  severity: nit
+  kind: test-coverage
+  file: apps/api/test/isolation/registrations.ts
+  line: 1
+  summary: >-
+    `tenants.deleteOwnedBy` shares F-329's "proves an absence" property - tenants has no ordinary
+    DELETE policy - and was not disclosed alongside it.
+  failure_scenario: >-
+    Same class as F-329, found by the auditor rather than by the agent that shipped it. Two of the
+    green attempts on this table are statements about a missing policy rather than about a working
+    one.
+  required_change: Disclose it beside F-329; nothing to fix today.
+  owner_slot: null
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 3
+  reaudit_r4: >-
+    ADDRESSED - the accounting is complete and reaches the artifact. Its concluding sentence inherits F-342's false premise, so it moves when that does.
+  resolution: >-
+    CLOSED. The accounting is finished in registrations.ts, including the sentence that on the migrated table updateAll is the only live unqualified write attempt per direction.
+
+# ---- TASK-008 audit round 3, code review. Overall `clear` - all ten findings ADDRESSED,
+# no blocker, no major. Full text: .sdlc/foundation/work/TASK-008-r3-review.md
+
+- id: F-335
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 3
+  severity: minor
+  kind: test-coverage
+  file: apps/web/src/lib/api/client.spec.ts
+  line: 553
+  summary: >-
+    THE READ LEG'S ABORT BRANCH IS UNTESTED, AND TWO REPORTS SAID THE OPPOSITE. The red report
+    wrote "every existing abort helper rejects WITH signal.reason" and the implementation report
+    wrote "correct by construction rather than by measurement". BOTH ARE INACCURATE ON THIS
+    HELPER, and the reviewer measured it rather than accepting either.
+  failure_scenario: >-
+    networkAbortsWhileReadingBody errors the stream with `new Error('socket closed')` while the
+    signal carries a SEPARATE DOMException, so the caught rejection and signal.reason are
+    different objects and the two readings DO diverge there.
+    ORCHESTRATOR-REPRODUCED by importing the shipped module and rebuilding the helper's exact
+    shape:
+      class                   = RequestAbortedError
+      cause === signal.reason ? true
+      cause === streamErr     ? false
+    The code is CORRECT. The only test reaching the branch asserts the CLASS alone, so a mutation
+    reading the caught rejection instead of the signal survives all 47 tests - in the one class
+    that carries a cause, under the rule ADR-0029 exists to protect.
+  required_change: >-
+    One line at the existing test: `expect((outcome as Error).cause).toBe(reason)`. And correct
+    the false premise in both reports, so it is not re-accepted the next time someone asks whether
+    that branch is covered.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 3
+  resolution: >-
+    CLOSED, AND THE TEST ARCHITECT RE-MEASURED THE FINDING BEFORE ACTING ON IT rather than taking it from the filing. Its standalone probe: caught === streamErr TRUE, caught === signal.reason FALSE - so its own round-3 claim that every abort helper rejects WITH signal.reason was false, and reading the caught rejection was a LIVE UNCAUGHT MUTATION. Proved by mutation: flipping client.ts:502-511 to the caught rejection fails EXACTLY the new assertion while the pre-existing send-leg test stays GREEN, which is the direct evidence the read leg had no coverage. client.ts restored, sha256 identical before and after, numstat clean. IT CHOSE toBe(reason) OVER A SERIALISER SEARCH DELIBERATELY: identity is strictly stronger - if cause IS the caller object there is no platform string to search - so the assertion does not inherit F-339's blind spots and needs no revisit when the ADR lands.
+
+- id: F-336
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 3
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/web-api-client.md
+  line: 1
+  summary: >-
+    F-286's RULE EXISTS IN EXACTLY TWO PLACES, BOTH INSIDE apps/web - the requestInit docblock and
+    its spec test. A grep over the contract, the stub and EVERY ADR returns nothing about
+    `credentials: 'same-origin'` or `redirect: 'error'`.
+  failure_scenario: >-
+    Found by pulling the one genuine stub-versus-source divergence the implementer flagged: the
+    stub's amendment line had dropped F-286/F-288 and the credentials/redirect clause. The
+    implementer correctly declined to propagate the omission - and the omission turned out to run
+    deeper than the stub.
+    A security-relevant fetch option set that no normative artifact records is one refactor away
+    from being dropped as noise, and the F-288 pattern is precisely a rule surviving only where
+    the downstream reader has no reason to look.
+  required_change: >-
+    web-api-client.md states the credentials and redirect settings normatively, with the reason
+    each was chosen. The stub follows.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 3
+  resolution: >-
+    CLOSED. A new normative section in web-api-client.md between path construction and response handling gives credentials: 'same-origin' and redirect: 'error' with the reason for each, plus INVARIANT 16. The stub follows, and its 2026-08-10 amendment line is REPAIRED - it had dropped F-286 and F-288, which is the divergence the implementer flagged and correctly declined to propagate. Stub still parses at 24 exports, verified.
+
+- id: F-337
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 3
+  severity: nit
+  kind: test-coverage
+  file: apps/web/src/lib/api/client.spec.ts
+  line: 1
+  summary: >-
+    Two stale texts in the spec: the test titled "F-288: MUTATING_METHODS names every method the
+    proxy checks Origin on" now names four rather than every one, since ADR-0038 demoted that
+    constant to descriptive; and the round-2 banner still says F-305/F-311 are held for Juano's
+    ruling, corrected only 100 lines below, contrary to the ruling's own "comes out when the
+    ruling lands".
+  required_change: Rename the test; delete the superseded banner rather than superseding it in place.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 3
+  resolution: >-
+    CLOSED. Test retitled with its assertion byte-identical; the round-2 banner DELETED rather than corrected in place, and its round-3 "superseded" paragraph rewritten rather than left dangling - leaving that would have been the F-313 shape this finding exists to remove. 12 deletions, ZERO assertions: verified mechanically by the agent and again by me, `git diff -U0 | grep ^- | grep expect(` returns nothing and the expect() count went 102 to 103, exactly the one added.
+
+- id: F-338
+  phase: implement
+  task: TASK-008
+  source: sdlc-reviewer
+  round: 3
+  severity: nit
+  kind: docs
+  file: .sdlc/foundation/tasks/TASK-008.md
+  line: 74
+  summary: >-
+    The Produces list gained NetworkError under F-309 and now omits NON_MUTATING_METHODS, which
+    this round exported. The same list, the same defect, one round apart.
+  required_change: Name NON_MUTATING_METHODS alongside the other exports.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "orchestrator 2026-08-11"
+  resolved_round: 3
+  resolution: >-
+    Applied to the card. It also gained the paragraph the omission kept costing: MUTATING_METHODS is
+    DESCRIPTIVE now per ADR-0038, isMutatingMethod is the definition and fails closed, and whoever
+    changes the exports amends the paragraph in the same commit because nothing gates it. Recording
+    the rule beside the list is what stops a third instance; recording only the missing name would
+    have been the second fix of the same defect in two rounds.
+
+# ---- TASK-008 round 3, security half. IDS RENUMBERED 335-336 -> 339-340 BY THE ORCHESTRATOR.
+# SECOND ID COLLISION TODAY AND THE SAME CAUSE: I dispatched the reviewer and the security
+# auditor concurrently without giving either an id range, exactly as I did in round 2, having
+# already written that up as my defect. Recording the repeat rather than the incident.
+
+- id: F-339
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/adr-0029-credentials-are-never-constructible-into-error-text.md
+  line: 1
+  summary: >-
+    THE MEASUREMENT DISCIPLINE ADR-0029 JUST ADOPTED HAS THE DEFECT IT WAS WRITTEN TO FIX.
+    "util.inspect(err, {depth: 5}) or it is not measured" replaces one blind single-channel check
+    with another. TEN EVASION SHAPES TRIED; THE MANDATED CHECK CAUGHT ONE.
+  failure_scenario: >-
+    Measured on Node 24.19.0 against pino-std-serializers@7.1.0 - the version this repo resolves,
+    and the sink the rule CITES AS ITS OWN JUSTIFICATION. Four shapes report clean under the
+    mandated check while pino's `err` serialiser emits the secret: an enumerable GETTER
+    (inspect's `getters: false` default), a string past maxStringLength's default 10000, an array
+    property past maxArrayLength's default 100, and AggregateError.errors past the same limit. A
+    fifth, toJSON, is inspect-clean and leaks via JSON.stringify.
+    AND IT IS NOT EVEN A SUPERSET OF WHAT IT REPLACED: the getter and toJSON rows ARE caught by
+    the spread and JSON.stringify - the checks the amendment calls inadequate. So the amendment
+    traded one partial view for a different partial view and described it as a fix.
+    REACHABLE TODAY, not hypothetical: the real apiClient driven into a ContractViolationError
+    with 150 zod issues renders as `... 50 more items` under the mandated check. Nothing leaks
+    through it only because zod 4 does not echo received values - A PROPERTY OF A DEPENDENCY,
+    NOT OF THE RULE. That is the architect's own deferred question about
+    ContractViolationError.issues, and it would be measured with a truncating check.
+    THE RULE IS ALREADY QUOTED IN THREE PLACES including client.spec.ts's deepErrorSurface, so
+    every `expect(deepErrorSurface(err)).not.toContain(SECRET)` inherits the blind spot.
+    THIS IS THE FINDING THE DISPATCH ASKED FOR. I told the auditor to audit the new rule as a
+    control and not only the code, on the reasoning that if the new rule can be defeated the way
+    the old one was, that is worth more than anything in the diff. It can be, and it is.
+  required_change: >-
+    Replace the single mandated check with the union the auditor's report specifies, which caught
+    10 of 10 - and state WHY a single channel cannot be sufficient, so the next amendment does not
+    repeat the shape a third time. The auditor's own words on scope: closing TASK-008 and routing
+    this separately is defensible; shipping the discipline as written and citing it next round is
+    not.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 3
+  resolution: >-
+    CLOSED, CONCEDED WITHOUT HEDGING, AND THE ARCHITECT IMPROVED ON THE FIX THAT WAS SPECIFIED FOR IT. Its own words: it diagnosed 'cleared a claim with channels sharing a blind spot, then generalised', then wrote a rule that cleared claims with ONE channel having a DIFFERENT blind spot - same mechanism, same document, four hours apart. ADR-0029 gained a normative section, The measurement discipline, with the old bullet struck through and pointed at it. It answers WHY A SINGLE CHANNEL CAN NEVER BE SUFFICIENT, which is the part meant to survive the next amendment: every serialiser is a POLICY over an object graph, differing on five axes - which keys it walks, how deep, how much of each value, whether it runs the object's own code, and how it renders what it declines to walk. A check is a claim about one policy; a guarantee is a claim about every sink, and sinks get chosen later by people not reading the document. AND IT MEASURED THE UNION BEFORE MANDATING IT, which corrected two things in the version it was handed: JSON.stringify({...err}) does NOT bypass an OWN toJSON - the spread copies it and stringify calls the copy - it bypasses a PROTOTYPE-level one, which is the class shape; and AggregateError.errors is caught by the getOwnPropertyNames member too, not by inspect alone. THREE OF THE FOUR MEMBERS THROW on ordinary shapes - circular own property, BigInt, throwing getter, null-prototype object - so unwrapped, ONE THROW KILLS THE CHECK and the cheapest fix is deleting a member. Each is wrapped now and `<member threw> INCONCLUSIVE` is never a clean result. That correction came from RUNNING it rather than reading it. It also kept a member that caught nothing the others missed and SAID SO PLAINLY, because it makes the union a strict superset of the round-1 checks - half of this finding's own complaint - and because it runs in jsdom. Residual named: a floor modelling today's sinks, every number from Node with the browser leg inferred.
+
+- id: F-340
+  phase: implement
+  task: TASK-008
+  source: sdlc-security-auditor
+  round: 3
+  severity: nit
+  kind: behavior
+  file: apps/web/src/lib/api/client.ts
+  line: 1
+  summary: >-
+    appendQuery's String(value) sits OUTSIDE the try that F-312 added, so a query value with a
+    throwing toString escapes as the caller's own exception - the same unenumerated-exit complaint
+    F-312 closed for `params`, still open for `query`.
+  failure_scenario: >-
+    Type-forbidden and not an ADR-0029 violation, which is why it is a nit. It is filed because
+    F-312 established that an unenumerated exit from URL construction is a defect worth closing,
+    and the argument does not stop at the parameter it was raised against.
+  required_change: >-
+    Bring String(value) inside the guarded region, or state in the contract that query values are
+    caller-typed and the platform exception is theirs.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-341
+  phase: implement
+  task: TASK-006
+  source: sdlc-test-architect
+  round: 3
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/isolation/registrations.ts
+  line: 1
+  summary: >-
+    FIVE STATEMENT SHAPES THE HARNESS STILL DOES NOT ISSUE, NAMED BY THE AGENT THAT FIXED THE
+    THIRD BLOCKER RATHER THAN FOUND BY A FOURTH AUDIT. I asked it to name a structurally adjacent
+    shape if it saw one, on the reasoning that the list is worth more than another round. It
+    named five.
+  failure_scenario: >-
+    1. `INSERT ... ON CONFLICT DO UPDATE`. PostgreSQL applies the INSERT WITH CHECK and, on
+    conflict, THE UPDATE POLICY'S USING to the conflicting row. So a table with a correct INSERT
+    policy and a wide-open UPDATE USING is reachable through one statement no shape here issues -
+    AND THE ORM IDIOM save()/upsert() COMPILES TO EXACTLY IT. Same defect class as F-330 arriving
+    through a third policy path.
+    2. `MERGE` (PG 15+). Each WHEN branch applies a different policy and no shape produces the
+    combination.
+    3. EVICTION RATHER THAN THEFT: `UPDATE <t> SET <owner> = <a tenant the fixture never seeds>`.
+    The count rule DETECTS it but the digest cannot NAME the recipient, because a third tenant
+    appears in no census line. Detected but not attributed; attribution is worth a third fixture
+    tenant when someone next touches censusRows().
+    4. Cascade and trigger effects on a SIBLING table. censusRows() reads only the attempted
+    table, so a write whose FK cascade or trigger touches a different registered table is outside
+    the per-attempt comparison. Bounded today ONLY because tenants has no ordinary DELETE policy,
+    so no cascade can fire - it goes live the day one lands, which is F-329's table.
+    5. `SELECT ... FOR UPDATE` / `FOR SHARE`. A locking read applies the UPDATE policy's USING in
+    addition to the SELECT policy, so on a table with a wide-open UPDATE USING a tenant can take
+    row locks on rows it CANNOT READ - an existence side channel and a denial of service on
+    another tenant's writes.
+    THE AGENT'S OWN CONCLUSION, AND IT IS THE ARGUMENT FOR THE ROADMAP ITEM: all three blockers so
+    far have been "a statement shape nobody thought of", and items 1 and 2 are simply the next two
+    nobody thought of.
+  required_change: >-
+    None this round, by Juano's ruling of 2026-08-11: this round ships the two concrete gaps and
+    the generative approach becomes a roadmap item. These five are the worked evidence for that
+    item and are recorded on it. Shape 3's attribution gap and shape 4's cascade gap should be
+    re-read the day a DELETE policy lands on tenants.
+  auditor_ranking_2026_08_11: >-
+    THE ROUND-4 AUDITOR RANKED THEM AND ADDED A SIXTH, ASKED FOR ITS JUDGEMENT RATHER THAN A
+    RE-FILING. It agrees ON CONFLICT DO UPDATE is first BY A CLEAR MARGIN. It PROMOTES
+    `SELECT ... FOR UPDATE` TO SECOND, ABOVE MERGE, on two grounds: its consequence is a different
+    CLASS - an existence side channel plus a cross-tenant denial of service on another tenant's
+    writes - and the idiom that produces it is ORDINARY READ-MODIFY-WRITE CODE, whereas MERGE
+    requires a deliberate authoring choice nothing here makes. Cascade and trigger effects rank
+    third because their trigger is SCHEDULED: F-329's DELETE policy on tenants.
+    AND THE SIXTH, WHICH NOBODY HAD: POLICY COMPOSITION. Every control here is a table with ONE
+    policy set, but a carve-out lands in production as a SECOND PERMISSIVE POLICY rather than an
+    OR arm inside the first - and permissive policies are OR-ed, so a second one can only widen.
+    A generative approach must derive from the COMPOSED set, not from each policy in isolation.
+  owner_slot: null
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+# ---- TASK-006 audit round 4. F-330..F-334 all ADDRESSED; these are defects in the ROUND-3 FIX
+# rather than new leak classes, which is the first time on this TASK that has been true.
+# Full measurements: .sdlc/foundation/work/TASK-006-r3-reaudit.md
+
+- id: F-342
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 4
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/registrations.ts
+  line: 1
+  summary: >-
+    `tenants` DECLINES reparentAll ON A MEASURABLY FALSE PREMISE, AND THE SHAPE WOULD HAVE BEEN
+    MEANINGFUL. TENANTS_DECLINES_REPARENT says the statement "is refused by the primary key index
+    with 23505 before any policy is evaluated, so it could never distinguish a correct policy from
+    a wide-open one". THE ORDERING IS BACKWARDS: the policy is evaluated FIRST and is what
+    prevents the collision.
+  failure_scenario: >-
+    Measured by the auditor on the production table, `UPDATE tenants SET id = '<A>'` as tenant A:
+      correct USING (id = ctx)          -> UPDATE 1, NO ERROR - the USING admits only the actor's
+                                            own row, so it is an identity update and the key is
+                                            never contended
+      USING (true), WITH CHECK correct  -> 23505 duplicate key
+      USING (true) WITH CHECK (true)    -> 23505
+    So the shape DISTINGUISHES THE CASES CLEANLY - pass versus unrecognised -> unverified -> red -
+    on the one migrated production table this repository has. The decline removes the only
+    owner-column write attempt on that table.
+    AND THE FALSE REASON IS PUBLISHED VERBATIM INTO report.json, so the artifact SC-1 points at
+    carries an incorrect statement about PostgreSQL's evaluation order. F-334's accounting
+    sentence inherits it, which makes it a consequence of the decline rather than of the table.
+    THIS IS `declinedShapes` BEING EXACTLY THE HAZARD I FLAGGED WHEN IT SHIPPED: an absence of
+    evidence recorded as a fact, and coverage shrinking quietly, which is F-296's shape.
+  required_change: >-
+    Remove the decline and attempt reparentAll on tenants, or replace the premise with one that is
+    true. Whichever, report.json must stop publishing the false ordering claim.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 4
+  reaudit_r5: >-
+    ADDRESSED at the round-5 re-audit: the mechanism is GONE RATHER THAN RENAMED - declineReparentAllBecause, TENANTS_DECLINES_REPARENT and declinedShapes absent from the registration, the type AND the artifact. Clean run: covered=16, attempts=32. Both halves of the auditor's r3 measurement are now shipped behaviour.
+  resolution: >-
+    CLOSED, AND THE FIX WENT FURTHER THAN THE FINDING ASKED. The agent reproduced the auditor's measurement FIRST - on the migrated tenants, UPDATE tenants SET id = '<A>' gives UPDATE 1 NO ERROR under the migration's own policies and 23505 under either widened shape, confirming the policy is evaluated first and is what prevents the collision. It then withdrew the decline, registered reparentAll on tenants (16 surfaces, 32 attempts), AND REMOVED THE DECLINE MECHANISM ENTIRELY - declineReparentAllBecause, TENANTS_DECLINES_REPARENT and declinedShapes are gone from both the registration and the report, so report.json HAS NO FIELD LEFT THROUGH WHICH COVERAGE CAN SHRINK. That is the F-296 hazard removed rather than corrected. COVERAGE_BOUNDARY now quotes the withdrawn premise in quotation marks and refutes it with the measurement, so the record of the error survives its correction. Both halves ship as controls: tenants itself is the passing half, and new permanent DDL isolation_pk_owner_canary is the failing half.
+
+- id: F-343
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: behavior
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    suiteOutcomeOf() FILTERS ONE LEVEL of `task.type === 'test'`, so a failure inside a NESTED
+    describe is invisible to it and the artifact publishes `verdict: pass` over a red file - F-331
+    restored by an ordinary edit.
+  failure_scenario: >-
+    Verified against @vitest/runner@3.2.7: `Task = Test | Suite | File`, and a nested describe
+    arrives as `type: "suite"`. Grouping the control tests under a nested describe is THE ORDINARY
+    WAY THIS FILE GROWS - it already has fourteen control tests - so the regression needs no
+    mistake, only maintenance.
+  required_change: Recurse into suites rather than filtering one level.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 4
+  reaudit_r5: >-
+    ADDRESSED, AND CROSS-CHECKED INDEPENDENTLY rather than read off the code: testStatesOf() recurses on type === 'suite', the controls really are nested, and the artifact reports observedTests: 27 - which is exactly the number of the 60 integration tests this file contributes.
+  resolution: >-
+    CLOSED. testStatesOf() recurses, `observedTests` is in the artifact, and ELEVEN CONTROLS ARE ACTUALLY NESTED so the real test tree exercises the recursion rather than a fixture proving it in isolation.
+
+- id: F-344
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: behavior
+  file: apps/api/test/isolation/coverage.ts
+  line: 1
+  summary: >-
+    THE NEW `unverified` RULE FIRES ON A CORRECTLY ISOLATED TABLE, leaving it PERMANENTLY RED WITH
+    NO ESCAPE - and the message's own suggested remedy is refused identically.
+  failure_scenario: >-
+    Measured on probe_guarded with `WITH CHECK (tenant_id = ctx AND status <> 'locked')`: tenant A
+    sees exactly its own row - correct isolation - yet updateAll raises 42501, scores `unverified`
+    and fails the run forever. The suggested remedy, reparentAll, is refused the same way.
+    A WITH CHECK stricter than its USING is an ordinary and correct policy shape, so this is a
+    false positive on well-built tenancy. GRADED minor BY THE AUDITOR AND I AM KEEPING ITS
+    GRADING, but recording the concern: a check that goes permanently red on correct code is the
+    shape that gets deleted rather than fixed, and this harness has spent three rounds earning the
+    right to be trusted.
+  required_change: >-
+    Distinguish "refused because the WITH CHECK is stricter than the USING, and the USING was
+    separately shown correct" from "refused, so the USING is unproven". A table whose reads were
+    demonstrated correctly isolated has evidence about its USING from the read attempts.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 4
+  reaudit_r5: >-
+    ADDRESSED - refusalProvesDenial genuinely untouched and the guarded-check control returns green with rowsAffected: 1. THE REJECTION OF THE AUDITOR'S OWN REMEDY IS CONFIRMED CORRECT. But ITS SAFETY CLAIM IS MEASURABLY FALSE and is now F-352.
+  resolution: >-
+    CLOSED, AND THE AGENT REJECTED THE REMEDY I RELAYED, WITH A MEASUREMENT. The auditor's suggested route was read-evidence - a table whose reads were shown correctly isolated has evidence about its USING. IT DOES NOT WORK AND THE AGENT SHOWED WHY: reads are correct on BOTH isolation_guarded_check_canary (a correct table) AND isolation_owner_theft_canary (the F-330 blocker), so read evidence PROVABLY CANNOT DISCRIMINATE between them. Instead the STATEMENT changes: unqualifiedWritesAlsoSet lets a registration name the columns its WITH CHECK requires, so the write is admitted and judged on its row count. refusalProvesDenial is UNTOUCHED, so F-330's rule is intact. AND IT ADVERSARIALLY CHECKED ITS OWN FIX: pointing that field at the owner column of the LEAKING canary turned an unverified into a FAIL, proving the mechanism can only INCREASE detection, never mask a leak. Shipped as the file's first positive control.
+
+- id: F-345
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 4
+  severity: nit
+  kind: test-coverage
+  file: apps/api/test/isolation/registrations.ts
+  line: 1
+  summary: >-
+    `qualification` is DECLARED, NEVER CROSS-CHECKED, and now drives three judgements.
+  failure_scenario: >-
+    A registration that mislabels a shape's qualification silently changes how its result is
+    judged. Same class as the ownerColumn assumption F-303 closed: a field the harness trusts
+    without deriving.
+  required_change: Derive it from the statement, or assert it against one.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 4
+  reaudit_r5: >-
+    ADDRESSED and probed for its failure mode rather than accepted: the derivation compiles via PgDialect().sqlToQuery() and throws at import; values bind as $1; and a column literally named `where` would be quoted and WOULD match, throwing - so it FAILS CLOSED. The INSERT carve-out is correctly justified.
+  resolution: >-
+    CLOSED. qualification is now DERIVED FROM THE COMPILED SQL and throws at registration, rather than being a declared field the harness trusts.
+
+# ---- From the F-327 contract reconciliation. FOUR of the eight wrong statements were found
+# WHILE reconciling and were not on the dispatch list. These four are places the architect
+# judged the CODE should move rather than the contract. Full text:
+# .sdlc/foundation/work/TASK-006-contract-reconciliation.md
+
+- id: F-346
+  phase: implement
+  task: TASK-006
+  source: sdlc-architect
+  round: 4
+  severity: minor
+  kind: docs
+  file: apps/api/test/isolation/coverage.ts
+  line: 181
+  summary: >-
+    THE CODE'S OWN COMMENT IS NOW THE STALEST COPY OF THE RULE. coverage.ts:181-186's docblock
+    quotes the contract sentence the reconciliation struck, and still says "a refusal is a pass" -
+    which ITS OWN FILE stopped doing at F-294 and stopped again, harder, at F-330.
+  failure_scenario: >-
+    A reader of the judgement code meets a comment stating the rule that produced two blockers,
+    six inches from the code that no longer implements it. The comment is the thing a maintainer
+    trusts when deciding whether a change is safe.
+  required_change: Bring the docblock to what the file does; point at the contract rather than quoting it.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 4
+  resolution: >-
+    CLOSED alongside the rest; the docblock no longer quotes the struck contract sentence.
+
+- id: F-347
+  phase: implement
+  task: TASK-006
+  source: sdlc-architect
+  round: 4
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/isolation/controls.ts
+  line: 1
+  summary: >-
+    SUITE_OWNED_CONTROL_TABLES appears to omit `isolation_owner_theft_canary` while listing every
+    other canary. REASONED, NOT MEASURED - the architect marked it so, and it is filed with that
+    mark intact.
+  failure_scenario: >-
+    If true, the suite's own canary table is not recognised as suite-owned, so it can be reported
+    as registry drift or survive a run it should not. The consequence depends on which, and
+    neither has been observed.
+  required_change: >-
+    VERIFY BY RUNNING IT before fixing anything. A fresh test architect is in fix round 4 on this
+    file and can settle it in one run; filing a reasoned claim as fact is the mistake this
+    initiative has already made twice, in F-274 and in the ADR-0031 round-trip argument.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 4
+  reaudit_r5: >-
+    ADDRESSED, AND CLOSED BY CONSTRUCTION RATHER THAN BY A LIST - 10 of 10 control tables are listed, and because controls persist until afterAll, the tenth control run's explicit drift assertion covers all ten. A closure that cannot silently regress is worth more than a corrected list.
+  resolution: >-
+    CONFIRMED TRUE AND WORSE THAN FILED, BY RUNNING IT - which is exactly what the finding asked for and why it was filed `reasoned, not measured`. isolation_owner_theft_canary WAS missing from SUITE_OWNED_CONTROL_TABLES, so THE F-330 CONTROL'S `verdict: fail` WAS BEING SATISFIED BY REGISTRY DRIFT RATHER THAN BY ITS POLICIES. The control passed for the wrong reason: it was detecting its own unregistered table, not the leak it exists to catch. Found by the round-4 agent, not by an audit, because the architect marked its claim unverified instead of asserting it.
+
+- id: F-348
+  phase: implement
+  task: TASK-006
+  source: sdlc-architect
+  round: 4
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/isolation-coverage.md
+  line: 1
+  summary: >-
+    THREE OF THE EIGHT STRUCK SENTENCES ASSERTED THINGS THAT DO NOT EXIST, which is a different
+    failure from a rule going stale. "db:check-policies is the same assertion" - it is the
+    minimum-viable form by its own header and assertOnlyApprovedPolicies() throws not-implemented.
+    Invariant 4's "reads the real module graph" - not true in this wave. And report.json "uploaded
+    as a CI artifact" - NO UPLOAD STEP EXISTS.
+  failure_scenario: >-
+    .gitignore:51 ignores report.json and ci.yml has no upload. So the contract asserted as DONE
+    the very thing a finding exists to create - F-297, still open - and F-304's sequencing note,
+    that the artifact must be trustworthy BEFORE the upload lands, was written against an upload
+    that was never there. A gate nobody built, described as built, in the document that defines
+    what the gate proves.
+  required_change: >-
+    Each must be recorded as NOT YET TRUE WITH WHAT WOULD MAKE IT TRUE, rather than merely struck.
+    A struck sentence tells the next reader what was wrong; it does not tell them what is owed.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 4
+  resolution: >-
+    CLOSED. The three claims that asserted things which do not exist are now a LEDGER in the contract - claim, status, what would make it true, owner - and each strike points at it rather than merely being struck. On the upload specifically: F-304's argument was written against an upload that never existed, the ordering held anyway because the three-write discipline shipped first, and what remains is to build the upload WITH the freshness check rather than retrofit trust into a running one.
+
+- id: F-349
+  phase: implement
+  task: TASK-006
+  source: sdlc-architect
+  round: 4
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/adr-0020-isolation-suite-enumeration.md
+  line: 1
+  summary: >-
+    ADR-0020's Decision STILL CARRIES the disproved AC-95 sentence and the pre-F-302 "asserting
+    zero rows" rule, so F-327 is HALF-CLOSED: the contract is correct and the ADR a reimplementer
+    reads FIRST is not.
+  failure_scenario: >-
+    The same divergence one level up, and in the direction that matters most - an ADR is where
+    someone starts. Raised by the architect against its own work rather than left for a later
+    audit; amending it was outside its write surface at the time.
+  required_change: >-
+    Strike each in place with the finding that disproved it and point at the reconciled contract
+    rather than restating it. Check ADR-0019 for the same class, since the five drift arms
+    implement its cross-check and the harness now states a residual the ADR may not carry.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 4
+  resolution: >-
+    CLOSED, and the architect raised it against its own work. ADR-0020 amended: a banner stating the DECISIONS did not change - what moved is that the ADR was ALSO RESTATING attempt semantics - then `asserting zero rows`, the whole AC-95 write-check sentence and `uploaded as a CI artifact` struck in place, each pointing at the contract rather than restating it. Three claims QUALIFIED rather than struck, which is the more honest treatment: the module-graph consequence, `three independent discovery mechanisms` (two are unbuilt), and the pg_policies paragraph. IT ADDED THE ONE-COPY RULE WITH ITS REASON OUT LOUD: the disproved rule lived in FIVE PLACES ACROSS TWO DOCUMENTS, one fix reached two of them, and the gap survived an audit round. ADR-0019 needed amending too and for a different reason - see F-350. It also caught the contract's own conflict flag saying ADR-0020 `is unamended as of 2026-08-11`, which would have been the next stale sentence in the same chain.
+
+- id: F-350
+  phase: implement
+  task: TASK-006
+  source: sdlc-architect
+  round: 4
+  severity: major
+  kind: design
+  file: .sdlc/foundation/design/adr-0019-tenant-scoped-table-enumeration.md
+  line: 1
+  summary: >-
+    THE DRIFT FIX REACHED THE ISOLATION SUITE AND NOT THE GDPR PATHS. ADR-0019's cost bullet -
+    a tenant-scoped table nobody registers, "and nothing notices" - measured coming true, and was
+    then HALF-REPAIRED. The SQL half notices now, through four name-independent arms.
+    `tenantScopedTables()` STILL DOES NOT.
+  failure_scenario: >-
+    Found by the architect while amending its own earlier work rather than by an audit. The
+    consequence is outside the isolation suite entirely: `tenantScopedTables()` is what the export
+    and erasure paths enumerate, so an unregistered tenant-scoped table ESCAPES EXPORT AND ERASURE
+    however loudly the isolation suite complains about it. A GDPR erasure would report success
+    while leaving that table's rows in place - which is F-002's shape, a blocker at design time,
+    arriving through a different door.
+    NOT REACHABLE TODAY: TASK-053, TASK-054 and TASK-056 are the consumers and all three are
+    deferred with EPIC-002..006, and the schema has one table. It is filed because the repair that
+    made the isolation half safe is exactly what would make someone believe both halves are.
+  required_change: >-
+    `tenantScopedTables()` gains the same name-independent derivation the drift arms use, or the
+    ADR states plainly that the two enumerations have different coverage and which consumers rely
+    on which. TASK-053 now carries a read-before-starting note that tenantScopedTableDrift()
+    already exists in a five-arm form.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+  orchestrator_note: >-
+    Filed as major on consequence rather than on reachability, which is the same call made for
+    F-300. Nothing reaches it while its three consumers are deferred; the day one returns, the
+    isolation suite's green run is evidence about a different question than the one the GDPR path
+    is asking.
+
+- id: F-351
+  phase: implement
+  task: TASK-007
+  source: sdlc-architect
+  round: 1
+  severity: nit
+  kind: docs
+  file: packages/contracts/src/roles.ts
+  line: 4
+  summary: >-
+    A CORRECTION THAT LIVED ONLY IN A STUB, FOUND BY THE SWEEP THAT WAS ABOUT TO DELETE THE STUB.
+    roles.ts's shipped header reads `Produced by: TASK-016` - the spelling F-068 corrected on
+    2026-08-05. TASK-016 cannot write that file: its paths are apps/api/src/db/schema/** and
+    apps/api/drizzle/**. The producer is TASK-007.
+  failure_scenario: >-
+    THIS IS THE STUB-RETIREMENT POLICY'S OWN HAZARD, MEASURED ON DAY ONE OF THE POLICY. ADR-0039
+    deletes a stub once its producer is done, on the reasoning that the source is the behaviour
+    and the contract is normative. Here the STUB was the only artifact carrying a correction the
+    SOURCE had never received, so a mechanical deletion would have destroyed it.
+    The architect caught it while sweeping, recorded the correct attribution in
+    workspace-authorization.md, and DID NOT edit packages/** - correctly, since that is GC-11 and
+    outside its write surface. So the correction now lives in the contract, which ADR-0039 makes
+    normative, which is the right home for it.
+    It also validates the ADR's clause resolving the MATERIALISING TASK FROM GIT rather than from
+    a stub header: reserved-hostnames.ts names TASK-038, which is deferred, but was materialised
+    by TASK-007 in 09cb39a. A header-only reading would have kept a stub that should go.
+  required_change: >-
+    One line in packages/contracts/src/roles.ts's header: the producer is TASK-007, not TASK-016.
+    Cosmetic, and it is filed so the deletion that surfaced it is not the last record of it.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-352
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/registrations.ts
+  line: 1
+  summary: >-
+    `unqualifiedWritesAlsoSet` TAKES A FREE `SQL` FRAGMENT, AND A COLUMN REFERENCE IN IT SILENTLY
+    DISARMS BOTH UNQUALIFIED UPDATES. The field's own safety claim - "it cannot hide a leak: the
+    statement still carries no WHERE clause, so it still sweeps every row the USING clause admits"
+    - IS MEASURABLY FALSE.
+  failure_scenario: >-
+    Measured on the F-302 canary shape:
+      set label = <const>                    -> UPDATE 2   leak, 2 > 1 fires
+      set label = <const>, status = status   -> UPDATE 1   SILENT, digest sees nothing
+      set tenant_id = <A>                    -> UPDATE 2
+      set tenant_id = <A>, status = status   -> UPDATE 1
+    THE WHERE CLAUSE IS NOT WHAT KEEPS SELECT POLICIES OUT - THE COLUMN REFERENCE IS, and
+    isolation-coverage.md:569 ALREADY STATES THAT NORMATIVELY. F-345 derives the WHERE invariant
+    from the compiled SQL and throws at registration; this invariant is enforced by nothing.
+    Worse, the F-344 control asserts `rowsAffected: 1`, WHICH IS PRECISELY THE DISARMED SIGNATURE.
+    NOT A BLOCKER: the one shipped use is `status = 'active'`, a bound literal, correctly armed.
+    But `version = version + 1` is THE IDIOMATIC FRAGMENT for an optimistic-lock guard, and the
+    author has no signal that the two categories differ.
+    THIS IS THE SAFETY CLAIM F-344's FIX MADE, DISPROVED. That fix was itself the correct rejection
+    of a remedy I relayed - so the agent was right about the remedy and wrong about its own
+    guarantee, which is why an adversarial check of one's own fix has to be adversarial about the
+    right thing.
+  required_change: >-
+    Make the field `{ column, value }[]` so a column reference is UNEXPRESSIBLE. Not a validation
+    that rejects one - a shape in which the mistake cannot be written, which is what F-345 achieved
+    for the WHERE invariant and what the ContractViolationError split achieved on TASK-008.
+  reaudit_r6: >-
+    VERDICTED ADDRESSED AT THE FINAL RE-REVIEW, CONFIRMED AT THE DATABASE LEVEL RATHER THAN FROM
+    THE TYPE. On the leak canary's exact shape as shortkit_app in a tenant-A transaction:
+    `lock_token = lock_token || 'x'` (the r4 idiom) -> UPDATE 1, the silent disarm;
+    `lock_token = $1 <- 'held'` (r5 primary) -> UPDATE 2, armed;
+    `lock_token = $1 <- 'lock_token'` (r5 adversarial) -> UPDATE 2, armed. reparentAll identical.
+    AND THE MITIGATION IS BROADER THAN THE ONE MUTATION THE FIX NAMED, which the auditor found by
+    looking for a neighbour rather than checking the named case: sql.identifier(String(value))
+    gives `lock_token = "lock_token"` -> UPDATE 1, the same signature as sql.raw, and the control
+    catches it too. THAT NEIGHBOUR MATTERS MORE THAN THE NAMED ONE - sql.identifier is the function
+    already used one token to the left for `column`, so "make the value work like the column does"
+    is the plausible edit rather than the contrived one.
+    It also confirmed the new control fails for ITS OWN reason and not through registry drift - the
+    F-347 trap - and that the rowsAffected: 1 pairing carries the weight the single assertion no
+    longer does, because the only way to get 1 over a wide-open USING is a column reference,
+    measured three ways, and that is now unexpressible.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 5
+  resolution: >-
+    CLOSED BY A SHAPE CHANGE RATHER THAN A VALIDATION. unqualifiedWritesAlsoSet is now RequiredAssignment[] - { column, value } with a scalar value - and the HARNESS builds the fragment, so every value binds as $N. The two disarming rows are now UNEXPRESSIBLE at TS2322 rather than rejected at runtime, and what the harness emits instead measures UPDATE 2, still armed. CONFIRMED FROM THE POSTGRES SERVER LOG rather than from the source: with log_statement='all' a full run sends `set "label" = $1, "lock_token" = $2` and `set "tenant_id" = $1::uuid, "status" = $2` - no column on any right-hand side.
+    RED CAME FIRST AND IT WAS REAL: a new control registered with the IDIOMATIC `lock_token = lock_token || 'x'` made the harness report ZERO failing attempts over a policy admitting every row of every tenant. The disarming demonstrated live rather than argued.
+    AND IT FALSIFIED ITS OWN GUARANTEE, PUBLISHING THE ONE ATTACK THAT WORKS. Six fail at the type level - SQL as value, sql`version + 1`, SQL as column, sql.raw, a value of 'status' which binds and stays armed, and identifier injection which Postgres answers 42703 loudly. THE SEVENTH SUCCEEDS: the type constrains the CALLER, NOT THE BUILDER, so mutating the builder to sql.raw(String(value)) breaks it - which is why the adversarial control ships, being the only test that then fails SILENTLY rather than erroring out.
+    ORCHESTRATOR-VERIFIED: integration 62 passed exit 0; under the F-330 mutation exit 1 with UNVERIFIED x4 and report.json verdict=fail; database restored and its four original predicates confirmed.
+
+- id: F-353
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: contract
+  file: .sdlc/foundation/design/contracts/isolation-coverage.md
+  line: 1
+  summary: >-
+    THE RECONCILED CONTRACT DESCRIBES r3, NOT THE SHIPPED HARNESS - reconciled today, wrong within
+    hours. FOUR ARE WRONG STATEMENTS rather than undeclared additions: an entire `### Declined
+    shapes` section, the invariant "a shape is removed only through declinedShapes", the claim that
+    reparentAll is declined on tenants, and the superseded `unverified` remedy. It also repeats the
+    23505 premise F-342 measured false. Undeclared: observedTests, unqualifiedWritesAlsoSet, and
+    F-345's derivation.
+  failure_scenario: >-
+    F-327 reconciled this document from 393 to 1029 lines, striking eight wrong statements. Round 4
+    landed hours later and made four of the new sentences wrong. A CONTRACT THAT IS CORRECT FOR
+    FOUR HOURS IS AN ARGUMENT FOR A GATE, NOT FOR A THIRD RECONCILIATION.
+  required_change: >-
+    Reconcile ONCE, AFTER TASK-006 reaches `done`, rather than now. ORCHESTRATOR RULING 2026-08-11:
+    this is deliberately held. Reconciling a document against a harness still in its final fix
+    round is how it drifts a third time, and the drift is not caused by carelessness - it is caused
+    by amending a moving target. The finding is filed so the obligation survives the wait, which is
+    the F-142 lesson: a routing recorded as a resolution is not a resolution.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-354
+  phase: implement
+  task: TASK-006
+  source: sdlc-security-auditor
+  round: 6
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/isolation/registrations.ts
+  line: 1
+  summary: >-
+    THE TWO ARTEFACTS THAT MAKE F-352's GUARANTEE A GUARANTEE ARE THEMSELVES UNPINNED. There is no
+    `@ts-expect-error` anywhere in the isolation directory, so widening RequiredAssignment['value']
+    back to `SQL` produces NO RED - typecheck, lint and all 62 tests stay green, and the r4 disarm
+    becomes expressible again. And the adversarial control's assertions are BYTE-IDENTICAL to the
+    primary's; only its `value` string being the name of a real column makes it adversarial, and
+    nothing asserts that.
+  failure_scenario: >-
+    The adversarial control does not cover the first hole: it fires when the BUILDER stops binding,
+    not when the TYPE stops constraining. And a reviewer deduplicating two byte-identical controls
+    on one table removes the backstop silently - which is the same shape as F-347, where a control
+    was passing for the wrong reason.
+  required_change: >-
+    A negative type test pinning that a `SQL` value does not compile, and an assertion that the
+    adversarial control's value is the name of a real column on its table.
+  owner_slot: sdlc-test-architect
+  status: parked
+  resolved_by: "orchestrator adjudication at the cap, 2026-08-11"
+  resolved_round: null
+  ruling: >-
+    PARKED WITH A RULING: REAL, AND NOT LOAD-BEARING. TASK-006's fix-round cap is spent at 5 of 5,
+    so under references/superpowers-map.md every survivor is adjudicated rather than fixed.
+    THE AUDITOR MADE ITS OWN CATEGORY CALL AND I AM ADOPTING IT RATHER THAN OVERRIDING IT, because
+    its reasoning is better than mine would have been: nothing is presently undetected, it verified
+    the guarantee holding AS SHIPPED, the remedy is four lines, and "blocking a converged TASK to
+    add a negative type test would spend the escalation on the cheapest item in five rounds".
+    An auditor that argues its own finding down, having just spent five rounds arguing findings up,
+    is worth listening to.
+    ROUTED, NOT DISCARDED: it attaches to F-353's reconciliation or to whoever next opens
+    registrations.ts, whichever comes first. Recorded here so the obligation survives the park -
+    the F-142 lesson, that a routing recorded as a resolution is not a resolution.

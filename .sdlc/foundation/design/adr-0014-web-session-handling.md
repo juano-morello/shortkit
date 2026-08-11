@@ -217,9 +217,19 @@ Four more, all for the `Origin` question (F-233):
 
 ### Follow-ups this creates
 
-- TASK-008 owns `apiClient` targeting `/api/bff/...`, `serverApiClient()`, `ApiError`,
+- ~~TASK-008 owns `apiClient` targeting `/api/bff/...`, `serverApiClient()`, `ApiError`,
   `ContractViolationError`, and the mapping of Better Auth's native error bodies onto
-  `ErrorEnvelope`.
+  `ErrorEnvelope`.~~ **Amended 2026-08-11 (F-301) to match the F-291 ruling of 2026-08-10,
+  which this bullet contradicted.** TASK-008 owns `apiClient` targeting `/api/bff/...`, the
+  request path construction, and the four error classes: `ApiError`,
+  `ContractViolationError`, `NetworkError` and `RequestAbortedError`. **`serverApiClient()`,
+  `mapBetterAuthError()` and `buildUpstreamUrl()` are deferred**, and ship as stubs that
+  throw `not implemented`. Their consumers left the initiative with EPIC-002: the proxy route
+  and the auth surface. The deferral is recorded in `.sdlc/foundation/tasks/TASK-008.md`
+  under the F-291 ruling, and repeated in each function's docblock in
+  `apps/web/src/lib/api/client.ts`. **A returning TASK-012 must not read this bullet as
+  saying that work is done.** Do not implement any of the three under another TASK without
+  re-scoping, and do not delete them: `web-api-client.md` still specifies all three.
 - TASK-012 owns the proxy route handler, both cookies, the refresh path, `useSession()`,
   and `requireAuth()`.
 - TASK-004 keeps `NEXT_PUBLIC_API_BASE_URL` for anything genuinely public and adds

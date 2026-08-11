@@ -1,7 +1,8 @@
 # Contract: roles, ranking, and the authorization surface
 
 - **Boundary:** every authenticated write and every workspace-scoped read.
-- **Normative form:** `packages/contracts/src/roles.ts` (role values, brands, ranks) and `apps/api/src/common/authorization/roles.ts` (enforcement) — stubs at the matching paths under `design/stubs/`.
+- **Normative form:** `packages/contracts/src/roles.ts` (role values, brands, ranks) and `apps/api/src/common/authorization/roles.ts` (enforcement). The first file exists and its design stub was retired 2026-08-11 under ADR-0039, TASK-007 having closed. The second is not yet written; the design stub at `design/stubs/apps/api/src/common/authorization/roles.ts` stands in until TASK-017 lands it and is retired then. That stub is a design-gate scaffold, not a normative form.
+- **Producer attribution in `packages/contracts/src/roles.ts` is stale and this line is the correction.** The shipped file's header reads `Produced by: TASK-016`, the spelling F-068 corrected on 2026-08-05. TASK-016 cannot write that file: its paths are `apps/api/src/db/schema/**` and `apps/api/drizzle/**`. The producer is TASK-007. Recorded 2026-08-11 when the stub carrying the correction was retired.
 - **Produced by:** TASK-007 (role values, branded types, constants, casts, rank tables), TASK-017 (guard, decorators, authorizer). TASK-016 consumes both and defines no role type of its own; corrected 2026-08-05 (F-068).
 - **Consumed by:** TASK-014, 018, 021, 025, 040, 045, 049, 051, 053, 054, 056.
 - **ADRs:** ADR-0015. Role set fixed by Amendment A-1.

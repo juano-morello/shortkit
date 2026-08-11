@@ -1,7 +1,7 @@
 # Contract: redirect resolution and the branded 404
 
 - **Boundary:** the anonymous visitor's `GET /:slug`; the one deliberate GC-5 exception.
-- **Normative form:** `apps/api/src/redirect/redirect.types.ts` (stub: `design/stubs/apps/api/src/redirect/redirect.types.ts`).
+- **Normative form:** `apps/api/src/redirect/redirect.types.ts`, not yet written. The design stub at `design/stubs/apps/api/src/redirect/redirect.types.ts` stands in until TASK-029 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-029.
 - **Consumed by:** TASK-030, 032, 034, 043, 046. Audited by TASK-056.
 - **ADRs:** ADR-0003, ADR-0006, ADR-0008, ADR-0009, ADR-0011, ADR-0018.

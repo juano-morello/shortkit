@@ -1,7 +1,7 @@
 # Contract: error envelope and error code registry
 
 - **Boundary:** every API response body that is not 2xx; every client that renders a failure; every `throw` in `apps/api` that expects a status other than 500.
-- **Normative form:** `packages/contracts/src/errors.ts` (the wire shape and the code list) and `apps/api/src/common/errors/domain-error.ts` (how a throw carries a code). Stubs at the matching paths under `design/stubs/`.
+- **Normative form:** `packages/contracts/src/errors.ts` (the wire shape and the code list) and `apps/api/src/common/errors/domain-error.ts` (how a throw carries a code). Both files exist; read them. The design stubs at the matching paths under `design/stubs/` were retired 2026-08-11 under ADR-0039, TASK-001 and TASK-007 having closed. A `design/stubs/...` path elsewhere in this document resolves to the workspace path it mirrors.
 - **Produced by:** TASK-007.
 - **Consumed by:** TASK-008, 010, 011, 012, 014, 017, 018, 021, 024, 025, 040, 045, 049, 051, 052, 053, 054.
 - **ADRs:** ADR-0005, ADR-0013, ADR-0024, ADR-0025, ADR-0026.
@@ -92,8 +92,8 @@ export declare function isErrorEnvelope(value: unknown): value is ErrorEnvelope;
  * `Object.fromEntries`. That is required, not stylistic: `issue.path[0]` is
  * caller-controlled, and an object-literal accumulator read with `acc[key] ?? []` returns
  * an inherited `Object.prototype` member for a key of `constructor` or `toString` and
- * throws inside the filter (F-086, F-087; reasoning in ADR-0025). The body is normative
- * in `design/stubs/packages/contracts/src/errors.ts`.
+ * throws inside the filter (F-086, F-087; reasoning in ADR-0025). The body is in
+ * `packages/contracts/src/errors.ts`, which is the normative form.
  */
 export declare function isZodError(value: unknown): value is z.ZodError;
 export declare function toValidationDetails(error: z.ZodError): ValidationDetails;
@@ -132,8 +132,8 @@ be returned with a status other than its row.
 
 ## How an error carries its code to the filter
 
-ADR-0024. Normative for every TASK that throws. Stub:
-`design/stubs/apps/api/src/common/errors/domain-error.ts`.
+ADR-0024. Normative for every TASK that throws. The file is
+`apps/api/src/common/errors/domain-error.ts`.
 
 ```ts
 // apps/api/src/common/errors/domain-error.ts

@@ -1,7 +1,7 @@
 # Contract: structured logging, redaction, CORS, and security headers
 
 - **Boundary:** every log line the API emits; every response header it sets.
-- **Normative form:** `apps/api/src/observability/logger.ts` and `apps/api/src/main.ts`. This contract's § "Logger" fence is the single normative statement of the logger's configuration and is compared to the shipped file by a drift test. The wave-1 stub at `design/stubs/apps/api/src/observability/logger.ts` is **superseded** (F-249) and its config is unsafe to copy; ADR-0022 no longer carries a copy at all (F-250).
+- **Normative form:** `apps/api/src/observability/logger.ts` and `apps/api/src/main.ts`. This contract's § "Logger" fence is the single normative statement of the logger's configuration and is compared to the shipped file by a drift test. The wave-1 stub at `design/stubs/apps/api/src/observability/logger.ts` is **superseded** (F-249) and its config is unsafe to copy; ADR-0022 no longer carries a copy at all (F-250). That stub is deleted when TASK-003 reaches `done` (ADR-0039). It survived the 2026-08-11 retirement sweep only because TASK-003 is in rework, and it is the strongest case in the repository for retiring a stub the day its file ships rather than the day its TASK closes.
 - **Produced by:** TASK-003.
 - **Consumed by:** every API TASK. Nothing may opt out, with **two named exceptions measured
   2026-08-10 (F-278)**: `apps/api/src/db/client.ts:55` and

@@ -71,10 +71,23 @@ at `d3e7853~1`.*
 
 `apiClient` — typed request function taking a source-literal route template plus a `params`
 record, validating responses against a supplied contract; `ApiError`, carrying `code`, HTTP
-`status` and `details`; `ContractViolationError`; `RequestAbortedError`;
-`FORWARDED_REQUEST_HEADERS`, `FORWARDED_REQUEST_HEADERS_MUTATING_ONLY`, `MUTATING_METHODS`,
-`isMutatingMethod`, `RETURNED_RESPONSE_HEADERS` and `PROXY_RESPONSE_CACHE_CONTROL` — the
-normative shapes TASK-012's proxy is built from.
+`status` and `details`; `ContractViolationError`; `RequestAbortedError`; `NetworkError`
+(added 2026-08-11, F-309 — it is exported, `apiClient` raises it, and F-292's retry semantics
+turn on telling it apart from `RequestAbortedError`; the pre-rework Produces omitted it too, so
+this closes an old gap rather than a regression);
+`FORWARDED_REQUEST_HEADERS`, `FORWARDED_REQUEST_HEADERS_MUTATING_ONLY`, `NON_MUTATING_METHODS`,
+`MUTATING_METHODS`, `isMutatingMethod`, `RETURNED_RESPONSE_HEADERS` and
+`PROXY_RESPONSE_CACHE_CONTROL` — the normative shapes TASK-012's proxy is built from.
+
+**`NON_MUTATING_METHODS` added 2026-08-11 (F-338), and `MUTATING_METHODS` is now descriptive
+only.** Per ADR-0038, `isMutatingMethod` is the definition — anything that is not `GET` or
+`HEAD` — and it uppercases its own input, so it fails closed on an unrecognised spelling. Do
+not rebuild the predicate from `MUTATING_METHODS`; that constant documents rather than
+controls, and ADR-0038 records that cost explicitly.
+
+F-338 is the same defect as F-309 one round apart: this list gained `NetworkError` after the
+last round and then omitted the export this round added. Whoever changes the file's exports
+amends this paragraph in the same commit — nothing gates it.
 
 **No longer produced by this TASK**, each deferred with its consumers and each carrying a
 header in the source saying so: `serverApiClient`, `buildUpstreamUrl`, `mapBetterAuthError`,

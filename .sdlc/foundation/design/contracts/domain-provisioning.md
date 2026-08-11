@@ -1,7 +1,7 @@
 # Contract: domain state machine, DNS verification, and certificate provisioning
 
 - **Boundary:** the domain lifecycle, shared by schema, verification, endpoints, the reconciler, and the UI.
-- **Normative form:** `apps/api/src/domains/domain-state.ts` and `packages/contracts/src/domains/index.ts` (stub: `design/stubs/apps/api/src/domains/domain-state.ts`).
+- **Normative form:** `apps/api/src/domains/domain-state.ts` and `packages/contracts/src/domains/index.ts`, neither yet written. The design stub at `design/stubs/apps/api/src/domains/domain-state.ts` stands in until TASK-038 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form. `packages/contracts/src/domains/reserved-hostnames.ts` already exists, materialised early by TASK-007, and its stub was retired 2026-08-11.
 - **Produced by:** TASK-038 (schema, state), TASK-039 (verification), TASK-042 (certificates, reconciler).
 - **Consumed by:** TASK-040, 041, 043, 044.
 - **ADRs:** ADR-0016.

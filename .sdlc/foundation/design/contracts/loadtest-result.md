@@ -1,7 +1,7 @@
 # Contract: load-test result and baseline format
 
 - **Boundary:** the load harness to the CI gate and to the recorded latency commitment.
-- **Normative form:** `infra/loadtest/types.ts` (stub: `design/stubs/infra/loadtest/types.ts`).
+- **Normative form:** `infra/loadtest/types.ts`, not yet written. The design stub at `design/stubs/infra/loadtest/types.ts` stands in until TASK-035 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-035 (harness), TASK-036 (baseline).
 - **Consumed by:** TASK-036, TASK-037.
 - **ADRs:** ADR-0018, ADR-0010.

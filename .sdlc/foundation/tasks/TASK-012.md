@@ -29,7 +29,18 @@ Invitation accept screen (TASK-022), workspace UI (TASK-015), landing page (TASK
 
 **Consumes**
 
-`apiClient`, `ApiError`, `<ErrorMessage />` (TASK-008); `signupContract`, `loginContract`, `sessionContract` (TASK-009); `verificationContract` (TASK-010).
+`apiClient`, `ApiError`, ~~`<ErrorMessage />`~~ (TASK-008); `signupContract`, `loginContract`, `sessionContract` (TASK-009); `verificationContract` (TASK-010).
+
+> **`<ErrorMessage />` DOES NOT EXIST. Do not import it.** It was deferred by the F-291 ruling
+> of 2026-08-10 along with `serverApiClient`, `buildUpstreamUrl` and `mapBetterAuthError` —
+> every one of them serves the BFF proxy or the auth surface, both of which left with EPIC-002,
+> and none had a reachable caller. `error-envelope.md:545` still specifies its fallback
+> behaviour normatively; that specification stands, and nothing has implemented it.
+>
+> Written here 2026-08-11 under **F-308**, because until now the only record was a sentence
+> inside TASK-008's card. That is F-288's shape exactly — a rule recorded in a document the
+> downstream reader has no reason to open — and F-291 was filed to stop it. Whoever revives this
+> TASK builds the component or re-scopes it; it is not waiting for you somewhere.
 
 **Produces**
 

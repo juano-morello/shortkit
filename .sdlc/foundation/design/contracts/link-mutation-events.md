@@ -1,7 +1,7 @@
 # Contract: the `onLinkMutated` hook
 
 - **Boundary:** the link mutation transaction, and every subscriber that must react to it.
-- **Normative form:** `apps/api/src/links/link-mutation.events.ts` (stub: `design/stubs/apps/api/src/links/link-mutation.events.ts`).
+- **Normative form:** `apps/api/src/links/link-mutation.events.ts`, not yet written. The design stub at `design/stubs/apps/api/src/links/link-mutation.events.ts` stands in until TASK-025 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-025.
 - **Consumed by:** TASK-027, TASK-031 (cache invalidation), TASK-048 (audit).
 - **ADRs:** ADR-0008, ADR-0002.

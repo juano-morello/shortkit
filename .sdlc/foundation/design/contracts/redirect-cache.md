@@ -1,7 +1,7 @@
 # Contract: redirect cache keys, values, TTLs, and invalidation
 
 - **Boundary:** Redis, between the redirect read path and every writer that can invalidate it.
-- **Normative form:** `apps/api/src/cache/redirect-cache.ts` (stub: `design/stubs/apps/api/src/cache/redirect-cache.ts`).
+- **Normative form:** `apps/api/src/cache/redirect-cache.ts`, not yet written. The design stub at `design/stubs/apps/api/src/cache/redirect-cache.ts` stands in until TASK-030 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-030.
 - **Consumed by:** TASK-027, 031, 032, 034, 045, 046, 051 (client reuse).
 - **ADRs:** ADR-0008, ADR-0009, ADR-0012.

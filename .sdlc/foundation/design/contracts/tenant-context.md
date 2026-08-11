@@ -1,7 +1,7 @@
 # Contract: tenant transaction context
 
 - **Boundary:** every tenant-scoped database access in `apps/api`.
-- **Normative form:** `apps/api/src/tenancy/tenant-context.ts` (stub: `design/stubs/apps/api/src/tenancy/tenant-context.ts`).
+- **Normative form:** `apps/api/src/tenancy/tenant-context.ts`. The file exists and carries every declaration the stub carried, including the ones TASK-011 fills. The design stub was retired 2026-08-11 under ADR-0039, TASK-005 having closed.
 - **Produced by:** TASK-005 (`withTenantTransaction`, `tenantDb`), TASK-011 (interceptor, `RequestContext`, `@Public()`).
 - **Consumed by:** TASK-006, 009, 010, 011, 013, 014, 016, 017, 018, 020, 021, 023, 025, 027, 033, 034, 038, 040, 045, 048, 049, 051, 053, 054, 056.
 - **ADRs:** ADR-0002, ADR-0003.

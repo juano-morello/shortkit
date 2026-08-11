@@ -48,3 +48,64 @@ Two things the old plan already knew. Carry them forward, or pay to learn them a
   today, over two tables: `tenants` and `rls_fixture_rows`, which is every table the
   repository has. It prints that boundary on every run. The claim gets stronger only as the
   surface it covers grows.
+
+## Carried forward 2026-08-11 — the isolation harness's method, not its coverage
+
+Ruled by Juano on 2026-08-11, while TASK-006 was in its third fix round.
+
+**The harness enumerates statement shapes a human thought of, and that is its ceiling.** In
+three consecutive audit rounds it produced three blockers, every one of the same form —
+*harness reports green while isolation is broken*:
+
+| Round | The class nobody had attempted |
+|---|---|
+| 1 | Attempts ran in one direction only; any throw scored as a pass; no positive control; a forgotten registration shrank the covered set silently |
+| 2 | **Unqualified writes.** An owner-qualified write is routed through the SELECT policy by PostgreSQL and reports zero rows however wide open the UPDATE policy is |
+| 3 | **Owner-column writes**, and a 42501 refusal on an unqualified write scored as a pass — which proves the WITH CHECK held, not that the USING did |
+
+Every fix was measured, each was proven against a real leak in a real database, and each one
+holds. Nine negative controls now ship, so those measurements run on every CI run rather than
+once on the afternoon somebody thought of them. **The fixes are not the problem.**
+
+The problem is that each round's coverage is bounded by what someone imagined, and the next
+round finds what they did not. That is the exact property SC-1 claims to have escaped, which
+is why it is worth naming rather than absorbing into another fix round.
+
+**The alternative, for whoever picks this up:** generate the mutations instead of listing
+them. Enumerate the policy set programmatically and mutate it systematically — widen each
+`USING`, widen each `WITH CHECK`, drop each policy, swap each owner-column reference — then
+assert the harness fails on every mutant that produces a real cross-tenant read or write.
+That proves the harness against a generated space rather than an imagined one, and it turns
+"which attacks did we think of" into a property the suite computes.
+
+Two things to keep when it is picked up:
+
+- **The negative controls stay.** They are the record of what was actually measured, and a
+  generative approach that cannot reproduce all nine has regressed.
+- **`db:check-policies` is half of a composite gate**, not an independent second enumeration —
+  F-333. Anyone replacing either half needs to know the other was carrying part of the load.
+
+Not scheduled. It is the kind of work that only pays once there are tables to protect, and
+today there is one.
+
+### Worked evidence, added 2026-08-11 after round 3
+
+The agent that fixed the third blocker was asked to name a structurally adjacent shape if it
+saw one, on the reasoning that the list is worth more than another round. **It named five**,
+filed as F-341:
+
+1. **`INSERT ... ON CONFLICT DO UPDATE`** — PostgreSQL applies the INSERT WITH CHECK and, on
+   conflict, **the UPDATE policy's USING** to the conflicting row. A table with a correct
+   INSERT policy and a wide-open UPDATE USING is reachable through one statement, and the ORM
+   idiom `save()` / `upsert()` compiles to exactly it.
+2. **`MERGE`** (PG 15+) — each `WHEN` branch applies a different policy.
+3. **Eviction rather than theft** — `UPDATE <t> SET <owner> = <a tenant the fixture never
+   seeds>`. Detected by the count rule, but the digest cannot *name* the recipient.
+4. **Cascade and trigger effects on a sibling table** — bounded today only because `tenants`
+   has no ordinary DELETE policy, so no cascade can fire.
+5. **`SELECT ... FOR UPDATE`** — a locking read applies the UPDATE policy's USING, so a tenant
+   can take row locks on rows it cannot read: an existence side channel and a denial of
+   service on another tenant's writes.
+
+Its own conclusion is the argument for this item: all three blockers were "a statement shape
+nobody thought of", and 1 and 2 are simply the next two nobody thought of.

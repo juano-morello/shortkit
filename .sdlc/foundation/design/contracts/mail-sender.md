@@ -1,7 +1,7 @@
 # Contract: outbound mail
 
 - **Boundary:** the application to the email provider; and every test, which must not reach it.
-- **Normative form:** `apps/api/src/mail/mail-sender.ts` (stub: `design/stubs/apps/api/src/mail/mail-sender.ts`).
+- **Normative form:** `apps/api/src/mail/mail-sender.ts`, not yet written. The design stub at `design/stubs/apps/api/src/mail/mail-sender.ts` stands in until TASK-010 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-010.
 - **Consumed by:** TASK-021 (invitations), TASK-009/010 (verification).
 - **ADRs:** ADR-0017, ADR-0002.

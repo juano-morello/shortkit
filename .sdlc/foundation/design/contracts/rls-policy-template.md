@@ -4,6 +4,11 @@
 - **Normative form:** the SQL below, applied verbatim per table.
 - **Produced by:** TASK-005.
 - **Consumed by:** TASK-013, 016, 020, 023, 027, 033, 038, 045, 048, 054. Verified by TASK-006, TASK-053, TASK-056.
+- **The "Roles" section below has two transcriptions, and both are consumers.**
+  `docker-compose.test.yml` (TASK-005) and `docker-compose.yml` (TASK-059). Neither is
+  derived from the other and nothing enforces that they agree, so a change to that section
+  edits both files in the same commit. ADR-0031 records why they are duplicated rather than
+  shared, and which runtime assertions catch the drift that matters.
 - **ADRs:** ADR-0003, ADR-0004, ADR-0019.
 
 ## Roles

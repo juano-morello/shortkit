@@ -1,10 +1,16 @@
 # Contract: the web API client and the BFF proxy
 
 - **Boundary:** browser to Next.js, and Next.js to NestJS. Every frontend TASK calls the API through this.
-- **Normative form:** `apps/web/src/lib/api/client.ts` (stub: `design/stubs/apps/web/src/lib/api/client.ts`).
+- **Normative form:** `apps/web/src/lib/api/client.ts`. One file, no second copy. The design stub was retired 2026-08-11 under ADR-0039, TASK-008 having closed, and with it the standing instruction that the stub and the source "move in the same round". They cannot diverge because there is nothing left to diverge from. TASK-012 reads this document and the shipped file.
+- **Precedence.** Added 2026-08-11 (F-305, F-313). When this document and the normative form
+  disagree, **this document states the rule and the file is the defect**, fixed in the file.
+  The file is normative for shape: exported names, signatures, and the exact message strings
+  an implementer copies. It must also carry every rule a reader of the file alone could
+  otherwise get wrong, because that reader does not open this document (F-288); a rule
+  stated here and absent there is a defect in the file too.
 - **Produced by:** TASK-008 (client), TASK-012 (proxy route, cookies, session).
 - **Consumed by:** TASK-012, 015, 019, 022, 026, 028, 041, 044, 047, 050, 052, 055, 057.
-- **ADRs:** ADR-0014, ADR-0005, ADR-0013, ADR-0029.
+- **ADRs:** ADR-0014, ADR-0005, ADR-0013, ADR-0029, ADR-0038.
 
 ## Topology
 
@@ -33,7 +39,11 @@ export interface ApiRequest<TRes, TBody = unknown> {
    * placeholder resolved from `params`. '/links', '/links/:id', '/invitations/:token'.
    */
   path: string;
-  /** Exactly one entry per placeholder in `path`. No extras, no omissions. */
+  /**
+   * Exactly one entry per placeholder in `path`. No extras, no omissions, and no
+   * template that repeats a placeholder name: there is no key that could fill it
+   * twice (F-306, F-313).
+   */
   params?: Record<string, string | number>;
   contract: z.ZodType<TRes>;    // response schema; the response IS validated
   body?: TBody;
@@ -78,6 +88,36 @@ export class RequestAbortedError extends Error {
 }
 ```
 
+### A route template names each placeholder once
+
+Added 2026-08-11 (F-313). Normative, and a property of the **template**, not of `params`.
+
+**A route template may not repeat a placeholder name.** `/a/:x/:x` is illegal whatever
+`params` carries, and so is `/members/:id/workspace/:id`. `ROUTE_TEMPLATE_PATTERN` cannot
+express the rule, because a regex reading segment by segment does not know which names it has
+already matched, so the check runs at step 2 below and rejects with
+`unresolvedParamsMessage(method, path)`. The template is safe to print: it is a source
+literal, and it is the value the developer needs to see.
+
+The rule is stated here rather than left implied by step 2's set comparison because a set
+comparison does not express it. For `/a/:x/:x` with `{ x: 'v' }` the placeholder set `{x}`
+and the key set `{x}` are equal, so the comparison alone accepts the call and builds
+`/api/bff/a/v/v` from one supplied value. Step 2 rejects it (F-306, F-313).
+
+**The rejected alternative is legal duplicates**, one supplied value substituted into every
+segment naming it. It works, it needs no extra check, and it reads as the generous option. It
+lost because the templates that would use it are typos. F-306's measured case is
+`/members/:id/workspace/:id`, against a real endpoint spelled
+`/members/:id/workspace/:workspaceId`, and under legal duplicates that typo sends a `DELETE`
+at workspace `m1` with `w9` dropped and nothing said. A caller who genuinely wants one value
+in two segments writes two placeholders and passes the value under both names, which costs
+one key and states the intent.
+
+**The cost accepted:** an endpoint that wants the same value twice cannot be written with one
+placeholder, and the rejection is at runtime on the first call rather than in the editor. The
+design's endpoint tables carry no template that repeats a name today; the closest is
+`/members/:id/workspace/:workspaceId`, which names both.
+
 ### Request path construction
 
 Added 2026-08-10 (F-284, F-285, ADR-0029). Normative and ordered. This is the browser-leg
@@ -91,10 +131,16 @@ an interpolated segment appended attacker-chosen parameters to an authenticated 
 1. ROUTE_TEMPLATE_PATTERN.test(req.path) === false
       -> throw new Error(invalidRouteMessage(method)). The request is NOT sent.
 2. placeholders := the `:name` segments of req.path, without the ':'
-   if that set !== the key set of (req.params ?? {})
+   if req.path names any placeholder more than once            [F-313]
+      -> throw new Error(unresolvedParamsMessage(method, path))
+   if the SET of placeholders !== the key set of (req.params ?? {})
       -> throw new Error(unresolvedParamsMessage(method, path))
 3. for each placeholder name:
       encoded := encodeURIComponent(String(params[name]))
+      if that throws -- encodeURIComponent raises URIError on a lone surrogate --
+         -> throw new Error(invalidParamValueMessage(method, path)).           [F-312]
+            The URIError is NOT chained onto it: the value that threw is
+            caller-supplied, and ADR-0029 keeps those off the error.
       if encoded is '' or '.' or '..' -> throw new Error(invalidParamValueMessage(method, path))
 4. resolved := req.path with each ':name' replaced by its ENCODED value
 5. url := BFF_PATH_PREFIX + resolved, then the query string appended from
@@ -137,8 +183,18 @@ const invalidRouteMessage = (m: HttpMethod) =>
 const unresolvedParamsMessage = (m: HttpMethod, p: string) =>
   `apiClient: params do not match ${m} ${p}.`;
 const invalidParamValueMessage = (m: HttpMethod, p: string) =>
-  `apiClient: a param value for ${m} ${p} is empty, '.' or '..'.`;
+  `apiClient: a param value for ${m} ${p} is empty, '.', '..' or cannot be percent-encoded.`;
 ```
+
+**`invalidParamValueMessage`'s text changed on 2026-08-11 (F-314).** It was
+`` `apiClient: a param value for ${m} ${p} is empty, '.' or '..'.` ``, and F-312 gave it a
+fourth condition without changing it, so a lone surrogate was rejected with a sentence naming
+three conditions none of which had occurred. A developer reads that, checks the value is none
+of the three, and has been sent away from the cause. The clause is `cannot be
+percent-encoded` rather than a fifth message constant because step 3 has one outcome, the
+value is unusable, and the four conditions differ only in why. The message still names no
+value. Both step 2 conditions likewise share `unresolvedParamsMessage`: the template it
+prints carries the repeated name in plain sight.
 
 `invalidRouteMessage` names the method and **not the offending path**, because at step 1 the
 path is the value under suspicion: it is the only one of the seven builders whose path
@@ -149,6 +205,36 @@ param value is caller-supplied by definition, and the invitation token is one.
 Steps 1, 2, 3 and 6 throw a plain `Error`. They are programming defects, not runtime
 conditions: no screen catches them, no retry layer inspects them, and none of the four
 `ApiRequest` failure classes applies because no request was made.
+
+### The fetch options every request sets
+
+Added 2026-08-11 (F-336), recording a rule that shipped on 2026-08-10 under F-286 and was
+written down nowhere outside `apps/web`. Normative.
+
+**Every request `apiClient` sends sets `credentials` and `redirect` explicitly**, rather than
+leaving either to the runtime's default.
+
+```ts
+{ method, signal, credentials: 'same-origin', redirect: 'error' }
+```
+
+`credentials: 'same-origin'` states the rule the whole topology rests on: the session cookies
+are `httpOnly` on the Vercel origin and go nowhere else. `include` would attach them to a
+cross-origin request, and leaving the field unset makes cookie behaviour a property of the
+runtime rather than of this file. The value is not a no-op that restates a default: it is the
+line that keeps a future edit from turning `apiClient` into a cross-origin caller carrying the
+session.
+
+`redirect: 'error'` because the default is `follow`, and following a 3xx from the victim's
+browser is the same hazard `UPSTREAM_FETCH_REDIRECT = 'manual'` refuses one hop later. Every
+response this client expects is terminal, so a redirect out of `/api/bff/*` is a defect and
+the request fails instead of being chased.
+
+**Why this section exists.** The reviewer grepped the contract, the design stub and every ADR
+and found neither setting recorded anywhere: the rule lived in the `requestInit` docblock and
+one spec test, both inside `apps/web`. A security-relevant option set that no normative
+artifact records is one refactor from being removed as noise, which is F-288's shape. The
+stub carries it too.
 
 ## Response handling
 
@@ -177,7 +263,8 @@ Ordered. Normative.
    the one open design question is in `error-envelope.md`, "Open: the code Better Auth's
    422 carries".
 6. Transport failure: `NetworkError`. Both the `fetch` rejection and a rejection while
-   reading the body are transport, and both carry the original on `cause`.
+   reading the body are transport. **Neither carries the platform rejection on `cause`.**
+   Amended 2026-08-11 (F-310); see "`cause` is a channel, and it is closed" below.
 7. **Caller-initiated abort: `RequestAbortedError`.** Added 2026-08-10 (F-292). See below.
 
 **No screen calls `fetch` directly.** Every request goes through one of the two clients.
@@ -194,10 +281,13 @@ deliberately cancelled.
 
 ```ts
 if (req.signal?.aborted === true) {
-  throw new RequestAbortedError(req.method, req.path, { cause });
+  throw new RequestAbortedError(req.method, req.path, { cause: req.signal.reason });
 }
-throw new NetworkError(networkSendMessage(req.method, req.path), req.path, { cause });
+throw new NetworkError(networkSendMessage(req.method, req.path), req.path);
 ```
+
+Amended 2026-08-11 (F-310): both lines took `{ cause }` from the caught rejection. The
+`NetworkError` no longer takes one at all, and the abort reads the signal.
 
 `req.signal.aborted` is checked rather than `cause.name === 'AbortError'` because
 `AbortController.abort(reason)` makes `fetch` reject with **`signal.reason`**, which is the
@@ -219,9 +309,77 @@ not fire on cancellation.
 a boolean flag on `NetworkError` was rejected because the retry wrapper the finding describes
 keys on the class and would still fire.
 
-`cause` carries the platform rejection or `signal.reason`. `signal.reason` is caller-supplied,
-so it sits outside the redaction guarantee ADR-0029 gives the message and the `path` property.
-A telemetry sink that serialises `cause` is serialising a value the caller constructed.
+`RequestAbortedError.cause` is `signal.reason` and nothing else. Amended 2026-08-11 (F-310):
+it was "the platform rejection or `signal.reason`", and the platform rejection half is gone.
+`signal.reason` is caller-supplied, so it sits outside the redaction guarantee ADR-0029 gives
+the message and the `path` property, and it is the one `cause` this module sets. See below.
+
+### `cause` is a channel, and it is closed
+
+Added 2026-08-11 (F-310). Normative.
+
+**No error this client raises carries a `cause`, except `RequestAbortedError`, whose `cause`
+is `signal.reason`.** `NetworkError` on both legs and `ContractViolationError` are
+constructed with no `options` argument at all.
+
+The reason is measured, not theoretical. Under Node's `fetch` the rejection handed to
+`{ cause }` carries the **resolved** URL in its own message, so
+`util.inspect(err, { depth: 5 })` printed
+`[cause]: [TypeError: Failed to parse URL from /api/bff/invitations/<full token>`.
+`util.inspect` is what `console.error(err)` calls, and pino's `err` serialiser walks more
+still, so the credential the route template kept out of `message`, `path`, the spread and the
+stack arrived in a log body anyway (GC-9). That `inspect` call is quoted here as the
+measurement that found the leak, and it is **not** the check to reuse: it is blind to getters
+and to anything past its truncation limits (F-339, ADR-0029 "The measurement discipline"). A browser-shaped `TypeError('Failed to fetch')` carries
+no URL and was checked, so the leak needs a Node runtime: `apiClient` during SSR, or reused
+from a route handler, which is plausible today precisely because `serverApiClient` throws
+`not implemented` and reaching for `apiClient` is the natural workaround.
+
+**The rejected alternative is keeping `cause` and telling readers not to log it**, which is
+what ADR-0029's carve-out did for `RequestAbortedError`. It preserves the platform detail for
+free. It lost because it is a per-sink discipline, and ADR-0029 exists to replace per-sink
+discipline with a value that cannot carry the credential in the first place. Nothing enforces
+it, `util.inspect` is the default and needs no code written to fire, and the rule would have
+to hold in every consumer TASK, every telemetry SDK added later, and the Next.js error
+overlay.
+
+**The second rejected alternative is a sanitised projection**, `cause` replaced by a
+client-constructed object carrying the rejection's `name` and no message. It keeps the one
+detail worth keeping. It lost on ADR-0029's own eligibility test: `name` is not a literal in
+this source and not a member of a union declared here, so it is a platform value the module
+would be vouching for, and the projection is a new exported shape thirteen consumer TASKs
+would have to learn for a value the browser sets to `TypeError` on every transport failure
+anyway.
+
+**The cost accepted:** a transport failure carries no platform detail at all. A developer
+diagnosing one has the class, the method, the route template and whether the failure was on
+send or on read, and must reproduce with devtools open to learn more. Under Node the
+underlying `TypeError` is not reachable from the error object. That cost is small in a
+browser, where `fetch` rejects with `TypeError('Failed to fetch')` for DNS, TLS, CORS and
+offline alike, and larger under Node, which is the leg this rule exists to protect.
+
+**`RequestAbortedError` keeps its `cause` and the carve-out is now the only one.**
+`signal.reason` is a value the caller constructed, holds, and can read back off its own
+`AbortSignal`; the client is a pass-through and cannot vouch for it, which is why it is
+carved out rather than sanitised. **A caller must not pass a credential to `abort(reason)`**,
+and a telemetry sink that serialises `RequestAbortedError.cause` is serialising a value the
+caller chose.
+
+**It is constructed from the signal, not from the caught rejection:**
+
+```ts
+if (req.signal?.aborted === true) {
+  throw new RequestAbortedError(req.method, req.path, { cause: req.signal.reason });
+}
+```
+
+Same principle as the discriminator two sections up, and for the same reason. An abort
+observed at the same instant as a genuine transport failure hands the `catch` a platform
+rejection, and under Node that rejection is the one carrying the resolved URL. Passing the
+caught value through would reopen the leak on exactly the race the tie-breaking rule already
+covers. Reading `signal.reason` makes `cause` deterministic and caller-owned in every case.
+The invariant is then checkable by reading one file: `cause` is set in `client.ts` only in
+the two abort branches, and only from `req.signal.reason`.
 
 ### `ApiError.status` and `ApiError.code` are independent
 
@@ -249,7 +407,7 @@ by whichever TASK builds `mapBetterAuthError`; the constraints on the answer are
 | request headers forwarded | `content-type`, `accept`, `x-request-id`, and **`origin` on mutating methods only** (see below). **Two allowlists, read together**: `FORWARDED_REQUEST_HEADERS` is not the whole set, and building the upstream headers from it alone breaks every auth mutation (F-288). **Inbound `x-shortkit-*` headers are never forwarded**; the proxy sets both of its own afresh on every request |
 | headers the proxy **adds** | `x-shortkit-client-ip` (the browser's address — see the rule below), `x-shortkit-proxy-auth` (`BFF_PROXY_SECRET`) upstream, and `cache-control: no-store` on **every** response it returns (see below) |
 | response headers returned | `content-type`, `retry-after`, `x-request-id` only. `cache-control` is **not** in the allowlist: upstream's value is dropped and the proxy sets its own |
-| CSRF | mutating methods require `Origin` to equal the deployment origin, else 403 |
+| CSRF | mutating methods require `Origin` to equal the deployment origin, else 403. **Mutating means anything that is not `GET` or `HEAD`**, case-insensitively; see "Which methods are mutating" below |
 | redirects | `redirect: 'manual'` on the upstream fetch. A 3xx is returned to the caller, never followed |
 | refresh | on upstream 401 `token_expired`, mint from `sk_rt`, set `sk_at`, retry once |
 | concurrent refresh | collapsed by an in-flight map keyed on the session |
@@ -294,10 +452,14 @@ Added 2026-08-08 (F-233). Normative.
 
 ```ts
 // after the CSRF check below has already run and passed
-if (method !== 'GET' && method !== 'HEAD') {
+if (isMutatingMethod(request.method)) {
   upstreamHeaders.set('origin', request.headers.get('origin')!);
 }
 ```
+
+The predicate is called, not re-derived. Amended 2026-08-11 (F-305): this line read
+`method !== 'GET' && method !== 'HEAD'` while `isMutatingMethod` consulted a four-item
+allowlist, so the same document answered the `OPTIONS` question both ways.
 
 The CSRF row above already refuses any mutating request whose `Origin` is not the
 deployment's own origin, so the value forwarded is the deployment origin or the request
@@ -319,6 +481,54 @@ refresh path, `GET /api/auth/token`, and `GET /api/auth/get-session`.
 `/api/auth/*`. Server components read; sign-in, sign-up and sign-out go through the proxy
 route handler. An implementer who routes a server-side mutation at the auth surface
 directly to Fly gets a 403 whose code names the origin and whose cause is the call site.
+
+### Which methods are mutating
+
+Added 2026-08-11 (ADR-0038; F-305, F-311). Normative, and it settles both the `OPTIONS`
+contradiction and the case sensitivity, because they are the same three lines.
+
+**A method is mutating unless it is `GET` or `HEAD`, compared after uppercasing.** The
+predicate is a denylist and it defaults to mutating, so an unrecognised spelling gets the
+CSRF check rather than skipping it.
+
+```ts
+/** The only methods the proxy neither CSRF-checks nor forwards `Origin` on. */
+export const NON_MUTATING_METHODS = ['GET', 'HEAD'] as const;
+
+/**
+ * True when the proxy must require `Origin` to equal the deployment origin (403 otherwise)
+ * and then forward it upstream. Anything not in NON_MUTATING_METHODS is mutating, including
+ * OPTIONS and including a method this design does not use. Fails CLOSED.
+ *
+ * It uppercases: `new Request(u, { method: 'patch' }).method` stays lowercase, because
+ * PATCH is absent from the Fetch spec's normalise list, and PATCH is one of the four
+ * methods ApiRequest.method allows. Normalising HERE and not at the call site is the
+ * point: a docblock telling the caller to uppercase is a rule enforced by nobody (F-288).
+ */
+export function isMutatingMethod(method: string): boolean {
+  return !(NON_MUTATING_METHODS as readonly string[]).includes(method.toUpperCase());
+}
+```
+
+`MUTATING_METHODS` stays exported and stays `['POST', 'PATCH', 'PUT', 'DELETE']`, and its
+role changes: it **describes** the mutating methods this design uses and **no longer defines
+the predicate**. `isMutatingMethod` does not read it. Adding a method to it changes no
+behaviour, and leaving a method out of it changes no behaviour either, which is what makes
+the two safe to hold apart.
+
+**`OPTIONS` is therefore mutating**, which is the reading the `Origin` section always had.
+It costs nothing in practice: `/api/bff/*` is same-origin, so browsers do not preflight it,
+and a Next.js route handler answers `405` to any method it does not export. If TASK-012 ever
+exports `OPTIONS`, that handler requires `Origin` to equal the deployment origin, which is
+the correct answer on a surface that runs no CORS.
+
+**The reasoning is ADR-0038's and is not repeated here**: the asymmetry between the two
+failure directions, the two rejected alternatives, the browser measurement behind the
+uppercasing, and the cost accepted. In one line: a method wrongly called non-mutating loses
+its `Origin` and gets F-233's 403 in production with every test green, while a method wrongly
+called mutating gets a CSRF check that has already pinned the header to the deployment
+origin. A rule restated in two documents is a rule that can diverge in two documents, which
+is what F-305 was.
 
 ### Caching of proxied responses
 
@@ -429,13 +639,22 @@ token is ever exposed to the client**, in any form.
    what keeps `/api/auth/*` from answering 403 `MISSING_OR_NULL_ORIGIN` (F-233). The API's
    `WEB_APP_ORIGINS` must list that origin; production and each preview host are separate
    entries (`auth-tokens.md`).
-10. **No error this client raises carries a caller-supplied value in `message` or in an own
-    enumerable property.** Added 2026-08-10 (F-284, ADR-0029). `path` on
-    `ContractViolationError`, `NetworkError` and `RequestAbortedError` is the route
-    template, and every message is built from the template and the method. A caller may put
-    a bearer credential in a param value — TASK-022's invitation token is one — and it
-    reaches the URL, the wire and nothing else. The exception, named because it is one:
-    `RequestAbortedError.cause` is `signal.reason`, which the caller constructed.
+10. **No error this client raises carries a caller-supplied value in `message`, in an own
+    enumerable property, or on `cause`.** Added 2026-08-10 (F-284, ADR-0029), amended
+    2026-08-11 (F-310). `path` on `ContractViolationError`, `NetworkError` and
+    `RequestAbortedError` is the route template, and every message is built from the
+    template and the method. A caller may put a bearer credential in a param value, and
+    TASK-022's invitation token is one. The resolved URL that carries it exists in two
+    places, both inside this module: the argument to `fetch`, and the return value of the
+    exported `buildRequestUrl`. It is on no error object.
+    The one exception, named because it is one: `RequestAbortedError.cause` is
+    `signal.reason`, a value the caller constructed and can read off its own signal.
+    **The 2026-08-10 version of this invariant said "reaches the URL, the wire and nothing
+    else", and that was false through `cause`** under Node's `fetch`, which puts the
+    resolved URL in the rejection's own message. The check that produced the claim,
+    `JSON.stringify({...e})` and `Object.keys`, cannot see a non-enumerable property. The
+    check that replaced it could not see a getter or anything past a truncation limit, which
+    is F-339; the union that stands is in ADR-0029, "The measurement discipline".
 11. **A caller-initiated abort raises `RequestAbortedError` and is not an instance of
     `NetworkError`.** Added 2026-08-10 (F-292). Retry and error-state logic keyed on
     `NetworkError` does not fire for a cancellation.
@@ -448,6 +667,16 @@ token is ever exposed to the client**, in any form.
 13. **No response returned through `/api/bff/*` may be stored by the browser.** Added
     2026-08-10 (F-287). Every proxied response carries `Cache-Control: no-store`, set by
     the proxy and not inherited from upstream.
+14. **A request the proxy does not CSRF-check is a `GET` or a `HEAD`.** Added 2026-08-11
+    (F-305, F-311). `isMutatingMethod` defaults to mutating and uppercases before comparing,
+    so no spelling and no method added later can skip the check by not being recognised.
+15. **A route template names each placeholder at most once, and `params` has exactly one
+    entry per placeholder.** Added 2026-08-11 (F-313). No supplied value is dropped, and no
+    supplied value is substituted into a segment that means something else.
+16. **No request this client sends can carry the session cookies off the Vercel origin, and
+    none follows a redirect.** Added 2026-08-11 (F-336), shipped 2026-08-10 (F-286).
+    `credentials: 'same-origin'` and `redirect: 'error'` are set on every request, so neither
+    behaviour depends on a runtime default.
 
 ## What the implementer must guarantee
 
@@ -468,9 +697,10 @@ token is ever exposed to the client**, in any form.
   one an implementer can drop while every other proxy test still passes, and the symptom
   appears only against a real Better Auth mount (F-233).
 - **The normative form exports both request-header allowlists, by these names.** Added
-  2026-08-10 (F-288). `apps/web/src/lib/api/client.ts` must export
-  `FORWARDED_REQUEST_HEADERS`, `FORWARDED_REQUEST_HEADERS_MUTATING_ONLY` (`['origin']`),
-  `MUTATING_METHODS` and `isMutatingMethod`. This document is not what the proxy
+  2026-08-10 (F-288), extended 2026-08-11 (F-305). `apps/web/src/lib/api/client.ts` must
+  export `FORWARDED_REQUEST_HEADERS`, `FORWARDED_REQUEST_HEADERS_MUTATING_ONLY`
+  (`['origin']`), `NON_MUTATING_METHODS` (`['GET', 'HEAD']`), `MUTATING_METHODS` and
+  `isMutatingMethod`. This document is not what the proxy
   implementer reads — the file is, because this document names it as the normative form —
   and a file offering one allowlist under a docblock enumerating what is deliberately
   absent states, to that reader, that the set is complete. It is not: building
@@ -483,6 +713,25 @@ token is ever exposed to the client**, in any form.
   (ADR-0029). Adding an interpolation of a param value, a query value, a response body, a
   header or a resolved URL to any message in this file is a defect, including on a path
   that rejects the value as invalid.
+- **`cause` is set only in the two abort branches, and only to `req.signal.reason`.** Added
+  2026-08-11 (F-310). Chaining a caught rejection onto `NetworkError`,
+  `ContractViolationError` or the step 3 `URIError` re-opens the leak, because under Node
+  the rejection's own message carries the resolved URL. A test asserting a clean `message`
+  does not see it: `cause` is non-enumerable, so the spread, `Object.keys` and
+  `JSON.stringify` all miss it.
+- **A claim that an error does not carry a value is measured with the union check, never with
+  one serialiser.** Added 2026-08-11 (F-339). The check, what each member catches that the
+  others do not, and why one channel can never be sufficient are in ADR-0029, "The
+  measurement discipline". In short: `util.inspect`'s defaults truncate strings at 10000
+  characters and arrays at 100, skip getters, and honour a lying `[util.inspect.custom]`,
+  while `JSON.stringify` runs `toJSON` and never sees a non-enumerable property. Pino's `err`
+  serialiser walks more than `console.error` does, so "it prints what `console.error` prints"
+  is true and is exactly why it is not enough. `client.spec.ts`'s `deepErrorSurface` helper is
+  a regression net against known shapes, not the audit check, and no guarantee in this
+  document rests on it alone.
+- **`isMutatingMethod` normalises its own input and defaults to mutating.** Added 2026-08-11
+  (F-305, F-311). The proxy passes `request.method` straight in. An implementation that
+  compares verbatim, or that derives the answer from `MUTATING_METHODS`, is a defect.
 
 ## Versioning
 
@@ -504,3 +753,20 @@ first consumer.
 
 `params` and `RequestAbortedError` are additive outright. `PROXY_RESPONSE_CACHE_CONTROL`,
 `ROUTE_TEMPLATE_PATTERN` and `ROUTE_ASSERTION_BASE` are new exports.
+
+**The 2026-08-11 amendment (F-305, F-310, F-311, F-313, F-314) is breaking in one place and
+narrowing in three**, and it lands in the same window: `apiClient` still has no callers, and
+the only file importing it is its own spec.
+
+- `NON_MUTATING_METHODS` is a new export. `MUTATING_METHODS` keeps its name and value and
+  loses its authority over `isMutatingMethod`. Nothing consumes either yet.
+- `isMutatingMethod` answers `true` for strictly more inputs than before. Every input the
+  spec asserts today answers as it did.
+- `NetworkError` and `ContractViolationError` lose `cause`. This is the breaking one, and it
+  breaks nothing today: no test reads `cause` on either, and no consumer exists. The window
+  closes at the first consumer that logs an error, the same window ADR-0029 named.
+- `invalidParamValueMessage`'s text widens. Message constants are pinned so a second
+  implementer cannot invent a third string; they were never a compatibility promise and no
+  caller branches on one. The spec asserts this string literally and changes with it.
+- A template that repeats a placeholder was already rejected by the shipped client. The
+  amendment makes the document say so, so this narrows the document, not the code.

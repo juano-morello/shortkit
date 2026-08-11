@@ -1,7 +1,7 @@
 # Contract: workspace branding, and the port into the redirect module
 
 - **Boundary:** the branding HTTP surface; and the redirect module's read of branding without importing the workspace module (AC-55).
-- **Normative form:** `packages/contracts/src/workspaces/branding.ts` and `apps/api/src/redirect/ports/branding.port.ts` (stub: `design/stubs/apps/api/src/redirect/ports/branding.port.ts`).
+- **Normative form:** `packages/contracts/src/workspaces/branding.ts` and `apps/api/src/redirect/ports/branding.port.ts`, neither yet written. The design stub at `design/stubs/apps/api/src/redirect/ports/branding.port.ts` stands in until TASK-029 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-045 (schema, endpoints, port implementation), TASK-029 (port declaration).
 - **Consumed by:** TASK-046 (branded 404), TASK-047 (settings UI).
 - **ADRs:** ADR-0011, ADR-0008.

@@ -2,7 +2,7 @@
 id: TASK-003
 story: STORY-002
 epic: EPIC-001
-title: API deployable on Fly.io with a health endpoint
+title: API production image with a health endpoint
 status: rework
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001]
@@ -61,9 +61,33 @@ live instance of the call shape no mechanism in the logger can reach. That path 
 which is `done` and merged, and it is outside this TASK's `paths`. Filed as **F-274** against
 the roadmap item that next touches tenancy.
 
+## ⚠ AC-6 narrowed and this TASK's escalation cleared — 2026-08-11, Amendment A-8
+
+AC-6 named Fly.io. Nothing was ever deployed there: `shortkit-api.fly.dev` was NXDOMAIN
+from Fly's own authoritative nameservers, no `flyctl`, no `~/.fly`, no deploy workflow —
+verified independently by the orchestrator after `sdlc-product-auditor` raised it, with
+`debug.fly.dev` resolving through the same resolver as a positive control. This TASK was
+escalated and could not reach `done` for reasons that had nothing to do with its code.
+
+**Juano ruled the deploy target is deliberately undecided.** AC-6 keeps its id and loses
+only the deploy clause; what remains is the half already measured on 2026-08-10, when
+`sdlc-product-auditor` built the shipped `Dockerfile` and got `GET /health` → 200 with
+`commit` equal to `git rev-parse HEAD`. The same run proved F-116's boot refusal fires in
+the real image and that helmet's invariant 4 holds on the wire.
+
+**This is not a weakening.** An image that serves `/health` with correct provenance is the
+whole of what this TASK was ever able to build; the deployed clause was always someone
+else's infrastructure. The compose criterion that replaces it is **AC-115 on TASK-059**,
+with its own fresh rework budget — not new scope in this TASK's last round.
+
+`fly.toml` and `infra/deploy.sh` are deleted by **TASK-059**, not here, even though both
+are in this TASK's `paths`. They serialize; TASK-059 does not start until this one is
+finished.
+
 ## Intent
 
-Get the NestJS deployable running on the internet before any feature depends on it.
+Get the NestJS deployable running from a reproducible production image, with correct build
+provenance, before any feature depends on it.
 
 ## Approach
 

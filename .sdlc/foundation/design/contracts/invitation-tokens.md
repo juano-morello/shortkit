@@ -1,7 +1,7 @@
 # Contract: invitation capability tokens
 
 - **Boundary:** anonymous callers to tenant-scoped data. The only sanctioned way a `@Public()` route obtains tenant context.
-- **Normative form:** `apps/api/src/invitations/tokens/capability-token.ts` (stub: `design/stubs/apps/api/src/invitations/tokens/capability-token.ts`).
+- **Normative form:** `apps/api/src/invitations/tokens/capability-token.ts`, not yet written. The design stub at `design/stubs/apps/api/src/invitations/tokens/capability-token.ts` stands in until TASK-020 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
 - **Produced by:** TASK-020.
 - **Consumed by:** TASK-021 (both public routes), TASK-022 (accept UI), TASK-013 (invited signup branch), TASK-056 (public-route audit).
 - **ADRs:** ADR-0021, ADR-0003, ADR-0015.

@@ -1,7 +1,7 @@
 # Contract: short-code alphabet, validation, and reserved slugs
 
 - **Boundary:** slug generation, slug validation on the API, and client-side pre-validation in the web app.
-- **Normative form:** `packages/contracts/src/slug.ts` (stub: `design/stubs/packages/contracts/src/slug.ts`).
+- **Normative form:** `packages/contracts/src/slug.ts`. The file exists; `validateSlug` is declared there and throws `not implemented` until TASK-024 fills it. The design stub was retired 2026-08-11 under ADR-0039, TASK-007 having closed.
 - **Produced by:** TASK-024 (generator); the constants ship in `packages/contracts` from TASK-007.
 - **Consumed by:** TASK-023 (unique index), TASK-025 (400/409 mapping), TASK-026 (inline validation).
 - **ADRs:** ADR-0007, ADR-0006.
