@@ -31,6 +31,12 @@
  * would put a mock between the test and the behaviour AC-15 is about. Recorded as a gap
  * in the TASK-008 red-tests report rather than covered with a mock.
  */
+// `util.inspect` is what `console.error(err)` calls and what pino's `err` serialiser walks.
+// It is the channel ADR-0029's follow-up section names as the one that must be MEASURED, and
+// the one the round-1 clearance (`JSON.stringify({...e})`, `Object.keys`,
+// `getOwnPropertyNames`) was blind to, because `cause` is non-enumerable. See F-310 below.
+import { inspect } from 'node:util';
+
 import { idContract, isErrorEnvelope, paginated } from '@shortkit/contracts';
 import type { ErrorCode } from '@shortkit/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -419,7 +425,7 @@ describe('apiClient request path construction (F-284, F-285, ADR-0029)', () => {
 
     expect(fetchCallCount()).toBe(0);
     expect((outcome as Error).message).toBe(
-      "apiClient: a param value for GET /links/:id is empty, '.' or '..'.",
+      "apiClient: a param value for GET /links/:id is empty, '.', '..' or cannot be percent-encoded.",
     );
   });
 
@@ -810,5 +816,275 @@ describe('the query string apiClient builds (F-307)', () => {
     await apiClient({ ...listIds(), query: { cursor: undefined } });
 
     expect(sentRequest().url).toBe('/api/bff/links');
+  });
+});
+
+/* ==========================================================================================
+ * REWORK, round 3 (2026-08-11). F-305, F-310, F-311, F-312, F-314.
+ * ==========================================================================================
+ *
+ * Everything above this line is unchanged except ONE literal: the expected message in
+ * "F-285: refuses a param value of '..'" moved with the constant F-314 rewrote. The
+ * assertion is the same assertion against the same path; only the normative text changed.
+ *
+ * THE ROUND-2 BANNER ABOVE IS SUPERSEDED, not wrong. It records that F-305 and F-311 were
+ * held for Juano's ruling and that the spec exercised only the six method spellings both
+ * readings agreed on. The ruling landed 2026-08-11 (`TASK-008-contract-cluster-return.md`),
+ * so this block exercises the spellings that DISCRIMINATE. The six original assertions at
+ * :678-693 are untouched and stay green under the new predicate.
+ *
+ * Five rulings, and what each one costs a test:
+ *
+ * F-305 — mutating means anything that is not GET or HEAD. The PREDICATE is the definition;
+ * `MUTATING_METHODS` becomes descriptive and `isMutatingMethod` no longer reads it. OPTIONS
+ * is mutating, and `isMutatingMethod('OPTIONS') === true` is the ONLY assertion that
+ * separates the two readings — which is exactly why round 2 could not tell them apart.
+ *
+ * F-311 — the predicate uppercases its own input and defaults to mutating, i.e. fails
+ * CLOSED. Measured reachability: `new Request(u, { method: 'post' }).method` normalises to
+ * `POST`, but `{ method: 'patch' }` stays lowercase, because PATCH is absent from the Fetch
+ * spec's normalise list — and PATCH is one of the four methods `ApiRequest.method` allows.
+ *
+ * F-310 — `NetworkError` and `ContractViolationError` carry NO `cause`. `RequestAbortedError`
+ * carries `{ cause: req.signal.reason }`, read off the SIGNAL, which also closes the
+ * abort/transport race. The assertion is on the PROPERTY: `cause` is non-enumerable, so
+ * `JSON.stringify({...e})`, `Object.keys` and `getOwnPropertyNames` all came back clean in
+ * round 1 while `util.inspect` printed the credential. `errorSurface()` above is blind to it
+ * BY CONSTRUCTION; `deepErrorSurface()` below is the one that sees.
+ *
+ * F-312 / F-314 — a value `encodeURIComponent` cannot encode leaves step 3 by the same exit
+ * as the other unusable values, and the message widens to name that fourth condition. F-312
+ * shipped in round 2 as production code with no covering test; the implementer disclosed it
+ * rather than leaving it, and this is where it closes.
+ *
+ * F-313 is upheld and needs nothing: the shipped three-clause guard at step 2 IS the ruling,
+ * and "F-306: refuses a repeated placeholder even when params carry exactly its one key"
+ * stays exactly as written.
+ */
+
+/** A lone high surrogate. `encodeURIComponent` raises `URIError: URI malformed` on it. */
+const LONE_SURROGATE = '\uD800';
+
+/**
+ * The rejection Node's `fetch` hands the `catch` — it carries the RESOLVED URL in its own
+ * message, and therefore the credential the route template kept out of `message`, `path`,
+ * the spread and the stack. This is the value ADR-0029 measured arriving in a log body as
+ * `[cause]: [TypeError: Failed to parse URL from /api/bff/invitations/<full token>`. A
+ * browser-shaped `TypeError('Failed to fetch')` carries no URL, which is why the leak needs
+ * a Node runtime and why the fixture is shaped like Node's and not like the browser's.
+ */
+function urlBearingPlatformRejection(): TypeError {
+  return new TypeError(`Failed to parse URL from /api/bff/invitations/${INVITATION_TOKEN}`);
+}
+
+/**
+ * What `console.error(err)` prints and what pino's `err` serialiser walks, which is the
+ * whole point: it follows `cause` even though `cause` is non-enumerable, so it is the only
+ * surface in this file that can observe F-310 at all. `errorSurface()` above cannot, and
+ * that blindness is the mechanism by which round 1 cleared a claim that was false.
+ */
+function deepErrorSurface(error: unknown): string {
+  return inspect(error, { depth: 5 });
+}
+
+/** The transport dies mid-body with nothing aborted. The read leg of step 6. */
+function networkFailsWhileReadingBody(rejection: Error): void {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream({
+          start(streamController) {
+            streamController.error(rejection);
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    ),
+  );
+}
+
+/**
+ * The race the tie-breaking rule already covers: the signal aborts and the transport fails
+ * in the SAME tick, so `fetch` rejects with a platform value that is NOT `signal.reason`.
+ * `networkAbortsInFlight` above cannot show this, because it rejects with the reason itself
+ * — which is why reading the rejection and reading the signal look identical there.
+ */
+function networkAbortsAndAlsoFails(
+  controller: AbortController,
+  reason: unknown,
+  platformRejection: Error,
+): void {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+    controller.abort(reason);
+
+    return Promise.reject(platformRejection);
+  });
+}
+
+/** The one call site in this design that puts a bearer credential in a path. */
+function acceptInvitationRequest() {
+  return {
+    method: 'GET' as const,
+    path: INVITATION_TEMPLATE,
+    params: { token: INVITATION_TOKEN },
+    contract: idContract,
+  };
+}
+
+describe('a param value that cannot be percent-encoded (F-312, F-314)', () => {
+  it('F-312: refuses a param value encodeURIComponent cannot encode, before the request is sent', async () => {
+    // `encodeURIComponent('\uD800')` throws `URIError: URI malformed`. Without the guard the
+    // URIError leaves step 3 by a fifth exit the contract does not enumerate: it is not one
+    // of the four ApiRequest failure classes, no caller can name it, and it is raised by a
+    // built-in the caller never called. F-312 shipped with no covering test.
+    networkAnswers(jsonResponse(200, AN_ID));
+
+    const outcome = await attempt(() =>
+      apiClient({
+        method: 'GET',
+        path: '/links/:id',
+        params: { id: LONE_SURROGATE },
+        contract: idContract,
+      }),
+    );
+
+    // Harm first, as in every path-construction test above: nothing reached the network.
+    expect(urlsHandedToFetch()).toEqual([]);
+    // F-314. The message names the condition that actually occurred. The pre-amendment text
+    // named three conditions, NONE of which had happened, sending a developer who checked
+    // all three away from the cause.
+    expect((outcome as Error).message).toBe(
+      "apiClient: a param value for GET /links/:id is empty, '.', '..' or cannot be percent-encoded.",
+    );
+    // ADR-0029: the value that could not be encoded is caller-supplied by definition, so it
+    // is not chained on and not named.
+    expect((outcome as Error).cause).toBeUndefined();
+  });
+});
+
+describe('which methods the proxy treats as mutating (F-305, F-311)', () => {
+  function isMutatingMethod(): (method: string) => boolean {
+    const exported = exportedFromClient('isMutatingMethod');
+
+    if (typeof exported !== 'function') {
+      throw new Error('client.ts exports no isMutatingMethod (F-288)');
+    }
+
+    return exported as (method: string) => boolean;
+  }
+
+  it('F-305: isMutatingMethod is true for OPTIONS', () => {
+    // THE discriminating assertion. Under the four-item allowlist OPTIONS is non-mutating;
+    // under "anything that is not GET or HEAD" it is mutating. Nothing else in this file
+    // tells the two readings apart, which is why the same document answered the question
+    // both ways for three days and why round 2 could not close it.
+    //
+    // The asymmetry is what decided it: a method wrongly classified NON-mutating loses its
+    // `Origin` and gets better-auth's 403 MISSING_OR_NULL_ORIGIN in production while every
+    // test that speaks to the API directly passes (F-233). A method wrongly classified
+    // mutating gets a CSRF check that has already pinned `Origin` to the deployment origin.
+    // Silent-and-expensive against loud-and-harmless.
+    expect(isMutatingMethod()('OPTIONS')).toBe(true);
+  });
+
+  it('F-311: isMutatingMethod uppercases its own input and defaults to mutating', () => {
+    const predicate = isMutatingMethod();
+
+    // Reachable, not hypothetical: `new Request(u, { method: 'post' }).method` normalises to
+    // `POST`, but `{ method: 'patch' }` stays lowercase, because PATCH is absent from the
+    // Fetch spec's normalise list. PATCH is one of the four methods ApiRequest.method allows.
+    expect(predicate('patch')).toBe(true);
+    expect(predicate('PoSt')).toBe(true);
+    // Fails CLOSED. An unrecognised spelling gets the CSRF check rather than skipping it.
+    expect(predicate('')).toBe(true);
+    // The falsifier for the three above: a predicate that returned `true` for everything
+    // would satisfy them and fail these. Uppercasing has to make GET and HEAD reachable from
+    // their lowercase spellings too, not just make the answer `true` more often.
+    expect(predicate('get')).toBe(false);
+    expect(predicate('head')).toBe(false);
+  });
+
+  it('F-305: NON_MUTATING_METHODS is exported and names GET and HEAD', () => {
+    // Same shape and same reason as the three F-288 export pins above: web-api-client.md
+    // names THIS FILE as its normative form, so the proxy implementer reads the exports and
+    // not the contract. The predicate is a denylist now, so this is the list it denies from.
+    expect(exportedFromClient('NON_MUTATING_METHODS')).toEqual(['GET', 'HEAD']);
+  });
+});
+
+describe('cause carries nothing this module chose (F-310, ADR-0029)', () => {
+  it('F-310: NetworkError on the send leg carries no cause', async () => {
+    networkAnswers(urlBearingPlatformRejection());
+
+    const outcome = await attempt(() => apiClient(acceptInvitationRequest()));
+
+    // Harm first. This is the assertion round 1 could not make, because `errorSurface()`
+    // spreads and `cause` is non-enumerable. `console.error(err)` and pino both print this.
+    expect(deepErrorSurface(outcome)).not.toContain(INVITATION_SECRET);
+    expect(outcome).toBeInstanceOf(NetworkError);
+    // On the PROPERTY, never on the spread: the spread reports clean either way, and that is
+    // precisely how the defect survived a clearance in round 1.
+    expect((outcome as Error).cause).toBeUndefined();
+  });
+
+  it('F-310: NetworkError on the read leg carries no cause', async () => {
+    // The headers arrived and the body did not. Still transport, still step 6, and the
+    // rejection a stream error hands the catch is a platform value on the same footing.
+    networkFailsWhileReadingBody(urlBearingPlatformRejection());
+
+    const outcome = await attempt(() => apiClient(acceptInvitationRequest()));
+
+    expect(deepErrorSurface(outcome)).not.toContain(INVITATION_SECRET);
+    expect(outcome).toBeInstanceOf(NetworkError);
+    expect((outcome as Error).cause).toBeUndefined();
+  });
+
+  it('F-310: ContractViolationError carries no cause when the body fails the contract', async () => {
+    networkAnswers(jsonResponse(200, idFailingTheContract()));
+
+    const outcome = await attempt(() => apiClient(acceptInvitationRequest()));
+
+    expect(outcome).toBeInstanceOf(ContractViolationError);
+    // Nothing zod produced is chained here. `issues` is the channel for what validation
+    // reported, and it is the only one.
+    expect((outcome as Error).cause).toBeUndefined();
+  });
+
+  it('F-310: ContractViolationError carries no cause when a 2xx body is not JSON at all', async () => {
+    // The `JSON.parse` arm, whose swallowed SyntaxError is an open round-1 minor. Chaining
+    // it is the obvious-looking close for that minor and is exactly the re-add F-310 forbids.
+    networkAnswers(
+      new Response('<html>upstream ate it</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+    const outcome = await attempt(() => apiClient(acceptInvitationRequest()));
+
+    expect(outcome).toBeInstanceOf(ContractViolationError);
+    expect((outcome as Error).cause).toBeUndefined();
+  });
+
+  it('F-310: an abort racing a transport failure carries the signal reason, not the rejection', async () => {
+    // The tie-breaking rule already says this raises RequestAbortedError. What it did NOT
+    // say is where `cause` comes from, and on THIS race the two answers differ: the caught
+    // rejection is the platform's URL-bearing one and `signal.reason` is the caller's.
+    // Every other abort test in this file rejects WITH `signal.reason`, so reading the
+    // rejection and reading the signal are indistinguishable there. Here they are not.
+    const controller = new AbortController();
+    const reason = { why: 'the invitee navigated away' };
+    networkAbortsAndAlsoFails(controller, reason, urlBearingPlatformRejection());
+
+    const outcome = await attempt(() =>
+      apiClient({ ...acceptInvitationRequest(), signal: controller.signal }),
+    );
+
+    expect(deepErrorSurface(outcome)).not.toContain(INVITATION_SECRET);
+    expect(outcome).toBeInstanceOf(errorClassFromClient('RequestAbortedError'));
+    expect(outcome).not.toBeInstanceOf(NetworkError);
+    // Read off the signal. The caller constructed this value, holds it, and can read it back
+    // off its own AbortSignal, which is why it is the one carve-out ADR-0029 keeps.
+    expect((outcome as Error).cause).toBe(reason);
   });
 });
