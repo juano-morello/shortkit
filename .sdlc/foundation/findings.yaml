@@ -8322,9 +8322,12 @@
     db/client.ts half at its current grade; it is gated on F-144 and leaks nothing.
   owner_slot: sdlc-implementer-backend
   reassigned_2026_08_11: "TASK-003 -> TASK-060. Juano ruled: this finding had no owner able to discharge it - tenancy/** is TASK-005 (done), TASK-003 owns the logging policy but not the path and its own card says so. TASK-060 is minted with a fresh rework budget and paths that actually cover the three sites. AC-116 minted on STORY-002 under Amendment A-9, because an obligation with no acceptance criterion is one nobody checks - the fourth instance of that shape on this initiative."
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-backend"
+  resolved_round: 1
+  resolution: >-
+    CLOSED BY TASK-060 at c7bc5f3, AND THE RECORD LAGGED BY THREE COMMITS - caught by sdlc-product-auditor, not by me. tenant-context.ts:247 now emits logger.error({ err: error }, 'afterCommit hook failed'): the error on the record under err, the context a string literal, so error.message has NO ROUTE to the emitted bytes. The reviewer traced that statically through the shipped pipeline rather than taking it from the report - both of hooks.logMethod's leak branches skipped on a string context, fieldsCensored continuing on key err at depth 1, and errorLogFields(thrown, {includeMessage: false}) having NO BRANCH that can produce err_message under that flag, for an Error and for a non-Error alike.
+    FIFTH RECORD TODAY THAT LAGGED THE ARTIFACT DESCRIBING IT. The DoD asserted this finding closed while the ledger the next sweep reads said open and assigned.
   rerouting: >-
     RE-ROUTED FROM TASK-011 TO TASK-003 ON 2026-08-10 BY THE RE-SCOPE SWEEP, and it was
     ownerless for a day before that. TASK-011 was deferred with EPIC-002 on 2026-08-09 while
@@ -12235,9 +12238,12 @@
     in apps/api/package.json; outside the test architect's write surface.
   required_change: Declare it.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-backend"
+  resolved_round: 1
+  resolution: >-
+    CLOSED BY TASK-060 at c7bc5f3 - eslint 9.39.5 declared in apps/api/package.json, one copy, correctly symlinked. Record lagged; same sweep, same cause.
+    THE PRODUCT AUDITOR IS RIGHT THAT THE PROCESS WAS WRONG EVEN THOUGH THE FIX WAS: apps/api/package.json and pnpm-lock.yaml are NOT in TASK-060's paths and no amendment was recorded. `Routed to my slot` is not `inside my write surface`, and TASK-059 was editing that same file in the same window. See F-370.
 
 - id: F-360
   phase: implement
@@ -12483,3 +12489,146 @@
     verbatim reader has no cause to open. The wording states the general rule - an image that CAN
     reach traffic may not report an unknown commit - so the clause does not read as an exemption for
     this one stack.
+
+# ---- TASK-060 audits: reviewer `clear`, product auditor `changes-requested` on DoD item 4.
+# No blocker, no major. Full text: work/TASK-060-review.md and work/TASK-060-product.md
+
+- id: F-369
+  phase: implement
+  task: TASK-060
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: behavior
+  file: eslint.config.mjs
+  line: 114
+  summary: >-
+    THE RESTRICTION MATCHES THE PACKAGE SPECIFIER EXACTLY, SO
+    `import { Logger } from '@nestjs/common/services'` LINTS CLEAN - and the enumeration spec
+    misses the same specifier, so this is the one Nest-Logger shape with NO mechanism behind it.
+  failure_scenario: >-
+    MEASURED BY EMISSION, not reasoned. @nestjs/common 11.1.28 ships NO `exports` field, so the
+    deep subpath resolves and yields the real class - the auditor ran it and got the exact
+    ANSI-coloured, locale-clocked, no-service/no-env/no-ISO-time line AC-116 exists to eliminate.
+    Lint at a formerly exempted path: the root import fires, the NAMESPACE import fires, the
+    dynamic import is caught by the spec, and the SUBPATH import reports ZERO ERRORS.
+    AND THE ASYMMETRY IS THE TELL: logging-opt-out.spec.ts:237 handles `pino` AND
+    `specifier.startsWith('pino/')`, while :229 handles `@nestjs/common` exactly. The subpath
+    family is covered for one package and not the other in the same rule object, which makes this
+    an oversight rather than a ruling.
+    THE RULE'S OWN COMMENT MAKES THIS ARGUMENT ONE LEVEL UP - "listing Logger alone is the
+    enumeration weakness ADR-0028 rejected for the redact list, one package export over" - and
+    then leaves the identical weakness one package SUBPATH over.
+    Minor and not major: nothing in the tree does it, IDE auto-import resolves to the package
+    root, and no realistic accidental path reaches it.
+  required_change: >-
+    A Nest logger imported from any @nestjs/common subpath must fail the build, or the enumeration
+    must name it - and the two should not disagree about which specifiers count. Resolve the
+    pino/pino-slash asymmetry in the same rule object the same way.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-370
+  phase: implement
+  task: TASK-060
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: scope
+  file: .sdlc/foundation/tasks/TASK-060.md
+  line: 9
+  summary: >-
+    F-359's FIX WAS RIGHT AND ITS PROCESS WAS NOT. apps/api/package.json and pnpm-lock.yaml are
+    NOT in TASK-060's `paths`, and no amendment was recorded. "Routed to my slot" is not "inside
+    my write surface" - and TASK-059 was editing that same file in the same window.
+  failure_scenario: >-
+    It is defensible on substance: logger-lint-rule.spec.ts imports eslint, so declaring the
+    dependency is a prerequisite for this TASK's own test to resolve legitimately. The defect is
+    that I authorised it in a dispatch sentence rather than in the card, which is the artifact the
+    routing rules read. Two agents held write claims on one file for a window, by my arrangement.
+  required_change: Amend TASK-060's paths to cover what it was authorised to change. Do not revert the fix.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "orchestrator 2026-08-11"
+  resolved_round: 1
+  resolution: >-
+    paths amended to carry apps/api/package.json and pnpm-lock.yaml, which is what I should have
+    done when I authorised the change in the dispatch. The auditor is right that a dispatch sentence
+    is not the artifact the routing rules read.
+
+- id: F-371
+  phase: implement
+  task: TASK-060
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: eslint.config.mjs
+  line: 115
+  summary: >-
+    "OR ANY OTHER LOGGER" IS IMPLEMENTED AS A PER-PACKAGE ENUMERATION. A future winston or bunyan
+    import passes the lint rule - and passes the enumeration's second assertion too, if the module
+    also imports the shared logger.
+  failure_scenario: >-
+    The same weakness that correctly justified adding ConsoleLogger, one package further out. No
+    such dependency exists, so AC-116's clause is met today; the durable form is an architect
+    decision rather than an implementer's. Filed with F-369, which is the same shape one subpath
+    over, so whoever takes either should see both.
+  required_change: An architect decision on the durable form of "any other logger".
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-372
+  phase: implement
+  task: TASK-060
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/api/test/isolation/cross-tenant-isolation.int-spec.ts
+  line: 342
+  summary: >-
+    A `console.log` INSIDE THE API PACKAGE REACHED BY NEITHER THE ENUMERATION WALK NOR THE LINT
+    GLOB - both are scoped to apps/api/src. And a second instance the reviewer found
+    independently: apps/api/scripts/seed.mts, added by TASK-059, uses console.log and console.error
+    throughout and is outside the same glob.
+  failure_scenario: >-
+    ORCHESTRATOR-CONFIRMED for seed.mts: the no-console block covers apps/api/src/**/*.ts, and the
+    seed lives at apps/api/scripts/. Reading AC-116's "the API source tree" as `src` is defensible,
+    and a one-shot CLI script writing to stdout is not a server log line - SO THIS IS NOT A FAILURE
+    OF AC-116. What it is: A BOUNDARY NOBODY RULED. It was inherited from a glob, it now falls
+    between TASK-059 and TASK-060, and it is held only in two audit reports.
+    The reviewer flagged it precisely so it would not fall between the two TASKs.
+  required_change: >-
+    Rule the boundary and write it down - either "the API source tree means src, and scripts and
+    tests are out" with the reason, or widen the glob. Either is defensible; neither is recorded.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-373
+  phase: implement
+  task: TASK-060
+  source: sdlc-reviewer
+  round: 1
+  severity: nit
+  kind: docs
+  file: apps/api/src/db/client.ts
+  line: 89
+  summary: >-
+    Two docblock defects in one paragraph, both rewritten in this commit. It says the line carries
+    "Name and SQLSTATE and nothing else" and two sentences later says the error is reduced to
+    err_name AND err_stack - the shipped bytes carry err_stack. And it uses the bare word `where`
+    for both the pg error field that must never be logged and this function's own `where` parameter,
+    so a reader checking the forbidden-field rule sees the forbidden name asserted to be a module
+    literal.
+  required_change: State the same field set in both sentences; distinguish the two uses of `where`.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null

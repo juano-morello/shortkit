@@ -6,7 +6,7 @@ title: Close the logging opt-out class and enforce it in lint
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-003, TASK-005]
-paths: ["apps/api/src/tenancy/tenant-context.ts", "apps/api/src/db/client.ts", "eslint.config.mjs", "apps/api/src/observability/**", "docs/architecture/**"]
+paths: ["apps/api/src/tenancy/tenant-context.ts", "apps/api/src/db/client.ts", "eslint.config.mjs", "apps/api/src/observability/**", "docs/architecture/**", "apps/api/package.json", "pnpm-lock.yaml"]
 contracts: ["design/contracts/logging-and-headers.md", "design/contracts/tenant-context.md"]
 test_files: ["apps/api/src/tenancy/tenant-context-logging.spec.ts", "apps/api/src/db/client-logging.spec.ts", "apps/api/src/observability/logging-opt-out.spec.ts", "apps/api/src/observability/logger-lint-rule.spec.ts"]
 acceptance: [AC-116]
