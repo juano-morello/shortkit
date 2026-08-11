@@ -1,7 +1,7 @@
 slug: foundation
 title: Foundation and tenancy substrate
 type: feature
-phase: implement
+phase: ship
 track: full
 wave: 2
 branch: main
@@ -40,8 +40,8 @@ gates:
   implement:
     wave_0: approved         # 2026-08-06
     wave_1: approved         # 2026-08-06
-    wave_2: pending
-    note: "CORRECTED 2026-08-11. The previous text - 'TASK-006 is delivered and TASK-003 is in fix round 4/5; TASK-008 is the only TASK still unimplemented' - was false in all three clauses by 2026-08-10. Wave 2 now holds TASK-003 (code-clear, AC-6 amended, F-247 open), TASK-006 (fix round 2, blocker F-302) and TASK-008 (rework green, in scoped re-review). TASK-059 was minted into this wave on 2026-08-11 and is NOT yet designed or tested, so the wave gate cannot be requested until it completes its own design -> test -> implement pass."
+    wave_2: approved         # 2026-08-11
+    note: "APPROVED 2026-08-11. Ten of ten TASKs done. Evidence run in ONE PASS on a clean tree: unit 189/189, integration 62/62, typecheck 0, lint 0, build 0, db:check-policies OK over one protected table, AC-115 fifteen clauses exit 0, zero dirty files. No open blocker. One escalated major, F-385, ruled the same way as F-380 and dispatched; ship.md rule 50 forbids opening a PR while a TASK is escalated, so it lands before the PR. 83 open minors and nits plus 15 parked findings carry to the Ship triage. PREVIOUS NOTE, CORRECTED 2026-08-11. The previous text - 'TASK-006 is delivered and TASK-003 is in fix round 4/5; TASK-008 is the only TASK still unimplemented' - was false in all three clauses by 2026-08-10. Wave 2 now holds TASK-003 (code-clear, AC-6 amended, F-247 open), TASK-006 (fix round 2, blocker F-302) and TASK-008 (rework green, in scoped re-review). TASK-059 was minted into this wave on 2026-08-11 and is NOT yet designed or tested, so the wave gate cannot be requested until it completes its own design -> test -> implement pass."
   ship:      { status: pending, approved_at: null }
 
 tasks:
