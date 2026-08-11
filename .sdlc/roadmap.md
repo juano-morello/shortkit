@@ -109,3 +109,26 @@ filed as F-341:
 
 Its own conclusion is the argument for this item: all three blockers were "a statement shape
 nobody thought of", and 1 and 2 are simply the next two nobody thought of.
+
+## Follow-up cards owed by ADR-0041, ADR-0042 and F-369 (recorded 2026-08-11)
+
+Three implementation cards do not exist and were deliberately not minted into a closing wave.
+The architect that ruled the decisions flagged that it could not create them; recorded here so the
+obligation survives, which is the F-142 lesson.
+
+1. **ADR-0041 section 3 — gate "any other logger" at the dependency manifest.** Classify the API's
+   dependencies and assert the classification for equality with a non-vacuity control. The stated
+   cost is that every dependency addition turns a spec red, and that **a wrong classification is
+   invisible** — `@nestjs/common` is the ADR's own proof that a reasonable person files a logging
+   package under "the framework".
+2. **ADR-0042 — move the logger-import restriction to follow the package** while `no-console` stays
+   scoped to `src`. Measured to land green. The residual the ADR states: nothing checks what
+   `seed.mts` prints when it has the database URL in its environment.
+3. **F-369 / F-382 — close the lint fence's three doors.** Both `no-restricted-imports` entries move
+   to `patterns` (the `pino`/`pino/` asymmetry was the tell), a shared predicate lands in
+   `logging-opt-out.spec.ts`, and subpath fixtures cover two depths plus the `.mts`/`.tsx`
+   extension gap. Two auditors found this class independently, at different depths, both by
+   emitting a real Nest log line rather than reasoning about the matcher.
+
+Also riding item 3: two stale quotations of the retired exemption at
+`apps/api/src/observability/logging-opt-out.spec.ts:15-16` and `:25`.
