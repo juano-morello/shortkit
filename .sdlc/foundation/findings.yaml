@@ -12273,9 +12273,15 @@
     Correct the "Consumed by" bullet and ADR-0028's Migration step 3 table. Decide whether
     `sqlstate` joins LOGGABLE_FIELDS; if it does, the fence and the call site move in one commit.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    SWEPT, NOT PATCHED - ELEVEN false or misleading regions across two documents, of which SIX were named by the review, two by the finding, and THREE THE SWEEP FOUND ON ITS OWN. The best of the three: logging-and-headers.md:126 said the hole had `no mechanism at all (F-268, unowned)` - BOTH HALVES FALSE SINCE ROUND 5, because F-268 is fixed and the pino restriction has shipped since then. Also adr-0028:682, the Migration step 3 TABLE's own copy of the stale main.ts:293 that the reviewer caught only in the prose at :662; and adr-0028:925-929, whose trigger - `either of the two exempted sites` - no longer exists.
+    THE ONE-COPY RULE APPLIED: a new section, `What enforces "nothing may opt out", and what it does not reach`, is the single home of the three mechanisms and the four residuals, with the Consumed-by bullet, ADR-0028 step 3 and both new ADRs pointing at it. ADR-0028's `separate config object with ignores` instruction is EXPLICITLY SUPERSEDED rather than quietly dropped.
+    THE FENCE WAS NOT TOUCHED and it verified that after editing; ORCHESTRATOR-CONFIRMED by running the drift spec - 6 tests green, 123/123 for the package.
+    AND `sqlstate` IS RULED IN, with the call site named and DELIBERATELY NOT PRE-EDITED: adding it to the fence alone turns the drift spec red until an implementer catches up, so the fence, logger.ts and client.ts move in ONE commit. `where` gets no name, because it is the exact name of a forbidden pg.DatabaseError field.
+    DoD item 4 is dischargeable.
 
 - id: F-361
   phase: implement
@@ -12578,9 +12584,11 @@
     over, so whoever takes either should see both.
   required_change: An architect decision on the durable form of "any other logger".
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: parked
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    RULED, NOT CLOSED - ADR-0041. The durable gate for `any other logger` is the API's DEPENDENCY MANIFEST, classified and asserted for equality with a non-vacuity control; the import site keeps the name list and widens to specifier families. COST STATED HONESTLY: every dependency addition turns a spec red, and A WRONG CLASSIFICATION IS INVISIBLE - with @nestjs/common offered as the proof that a reasonable person files a logging package under `the framework`. Implementation is a follow-up card that does not exist yet.
 
 - id: F-372
   phase: implement
@@ -12607,9 +12615,11 @@
     Rule the boundary and write it down - either "the API source tree means src, and scripts and
     tests are out" with the reason, or widen the glob. Either is defensible; neither is recorded.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: parked
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    RULED, NOT CLOSED - ADR-0042. `The API source tree` means `src`. no-console stays there; THE LOGGER-IMPORT RESTRICTION FOLLOWS THE PACKAGE, which the architect measured lands green. Cost: two bounds in one package, and NOTHING CHECKS WHAT seed.mts PRINTS when it has the database URL in its environment - stated rather than left implicit. Implementation is a follow-up card that does not exist yet.
 
 - id: F-373
   phase: implement
