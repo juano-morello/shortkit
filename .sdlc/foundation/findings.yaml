@@ -12632,3 +12632,125 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+# ---- TASK-059 code review: `clear`, five minors, nothing at blocker or major.
+# Full text: .sdlc/foundation/work/TASK-059-review.md
+
+- id: F-374
+  phase: implement
+  task: TASK-059
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: docs
+  file: README.md
+  line: 58
+  summary: >-
+    README omits `docker compose up -d --wait`, which ADR-0036 states belongs in it beside the bare
+    command - "Both belong in the README". Grep for `wait` returns nothing, so an auditor wanting
+    the form that returns only when every service is healthy has to read the check script to find it.
+  required_change: >-
+    State both start forms and what each returns on. NOTE THE CARD AND THE ADR DISAGREE about the
+    provenance pair's order and THE IMPLEMENTER FOLLOWED THE ADR, which is correct - do not reorder
+    it back to the card's "real-provenance one first".
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-375
+  phase: implement
+  task: TASK-059
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: docs
+  file: README.md
+  line: 123
+  summary: >-
+    The one-shot-failure warning is attached only to the `restart` rung. `docker compose start` has
+    the same behaviour and carries none.
+  failure_scenario: >-
+    `start` brings up every non-running container in dependency order and DOES NOT honour
+    depends_on health conditions. Stop at night, start in the morning, and `migrate` and `seed`
+    connect before Postgres accepts connections and exit non-zero under `restart: "no"`. That is the
+    exact signal ADR-0036 says a developer answers with `down -v` - "which destroys the data the
+    rung exists to demonstrate" - and the reader who used stop/start never meets the warning.
+    Reasoned from Compose's dependency-order start; the reviewer started no container and said so.
+  required_change: >-
+    Either the stop/start rung carries the same caveat, or one measured `stop && start` establishes
+    it does not apply and the README says which rungs it covers.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-376
+  phase: implement
+  task: TASK-059
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: behavior
+  file: apps/api/src/health/build-commit.ts
+  line: 45
+  summary: >-
+    A RUNTIME REFUSAL MESSAGE INSTRUCTS AN ACTION THAT IS NOW IMPOSSIBLE - it tells the operator to
+    deploy through `infra/deploy.sh` rather than bare `fly deploy`, and this diff deletes both.
+  failure_scenario: >-
+    Fires whenever GIT_COMMIT_SHA is absent or malformed at runtime. It is an ERROR STRING an
+    operator reads under pressure, not a comment. ADR-0030 routes the file and forbids TASK-059
+    touching it, so the implementer correctly left it - but this diff is what made it wrong.
+  required_change: The text names the two build invocations that exist. Routing sits in ADR-0030's second table.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-377
+  phase: implement
+  task: TASK-059
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: docs
+  file: docs/security/ci-secrets.md
+  line: 15
+  summary: >-
+    THE ONE STALE ARTIFACT IN THIS CLUSTER THAT NO ADR ROUTES. The register's reason for treating
+    API_BASE_URL as a variable is false in both factual clauses: "the same Fly origin the BFF proxy
+    calls" - no Fly origin exists - and "discoverable from any redirect response", when ADR-0035
+    gives the two variables deliberately different values.
+  failure_scenario: >-
+    The CONCLUSION survives and the stated REASON does not, WHICH IS HOW A CORRECT DECISION GETS
+    REVERSED BY THE NEXT AUDITOR. Disclosed by the implementer too, which is how I know both found
+    it independently.
+  required_change: Register states what is true now. Needs an owner first - it is unrouted as well as unfixed.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-378
+  phase: implement
+  task: TASK-059
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: docs
+  file: apps/web/scripts/assert-no-inlined-secrets.mjs
+  line: 141
+  summary: >-
+    THE ONLY WRITTEN DEFENCE OF AN EXEMPTION INSIDE A SECRET-LEAK GUARD NO LONGER CHECKS OUT. The
+    LEAK_TARGET_VAR docblock defends the F-154 exemption on two facts this diff falsifies - the
+    "public Fly hostname" clause and the "identical value to NEXT_PUBLIC_API_BASE_URL" clause.
+  failure_scenario: >-
+    Behaviour is unaffected and MUST STAY SO. The risk is the reverse of the usual: a reader finding
+    the defence false invites re-adding API_BASE_URL to the leak scan, WHICH ADR-0035 SAYS WOULD
+    FAIL EVERY CORRECT BUILD FOREVER. ADR-0035's rewrite instruction covered only the .env.example
+    head comment, so this was outside the implementer's paths.
+  required_change: Reasoning restated against what is true now, with the ruling and both constants untouched.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
