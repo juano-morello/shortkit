@@ -38,7 +38,10 @@ export interface ApiRequest<TRes, TBody = unknown> {
   method: HttpMethod;
   /** Route template. Literal segments lowercase kebab; values are `:name` placeholders. */
   path: string;
-  /** Exactly one entry per placeholder in `path`. No extras, no omissions. */
+  /**
+   * Exactly one entry per placeholder in `path`. No extras, no omissions, and no template
+   * that repeats a placeholder name — there is no key that could fill it twice (F-306).
+   */
   params?: Record<string, string | number>;
   /** The response IS validated against this. A mismatch throws ContractViolationError. */
   contract: z.ZodType<TRes>;
@@ -237,10 +240,17 @@ function appendQuery(url: string, query: ApiRequest<unknown>['query']): string {
  * of the four ApiRequest failure classes applies.
  *
  *   1. ROUTE_TEMPLATE_PATTERN.test(path) === false -> invalidRouteMessage(method)
- *   2. placeholder set !== Object.keys(params ?? {}) -> unresolvedParamsMessage
+ *   2. placeholder set !== Object.keys(params ?? {}) -> unresolvedParamsMessage.
+ *      A template that REPEATS a placeholder is rejected outright, whatever params carries
+ *      (F-306). Compared as sets ALONE, `/a/:x/:x` with `{ x }` would pass and one supplied
+ *      value would be expanded into two segments; counting instead of comparing sets was the
+ *      opposite hole, where `/members/:id/workspace/:id` with `{ id, workspaceId }` matched
+ *      on length and sent a DELETE to workspace `id` with `workspaceId` silently dropped.
  *   3. encodeURIComponent(String(value)) is '' or '.' or '..' -> invalidParamValueMessage
  *      ('..' survives encodeURIComponent because dot is unreserved; the browser then
  *      normalises it away and escapes the prefix. THIS is the check that stops F-285.)
+ *      A value encodeURIComponent cannot encode at all — a lone surrogate, which throws
+ *      URIError — rejects with the same message rather than leaving by a fifth exit (F-312).
  *   4. substitute the ENCODED values into the template
  *   5. BFF_PATH_PREFIX + resolved, then the query from URLSearchParams
  *   6. assert new URL(url, ROUTE_ASSERTION_BASE).pathname starts with BFF_PATH_PREFIX + '/'
@@ -258,11 +268,13 @@ export function buildRequestUrl<TRes>(req: ApiRequest<TRes>): string {
   // 2.
   const params = req.params ?? {};
   const placeholders = placeholdersOf(path);
+  const distinct = new Set(placeholders);
   const supplied = Object.keys(params);
 
   if (
-    placeholders.length !== supplied.length ||
-    !placeholders.every((name) => Object.hasOwn(params, name))
+    distinct.size !== placeholders.length ||
+    distinct.size !== supplied.length ||
+    !supplied.every((name) => distinct.has(name))
   ) {
     throw new Error(unresolvedParamsMessage(method, path));
   }
@@ -271,7 +283,17 @@ export function buildRequestUrl<TRes>(req: ApiRequest<TRes>): string {
   const encoded: Record<string, string> = {};
 
   for (const name of placeholders) {
-    const value = encodeURIComponent(String(params[name]));
+    let value: string;
+
+    try {
+      value = encodeURIComponent(String(params[name]));
+    } catch {
+      // F-312. `encodeURIComponent` throws URIError on a lone surrogate, which would leave
+      // step 3 by a fifth exit the contract does not enumerate. It is an unusable param
+      // value, so it rejects like the other unusable ones. The cause is dropped rather than
+      // chained: it is a value the CALLER supplied and ADR-0029 keeps those off the error.
+      throw new Error(invalidParamValueMessage(method, path));
+    }
 
     if (value === '' || value === '.' || value === '..') {
       throw new Error(invalidParamValueMessage(method, path));
