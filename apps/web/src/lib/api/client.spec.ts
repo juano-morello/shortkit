@@ -692,3 +692,123 @@ describe('the exports the BFF proxy implementer reads (F-288)', () => {
     expect(isMutatingMethod('HEAD')).toBe(false);
   });
 });
+
+/* ==========================================================================================
+ * REWORK, round 2 (2026-08-11). F-306, F-307.
+ * ==========================================================================================
+ *
+ * Everything above this line is unchanged. Two findings, one shape each:
+ *
+ * F-306 (major, contract) — path construction step 2 compares the placeholder COUNT plus
+ * `Object.hasOwn` instead of the placeholder SET web-api-client.md:93-95 specifies, so a
+ * template that REPEATS a placeholder lets an unrelated extra key satisfy the count. The
+ * failure is not fail-safe: one param's value is substituted into a segment that means
+ * something else, and the value the caller actually supplied for that segment is dropped.
+ * Filed independently by the reviewer and, as its own F-309, by the security auditor.
+ *
+ * F-307 (minor, behavior) — `appendQuery` omits `undefined` values (web-api-client.md:100-101)
+ * and no test passes one, so the guard can be deleted with all 31 tests still green. The
+ * behaviour is correct today; what is missing is the assertion that keeps it correct.
+ *
+ * The convention from round 1 is carried: `fetch` is the only thing stubbed, and every
+ * assertion that names a HARM is written BEFORE the assertion that names the message, so a
+ * fix that stops the wrong URL being built without rejecting the call still fails.
+ *
+ * NOT TESTED HERE, deliberately: F-305 and F-311 (whether OPTIONS is mutating, and whether
+ * `isMutatingMethod` is case-sensitive) are held for Juano's ruling. The stance from round 1
+ * stands — the spec exercises only the six method spellings both readings agree on.
+ */
+
+/**
+ * Every URL the client handed `fetch`, in order. `sentRequest()` refuses any call count but
+ * one; this exists to assert a rejected request left NOTHING behind, and to put the URL that
+ * WAS built into the failure output when it did not.
+ */
+function urlsHandedToFetch(): string[] {
+  return vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input));
+}
+
+describe('params must match the template, as a SET (F-306)', () => {
+  it('F-306: refuses a repeated placeholder whose extra param key satisfies the count check', async () => {
+    // `DELETE /api/members/:id/workspace/:workspaceId` is a real endpoint in the design, and
+    // `:id` copied into both segments is the typo it invites.
+    networkAnswers(jsonResponse(200, AN_ID));
+
+    const outcome = await attempt(() =>
+      apiClient({
+        method: 'DELETE',
+        path: '/members/:id/workspace/:id',
+        params: { id: 'm1', workspaceId: 'w9' },
+        contract: idContract,
+      }),
+    );
+
+    // The URL assertion comes FIRST and names the harmful shape, exactly as the round-1
+    // purity tests do. The member id is substituted into the WORKSPACE segment and `w9` is
+    // dropped without a word, so this ships a DELETE aimed at workspace `m1` from a call
+    // site that looks correct. A fix that merely stopped carrying the extra key would build
+    // the same wrong URL and would fail here rather than on the message below.
+    expect(urlsHandedToFetch()).toEqual([]);
+    expect((outcome as Error).message).toBe(
+      'apiClient: params do not match DELETE /members/:id/workspace/:id.',
+    );
+  });
+
+  it('F-306: refuses a param key matching no placeholder when a repeat inflates the count', async () => {
+    // The minimal shape of the same hole, and the reason the guard exists at all: the
+    // caller supplied a value for a name the template does not carry, and neither the URL
+    // nor any error says so.
+    networkAnswers(jsonResponse(200, AN_ID));
+
+    const outcome = await attempt(() =>
+      apiClient({
+        method: 'GET',
+        path: '/a/:x/b/:x',
+        params: { x: 'v', totallyIgnored: 'w' },
+        contract: idContract,
+      }),
+    );
+
+    expect(urlsHandedToFetch()).toEqual([]);
+    expect((outcome as Error).message).toBe('apiClient: params do not match GET /a/:x/b/:x.');
+  });
+
+  it('F-306: refuses a repeated placeholder even when params carry exactly its one key', async () => {
+    // GREEN before the fix, and it has to stay green after it. The cheapest fix for the two
+    // tests above is to compare `new Set(placeholders)` against the key set, which ACCEPTS
+    // this call and builds '/api/bff/a/v/v' — one supplied value silently expanded into two
+    // segments. F-306's required change is explicit that a duplicated placeholder is
+    // rejected "regardless of what params carries", and the shipped client already rejects
+    // this one on the count; nothing here may make it start passing.
+    networkAnswers(jsonResponse(200, AN_ID));
+
+    const outcome = await attempt(() =>
+      apiClient({ method: 'GET', path: '/a/:x/:x', params: { x: 'v' }, contract: idContract }),
+    );
+
+    expect(urlsHandedToFetch()).toEqual([]);
+    expect((outcome as Error).message).toBe('apiClient: params do not match GET /a/:x/:x.');
+  });
+});
+
+describe('the query string apiClient builds (F-307)', () => {
+  it('F-307: omits a query value that is undefined and keeps the ones that are not', async () => {
+    // An optional cursor left unset is the ordinary shape for this, and without the omission
+    // branch the client sends the literal string `cursor=undefined` to the API.
+    networkAnswers(jsonResponse(200, { items: [], nextCursor: null, hasMore: false }));
+
+    await apiClient({ ...listIds(), query: { cursor: undefined, limit: 25 } });
+
+    expect(sentRequest().url).toBe('/api/bff/links?limit=25');
+  });
+
+  it('F-307: sends no query string at all when every query value is undefined', async () => {
+    // The boundary of the same rule: omit them all and there is no query string to append,
+    // not an empty one. Beyond F-307's required change by one test, and cheap.
+    networkAnswers(jsonResponse(200, { items: [], nextCursor: null, hasMore: false }));
+
+    await apiClient({ ...listIds(), query: { cursor: undefined } });
+
+    expect(sentRequest().url).toBe('/api/bff/links');
+  });
+});
