@@ -12777,9 +12777,14 @@
     value - so the fix is to match the pattern already in the file.
   required_change: Print the name, not the value. One line.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 1
+  resolution: >-
+    CLOSED, AND THE FIX IS A GUARD RATHER THAN A REDACTION. Notices now accumulate into a variable instead of printing as produced - the agent's reason is the good part: `nothing can be asserted about a line already on the terminal`. Two passes then inspect that text before emission; credential-shaped names FAIL CLOSED at exit 2 if a value turns up inside, and other names drop the notices with a reason, because COMPOSE_PROJECT_NAME=check legitimately collides with the word `check` in the message. Shape-matched rather than a second hand-written list, so a credential name added to the list later gets the strict half for free.
+    IT VERIFIED THE GUARD BY PUTTING THE EXACT DEFECT BACK - (%s) and "${!noisy}" restored, diff-confirmed as the only change - and that copy exits 2 and leaks nothing.
+    ORCHESTRATOR-VERIFIED LIVE: fifteen clauses pass exit 0; with POSTGRES_SUPERUSER_PASSWORD='hunter2-canary' exported the run exits 0 with ZERO occurrences of the value across both streams and the NAME printed. Integration container untouched at three hours up.
+    AND IT ARGUED THE NAME-PRINTING CALL RATHER THAN ASSUMING IT: a name is not a secret - .env.example commits POSTGRES_SUPERUSER_PASSWORD - the name is the entire actionable content of a message whose only claim is `this check does not assert it`, and refuse already prints names, so a second convention in one file would be worse than either choice.
 
 - id: F-380
   phase: implement
@@ -12828,9 +12833,11 @@
     transaction rule, and a check demonstrating the wrong form is a worked example someone copies.
   required_change: Match the normative form, or say in the script why this site legitimately differs.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-test-architect"
+  resolved_round: 1
+  resolution: >-
+    CLOSED - matched GC-5's transaction-scoped form, with the comment recording WHY it is correct here rather than merely copied: psql processes a multi-command -c string in one implicit transaction, so the count runs inside the transaction the setting is scoped to, AND AC-115.7 PROVES IT, since FORCE ROW LEVEL SECURITY would hide the row and report 0 if the setting were not in force. It also flags the one remaining divergence in place - the tenant id is interpolated rather than bound, because psql -c takes no bind parameters, safe only because DEMO_TENANT_ID is an ADR-0034 literal.
 
 - id: F-382
   phase: implement

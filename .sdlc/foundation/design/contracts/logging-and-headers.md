@@ -3,13 +3,18 @@
 - **Boundary:** every log line the API emits; every response header it sets.
 - **Normative form:** `apps/api/src/observability/logger.ts` and `apps/api/src/main.ts`. This contract's § "Logger" fence is the single normative statement of the logger's configuration and is compared to the shipped file by a drift test. The wave-1 stub at `design/stubs/apps/api/src/observability/logger.ts` is **superseded** (F-249) and its config is unsafe to copy; ADR-0022 no longer carries a copy at all (F-250). That stub is deleted when TASK-003 reaches `done` (ADR-0039). It survived the 2026-08-11 retirement sweep only because TASK-003 is in rework, and it is the strongest case in the repository for retiring a stub the day its file ships rather than the day its TASK closes.
 - **Produced by:** TASK-003.
-- **Consumed by:** every API TASK. Nothing may opt out, with **two named exceptions measured
-  2026-08-10 (F-278)**: `apps/api/src/db/client.ts:55` and
-  `apps/api/src/tenancy/tenant-context.ts:136` each construct `new Logger('…')` from
-  `@nestjs/common` and write through Nest, not through pino. They are exempted, bounded and
-  scheduled in ADR-0028 Migration step 3. A third one is a finding.
+- **Consumed by:** every API TASK. **Nothing may opt out, and since 2026-08-11 that sentence is
+  a mechanism rather than a convention** (TASK-060, AC-116, closing F-247 and F-278). The two
+  named exceptions this line carried from 2026-08-10, `apps/api/src/db/client.ts` and
+  `apps/api/src/tenancy/tenant-context.ts`, are **retired**: both modules import `logger` from
+  `observability/logger` and neither imports `@nestjs/common` at all, so nothing is carved out
+  of the claim. What enforces it, what it costs and what it still does not reach are stated
+  once, in "What the implementer must guarantee" below. ADR-0041 rules how far "or any other
+  logger" reaches; ADR-0042 rules where the enforced tree ends.
 - **ADRs:** ADR-0022, and ADR-0028 which supersedes its redaction clause only — ADR-0022's
-  CORS decision and header table stand. Enforces GC-9.
+  CORS decision and header table stand. ADR-0041 rules how far "or any other logger" reaches;
+  ADR-0042 rules which prohibition follows the source tree and which follows the package.
+  Enforces GC-9.
 
 ## Logger
 
@@ -123,9 +128,11 @@ a whole request was a covered act — but the consequences are structural and th
   pino replaces rather than merges. Before ADR-0028, `redact` still censored 25 paths behind
   such a child. Now nothing does. The refusal is what makes this contract's "Nothing may opt
   out" true, and it is one `if` away from not being.
-- **A second pino instance anywhere is a hole with no mechanism at all** (F-268, unowned).
-  That was already true; the blast radius changed from "the 25 paths" to "every field on
-  every line that instance writes".
+- **A second pino instance anywhere is a hole with none of these mechanisms in it.** That was
+  already true; the blast radius changed from "the 25 paths" to "every field on every line
+  that instance writes". F-268 is closed and the import door is shut under `apps/api/src` by
+  lint and by the enumeration spec; what those two reach and what they do not is in "What the
+  implementer must guarantee".
 - **`Object.getPrototypeOf(logger).child.call(logger, …)` still reaches pino's unwrapped
   `child`.** The non-writable descriptors are hardening against the accident, not a boundary
   against a call site that means it, and no property descriptor can make them one.
@@ -1450,21 +1457,21 @@ quotes it, so the fix is made there and copied here, not the other way round.
 - **Never introduce a second pino instance, and the cost of doing it went up with ADR-0028.**
   The allowlist, the three literal mechanisms and the two bindings wrappers are all
   configuration on one logger, so a second instance built anywhere is a hole with none of
-  them — and since `redact` was removed there is no residual censoring behind it, so the hole
-  is every field on every line that instance writes. Import `logger` from
+  them, and since `redact` was removed there is no residual censoring behind it: the hole is
+  every field on every line that instance writes. Import `logger` from
   `apps/api/src/observability/logger.ts`, and do not re-derive it from ADR-0022, which
-  records the decision and deliberately carries no literal (F-250). F-268's lint rule ships
-  and fires: `no-console: error` plus a `no-restricted-imports` block on `pino` for
-  `apps/api/src/**`, excluding the logger module itself.
-- **Never construct `new Logger(…)` from `@nestjs/common`, and the lint rule does not stop you
-  yet.** Added 2026-08-10 (F-278). Nest's `Logger` writes unstructured, ANSI-coloured lines to
-  the same stdout with none of the six mechanisms, no `service`, no `env`, no `request_id` and
-  no pino timestamp, and a log shipper parsing NDJSON drops them or files them as parse
-  errors. Two files do it today, `db/client.ts:55` and `tenant-context.ts:136`; both are named
-  exceptions in the Consumed-by line above, both are bounded to one fixed-string call site
-  each, and ADR-0028 Migration step 3 holds the ruling and the requirement that F-268's rule
-  be extended to `importNames: ['Logger']` on `@nestjs/common`. A third one is a finding, not
-  a precedent.
+  records the decision and deliberately carries no literal (F-250).
+- **Never construct `new Logger(…)` or `new ConsoleLogger(…)` from `@nestjs/common`, and since
+  2026-08-11 the build fails if you do.** Nest's `Logger` writes an unstructured,
+  ANSI-coloured, locale-clocked line to the same descriptor the JSON goes to, with none of the
+  six mechanisms, no `service`, no `env`, no `request_id` and no ISO timestamp, and a shipper
+  parsing NDJSON drops it or files it as a parse error. **No module in the tree does this.**
+  The two files that did until 2026-08-11, `db/client.ts` and `tenant-context.ts`, now emit
+  through the shared instance, and the `ignores` entries that exempted them are gone
+  (TASK-060, AC-116). A new one is a finding, not a precedent.
+- **Never call `console.*` from `apps/api/src`.** Same hole with no JSON at all. Where that
+  prohibition stops, and why `apps/api/scripts` and `apps/api/test` are outside it on purpose,
+  is ADR-0042.
 - **Never pass `redact`, `serializers` or `formatters` to `logger.child`.** It throws a
   `TypeError` naming the option and the reason. pino replaces these rather than merging them,
   so a child that supplied `formatters.log` would run with no scan at all. The check reads the
@@ -1485,10 +1492,20 @@ quotes it, so the fix is made there and copied here, not the other way round.
   covered for format parameters — `hooks.logMethod` reduces every value pino would interpolate
   before `format` runs (F-260) — the message position is covered since `43e10e7` (F-277), and a
   string a call site built itself is reachable by nothing here.
-  `apps/api/src/tenancy/tenant-context.ts:247` does the interpolated form today. **Corrected
-  2026-08-10 (F-278): that line does not reach pino at all**, so F-274 was filed on a false
-  premise; it writes through `new Logger('TenantTransaction')` from `@nestjs/common` and is
-  one of the two exceptions in the Consumed-by line above.
+
+  **No call site interpolates an error's message today (TASK-060, 2026-08-11).**
+  `tenancy/tenant-context.ts` did until then, at the line F-274 was filed against and F-278
+  showed never reached pino at all; it now calls
+  `logger.error({ err: error }, 'afterCommit hook failed')`. **One interpolated message
+  survives and it is deliberate**: `db/client.ts` builds
+  `` `${where} failed and was discarded (sqlstate ${postgresErrorCode(error) ?? 'none'})` ``.
+  Neither value is caller-controlled or driver-controlled: that `where` is the function's own
+  parameter naming which connection died, **not** the `pg.DatabaseError` field of the same name
+  that the last bullet in this section forbids, and it holds one of two module literals; a
+  SQLSTATE is five characters from a closed vocabulary. It is a stopgap and not a pattern to
+  copy, because a value that sits in `msg` is a value no operator can filter on. ADR-0028's
+  amendment of 2026-08-11 rules that `sqlstate` joins `LOGGABLE_FIELDS` and that this call site
+  moves the value onto the record; until that one commit lands, the line above is what ships.
 - Never log `error.request` or `error.config` from an HTTP client. Both carry headers.
 - **Never log a database error's `detail`, `hint`, `where`, `internalQuery` or `query`.**
   Added 2026-08-05 (F-120). A `pg.DatabaseError` populates `detail` on a unique violation
@@ -1498,6 +1515,50 @@ quotes it, so the fix is made there and copied here, not the other way round.
   a caught database error are the SQLSTATE and the constraint name, both through the
   accessors in `tenant-context.md`, "Driver errors inside `fn`".
 
+### What enforces "nothing may opt out", and what it does not reach
+
+Stated here once, because this is the section the Consumed-by line and both ADRs point at.
+The rule's own rationale, argument by argument, is the comment block at
+`eslint.config.mjs:26-97` and is not repeated here.
+
+Three mechanisms ship, all measured at TASK-060 rather than read off a report:
+
+1. **Lint, one config object over `apps/api/src/**/*.ts`**, `ignores` exactly
+   `apps/api/src/observability/logger.ts` because that is the file that must construct the
+   instance. `no-console: 'error'`, plus `@typescript-eslint/no-restricted-imports` on `pino`
+   with `allowTypeImports: true` and on `@nestjs/common` with
+   `importNames: ['Logger', 'ConsoleLogger']`. Severity `error`, and
+   `.github/workflows/ci.yml:143` runs `pnpm lint` in the `quality` job, so a violation fails a
+   build rather than printing a message.
+2. **The enumeration, `observability/logging-opt-out.spec.ts`.** It **derives** its subject set
+   by walking `apps/api/src` for every non-`.spec.ts` `.ts` file, parses each with the
+   TypeScript compiler rather than grepping it, and asserts that no module but the composition
+   root reaches a logger value that is not the shared one, and that every module which emits
+   imports `logger`. On every run it re-runs its own analyser over a violating and a compliant
+   synthetic module and throws before any assertion is read if it cannot tell them apart. A
+   module added tomorrow is in the subject set the moment the file exists.
+3. **The rule's own test, `observability/logger-lint-rule.spec.ts`**, which runs ESLint
+   in-process over violating fixtures, so deleting the rule turns a test red.
+
+Four things they do not reach. Each is recorded here rather than left to be rediscovered:
+
+- **Subpath specifiers.** `import { Logger } from '@nestjs/common/services'` lints clean and
+  the enumeration misses it: both match the package specifier exactly, while the same spec
+  handles `pino` and `pino/` as a family. `@nestjs/common` ships no `exports` field, so the
+  subpath resolves and yields the real class, measured by emission. F-369, open. ADR-0041 says
+  what the fix must be.
+- **A logging package nobody enumerated.** `winston` or `bunyan` passes both halves, and passes
+  the enumeration's second assertion too if the module also imports the shared logger. F-371,
+  ruled by ADR-0041: the durable gate is the API package's dependency list, not a longer name
+  list at the import site.
+- **Anything outside `apps/api/src`.** Both halves are bounded to that tree. ADR-0042 rules the
+  bound and says which prohibition follows the package and which follows the source tree.
+- **A logger handed in at runtime**, as a parameter or through Nest DI. The analysis is a
+  per-module property, not a per-call one. `exception-filter.ts` emits through a `log`
+  parameter that its own `logger.child({ request_id })` supplies, which is the shape it cannot
+  follow and does not need to, because the only logger value that module can reach is the
+  shared one.
+
 ## Versioning
 
 `LOGGABLE_FIELDS` is **append-only**, and a name may be appended only after it has been
@@ -1505,6 +1566,14 @@ checked against "What may never appear in a log line" and the never-allowlist. R
 name silently censors a field that was on the line yesterday, so a removal needs a reason in
 the commit message the same way adding a redact path used to. One name per line, sorted, with
 the owning file in a trailing comment.
+
+**An append is one commit across three files, and it cannot be staged.** The name goes into
+`observability/logger.ts`, into the fence above, and into the call site that needs it, all at
+once: `logger-contract-drift.spec.ts` compares the fence to the shipped region for equality,
+so touching either side alone turns it red. That coupling is why an allowlist name is an
+architect edit and an implementer edit in the same commit. **One append is ruled and not yet
+made**: `sqlstate`, ADR-0028's amendment of 2026-08-11, moving `db/client.ts`'s SQLSTATE out of
+the message string and onto the record.
 
 `REDACT_PATHS` was append-only under the same rule until ADR-0028 removed it entirely. That
 ADR is the reason in the commit message. Changing the header table still requires amending
