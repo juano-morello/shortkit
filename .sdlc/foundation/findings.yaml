@@ -13078,9 +13078,12 @@
     Present tense only for what exists; unbuilt parts named as roadmap rather than as architecture;
     and the isolation claim carries the boundary the suite prints on every run.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-backend"
+  resolved_round: 1
+  resolution: >-
+    CLOSED. The opening now says what Shortkit is BEING BUILT AS, then `None of that is here yet` and the actual count - one migrated table `tenants`, one route GET /health, one static page. The redirect moved out of the rules list into an explicit roadmap paragraph; :25 and :26 corrected against main.ts:279-281 and the real page count; the contracts bullet re-grounded on what exists rather than on `the API validates against`.
+    THE ISOLATION BULLET NOW CLOSES WITH coverage.ts:597 QUOTED VERBATIM - `It does not mean the system has no uncovered cross-tenant surface: most of the system is unwritten` - and `proven` became `measured`. That single word change is the finding's whole subject: the repository exists to demonstrate that its author distinguishes proving from asserting.
 
 - id: F-389
   phase: ship
@@ -13148,9 +13151,13 @@
     Wire it into CI or a scheduled job, or record it on the roadmap as a manual gate WITH A NAMED
     CADENCE.
   owner_slot: sdlc-implementer-backend
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-backend"
+  resolved_round: 1
+  resolution: >-
+    CLOSED as a GATING CI JOB rather than a nightly or a manual cadence, and the reasoning is the part to keep: A NIGHTLY IS CHRONOLOGICALLY DETACHED FROM THE COMMIT THAT BROKE IT, and this check only goes red because the tree changed - unlike dependencies.yml, whose schedule exists to re-ask about UNCHANGED code. roadmap.md:67 is the project's own standard, quoted back at it.
+    Not path-filtered, deliberately: a SKIPPED job satisfies a required check, which is the gate comment's own warning. A comment above `gate` now names the three places a job must appear - needs, env, and the assertion loop - because a job named in fewer than all three blocks nothing.
+    ITS OWN CONCERN IS RECORDED ON THE ROADMAP RATHER THAN LEFT IN A REPORT: the job has never been observed on a GitHub runner and is now a required check, so if the first run is red environmentally the smallest correct repair is to remove it from those three lists and leave the job visible - NOT to weaken the script.
 
 - id: F-391
   phase: ship

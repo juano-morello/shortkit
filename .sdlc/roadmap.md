@@ -154,3 +154,26 @@ defect four times in its own logs — a routing recorded as a resolution, a reco
 artifact, a fix that landed where the finding pointed and survived everywhere it did not. It is
 also the stated reason the ADR-0041, ADR-0042 and F-369 cards above are on this roadmap at all.
 A refiner who opens an entry reads this file; they do not grep a 770 KB ledger.
+
+## The compose gate, and how to de-gate it if the first run is red (F-390, 2026-08-11)
+
+`scripts/check-compose-stack.sh` is now a **required** CI check — a third gating job, `compose`,
+alongside `quality` and `integration`. The implementer chose a gating job over a nightly and over a
+manual cadence, and the reasoning is worth keeping: **a nightly is chronologically detached from the
+commit that broke it**, and this check only goes red because the tree changed — unlike
+`dependencies.yml`, whose schedule exists to re-ask about *unchanged* code.
+
+**It has never been observed on a GitHub runner.** Disk for four cold-built images is the item that
+could least be verified locally. So, recorded before anyone needs it:
+
+- **If the first run is red environmentally, the smallest correct repair is to remove `compose`
+  from `gate`'s three lists — `needs`, `env:`, and the assertion loop — and leave the job visible.
+  Do not weaken the script.** A job named in fewer than all three blocks nothing, so all three move
+  together or the change is a no-op that reads like a fix.
+- **Exit code 2 means "could not run, nothing measured"** and is never an AC-115 failure. That
+  distinction is written into the workflow and into the script; a red `compose` job needs its exit
+  code read before it is diagnosed.
+
+Recorded here because the choice and its fallback had no carrier otherwise, which is F-389's exact
+shape one day later — and it was the implementer, not an auditor, that pointed out its own decision
+had nowhere to live.

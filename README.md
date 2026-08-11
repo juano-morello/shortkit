@@ -1,29 +1,43 @@
 # Shortkit
 
-Shortkit is a multi-tenant URL shortener for agencies. An agency signs up once,
-creates a workspace per client, points that client's branded domain at the
-workspace, and invites teammates scoped to the clients they work on. Visitors
-never see the product. They get one redirect that resolves fast or does not.
+Shortkit is being built as a multi-tenant URL shortener for agencies. An agency signs up
+once, creates a workspace per client, points that client's branded domain at the
+workspace, and invites teammates scoped to the clients they work on. Visitors never see
+the product. They get one redirect that resolves fast or does not.
 
-Three rules shape the codebase:
+**None of that is here yet.** This repository holds the substrate underneath it: one
+migrated table, `tenants`; one route, `GET /health`; one static page; and the tenancy,
+contracts and CI machinery around them. The five increments that turn it into the product
+above are named in `.sdlc/roadmap.md`, in the order they have to land.
+
+Two rules shape the code that exists:
 
 - **Postgres enforces tenant isolation.** Every tenant-scoped query runs inside a
-  transaction that has bound the tenant to the connection, and row-level security
-  backs that up. Isolation gets proven by a suite that runs against a real
-  database, not asserted in a comment.
-- **The redirect path stays isolated.** It reads a cache, falls back to one
-  parameterised statement, and imports nothing from the management API. No ORM
-  runs on it.
-- **One set of contracts.** `packages/contracts` holds zod schemas that the API
-  validates against and the web app compiles against, so a shape change breaks
-  the typecheck in the same commit.
+  transaction that has bound the tenant to the connection, and row-level security backs
+  that up. Isolation gets measured by a suite that runs against a real database, not
+  asserted in a comment. The suite states its own boundary on every run and writes it into
+  `report.json`, and the boundary is narrow: it covers the two tables that carry a tenant
+  boundary today — `tenants`, and a fixture table it creates and drops per run from the
+  same production policy builder — and no routes and no repositories, because none exist.
+  A green run means the mechanism works. **It does not mean the system has no uncovered
+  cross-tenant surface: most of the system is unwritten.**
+- **One set of contracts.** `packages/contracts` holds the zod schemas the API builds its
+  error envelope from and the web client narrows on. It ships TypeScript source with no
+  build step, so an incompatible change breaks `pnpm typecheck` in the same commit — and
+  CI proves that rather than assuming it, by mutating the package and asserting a
+  consumer goes red.
+
+**The redirect hot path is on the roadmap, not in this repository.** There is no redirect,
+no cache and no link table. The constraint it will be built under — one parameterised
+statement behind a cache, no ORM, and no import from the management API — is recorded in
+`apps/api/src/app.module.ts` for the module that adds it.
 
 ## Layout
 
 | Workspace | Package | What it is |
 | --- | --- | --- |
-| `apps/api` | `@shortkit/api` | NestJS. Management API under `/api`, `GET /health` at the root, and the redirect |
-| `apps/web` | `@shortkit/web` | Next.js App Router dashboard |
+| `apps/api` | `@shortkit/api` | NestJS. `GET /health` at the root; the management API prefix `/api` is registered and carries no routes yet |
+| `apps/web` | `@shortkit/web` | Next.js App Router. One static page and a 404 |
 | `packages/contracts` | `@shortkit/contracts` | Shared zod schemas and the types inferred from them |
 
 ## Requirements
@@ -45,15 +59,20 @@ Run these from the repository root.
 | `pnpm test` | Vitest across all three workspaces, with no database and no network |
 | `pnpm build` | Bundles the API to `apps/api/dist/` with tsup and builds the Next.js app |
 | `pnpm test:integration` | API suites that need a live Postgres |
+| `pnpm test:compose` | Brings the whole stack up from nothing with Docker and asserts fifteen clauses over it |
 
 `pnpm build` bundles the API with tsup rather than emitting file by file.
 `packages/contracts` ships TypeScript source and has no build step (ADR-0005), so
 the bundler inlines it; a file-by-file emit would leave the API requiring a `.ts`
 file at runtime. Types are checked by `pnpm typecheck`, not by the build.
 
-`pnpm test` and `pnpm test:integration` are separate on purpose. The first runs
-anywhere, on a clone with nothing installed but the workspace. The second needs a
-database, so it stays off the loop a contributor runs on every save.
+The three test commands are separate on purpose, and they are three tiers of cost. `pnpm
+test` runs anywhere, on a clone with nothing installed but the workspace. `pnpm
+test:integration` needs a database, so it stays off the loop a contributor runs on every
+save. `pnpm test:compose` needs Docker, builds four images and takes minutes; it is
+`scripts/check-compose-stack.sh`, and the `compose` job in CI runs it on every push, so a
+change to the Dockerfile, the compose file, the roles SQL, the migration or the seed
+cannot break the stack silently.
 
 ## Running the whole stack
 
@@ -78,6 +97,14 @@ LAN. Docker Compose v2 or newer: the startup ordering uses
 
 The whole file is **local development only**. There is no production database, and no
 deploy target is chosen for the API (ADR-0030).
+
+`pnpm test:compose` is the same thing measured. It tears any existing stack down to
+nothing, brings it up, and reports fifteen clauses — every service healthy,
+`shortkit_app` authenticating over TCP with the fixture password and refused with a wrong
+one, every migration recorded as applied, the demo tenant readable by that same role,
+`/health` answering 200 with `status` of `"ok"`, and the data surviving a second `up` and
+a `restart`. Each clause fails on its own and prints why, so the output says which part
+broke rather than that something did.
 
 ### What a green stack does not give you
 

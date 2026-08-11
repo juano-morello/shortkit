@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r typecheck",
     "test": "vitest run",
     "test:integration": "pnpm --filter @shortkit/api test:integration",
+    "test:compose": "./scripts/check-compose-stack.sh",
     "build": "pnpm -r build"
   },
   "devDependencies": {

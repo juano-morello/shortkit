@@ -274,10 +274,78 @@ jobs:
       - name: Assert the integration suite collected tests
         run: node .github/scripts/assert-integration-collected.mjs "${{ runner.temp }}/integration-results.json"
 
+  # AC-115, on every push (F-390). Produced by the Ship phase, not TASK-002.
+  #
+  # WHY THIS IS A GATING JOB AND NOT A NIGHTLY. Amendment A-8 took the deploy clause out of
+  # AC-6 and minted AC-115 in its place, which makes `scripts/check-compose-stack.sh` the
+  # only evidence this repository runs as a system rather than as a test suite. Until this
+  # job existed it had been measured exactly once, by hand, and a change to the Dockerfile,
+  # `docker-compose.yml`, the roles SQL, the migration or the seed broke it silently — the
+  # next person to find out being the next person to clone. `.sdlc/roadmap.md` holds this
+  # project to the opposite standard in its own words: the isolation harness ships its
+  # negative controls "so those measurements run on every CI run rather than once on the
+  # afternoon somebody thought of them."
+  #
+  # A schedule was the other defensible option and is weaker on the thing that matters.
+  # `dependencies.yml` is scheduled because it re-asks a question about UNCHANGED code, and
+  # its header records the reasoning; this check is the opposite — it only ever goes red
+  # because something in the tree changed, and a nightly reports that up to a day later,
+  # attached to no commit. Same triggers as the rest of the gate, so the run that breaks it
+  # is the run that names it.
+  #
+  # NOT PATH-FILTERED. Everything the four images are built from feeds it: the lockfile,
+  # both Dockerfiles, every migration, the seed, and `apps/api/src` itself. A filter that
+  # covered all of that would fire on nearly every push anyway, and the mechanism it needs
+  # — a job that skips — is exactly what the `gate` comment below says GitHub counts as
+  # satisfying a required check.
+  #
+  # ⚠ NEVER OBSERVED ON A GITHUB RUNNER. Every measurement of this script to date was taken
+  # on Juano's machine; the first run of this job is itself the first measurement of it in
+  # CI, and a red one is a result rather than a regression. What it needs is git, node,
+  # Docker with Compose v2, ports 3000/3001/55432 free, and a shell with none of
+  # POSTGRES_USER, SHORTKIT_MIGRATOR_PASSWORD or SHORTKIT_APP_PASSWORD exported. The script
+  # exits 2, distinctly, when it could not run at all — read a 2 as "nothing was measured",
+  # not as an AC-115 failure. The clause table it prints says which reading applies.
+  compose:
+    name: compose
+    runs-on: ubuntu-latest
+    # Two `up`s and a `restart` against four images built cold, with no layer cache between
+    # runs. The script bounds each `up` itself at SHORTKIT_CHECK_UP_TIMEOUT (900s, left at
+    # its default here), so its own worst case is around 32 minutes; this bound sits above
+    # that and absorbs checkout, install and queue time on top — see `quality` for why
+    # `timeout-minutes` covers queue time as well as execution, and for the
+    # zero-steps-executed signature that tells a queue cancellation apart from a defect.
+    timeout-minutes: 45
+    steps:
+      # persist-credentials: false — see the note on the same step in `quality`. The script
+      # DOES run git after checkout, but only `git rev-parse --show-toplevel` and
+      # `git ls-files`, neither of which touches a remote.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # For pnpm and for the pinned Node floor. The check shells out to `node` for one HTTP
+      # request and two JSON documents, and the install is what keeps ADR-0018's "every CI
+      # job installs with a frozen lockfile" literally true rather than nearly true.
+      - uses: ./.github/actions/setup-toolchain
+
+      # Through the package script, so the command in CI is the command in the README and
+      # the one a contributor runs locally. No `env:` block: the check refuses to run with
+      # the fixture passwords exported, because a value present here silently repairs a
+      # missing `$$` escape in the compose file and turns a stack that is red on a clean
+      # machine green on this one (F-315, F-316).
+      - name: AC-115 — the whole stack comes up from nothing
+        run: pnpm test:compose
+
   # The branch's required check, and the only one that should be (test-strategy.md).
   # GitHub Actions rejects a workflow whose `needs` names a job that does not exist, so a
   # job silently dropped or renamed becomes a hard configuration error here instead of a
   # green pipeline that ran nothing.
+  #
+  # ⚠ A JOB ADDED ABOVE AND NOT ADDED HERE GATES NOTHING. `needs`, the `env:` block and the
+  # loop below are three places, and all three have to name a job for it to be able to
+  # block a merge. That is the shape F-390 filed against `check-compose-stack.sh`, which
+  # existed and was wired into nothing.
   #
   # ⚠ `needs:` ALONE DOES NOT GATE. A job whose `needs` dependency failed does not fail —
   # it is SKIPPED, and it publishes a check run named `gate` with conclusion `skipped`.
@@ -285,8 +353,8 @@ jobs:
   # a required check, so branch protection requiring only `gate` raised no objection on a
   # run where `quality` went red. Every control this job fans in — `pnpm audit`,
   # `db:check-policies`, the AC-113 inlined-secret guard, the AC-114 collection assertion,
-  # lint, typecheck, test, build — blocked nothing. Not weakened in the failure case:
-  # inoperative in it, which is the only case the gate exists for.
+  # the AC-115 stack check, lint, typecheck, test, build — blocked nothing. Not weakened
+  # in the failure case: inoperative in it, which is the only case the gate exists for.
   #
   # The earlier version of this comment asserted the opposite, and the branch protection
   # was configured on the strength of it. That is why the correction is written out rather
@@ -301,26 +369,27 @@ jobs:
   gate:
     name: gate
     runs-on: ubuntu-latest
-    needs: [quality, integration]
+    needs: [quality, integration, compose]
     if: always()
     # This job checks nothing out and calls no API. `{}` grants the GITHUB_TOKEN no scope
     # at all, rather than inheriting the workflow's `contents: read`.
     permissions: {}
     # 10 minutes, up from 5 (F-219): `gate` waits on `needs:`, so its own `started_at`
-    # can sit in the same queue `quality` and `integration` do before this job's single
-    # step ever runs. The step itself is a few seconds of shell; the budget above that is
-    # entirely queue absorption, not expected execution.
+    # can sit in the same queue `quality`, `integration` and `compose` do before this
+    # job's single step ever runs. The step itself is a few seconds of shell; the budget
+    # above that is entirely queue absorption, not expected execution.
     timeout-minutes: 10
     steps:
-      - name: Assert quality and integration both succeeded
+      - name: Assert quality, integration and compose all succeeded
         env:
           QUALITY: ${{ needs.quality.result }}
           INTEGRATION: ${{ needs.integration.result }}
+          COMPOSE: ${{ needs.compose.result }}
         run: |
-          echo "quality=$QUALITY integration=$INTEGRATION"
+          echo "quality=$QUALITY integration=$INTEGRATION compose=$COMPOSE"
 
           failed=0
-          for pair in "quality:$QUALITY" "integration:$INTEGRATION"; do
+          for pair in "quality:$QUALITY" "integration:$INTEGRATION" "compose:$COMPOSE"; do
             job="${pair%%:*}"
             result="${pair#*:}"
             if [ "$result" != 'success' ]; then
@@ -330,8 +399,8 @@ jobs:
           done
 
           if [ "$failed" -ne 0 ]; then
-            echo 'The merge gate fails when either job is anything but success — including skipped and cancelled.'
+            echo 'The merge gate fails when any job is anything but success — including skipped and cancelled.'
             exit 1
           fi
 
-          echo 'quality and integration both succeeded.'
+          echo 'quality, integration and compose all succeeded.'
