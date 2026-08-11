@@ -78,6 +78,9 @@ importers:
       drizzle-kit:
         specifier: 0.31.10
         version: 0.31.10
+      eslint:
+        specifier: 9.39.5
+        version: 9.39.5(supports-color@7.2.0)
       tsup:
         specifier: 8.5.1
         version: 8.5.1(@swc/core@1.15.46)(postcss@8.5.25)(supports-color@7.2.0)(tsx@4.23.5)(typescript@5.9.3)

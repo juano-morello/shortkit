@@ -39,12 +39,12 @@
  * grep from an identifier holding a concatenated value.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type { TenantRole, WorkspaceRole } from '@shortkit/contracts';
 import { databaseTransaction } from '../db/client';
 import type * as schema from '../db/schema';
+import { logger } from '../observability/logger';
 
 declare const tenantScopedBrand: unique symbol;
 
@@ -131,9 +131,6 @@ type AfterCommitHook = () => Promise<void> | void;
  * withTenantTransaction, tenantDb and currentTenantId below.
  */
 const tenantStorage = new AsyncLocalStorage<ActiveTenantContext>();
-
-// TASK-003 replaces this with the pino logger.
-const logger = new Logger('TenantTransaction');
 
 /** design/contracts/tenant-context.md, TenantTransactionOptions.statementTimeoutMs. */
 const DEFAULT_STATEMENT_TIMEOUT_MS = 5000;
@@ -244,9 +241,27 @@ export async function withTenantTransaction<T>(
     } catch (error) {
       // The transaction is already committed and the caller's result is already
       // decided, so this is reported and not propagated (contract invariant 6).
-      logger.error(
-        `afterCommit hook failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
-      );
+      //
+      // ==================================================================
+      // THE ERROR GOES ON THE RECORD UNDER `err`. IT IS NEVER INTERPOLATED (F-247).
+      // ==================================================================
+      //
+      // This line used to read `afterCommit hook failed: ${error.name}: ${error.message}`
+      // through `new Logger('TenantTransaction')` from `@nestjs/common`, which reached
+      // neither pino nor ADR-0028's field allowlist. `error.message` is the field the
+      // policy withholds everywhere else, and this is a per-request tenant path: a `pg`
+      // failure here carries the DSN, and a hook that talks to mail or DNS can throw
+      // something carrying row data. `serializers.err` reduces whatever is under `err` to
+      // `err_name` and `err_stack` and no third field, whatever the thrown value hangs off
+      // itself (F-244) — and it answers for a non-`Error` too, which is why there is no
+      // `instanceof` test left here.
+      //
+      // THE CONTEXT STRING IS A CONSTANT AND HAS TO STAY ONE. Any property of the error
+      // interpolated into it lands in `msg`, which is free text by construction and the one
+      // field no key-based scheme can censor (ADR-0028, "Door six"). Routing this call
+      // through pino while keeping the interpolation is the plausible wrong fix: it turns
+      // the line into JSON and leaves F-247 exactly where it was.
+      logger.error({ err: error }, 'afterCommit hook failed');
     }
   }
 

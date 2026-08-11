@@ -26,7 +26,6 @@
  * statements decided up front, and GC-5 needs an interactive transaction whose
  * statements the application chooses as it runs.
  */
-import { Logger } from '@nestjs/common';
 import { DrizzleQueryError } from 'drizzle-orm';
 import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -34,6 +33,7 @@ import type { NodePgDatabase, NodePgQueryResultHKT } from 'drizzle-orm/node-post
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import pg from 'pg';
 
+import { logger } from '../observability/logger';
 import * as schema from './schema';
 
 /** An open transaction on the runtime connection. Carries no tenant context yet. */
@@ -50,9 +50,6 @@ export type DatabaseTransaction = PgTransaction<
  */
 let pool: pg.Pool | undefined;
 let database: NodePgDatabase<typeof schema> | undefined;
-
-// TASK-003 replaces this with the pino logger.
-const logger = new Logger('Database');
 
 /**
  * Connections this process holds open against Neon's pooled endpoint (ADR-0002).
@@ -81,9 +78,27 @@ const POOL_MAX = 10;
 const CONNECTION_TIMEOUT_MS = 2000;
 
 /**
- * The one log line both connection-error listeners write. Name and SQLSTATE and
- * nothing else: tenant-context.md rule 2 closes the readable fields of a caught
- * database error to that allowlist and does not exempt a connection-level error.
+ * The one log line both connection-error listeners write, and since 2026-08-11 it goes
+ * through the shared pino instance (AC-116, F-278). It used to go through
+ * `new Logger('Database')` from `@nestjs/common`, which reaches neither `LOGGABLE_FIELDS`
+ * nor `serializers.err`: an ANSI-coloured, locale-clocked line on the same descriptor the
+ * JSON goes to, with no `level`, no `service`, no `env` and no ISO timestamp on it. That
+ * was the whole of this site's defect — the CONTENT was already within policy — and it is
+ * the benign half of F-278. The leaking half was `tenancy/tenant-context.ts`.
+ *
+ * Name and SQLSTATE and nothing else: tenant-context.md rule 2 closes the readable fields
+ * of a caught database error to that allowlist and does not exempt a connection-level
+ * error. `detail`, `where` and `internalQuery` carry row values and SQL text and are not
+ * read here; passing the error under `err` is what keeps them off the line, because
+ * `serializers.err` reduces it to `err_name` and `err_stack` rather than copying its own
+ * enumerable properties the way pino's default serialiser does (F-244).
+ *
+ * THE NAME IS A POLICY FIELD AND THE SQLSTATE IS NOT, which is why one is on the record
+ * and the other is in `msg`. `LOGGABLE_FIELDS` has no name for a SQLSTATE, and adding one
+ * is an edit to `logging-and-headers.md`'s normative fence, which is the architect's file.
+ * A SQLSTATE is a five-character code from a closed vocabulary and `where` is one of two
+ * module-literal strings, so nothing a caller or a driver controls is interpolated here —
+ * which is the property ADR-0028's message-position ruling is about, not the position.
  *
  * On a connection that died while idle in the pool both listeners fire, because the
  * client carries the 'connect' listener and pg-pool re-attaches its idle one. Two
@@ -91,8 +106,8 @@ const CONNECTION_TIMEOUT_MS = 2000;
  */
 function discardedConnection(where: string, error: Error): void {
   logger.warn(
-    `${where} failed and was discarded: ${error.name}` +
-      ` (sqlstate ${postgresErrorCode(error) ?? 'none'})`,
+    { err: error },
+    `${where} failed and was discarded (sqlstate ${postgresErrorCode(error) ?? 'none'})`,
   );
 }
 
