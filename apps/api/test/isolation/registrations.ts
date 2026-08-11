@@ -49,15 +49,17 @@ import {
   createGrantGapCanary,
   createHalfSeededCanary,
   createMaskedRefusalCanary,
+  createUnqualifiedWriteCanary,
   DIRECTION_CANARY_TABLE,
   GRANT_GAP_CANARY_TABLE,
   HALF_SEEDED_CANARY_TABLE,
   MASKED_REFUSAL_CANARY_TABLE,
+  UNQUALIFIED_WRITE_CANARY_TABLE,
 } from './controls';
 import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
 
 /**
- * The five statement shapes every tenant-scoped table is attacked with. They are the
+ * The seven statement shapes every tenant-scoped table is attacked with. They are the
  * rows of isolation-coverage.md's "Attempt semantics" table, made concrete:
  *
  *   findAll          unfiltered read           -> must return none of the target's rows
@@ -65,10 +67,36 @@ import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
  *   updateOwnedBy    write over target's rows  -> rejected, or zero rows affected
  *   deleteOwnedBy    write over target's rows  -> rejected, or zero rows affected
  *   insertOwnedBy    write planting a new row  -> rejected, or zero rows affected
+ *   updateAll        write with NO WHERE       -> at most the actor's own rows affected
+ *   deleteAll        write with NO WHERE       -> at most the actor's own rows affected
  *
  * `findAll` is deliberately unfiltered: a `where owner = actor` here would assert the
  * WHERE clause rather than the policy, which is the mistake `tenant-context.int-spec.ts`
  * calls out in its own `visibleRows` helper.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE LAST TWO EXIST, AND WHY THE FIRST FIVE CANNOT REPLACE THEM (F-302, r2)
+ * ---------------------------------------------------------------------------
+ *
+ * `updateOwnedBy` and `deleteOwnedBy` name the owning tenant in a WHERE clause, and a
+ * WHERE clause REFERENCES A COLUMN, so PostgreSQL applies the SELECT policies to the
+ * statement — the rule `test/support/rls-fixture.ts:175-188` measured and wrote down for
+ * the eraser. A correctly scoped SELECT policy therefore hides a completely wide-open
+ * UPDATE or DELETE policy from both of them: the statement can see no row of the
+ * target's to modify and reports zero rows affected, which the harness scored as a pass.
+ *
+ * `UPDATE <t> SET <col> = <constant>` references no existing column, so no SELECT policy
+ * is consulted and the UPDATE policy's USING clause is all that stands in the way.
+ * Measured on the migrated `tenants` table with `tenants_self_update` altered to
+ * `USING (true) WITH CHECK (true)`, in one ordinary tenant-A transaction:
+ *
+ *   UPDATE tenants SET name = 'x' WHERE id = <B>   -> UPDATE 0   (SELECT policy applied)
+ *   UPDATE tenants SET name = 'x'                  -> UPDATE 2   (both tenants' rows)
+ *
+ * The auditor measured the same asymmetry for DELETE. These two statements are the
+ * ordinary shape of an admin action, a bulk operation, a migration helper, or an ORM
+ * call with a forgotten `where` — GC-5 says no query path may bypass tenant scoping, and
+ * this was a whole class of path the harness could not see.
  *
  * ---------------------------------------------------------------------------
  * WHAT A REGISTRATION OWES THE HARNESS SINCE r2 — READ THIS BEFORE ADDING ONE
@@ -88,6 +116,12 @@ import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
  *    once as (A, B) and once as (B, A), so a statement built for one hard-coded tenant
  *    is a defect the harness will report rather than one it will hide (F-293). Use the
  *    `actor` and `target` arguments; do not close over `TENANT_A`.
+ *
+ * 4. EVERY METHOD DECLARES `qualification`, AND AT LEAST ONE WRITE IS `'unqualified'`.
+ *    A registration whose writes all name the owning tenant in a WHERE clause is blind
+ *    to a wide-open UPDATE or DELETE policy, because PostgreSQL routes such a write
+ *    through the SELECT policy and it reports zero rows (F-302). `tableAccess()` below
+ *    supplies both shapes; a hand-written registration owes them itself.
  */
 interface TableAccessSpec {
   readonly table: string;
@@ -134,12 +168,14 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       name: 'findAll',
       kind: 'read',
       reaches: 'existing-row',
+      qualification: 'unqualified',
       attempt: (actor) => reads(sql`select ${projection} from ${table} order by id`)(actor),
     },
     {
       name: 'findOwnedBy',
       kind: 'read',
       reaches: 'existing-row',
+      qualification: 'owner-qualified',
       attempt: (actor, target) =>
         reads(sql`select ${projection} from ${table} where ${owner} = ${target.id}::uuid`)(actor),
     },
@@ -147,6 +183,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       name: 'updateOwnedBy',
       kind: 'write',
       reaches: 'existing-row',
+      qualification: 'owner-qualified',
       attempt: (actor, target) =>
         writes(
           sql`update ${table}
@@ -158,6 +195,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       name: 'deleteOwnedBy',
       kind: 'write',
       reaches: 'existing-row',
+      qualification: 'owner-qualified',
       attempt: (actor, target) =>
         writes(sql`delete from ${table} where ${owner} = ${target.id}::uuid`)(actor),
     },
@@ -165,7 +203,40 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       name: 'insertOwnedBy',
       kind: 'write',
       reaches: 'new-row',
+      qualification: 'owner-qualified',
       attempt: (actor, target) => writes(spec.plantedRow(spec.plantedOwnerId(target)))(actor),
+    },
+    /**
+     * F-302. NO WHERE CLAUSE, AND NO REFERENCE TO AN EXISTING COLUMN.
+     *
+     * `set <col> = <constant>` is what keeps the SELECT policies out of it: a SET
+     * expression reading a column would pull them back in and this attempt would become
+     * `updateOwnedBy` with extra steps. The label is distinct from
+     * `overwritten-by-another-tenant` on purpose — `isolation_masked_refusal_canary`
+     * carries a CHECK constraint rejecting that one, and a control that refuses this
+     * statement with 23514 would hide the very leak it exists to expose.
+     *
+     * `reaches: 'existing-row'`: with nothing of the target's there, an unqualified
+     * write has nothing to leak and its row count proves nothing (F-295).
+     */
+    {
+      name: 'updateAll',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'unqualified',
+      attempt: (actor) =>
+        writes(
+          sql`update ${table}
+                 set ${sql.identifier(spec.mutableColumn)} = ${'overwritten-by-an-unqualified-write'}`,
+        )(actor),
+    },
+    /** F-302. `DELETE FROM <t>` — the auditor's measurement: DELETE 0 qualified, DELETE 2 not. */
+    {
+      name: 'deleteAll',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'unqualified',
+      attempt: (actor) => writes(sql`delete from ${table}`)(actor),
     },
   ];
 }
@@ -252,8 +323,8 @@ export const leakCanaryAccess: TenantScopedSurfaceRegistration = {
 const PLANTED_CONTROL_ROW_ID = 'f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f3f3';
 
 /**
- * The five r2 controls (`controls.ts`), each a real table shaped like a tenant-scoped
- * one and each defective in a way the r1 audit measured this harness reporting as clean.
+ * The six r2 controls (`controls.ts`), each a real table shaped like a tenant-scoped
+ * one and each defective in a way an audit measured this harness reporting as clean.
  * NOT REGISTERED, for the reason `leakCanaryAccess` states above: the suite passes them
  * to `runCrossTenantAttempts()` by hand, and the registry has no notion of a subject
  * allowed to leak.
@@ -320,16 +391,44 @@ export const halfSeededCanaryAccess = controlAccess(
   createHalfSeededCanary,
 );
 
+/**
+ * F-302. A wide-open UPDATE and a wide-open DELETE policy, and NOTHING ELSE WRONG. The
+ * SELECT policy is correctly scoped, which is the whole artifact: with it in place, an
+ * ownership census is clean, every owner-qualified attempt is routed through it and
+ * reports zero rows, and the table reads as isolated from all five of the shapes the
+ * harness had before r2.
+ *
+ * This is the auditor's `ALTER POLICY tenants_self_update ON tenants USING (true) WITH
+ * CHECK (true)` made permanent as DDL, so the measurement runs on every CI run rather
+ * than once. Under that mutation, on the migrated production table, `UPDATE tenants SET
+ * name = 'pwned-by-tenant-A'` in an ordinary tenant-A transaction reported UPDATE 2 and
+ * both rows read `pwned-by-tenant-A` afterwards, while this suite reported 15 passed and
+ * exit 0.
+ *
+ * The insert policy is left correct on purpose. A wide-open WITH CHECK would fail
+ * `insertOwnedBy` as well, and the control would stop being a statement about the
+ * unqualified shape specifically.
+ */
+export const unqualifiedWriteCanaryAccess = controlAccess(
+  'UnqualifiedWriteCanaryTableAccess',
+  UNQUALIFIED_WRITE_CANARY_TABLE,
+  createUnqualifiedWriteCanary,
+);
+
 /** Every surface id this wave covers, hand-written so a battery quietly losing a method fails. */
 export const EXPECTED_SURFACE_IDS = [
+  'repo:RlsFixtureRowsTableAccess.deleteAll',
   'repo:RlsFixtureRowsTableAccess.deleteOwnedBy',
   'repo:RlsFixtureRowsTableAccess.findAll',
   'repo:RlsFixtureRowsTableAccess.findOwnedBy',
   'repo:RlsFixtureRowsTableAccess.insertOwnedBy',
+  'repo:RlsFixtureRowsTableAccess.updateAll',
   'repo:RlsFixtureRowsTableAccess.updateOwnedBy',
+  'repo:TenantsTableAccess.deleteAll',
   'repo:TenantsTableAccess.deleteOwnedBy',
   'repo:TenantsTableAccess.findAll',
   'repo:TenantsTableAccess.findOwnedBy',
   'repo:TenantsTableAccess.insertOwnedBy',
+  'repo:TenantsTableAccess.updateAll',
   'repo:TenantsTableAccess.updateOwnedBy',
 ] as const;

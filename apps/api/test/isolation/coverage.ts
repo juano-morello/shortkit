@@ -20,14 +20,21 @@
  * measured the consequence: a tenant-scoped table nobody registered leaked every row to
  * every tenant with both gates green and its name in no artifact.
  *
- * WHAT KEEPS THE LIST HONEST IS A SECOND, INDEPENDENT ENUMERATION (F-296).
- * `tenantScopedTableDrift()` asks the DATABASE which relations carry a tenant boundary —
- * every table in schema `public` with a `tenant_id` column, plus `tenants` — and
- * requires that set to equal the registry's. A table in one and not the other fails the
- * run and names it, in both directions. That is ADR-0019's cross-check, SQL half, pulled
- * forward: it needs no `tenantScopedTables()` artifact, and TASK-053 and TASK-056 are
- * both deferred. Module-graph discovery of routes and repositories remains TASK-056's,
- * and nothing here pretends otherwise.
+ * WHAT KEEPS THE LIST HONEST IS A SECOND, INDEPENDENT ENUMERATION (F-296, F-303).
+ * `tenantScopedTableDrift()` asks the DATABASE which relations carry a tenant boundary
+ * and requires that set to equal the registry's. A table in one and not the other fails
+ * the run and names it, in both directions. That is ADR-0019's cross-check, SQL half,
+ * pulled forward: it needs no `tenantScopedTables()` artifact, and TASK-053 and TASK-056
+ * are both deferred.
+ *
+ * IT ASKS FOUR INDEPENDENT QUESTIONS, NOT ONE, AND THE FIRST VERSION ASKED ONLY ONE.
+ * r1 matched on the literal column name `tenant_id` — the assumption ADR-0019 itself
+ * files under "accepted cost" — and r2 measured what that misses: a table whose owner
+ * column is called `owning_tenant`, force-RLS'd with a `USING (true)` policy, leaking
+ * every row to every tenant, invisible to the drift check, named in no artifact, and
+ * called protected by `db:check-policies`. The four arms are at
+ * `tenantScopedTableDrift()` below. Module-graph discovery of routes and repositories
+ * remains TASK-056's, and nothing here pretends otherwise.
  *
  * ===========================================================================
  * WHAT THIS HARNESS COVERS TODAY, AND WHAT A PASSING RUN THEREFORE PROVES
@@ -49,8 +56,20 @@
  *
  * SO A GREEN RUN OF `cross-tenant-isolation.int-spec.ts` SAYS EXACTLY THIS: for the two
  * tables that exist, a tenant transaction belonging to A cannot read, update, delete or
- * plant a row belonging to B, through any of the five statement shapes below, and no
- * such attempt moved a row from one tenant to another. IT DOES NOT SAY that the system
+ * plant a row belonging to B, through any of the SEVEN statement shapes below — five
+ * that name the owning tenant in a WHERE clause and TWO THAT NAME NOTHING AT ALL — and
+ * no such attempt moved, removed or overwrote a row belonging to another tenant.
+ *
+ * THE LAST TWO ARE r2's BLOCKER (F-302) AND THEY ARE NOT A DETAIL. Every write the
+ * harness attempted until then was qualified by the owner column, so PostgreSQL routed
+ * it through the SELECT policy — the rule `test/support/rls-fixture.ts:175-188` already
+ * had measured and written down — and reported zero rows however wide open the UPDATE or
+ * DELETE policy was. Measured on the migrated production table: `tenants_self_update`
+ * altered to `USING (true) WITH CHECK (true)`, then `UPDATE tenants SET name = 'x'` with
+ * no WHERE, in an ordinary tenant-A transaction, reported UPDATE 2 and destroyed tenant
+ * B's row — while this suite reported 15 passed, exit 0, and `db:check-policies` OK.
+ *
+ * IT DOES NOT SAY that the system
  * has no cross-tenant surface — most of the system is not written. Ruled 2026-08-06:
  * AC-12 is met against a partial table set, deliberately, and the boundary is stated
  * rather than implied.
@@ -75,8 +94,14 @@
  * builds a table shaped exactly like a tenant-scoped one and deliberately omits
  * `ENABLE ROW LEVEL SECURITY`, which is the exact defect `scripts/check-policies.mts`
  * exists to catch. The suite runs this same harness over it and requires EVERY one of
- * the five attempts to report `fail`. A harness that could not see a leak would report
- * that table clean, and the suite goes red.
+ * its attempts to report `fail`. A harness that could not see a leak would report that
+ * table clean, and the suite goes red.
+ *
+ * There are SEVEN such controls now, one per way an audit measured this harness
+ * reporting `pass` over a database that was not isolated, plus two probes for a table
+ * nobody registered. They are in `controls.ts` and `leak-canary.ts`, each named for the
+ * finding it answers, and every one of them is real DDL against the real database rather
+ * than a mutation someone ran once.
  */
 import { writeFileSync } from 'node:fs';
 
@@ -167,6 +192,37 @@ export interface TenantScopedMethod {
    * through the target's own tenant transaction.
    */
   readonly reaches?: 'existing-row' | 'new-row';
+  /**
+   * ============================================================================
+   * F-302. WHETHER THE STATEMENT NAMES THE OWNING TENANT IN A WHERE CLAUSE.
+   * ============================================================================
+   *
+   * REQUIRED, and deliberately not defaulted. Every write the harness attempted until
+   * r2 was `owner-qualified`, and that single fact was the blocker: PostgreSQL applies
+   * the SELECT policies to any UPDATE or DELETE that REFERENCES A COLUMN, which
+   * `test/support/rls-fixture.ts:175-188` already had measured and written down. So a
+   * `WHERE tenant_id = <target>` is routed through the SELECT policy and reports zero
+   * rows however wide open the UPDATE or DELETE policy is. Measured on the migrated
+   * production table: with `tenants_self_update` altered to `USING (true) WITH CHECK
+   * (true)`, `UPDATE tenants SET name = 'x' WHERE id = <B>` from tenant A's transaction
+   * reports UPDATE 0, and `UPDATE tenants SET name = 'x'` with no WHERE at all reports
+   * UPDATE 2 and destroys tenant B's row.
+   *
+   * The two values are judged differently and that is the point:
+   *
+   *   'owner-qualified'  every row the statement can touch belongs to the TARGET, so
+   *                      ANY row affected is a leak (the rule since r1).
+   *
+   *   'unqualified'      no WHERE at all, so the rows the ACTOR owns are legitimately
+   *                      affected. The leak is a row count in excess of what the actor
+   *                      can see of its own — `UPDATE 2` from a single-tenant context —
+   *                      and it is visible in the command tag before any census runs.
+   *
+   * A defaulted field is how this blind spot comes back: a later TASK registering a
+   * repository method would inherit whichever value was convenient. Making it required
+   * means the decision has to be written down per statement.
+   */
+  readonly qualification: 'owner-qualified' | 'unqualified';
   readonly attempt: CrossTenantAttempt;
 }
 
@@ -219,6 +275,8 @@ export interface AttemptOutcome {
   /** F-295: "denied" and "found nothing" are different answers. */
   readonly rowsSeen?: number;
   readonly rowsAffected?: number;
+  /** F-302: whether the statement carried a WHERE naming the owning tenant. */
+  readonly qualification?: 'owner-qualified' | 'unqualified';
   /** Rows the actor could see that it owns, read through its own transaction. */
   readonly actorOwnRowsVisible?: number;
   /** Rows the target could see that it owns. Zero makes a reaching attempt vacuous. */
@@ -230,6 +288,32 @@ export interface AttemptOutcome {
   /** Why the attempt proved nothing. Present iff outcome is `unverified`. */
   readonly unverifiedBecause?: string;
 }
+
+/**
+ * ============================================================================
+ * F-304. `incomplete` IS A THIRD VERDICT, AND IT DIVERGES FROM THE CONTRACT.
+ * ============================================================================
+ *
+ * isolation-coverage.md's declared `IsolationReport` carries `verdict: 'pass' | 'fail'`.
+ * Recorded here as a deliberate divergence rather than silently absorbed, in the same
+ * shape as the additive `attempts` field below.
+ *
+ * WHY THE CONTRACT'S TWO VALUES ARE NOT ENOUGH. `report.json` was written ONCE, after
+ * the attempts, so a run that died earlier left the PREVIOUS run's `"verdict": "pass"`
+ * on disk. Measured on 2026-08-11: with `tenants_self_select` altered to `USING (true)`,
+ * the fixture threw in `beforeAll` — the F-293 absolute census assertion doing exactly
+ * its job — vitest exited 1 with all 15 tests skipped, and `report.json` still read
+ * `verdict=pass runAt=<the previous run's timestamp>`. The most alarming failure this
+ * harness has is now precisely the one that strands a stale pass.
+ *
+ * `incomplete` is written BEFORE anything that can throw and overwritten at the end, so
+ * the artifact is either this run's answer or an explicit statement that this run did
+ * not finish. It is never the last run's answer.
+ *
+ * SEQUENCING, NAMED BY THE AUDITOR: this lands BEFORE F-297's CI upload. Upload the
+ * artifact first and CI starts publishing a stale pass as evidence.
+ */
+export type IsolationVerdict = 'pass' | 'fail' | 'incomplete';
 
 export interface IsolationReport {
   runAt: string;
@@ -265,7 +349,9 @@ export interface IsolationReport {
   unenumerable: ReadonlyArray<{ id: string; reason: string; coveredBy: string }>;
   /** Stated in the artifact itself, so a reader of report.json sees the boundary. */
   coverageBoundary: string;
-  verdict: 'pass' | 'fail';
+  verdict: IsolationVerdict;
+  /** F-304. Present iff the verdict is `incomplete`: what the artifact is not saying. */
+  incompleteBecause?: string;
 }
 
 /**
@@ -323,15 +409,25 @@ export const COVERAGE_BOUNDARY =
   'tenantScopedPolicies()). No routes and no repositories are enumerated, because none ' +
   'exist — route and repository discovery is TASK-056. ' +
   'HOW THE COVERED SET IS BOUNDED: it is the registry in registrations.ts, and the ' +
-  'registry is cross-checked against the database on every run — every relation in ' +
-  'schema public carrying a tenant_id column, plus `tenants`, must be registered, and ' +
-  'a difference in either direction fails the run and names the table (ADR-0019, SQL ' +
-  'half). ' +
+  'registry is cross-checked against the database on every run. A relation in schema ' +
+  'public must be registered if ANY of four independent properties holds — it is ' +
+  '`tenants`; it carries a column named tenant_id; row-level security is enabled AND ' +
+  'forced on it; or one of its policies reads app.tenant_id — and a difference in ' +
+  'either direction fails the run and names the table (ADR-0019, SQL half). The last ' +
+  'two arms are F-303: enumerating on the literal column name alone made a table whose ' +
+  'owner column is spelled any other way invisible to the check, measured. ' +
   'WHAT A PASS MEANS: every registered method was attempted in BOTH directions, each ' +
   'acting tenant was shown to see its own row first, every refusal scored as a pass ' +
   'was a row-level security refusal recorded with its SQLSTATE and message, and no ' +
   'tenant could see a row it does not own before or after any attempt. An attempt that ' +
   'proved nothing is reported `unverified` and fails the run. ' +
+  'SEVEN STATEMENT SHAPES PER TABLE SINCE r2, and two of them carry NO WHERE CLAUSE ' +
+  '(F-302): an owner-qualified write is routed through the SELECT policy by PostgreSQL ' +
+  'and reports zero rows however wide open the UPDATE or DELETE policy is, so an ' +
+  'unqualified write is the only shape that can see that class of defect. It is judged ' +
+  'on the row count the statement itself reported, against the number of its own rows ' +
+  'the acting tenant was shown to see, and separately on a per-row digest of every row ' +
+  'the actor does not own — because an overwrite preserves ownership. ' +
   'It does not mean the system has no uncovered cross-tenant surface: most of the ' +
   'system is unwritten, and the module-graph enumeration, the four grep clauses and ' +
   'the pg_policies shape assertion are TASK-056\'s.';
@@ -397,6 +493,7 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
   'isolation_grant_gap_canary',
   'isolation_masked_refusal_canary',
   'isolation_half_seeded_canary',
+  'isolation_unqualified_write_canary',
 ];
 
 /**
@@ -404,15 +501,49 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
  * tenant boundary FROM THE DATABASE and compare with the registry. TASK-053's
  * `tenantScopedTables()` is the schema half and is deferred; this half needs no artifact
  * that does not exist.
+ *
+ * ============================================================================
+ * F-303. FOUR PROPERTIES, NOT ONE, AND NONE OF THEM ASSUMES A COLUMN NAME.
+ * ============================================================================
+ *
+ * r1 added this check on the literal column name `tenant_id`, which is the same
+ * assumption ADR-0019 itself records under "Negative / accepted cost": *"the enumeration
+ * depends on the column being named exactly `tenant_id`. A table using `owner_tenant_id`
+ * is invisible to both the schema filter and the SQL cross-check, and nothing notices."*
+ * The auditor measured the consequence against this harness: `audit_events(owning_tenant)`
+ * with ENABLE + FORCE and a `USING (true)` policy leaks `bob@tenant-b.example` to tenant
+ * A — reproduced here on 2026-08-11 — while the suite is 15 passed, `registryDrift` is
+ * empty in both directions, `db:check-policies` reports "OK: 2 table(s) ... all protected"
+ * and the table is named in no artifact.
+ *
+ * The registry already carries an `ownerColumn` per table, so the harness has always
+ * known the column can vary. The drift query was the one place that assumed it could not.
+ * The four arms below are independent, and defeating the check means defeating all four:
+ *
+ *   1. `tenants`, the cascade root — tenant-scoped and carrying no tenant column at all,
+ *      named exactly as ADR-0019's exclusion list names it.
+ *   2. a column literally named `tenant_id`. KEPT, because it is the only arm that sees
+ *      a table with NO row-level security whatsoever — the `isolation_leak_canary`
+ *      shape, and the one `scripts/check-policies.mts` exists for.
+ *   3. row-level security ENABLED AND FORCED. Column-name agnostic, and the arm that
+ *      catches the measured `audit_events(owning_tenant)` case.
+ *   4. a policy whose predicate reads `app.tenant_id`, whatever it compares it against.
+ *      Catches a table protected by a tenant policy that arm 3 would miss because FORCE
+ *      was forgotten — which is a leak in its own right and one this arm names.
+ *
+ * ACCEPTED COST, STATED. Arms 3 and 4 are properties of protection rather than of
+ * tenancy, so a table force-RLS'd for some other reason — a future audit log locked to
+ * one role, say — would be reported as drift. That fails CLOSED: the run goes red and
+ * names the table, and the remedy is a registration or a justified entry in a closed
+ * list, both of which are one-line diffs a reviewer sees. The alternative failed OPEN,
+ * and this file has now measured that twice.
  */
 export function tenantScopedTableDrift(
   registrations: readonly TenantScopedSurfaceRegistration[] = registeredSubjects(),
 ): RegistryDatabaseDrift {
   // `relkind` 'r' is an ordinary table and 'p' a partitioned one, matching
   // scripts/check-policies.mts. `pg_attribute` rather than `information_schema.columns`
-  // for the reason that script records at F-213. `tenants` is tenant-scoped without
-  // carrying `tenant_id` — it is the cascade root and its own owner column is `id` —
-  // so it is named, exactly as ADR-0019's exclusion list names it.
+  // for the reason that script records at F-213.
   const tables = querySql<{ table_name: string }>(
     migrationDsn(),
     `select c.relname as table_name
@@ -420,13 +551,26 @@ export function tenantScopedTableDrift(
        join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = 'public'
         and c.relkind in ('r', 'p')
-        and (c.relname = 'tenants'
+        and (
+             -- 1. the cascade root
+             c.relname = 'tenants'
+             -- 2. the conventional owner column
              or exists (select 1
                           from pg_attribute a
                          where a.attrelid = c.oid
                            and a.attname = 'tenant_id'
                            and a.attnum > 0
-                           and not a.attisdropped))`,
+                           and not a.attisdropped)
+             -- 3. F-303: protected, whatever its owner column is called
+             or (c.relrowsecurity and c.relforcerowsecurity)
+             -- 4. F-303: a policy that reads the tenant context flag
+             or exists (select 1
+                          from pg_policies p
+                         where p.schemaname = 'public'
+                           and p.tablename = c.relname
+                           and (coalesce(p.qual, '') like '%app.tenant_id%'
+                                or coalesce(p.with_check, '') like '%app.tenant_id%'))
+            )`,
   ).map((row) => row.table_name);
 
   const inDatabase = new Set(
@@ -511,10 +655,44 @@ interface CensusRow {
   readonly seenBy: string;
   readonly id: string;
   readonly owner: string;
+  /**
+   * F-302. `md5(<row>::text)` over the WHOLE row, computed by the database. An overwrite
+   * PRESERVES OWNERSHIP — `UPDATE tenants SET name = 'pwned-by-tenant-A'` leaves every
+   * `id` and every owner exactly where they were — so a census of ids and owners is
+   * identical before and after a tenant has destroyed another tenant's data. The digest
+   * is what makes that visible, and it needs no per-registration configuration: it
+   * covers every column the table has, including columns a later TASK adds.
+   */
+  readonly digest: string;
 }
 
+/** Ownership only. `assertNoTenantIdAltered()` is defined over exactly this (AC-95). */
 function censusLine(row: CensusRow): string {
   return `${row.table} seen-by=${row.seenBy} id=${row.id} owner=${row.owner}`;
+}
+
+/** Ownership AND content. What the per-attempt comparison is defined over (F-302). */
+function censusContentLine(row: CensusRow): string {
+  return `${censusLine(row)} digest=${row.digest}`;
+}
+
+/**
+ * F-302. The census lines for rows the ACTOR DOES NOT OWN, which is the set an attempt
+ * may not change by any amount.
+ *
+ * The actor's own rows are excluded DELIBERATELY, and this is the clause that lets an
+ * unqualified write be attempted at all: `DELETE FROM rls_fixture_rows` issued in tenant
+ * A's transaction is SUPPOSED to remove A's own row, and comparing all rows either side
+ * of it would report correct behaviour as a leak. Nothing is lost by the exclusion — a
+ * row that moved from the actor to anyone else APPEARS in this set afterwards, and a row
+ * that moved the other way DISAPPEARS from it, so both directions of a re-parenting are
+ * still caught.
+ */
+function foreignRowLines(rows: readonly CensusRow[], actor: TenantFixture): string[] {
+  return rows
+    .filter((row) => !sameTenant(row.owner, actor.id))
+    .map(censusContentLine)
+    .sort();
 }
 
 function sameTenant(one: string, other: string): boolean {
@@ -547,9 +725,11 @@ async function censusRows(
     for (const tenant of [fixtures.tenantA, fixtures.tenantB]) {
       const rows = await withTenantTransaction(tenant.id, async (db) => {
         const result = await db.execute<Record<string, unknown>>(
-          sql`select id, ${sql.identifier(registration.ownerColumn)} as owner
-                from ${sql.identifier(registration.table)}
-               order by id`,
+          sql`select r.id                              as id,
+                     r.${sql.identifier(registration.ownerColumn)} as owner,
+                     md5(r::text)                      as digest
+                from ${sql.identifier(registration.table)} as r
+               order by r.id`,
         );
 
         return result.rows;
@@ -561,6 +741,7 @@ async function censusRows(
           seenBy: tenant.id,
           id: String(row.id),
           owner: String(row.owner),
+          digest: String(row.digest),
         });
       }
     }
@@ -627,9 +808,11 @@ export async function assertNoTenantIdAltered(): Promise<void> {
 
 function judge(
   registration: TenantScopedSurfaceRegistration,
+  method: TenantScopedMethod,
   actor: TenantFixture,
   target: TenantFixture,
   result: CrossTenantAttemptResult,
+  actorOwnRowsVisible: number,
 ): string[] {
   const leaks: string[] = [];
 
@@ -657,10 +840,41 @@ function judge(
 
   const affected = result.rowsAffected ?? 0;
 
-  if (affected > 0) {
+  if (method.kind !== 'write') {
+    return leaks;
+  }
+
+  if (method.qualification === 'owner-qualified') {
+    // Every row this statement can reach belongs to the target, so any row at all is
+    // the leak. The rule since r1, unchanged.
+    if (affected > 0) {
+      leaks.push(
+        `affected ${String(affected)} row(s) while acting as ${actor.id} against ` +
+          `${target.id}; a cross-tenant write must be rejected or affect zero rows (AC-95)`,
+      );
+    }
+
+    return leaks;
+  }
+
+  // F-302. THE COMMAND TAG IS THE EVIDENCE, AND IT ARRIVES BEFORE ANY CENSUS RUNS.
+  //
+  // An unqualified statement is entitled to every row the ACTOR owns and to nothing
+  // else, so the number the database reports is comparable against a number the harness
+  // established through the actor's own transaction moments earlier. `UPDATE 2` from a
+  // single-tenant context that can see one row of its own is the leak, stated in the
+  // one place a wide-open UPDATE or DELETE policy cannot hide it: the SELECT policy
+  // never gets consulted, because there is no column reference for it to filter.
+  if (affected > actorOwnRowsVisible) {
     leaks.push(
-      `affected ${String(affected)} row(s) while acting as ${actor.id} against ` +
-        `${target.id}; a cross-tenant write must be rejected or affect zero rows (AC-95)`,
+      `an UNQUALIFIED ${method.kind} (${method.name}, no WHERE clause) reported ` +
+        `${String(affected)} row(s) affected while the acting tenant ${actor.id} can see ` +
+        `only ${String(actorOwnRowsVisible)} row(s) of its own in ${registration.table}. ` +
+        `At least ${String(affected - actorOwnRowsVisible)} row(s) belonging to another ` +
+        `tenant were written — ${target.id} is the only other tenant seeded in this ` +
+        'fixture. PostgreSQL routes an owner-qualified write through the SELECT policy ' +
+        'and this statement past it, so this count is the only thing that sees a ' +
+        'wide-open UPDATE or DELETE policy (F-302, AC-95).',
     );
   }
 
@@ -770,7 +984,7 @@ async function attempt(
   await registration.reset();
 
   const beforeRows = await censusRows([registration], fixtures);
-  const before = beforeRows.map(censusLine).sort();
+  const before = foreignRowLines(beforeRows, actor);
 
   const actorOwnRowsVisible = beforeRows.filter(
     (row) => sameTenant(row.seenBy, actor.id) && sameTenant(row.owner, actor.id),
@@ -788,6 +1002,7 @@ async function attempt(
     direction,
     actor: actor.id,
     target: target.id,
+    qualification: method.qualification,
     actorOwnRowsVisible,
     targetOwnRowsVisible,
   } as const;
@@ -843,15 +1058,31 @@ async function attempt(
     };
   }
 
-  leaks.push(...judge(registration, actor, target, result));
+  leaks.push(...judge(registration, method, actor, target, result, actorOwnRowsVisible));
 
-  const after = (await censusRows([registration], fixtures)).map(censusLine).sort();
+  const after = foreignRowLines(await censusRows([registration], fixtures), actor);
 
   if (after.join('\n') !== before.join('\n')) {
     leaks.push(
-      'tenant ownership changed while this method ran (AC-95).\n' +
+      `a row belonging to a tenant other than the acting tenant ${actor.id} changed ` +
+        'while this method ran: it moved, it was removed, or its contents were ' +
+        'overwritten (AC-95, F-302). Each line names the tenant that owns the row.\n' +
         `      before: ${before.join(' | ')}\n      after:  ${after.join(' | ')}`,
     );
+  }
+
+  // F-302. An unqualified write that reached the actor's own rows is CORRECT behaviour
+  // and it leaves the fixture edited, so the fixture is put back before the run moves
+  // on. `reset()` already runs before every attempt, so this only matters for the last
+  // attempt of a run — but that is exactly the state `assertNoTenantIdAltered()` and the
+  // F-295 positive control read afterwards, and a `DELETE FROM rls_fixture_rows` issued
+  // as tenant B legitimately removes B's own row.
+  //
+  // It costs nothing: a cross-tenant write this restores has ALREADY been judged above,
+  // recorded in `leaks`, and reported as a `fail` naming the surface. The post-run check
+  // is the contract's weaker form, and the comment on it says so.
+  if (method.qualification === 'unqualified' && (result.rowsAffected ?? 0) > 0) {
+    await registration.reset();
   }
 
   const counted = {
@@ -1000,6 +1231,46 @@ export function isolationReport(): IsolationReport {
 /** `apps/api/test/isolation/report.json` — the artifact SC-1 points at. */
 export function writeIsolationReport(report: IsolationReport, path: string): void {
   writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * F-304. CALLED FIRST, BEFORE ANYTHING THAT CAN THROW.
+ *
+ * Stamps the artifact `incomplete` so that a run which dies — a fixture that throws on a
+ * pre-existing leak, a dropped connection, a killed process — leaves a file that says it
+ * did not finish, rather than the last successful run's `"verdict": "pass"`. Overwritten
+ * by `writeIsolationReport()` when the run completes.
+ *
+ * Deleting the file instead would also be unambiguous and it is what the finding offers
+ * as an alternative. This is the stronger of the two: absence is indistinguishable from
+ * a job that never ran the suite at all, and a `runAt` plus a reason tells whoever finds
+ * the stranded artifact which run stranded it.
+ */
+export function beginIsolationReport(path: string): void {
+  const marker: IsolationReport = {
+    runAt: new Date().toISOString(),
+    discovered: [],
+    covered: [],
+    uncovered: [],
+    attempts: [],
+    failed: [],
+    unverified: [],
+    excluded: ISOLATION_EXCLUSIONS.map((exclusion) => ({ ...exclusion })),
+    publicRoutes: [],
+    noTenantTransactionRoutes: [],
+    unenumerable: UNENUMERABLE_SURFACES.map((surface) => ({ ...surface })),
+    coverageBoundary: COVERAGE_BOUNDARY,
+    verdict: 'incomplete',
+    incompleteBecause:
+      'This run started at the runAt above and has not written its result yet. If you ' +
+      'are reading this, the run did not finish: it threw before judging its attempts, ' +
+      'or the process was killed. NOTHING HERE IS EVIDENCE OF ISOLATION — an empty ' +
+      '`failed` list means no attempt was scored, not that no attempt leaked. This ' +
+      'marker exists because the artifact previously kept the PREVIOUS run\'s ' +
+      '"verdict": "pass" in exactly this situation (F-304).',
+  };
+
+  writeFileSync(path, `${JSON.stringify(marker, null, 2)}\n`, 'utf8');
 }
 
 /** AC-12's "enumerates which methods were exercised", for the run log a human reads. */

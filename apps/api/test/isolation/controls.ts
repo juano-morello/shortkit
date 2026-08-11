@@ -1,9 +1,9 @@
 /**
- * FIVE MORE NEGATIVE CONTROLS, one per way the r1 audit measured this harness reporting
+ * SIX MORE NEGATIVE CONTROLS, one per way an audit measured this harness reporting
  * `pass` over a database that was not isolated.
  *
- * Produced by: TASK-006 rework r2 (F-293, F-294, F-295, F-296). Used by
- * `cross-tenant-isolation.int-spec.ts` and nowhere else.
+ * Produced by: TASK-006 rework r2 (F-293, F-294, F-295, F-296) and r2 round 2
+ * (F-302, F-303). Used by `cross-tenant-isolation.int-spec.ts` and nowhere else.
  *
  * `leak-canary.ts` already carries the first control — a table with no row-level
  * security at all, which every attempt must report as failing. It catches one shape: a
@@ -39,6 +39,16 @@
  *                                     zero rows because there is nothing there, not
  *                                     because a policy denied them. F-295.
  *
+ *   isolation_unqualified_write_canary
+ *                                     a correctly scoped SELECT policy hiding a
+ *                                     COMPLETELY WIDE-OPEN UPDATE and DELETE policy.
+ *                                     Every owner-qualified attempt is routed through
+ *                                     the SELECT policy by PostgreSQL and reports zero
+ *                                     rows, so the table reads as isolated from all five
+ *                                     of the shapes the harness had before r2's second
+ *                                     round. Only a write with NO WHERE CLAUSE sees it.
+ *                                     F-302's blocker, in its sharpest form.
+ *
  * ⚠ NONE OF THEM MAY SURVIVE THE SUITE, for the reason `leak-canary.ts` states: an
  * unprotected — or deliberately mis-protected — table in schema `public` is what
  * `db:check-policies` exists to fail on. `dropControlTables()` runs in the suite's
@@ -58,6 +68,7 @@ export const BASELINE_LEAK_CANARY_TABLE = 'isolation_baseline_leak_canary';
 export const GRANT_GAP_CANARY_TABLE = 'isolation_grant_gap_canary';
 export const MASKED_REFUSAL_CANARY_TABLE = 'isolation_masked_refusal_canary';
 export const HALF_SEEDED_CANARY_TABLE = 'isolation_half_seeded_canary';
+export const UNQUALIFIED_WRITE_CANARY_TABLE = 'isolation_unqualified_write_canary';
 
 /**
  * F-296's probe. A tenant-scoped table that NOBODY REGISTERS — the wave-3 table the
@@ -66,6 +77,21 @@ export const HALF_SEEDED_CANARY_TABLE = 'isolation_half_seeded_canary';
  * whole point of it.
  */
 export const UNREGISTERED_TABLE_PROBE = 'wave3_workspaces_probe';
+
+/**
+ * F-303's probe. The same omission as `UNREGISTERED_TABLE_PROBE` — nobody called
+ * `registerTenantScopedSurfaces()` — on a table whose owner column is NOT called
+ * `tenant_id`. The drift check enumerated on that literal name, so this table was
+ * invisible to the one mechanism F-296 added to close exactly this class.
+ *
+ * The auditor's measured shape, reproduced here on 2026-08-11 before the fix:
+ * `audit_events(owning_tenant)` with ENABLE + FORCE and `USING (true)` returns
+ * `bob@tenant-b.example` inside tenant A's transaction, while the suite is 15 passed,
+ * `registryDrift` is empty in both directions and `db:check-policies` calls it
+ * protected. Named for a table a later wave plausibly adds, and deliberately NOT in
+ * `SUITE_OWNED_CONTROL_TABLES`.
+ */
+export const UNREGISTERED_OWNER_COLUMN_PROBE = 'wave3_audit_events_probe';
 
 const CONTROL_A_ROW_ID = 'c0a0c0a0-c0a0-4c0a-8c0a-c0a0c0a0c0a0';
 const CONTROL_B_ROW_ID = 'c0b0c0b0-c0b0-4c0b-8c0b-c0b0c0b0c0b0';
@@ -258,6 +284,48 @@ export function createHalfSeededCanary(): void {
 }
 
 /**
+ * F-302. THE DEFECT: `_update` and `_delete` admit everything, and the SELECT policy is
+ * CORRECT. That combination is what made this class invisible. PostgreSQL applies the
+ * SELECT policies to any UPDATE or DELETE that references a column, so:
+ *
+ *   update ... where tenant_id = <target>  -> the SELECT policy hides the target's row
+ *                                             -> UPDATE 0 -> scored as a pass
+ *   delete ... where tenant_id = <target>  -> same -> DELETE 0 -> scored as a pass
+ *   update ... set label = <constant>      -> no column referenced, no SELECT policy
+ *                                             -> UPDATE 2 -> THE LEAK
+ *   delete from ...                        -> same -> DELETE 2 -> THE LEAK
+ *
+ * The ownership census is clean too, because nothing this table admits on a SELECT
+ * crosses a boundary. So before r2's second round, every mechanism this harness had
+ * reported it isolated.
+ *
+ * The INSERT policy is left correct on purpose, exactly as the SELECT one is: widening
+ * it would fail `insertOwnedBy` as well and the control would stop being a statement
+ * about the unqualified shape.
+ */
+export function createUnqualifiedWriteCanary(): void {
+  run(
+    `${createTable(UNQUALIFIED_WRITE_CANARY_TABLE)}
+
+     ${grantAll(UNQUALIFIED_WRITE_CANARY_TABLE)}
+
+     ${seedBothTenants(UNQUALIFIED_WRITE_CANARY_TABLE)}
+
+     ALTER TABLE ${UNQUALIFIED_WRITE_CANARY_TABLE} ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE ${UNQUALIFIED_WRITE_CANARY_TABLE} FORCE  ROW LEVEL SECURITY;
+
+     CREATE POLICY ${UNQUALIFIED_WRITE_CANARY_TABLE}_select ON ${UNQUALIFIED_WRITE_CANARY_TABLE}
+       FOR SELECT USING (tenant_id = ${TENANT_ID});
+     CREATE POLICY ${UNQUALIFIED_WRITE_CANARY_TABLE}_insert ON ${UNQUALIFIED_WRITE_CANARY_TABLE}
+       FOR INSERT WITH CHECK (tenant_id = ${TENANT_ID});
+     CREATE POLICY ${UNQUALIFIED_WRITE_CANARY_TABLE}_update ON ${UNQUALIFIED_WRITE_CANARY_TABLE}
+       FOR UPDATE USING (true) WITH CHECK (true);
+     CREATE POLICY ${UNQUALIFIED_WRITE_CANARY_TABLE}_delete ON ${UNQUALIFIED_WRITE_CANARY_TABLE}
+       FOR DELETE USING (true);`,
+  );
+}
+
+/**
  * F-296. A tenant-scoped table added by a later wave whose author forgot the one
  * `registerTenantScopedSurfaces()` call. It is correct in every way `db:check-policies`
  * can see — `tenant_id`, ENABLE, FORCE, a policy — and the isolation suite must still
@@ -277,6 +345,53 @@ export function dropUnregisteredTableProbe(): void {
   execSql(migrationDsn(), `DROP TABLE IF EXISTS ${UNREGISTERED_TABLE_PROBE};`);
 }
 
+/**
+ * F-303. The same forgotten registration, on a table whose owner column is called
+ * `owning_tenant`. Everything else about it is a plausible wave-3 table: a foreign key
+ * to `tenants` with the cascade every schema TASK declares, ENABLE, FORCE, and a policy.
+ *
+ * `USING (true)` rather than a correct predicate, so this is not merely unregistered but
+ * ACTIVELY LEAKING — `actor_email` from tenant B is readable inside tenant A's
+ * transaction. That is what makes the drift check the only thing standing between this
+ * table and a green run: nothing attempts anything against a table nobody registered, so
+ * naming it in `inDatabaseNotRegistered` is the entire defence.
+ *
+ * The policy DDL is written out rather than built from `tenantScopedPolicies()`, which
+ * hard-codes the column name `tenant_id` — the same assumption this probe exists to
+ * break.
+ */
+export function createUnregisteredOwnerColumnProbe(): void {
+  run(
+    `DROP TABLE IF EXISTS ${UNREGISTERED_OWNER_COLUMN_PROBE};
+
+     CREATE TABLE ${UNREGISTERED_OWNER_COLUMN_PROBE} (
+       id            uuid PRIMARY KEY,
+       owning_tenant uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+       actor_email   text NOT NULL
+     );
+
+     GRANT SELECT, INSERT, UPDATE, DELETE ON ${UNREGISTERED_OWNER_COLUMN_PROBE} TO :"app_role";
+
+     -- Only tenant B has a row, so every row tenant A can read is one it does not own
+     -- and the leak needs no arithmetic to see. The address is a fixture value and
+     -- matches the auditor's measurement, which is the point of it (GC-9: it never
+     -- reaches a log body).
+     INSERT INTO ${UNREGISTERED_OWNER_COLUMN_PROBE} (id, owning_tenant, actor_email) VALUES
+       ('${CONTROL_B_ROW_ID}', '${TENANT_B}', 'bob@tenant-b.example');
+
+     ALTER TABLE ${UNREGISTERED_OWNER_COLUMN_PROBE} ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE ${UNREGISTERED_OWNER_COLUMN_PROBE} FORCE  ROW LEVEL SECURITY;
+
+     CREATE POLICY ${UNREGISTERED_OWNER_COLUMN_PROBE}_tenant_isolation
+       ON ${UNREGISTERED_OWNER_COLUMN_PROBE}
+       FOR ALL USING (true) WITH CHECK (true);`,
+  );
+}
+
+export function dropUnregisteredOwnerColumnProbe(): void {
+  execSql(migrationDsn(), `DROP TABLE IF EXISTS ${UNREGISTERED_OWNER_COLUMN_PROBE};`);
+}
+
 /** Every control table this file builds, dropped in the suite's `afterAll`. */
 export function dropControlTables(): void {
   execSql(
@@ -287,7 +402,9 @@ export function dropControlTables(): void {
       GRANT_GAP_CANARY_TABLE,
       MASKED_REFUSAL_CANARY_TABLE,
       HALF_SEEDED_CANARY_TABLE,
+      UNQUALIFIED_WRITE_CANARY_TABLE,
       UNREGISTERED_TABLE_PROBE,
+      UNREGISTERED_OWNER_COLUMN_PROBE,
     ]
       .map((table) => `DROP TABLE IF EXISTS ${table};`)
       .join('\n'),

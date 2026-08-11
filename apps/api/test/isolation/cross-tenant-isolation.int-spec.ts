@@ -12,12 +12,15 @@
  *
  * IT SAYS: for the two tables that exist today — `tenants` and `rls_fixture_rows` — a
  * tenant transaction belonging to either tenant cannot read, filter for, update, delete
- * or plant a row belonging to the other, through any of five statement shapes, IN EITHER
- * DIRECTION; each acting tenant demonstrably could see its own row while being refused
- * the other's; every refusal the run scored as a pass was a row-level security refusal
- * and says so in `report.json`; and the set of tables carrying a tenant boundary in the
- * database is exactly the set the registry knows about. Every one of those is a real
- * statement against a live Postgres, issued through `withTenantTransaction` as
+ * or plant a row belonging to the other, through any of SEVEN statement shapes, IN
+ * EITHER DIRECTION; that two of those seven carry NO WHERE CLAUSE, so a wide-open UPDATE
+ * or DELETE policy cannot hide behind a correctly scoped SELECT policy (F-302); each
+ * acting tenant demonstrably could see its own row while being refused the other's;
+ * every refusal the run scored as a pass was a row-level security refusal and says so in
+ * `report.json`; and the set of tables carrying a tenant boundary in the database — by
+ * four independent properties, none of which assumes the owner column is called
+ * `tenant_id` (F-303) — is exactly the set the registry knows about. Every one of those
+ * is a real statement against a live Postgres, issued through `withTenantTransaction` as
  * `shortkit_app`, a role holding neither SUPERUSER nor BYPASSRLS.
  *
  * IT DOES NOT SAY the system has no uncovered cross-tenant surface. Most of the system
@@ -34,15 +37,20 @@
  *
  * Declined 2026-08-06: a test asserting that a test helper works is the shape this
  * initiative has twice called hollow. Every assertion below is about what Postgres
- * answered — including the six negative controls, which are real tables carrying real
+ * answered — including the seven negative controls, which are real tables carrying real
  * defects that really do leak, not assertions about the harness's shape.
  *
+ * ONE TEST BELOW IS THE EXCEPTION AND IT SAYS SO: the F-304 test asserts what is in
+ * `report.json` on disk part-way through a run. That is not a helper's shape, it is the
+ * artifact SC-1 points at and F-297 is about to upload, and the measured defect was that
+ * the file kept the PREVIOUS run's verdict when a run died.
+ *
  * ---------------------------------------------------------------------------
- * THE SIX CONTROLS, AND THE FINDING EACH ONE ANSWERS (r2)
+ * THE SEVEN CONTROLS, AND THE FINDING EACH ONE ANSWERS
  * ---------------------------------------------------------------------------
  *
- * The r1 audit measured this suite reporting `pass` over a database that was not
- * isolated, four ways. Each way is now a table the suite builds, attacks and requires a
+ * Two audit rounds measured this suite reporting `pass` over a database that was not
+ * isolated, six ways. Each way is now a table the suite builds, attacks and requires a
  * non-`pass` answer for, so the measurement runs on every CI run instead of once:
  *
  *   isolation_leak_canary             no row-level security at all      (the r1 control)
@@ -51,12 +59,24 @@
  *   isolation_grant_gap_canary        42501 from a missing grant, not a policy   (F-294)
  *   isolation_masked_refusal_canary   wide-open policy, 23514 masking it         (F-294)
  *   isolation_half_seeded_canary      correct policies, target owns no row       (F-295)
+ *   isolation_unqualified_write_canary
+ *                                     wide-open UPDATE and DELETE behind a correct
+ *                                     SELECT policy — invisible to every write that
+ *                                     names the owner in a WHERE clause      (F-302)
+ *
+ * ...plus two probes for tables nobody registered, `wave3_workspaces_probe` (F-296) and
+ * `wave3_audit_events_probe` (F-303), which the drift check has to name.
  */
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { withTenantTransaction } from '../../src/tenancy/tenant-context';
+
 import {
+  beginIsolationReport,
   createTenantFixtures,
   formatIsolationReport,
   ISOLATION_EXCLUSIONS,
@@ -69,9 +89,12 @@ import {
 } from './coverage';
 import type { AttemptOutcome, IsolationReport, TenantFixtures } from './coverage';
 import {
+  createUnregisteredOwnerColumnProbe,
   createUnregisteredTableProbe,
   dropControlTables,
+  dropUnregisteredOwnerColumnProbe,
   dropUnregisteredTableProbe,
+  UNREGISTERED_OWNER_COLUMN_PROBE,
   UNREGISTERED_TABLE_PROBE,
 } from './controls';
 import { createLeakCanary, dropLeakCanary, leakCanaryProtection } from './leak-canary';
@@ -83,6 +106,7 @@ import {
   halfSeededCanaryAccess,
   leakCanaryAccess,
   maskedRefusalCanaryAccess,
+  unqualifiedWriteCanaryAccess,
 } from './registrations';
 import { querySql } from '../support/psql';
 import {
@@ -138,8 +162,19 @@ function withOutcome(
 describe('cross-tenant isolation over every registered tenant-scoped surface', () => {
   let fixtures: TenantFixtures;
   let report: IsolationReport;
+  /** F-304. What was on disk between the run starting and the run finishing. */
+  let reportOnDiskWhileTheRunWasInFlight: string;
 
   beforeAll(async () => {
+    // F-304. FIRST, BEFORE ANYTHING THAT CAN THROW. Everything below this line can:
+    // `assertAppRoleCannotBypassRls()` throws on a bypassing role and
+    // `createTenantFixtures()` throws on a leak that is already present, which is the
+    // single most alarming failure this harness has. Until r2's second round the
+    // artifact was written once, at the end, so each of those left the PREVIOUS run's
+    // `"verdict": "pass"` on disk for CI to publish as evidence.
+    beginIsolationReport(REPORT_PATH);
+    reportOnDiskWhileTheRunWasInFlight = readFileSync(REPORT_PATH, 'utf8');
+
     // Without this every assertion below passes vacuously: a role exempt from row-level
     // security makes a correct implementation and a missing one look identical.
     assertAppRoleCannotBypassRls();
@@ -150,7 +185,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     writeIsolationReport(report, REPORT_PATH);
     // AC-12's "its output enumerates which methods were exercised", in the run log.
     console.log(formatIsolationReport(report));
-  }, 180_000);
+  }, 300_000);
 
   afterAll(() => {
     dropLeakCanary();
@@ -189,12 +224,34 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       report.attempts.map(() => 'pass'),
     );
 
-    // Ten surfaces, each attempted in both directions (F-293). Reads and writes are
-    // both exercised: AC-94 covers the reads and AC-95 the writes, and a battery that
-    // had lost all of one kind would still satisfy the count above.
-    expect(report.attempts).toHaveLength(20);
+    // Fourteen surfaces, each attempted in both directions (F-293). Reads and writes
+    // are both exercised: AC-94 covers the reads and AC-95 the writes, and a battery
+    // that had lost all of one kind would still satisfy the count above.
+    expect(report.attempts).toHaveLength(28);
     expect(report.attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(8);
-    expect(report.attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(12);
+    expect(report.attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(20);
+
+    // F-302. Four of those twenty writes carry NO WHERE CLAUSE — `updateAll` and
+    // `deleteAll` per table, per direction. Hand-derived, because a battery that
+    // silently lost them is a battery that cannot see a wide-open UPDATE policy, and
+    // the counts above would not move if `updateAll` were quietly replaced by a second
+    // owner-qualified statement.
+    expect(
+      labelled(
+        report.attempts.filter(
+          (outcome) => outcome.kind === 'write' && outcome.qualification === 'unqualified',
+        ),
+      ),
+    ).toEqual([
+      'A->B deleteAll',
+      'A->B deleteAll',
+      'A->B updateAll',
+      'A->B updateAll',
+      'B->A deleteAll',
+      'B->A deleteAll',
+      'B->A updateAll',
+      'B->A updateAll',
+    ]);
   });
 
   it('F-293: every registered surface is attempted in both directions, not only as tenant A', () => {
@@ -296,12 +353,12 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
     const control = await runCrossTenantAttempts([leakCanaryAccess], fixtures);
 
-    // Every one of the ten, not merely the verdict, and `fail` rather than "not a
+    // Every one of the fourteen, not merely the verdict, and `fail` rather than "not a
     // pass": a harness that had stopped detecting anything on reads would still fail
     // the run on a write, and an attempt reported `unverified` here would mean the
     // control had stopped being a leak.
     expect(control.attempts.filter((outcome) => outcome.outcome !== 'fail')).toEqual([]);
-    expect(control.attempts).toHaveLength(10);
+    expect(control.attempts).toHaveLength(14);
     expect(control.verdict).toBe('fail');
 
     // ...and each one says WHOSE row leaked, which is what makes a real red run
@@ -309,8 +366,8 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     const forward = control.attempts.filter((outcome) => outcome.direction === 'A->B');
     const reverse = control.attempts.filter((outcome) => outcome.direction === 'B->A');
 
-    expect(forward).toHaveLength(5);
-    expect(reverse).toHaveLength(5);
+    expect(forward).toHaveLength(7);
+    expect(reverse).toHaveLength(7);
 
     for (const outcome of forward) {
       expect(outcome.leaks.join(' ')).toContain(fixtures.tenantB.id);
@@ -334,7 +391,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     expect(labelled(control.attempts.filter((outcome) => outcome.outcome !== 'pass'))).toEqual([
       'B->A insertOwnedBy',
     ]);
-    expect(control.attempts).toHaveLength(10);
+    expect(control.attempts).toHaveLength(14);
 
     const [leaked] = control.attempts.filter((outcome) => outcome.outcome === 'fail');
 
@@ -354,7 +411,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     const control = await runCrossTenantAttempts([baselineLeakCanaryAccess], fixtures);
 
     expect(control.attempts.filter((outcome) => outcome.outcome === 'pass')).toEqual([]);
-    expect(control.attempts).toHaveLength(10);
+    expect(control.attempts).toHaveLength(14);
 
     // Every attempt on the table carries the census evidence, naming the tenant that
     // could see a row it does not own.
@@ -375,14 +432,18 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     const control = await runCrossTenantAttempts([grantGapCanaryAccess], fixtures);
 
     expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'unverified'))).toEqual([
+      'A->B deleteAll',
       'A->B deleteOwnedBy',
       'A->B insertOwnedBy',
+      'A->B updateAll',
       'A->B updateOwnedBy',
+      'B->A deleteAll',
       'B->A deleteOwnedBy',
       'B->A insertOwnedBy',
+      'B->A updateAll',
       'B->A updateOwnedBy',
     ]);
-    expect(control.attempts).toHaveLength(10);
+    expect(control.attempts).toHaveLength(14);
 
     // The reads are granted and the policies are the production ones, so those four
     // are real passes — which is what makes the six above a statement about the
@@ -416,17 +477,53 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     const masked = control.attempts.filter((outcome) => outcome.outcome === 'unverified');
 
     expect(labelled(masked)).toEqual(['A->B insertOwnedBy', 'B->A insertOwnedBy']);
-    expect(control.attempts).toHaveLength(10);
+    expect(control.attempts).toHaveLength(14);
 
     for (const outcome of masked) {
       expect(outcome.refusalKind).toBe('unrecognised');
       expect(outcome.refusedWith).toContain('23514');
     }
 
-    // The reads are scoped correctly and the update and delete reach nothing they can
-    // see, so those eight are real passes — which is what makes the two above a
-    // statement about the refusal rather than about the table.
-    expect(control.attempts.filter((outcome) => outcome.outcome === 'pass')).toHaveLength(8);
+    // ---------------------------------------------------------------------------
+    // F-302. WHAT THIS ASSERTION USED TO SAY, AND WHY THAT WAS WORSE THAN SILENCE.
+    // ---------------------------------------------------------------------------
+    //
+    // It read `expect(...outcome === 'pass').toHaveLength(8)`, over a canary that
+    // carries `FOR UPDATE USING (true) WITH CHECK (true)` and `FOR DELETE USING (true)`,
+    // with a comment explaining that the update and delete "reach nothing they can see"
+    // and are therefore "real passes". Both halves were true and the conclusion was
+    // wrong: they reach nothing they can see BECAUSE PostgreSQL applies the SELECT
+    // policies to a write that references a column, and this table's SELECT policy is
+    // the only correct thing about its write path. Eight green attempts over two
+    // policies that admit every row of every tenant, asserted to be fine — which reads
+    // as coverage, and is harder to find than a missing test.
+    //
+    // What it says now: the four attempts that name nothing FAIL, and each names the
+    // tenant whose rows a statement with no WHERE clause reached.
+    expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'fail'))).toEqual([
+      'A->B deleteAll',
+      'A->B updateAll',
+      'B->A deleteAll',
+      'B->A updateAll',
+    ]);
+
+    for (const outcome of control.attempts.filter((o) => o.outcome === 'fail')) {
+      expect(outcome.leaks.join(' ')).toContain(outcome.target ?? '');
+    }
+
+    // The reads and the owner-qualified writes remain real passes — which is what makes
+    // the four above a statement about the unqualified shape and not about the table
+    // being broken in some way any attempt would have caught.
+    expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'pass'))).toEqual([
+      'A->B deleteOwnedBy',
+      'A->B findAll',
+      'A->B findOwnedBy',
+      'A->B updateOwnedBy',
+      'B->A deleteOwnedBy',
+      'B->A findAll',
+      'B->A findOwnedBy',
+      'B->A updateOwnedBy',
+    ]);
     expect(control.verdict).toBe('fail');
   }, 180_000);
 
@@ -445,11 +542,11 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'pass'))).toEqual([
       'A->B insertOwnedBy',
     ]);
-    expect(control.attempts).toHaveLength(10);
+    expect(control.attempts).toHaveLength(14);
 
     const unverified = control.attempts.filter((outcome) => outcome.outcome === 'unverified');
 
-    expect(unverified).toHaveLength(9);
+    expect(unverified).toHaveLength(13);
     expect(unverified.filter((outcome) => outcome.unverifiedBecause === undefined)).toEqual([]);
 
     // The row counts that make "denied" and "found nothing" different answers, in the
@@ -460,6 +557,118 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
     expect(control.verdict).toBe('fail');
   }, 180_000);
+
+  it('F-302: a wide-open UPDATE and DELETE policy behind a correct SELECT policy is reported as failing', async () => {
+    // THE r2 BLOCKER, MADE PERMANENT. The auditor's mutation was one statement against
+    // the migrated production table — `ALTER POLICY tenants_self_update ON tenants USING
+    // (true) WITH CHECK (true)` — and under it, in an ordinary tenant-A transaction as
+    // `shortkit_app`, `UPDATE tenants SET name = 'pwned-by-tenant-A'` reported UPDATE 2
+    // and BOTH tenants' rows read `pwned-by-tenant-A` afterwards. Reproduced end to end
+    // on 2026-08-11; tenant B's data destroyed by tenant A. Under that database this
+    // suite reported `isolation coverage - PASS`, 15 passed, exit 0, and
+    // `db:check-policies` OK.
+    //
+    // `isolation_unqualified_write_canary` is that database as DDL, so the measurement
+    // runs on every CI run rather than once. Its SELECT and INSERT policies are correct
+    // and its UPDATE and DELETE policies admit every row of every tenant.
+    const control = await runCrossTenantAttempts([unqualifiedWriteCanaryAccess], fixtures);
+
+    // Ten of the fourteen pass, and that is the finding rather than an aside: every
+    // statement shape the harness had before this round is routed through the SELECT
+    // policy by PostgreSQL and answers zero rows, so the table reads as isolated. The
+    // ownership census is clean for the same reason.
+    expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'fail'))).toEqual([
+      'A->B deleteAll',
+      'A->B updateAll',
+      'B->A deleteAll',
+      'B->A updateAll',
+    ]);
+    expect(control.attempts).toHaveLength(14);
+    expect(control.attempts.filter((outcome) => outcome.outcome === 'unverified')).toEqual([]);
+
+    // Each failure names what leaked and to whom: the row count the statement itself
+    // reported against the number of its own rows the acting tenant was shown to see,
+    // and the tenant that owns the rows it should not have touched.
+    for (const outcome of control.attempts.filter((o) => o.outcome === 'fail')) {
+      expect(outcome.leaks.join(' ')).toContain(outcome.target ?? '');
+      expect(outcome.leaks.join(' ')).toContain('2 row(s) affected');
+      expect(outcome.leaks.join(' ')).toContain('only 1 row(s) of its own');
+    }
+
+    expect(control.verdict).toBe('fail');
+  }, 180_000);
+
+  it('F-303: a tenant-scoped table whose owner column is not called tenant_id is named, rather than silently uncovered', async () => {
+    // `tenantScopedTableDrift()` enumerated on the LITERAL column name `tenant_id`, so
+    // the one mechanism F-296 added to catch an unregistered table could not see a table
+    // that spells its owner column any other way — which ADR-0019 records as an accepted
+    // cost of the naming convention, and which the registry's own `ownerColumn` field
+    // has always contradicted.
+    //
+    // Measured on 2026-08-11 before the fix: this exact table, with ENABLE, FORCE and
+    // `USING (true)`, returned tenant B's `actor_email` inside tenant A's transaction
+    // while the suite was 15 passed, `registryDrift` was empty in both directions and
+    // `db:check-policies` reported "OK: 2 table(s) in schema public, all protected".
+    createUnregisteredOwnerColumnProbe();
+
+    try {
+      expect(tenantScopedTableDrift()).toEqual({
+        inDatabaseNotRegistered: [UNREGISTERED_OWNER_COLUMN_PROBE],
+        registeredNotInDatabase: [],
+      });
+
+      // ...and it really does leak, so the drift check is the only thing between this
+      // table and a green run. Read through the production path as `shortkit_app`, in
+      // tenant A's transaction: a correct policy answers zero rows here.
+      const seenByTenantA = await withTenantTransaction(
+        fixtures.tenantA.id,
+        async (db): Promise<{ owning_tenant: string }[]> => {
+          const result = await db.execute<{ owning_tenant: string }>(
+            sql`select owning_tenant from ${sql.identifier(UNREGISTERED_OWNER_COLUMN_PROBE)}`,
+          );
+
+          return [...result.rows];
+        },
+      );
+
+      expect(seenByTenantA.map((row) => row.owning_tenant)).toEqual([fixtures.tenantB.id]);
+    } finally {
+      dropUnregisteredOwnerColumnProbe();
+    }
+  }, 180_000);
+
+  it('F-304: report.json says `incomplete` from the moment a run starts, so a run that dies leaves no stale pass', () => {
+    // MEASURED, on 2026-08-11. `report.json` was written once, after the attempts. With
+    // `tenants_self_select` altered to `USING (true)`, `createTenantFixtures()` threw in
+    // `beforeAll` — the F-293 absolute census assertion doing exactly its job — vitest
+    // exited 1 with all 15 tests skipped, and the artifact on disk still read
+    // `verdict=pass` carrying the PREVIOUS run's `runAt`. The most alarming failure this
+    // harness has was precisely the one that stranded a green artifact, and F-297 is
+    // about to start uploading that artifact from CI.
+    //
+    // The break this catches: `beginIsolationReport()` removed from `beforeAll`, or
+    // moved below anything that can throw. Both put a stale `pass` back on disk.
+    const inFlight = JSON.parse(reportOnDiskWhileTheRunWasInFlight) as IsolationReport;
+
+    expect(inFlight.verdict).toBe('incomplete');
+    expect(inFlight.incompleteBecause).toContain('NOTHING HERE IS EVIDENCE OF ISOLATION');
+    expect(inFlight.attempts).toEqual([]);
+
+    // ...and the completed run overwrote it, which is the other half: an artifact
+    // permanently stuck at `incomplete` would satisfy the assertion above and tell CI
+    // nothing.
+    //
+    // Deliberately NOT asserted as `pass` here. Whether this run passed is what the
+    // AC-12 test above decides; coupling that verdict into this one would make the
+    // F-304 assertion fail on every genuine leak, which is precisely when a reader most
+    // needs to know the artifact is this run's and not the last one's.
+    const finished = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
+
+    expect(finished.verdict).not.toBe('incomplete');
+    expect(finished.incompleteBecause).toBeUndefined();
+    expect(finished.attempts).toHaveLength(28);
+    expect(finished.runAt).not.toBe(inFlight.runAt);
+  });
 
   it('AC-12: no row changed tenant across the run (AC-95)', async () => {
     // isolation-coverage.md's declared post-run check, against the census taken when
