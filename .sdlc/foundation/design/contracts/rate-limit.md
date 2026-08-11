@@ -142,15 +142,24 @@ fallback, or under no principal at all; an unauthenticated forwarded header is i
 never rejected, so probing reveals nothing. Failing boot on a mismatch would be wrong: the
 same process serves the redirect path (GC-8, AC-86), and "matches" cannot be verified
 locally. What *is* locally checkable is asserted, and there are now **two** such
-assertions, both called in `main.ts` by TASK-009:
+assertions, both called **unconditionally** from `main.ts` by TASK-009. **Neither reads
+`NODE_ENV`. Each keys on a declared property of the deployment** (F-380, F-385):
 
-| Assertion | Fails boot in production when | Normative in |
+| Assertion | Refuses boot when | Normative in |
 |---|---|---|
-| `assertBffProxySecretConfigured()` | `BFF_PROXY_SECRET` is unset or empty | this contract, below |
-| `assertTrustedClientIpHeaderConfigured()` | `TRUSTED_CLIENT_IP_HEADER` is unset, empty, malformed, or names a forwarding header | `trusted-client-address.md` |
+| `assertBffProxySecretConfigured()` | `BFF_TRUST_BOUNDARY` is `bff` and `BFF_PROXY_SECRET` is unset or empty; **or** `BFF_TRUST_BOUNDARY` holds an unrecognised value, in every environment | this contract, below |
+| `assertTrustedClientIpHeaderConfigured()` | `CLIENT_TRUST_BOUNDARY` is `proxy` and `TRUSTED_CLIENT_IP_HEADER` is unset, empty, malformed or forbidden; **or** `CLIENT_TRUST_BOUNDARY` holds an unrecognised value, in every environment | `trusted-client-address.md` |
 
-`BFF_PROXY_SECRET` is required configuration on both deployables: the API side (this
-assertion) and Vercel (TASK-004, `web-api-client.md`).
+**Revised 2026-08-11 (F-385).** Both cells read "fails boot in production when". `Dockerfile:83`
+is `ENV NODE_ENV=production` in the image `docker compose` runs, and the compose `api` service
+sets only `DATABASE_URL` (`docker-compose.yml:227`, ADR-0035), so both assertions would have
+refused to boot `api` on a developer's laptop the day TASK-009 landed. F-380 moved the second
+assertion off `NODE_ENV` and left this table stale; F-385 moves the first and corrects both cells.
+
+`BFF_PROXY_SECRET` is required configuration on both deployables, and **the two requirements are
+not symmetric**. On the API side it is required when `BFF_TRUST_BOUNDARY=bff`, below. On Vercel
+it is required unconditionally, because a BFF proxy route that cannot authenticate itself to the
+API has no reason to exist (TASK-004, TASK-012, `web-api-client.md`).
 
 **This does not weaken F-009.** That rule forbids trusting a *client-supplied* address,
 and an anonymous attacker cannot produce the shared secret.
@@ -165,6 +174,79 @@ nothing else. `click-events.md` and this contract both point at
 
 The secret is rotated by setting both sides and redeploying; a mismatch degrades to the
 declared-header fallback and is visible on `bff_proxy_auth_mismatch_total`.
+
+### The BFF trust boundary
+
+Added 2026-08-11 (F-385). **`assertBffProxySecretConfigured` keys on a declared property, not on
+`NODE_ENV`.** It was specified here and in the design stub as "throws when
+`NODE_ENV === 'production'` and `BFF_PROXY_SECRET` is unset or empty". `Dockerfile:83` sets that
+`NODE_ENV` in the image `docker compose` runs and the compose `api` service sets no secret, so
+that form refuses to boot `api` on a laptop. ADR-0040 holds the reasoning and the rejected
+alternatives, including why this is a second variable rather than a second meaning of
+`CLIENT_TRUST_BOUNDARY`.
+
+```
+BFF_TRUST_BOUNDARY = bff | direct        # unset is read as direct
+```
+
+| Value | Meaning | Effect on `BFF_PROXY_SECRET` |
+|---|---|---|
+| `bff` | the first-party Next BFF forwards client addresses to this API, authenticated by the shared secret | **required**. Boot fails when it is unset or empty |
+| `direct` | no BFF forwards to this API. The BFF branch is dead weight | not required. Not read by the assertion |
+| unset | read as `direct`. The default, and it asserts nothing | not required |
+| any other value | **boot fails, in every environment, unconditionally** | not reached |
+
+Two checks, one conditional and one not, matching `CLIENT_TRUST_BOUNDARY`'s split exactly:
+
+1. **Validity of `BFF_TRUST_BOUNDARY` is asserted unconditionally.** `Bff`, `true`, `proxy` and
+   `1` all fail boot everywhere, including in tests and in CI. A typo must not silently mean
+   `direct`, because `direct` is the branch that skips the requirement.
+2. **The secret requirement is asserted only under `bff`.** A stack that declares no boundary
+   asserts nothing and runs with the BFF branch disabled.
+
+**`BFF_TRUST_BOUNDARY` does not affect the read.** F-033's four rules depend on
+`BFF_PROXY_SECRET` and the two headers and on nothing else. Rule 1 already disables the branch
+unconditionally when the secret is unset, so a `direct` deployment that receives
+`X-Shortkit-Proxy-Auth` ignores it for the reason it always did. The boundary governs whether
+*forgetting* the secret is an error; it never governs what is trusted.
+
+**Two declarations, because they are two facts.** `CLIENT_TRUST_BOUNDARY` says a hop in front
+terminates client connections and strips a header. `BFF_TRUST_BOUNDARY` says our own frontend
+forwards an address it authenticates with a secret. They vary independently. An API reachable at
+its own origin with Vercel proxying browser traffic to it is `direct` for the first and `bff` for
+the second, and that is the deployment where the secret is the only source of a rate-limit
+principal.
+
+The assertion checks **set and non-empty**, not the base64url format the Vercel half enforces.
+That divergence is F-169's and is recorded below under "BFF_PROXY_SECRET — enforced format".
+F-385 did not reopen it.
+
+The exact strings:
+
+```ts
+export const BFF_TRUST_BOUNDARY_ENV = 'BFF_TRUST_BOUNDARY';
+
+/** Unset is read as 'direct'. Anything outside this set fails boot, everywhere. */
+export const BFF_TRUST_BOUNDARIES = ['bff', 'direct'] as const;
+export type BffTrustBoundary = (typeof BFF_TRUST_BOUNDARIES)[number];
+
+export const BFF_TRUST_BOUNDARY_INVALID_MESSAGE =
+  'BFF_TRUST_BOUNDARY must be "bff" or "direct", or unset. It is not NODE_ENV and it is not a boolean.';
+
+export const BFF_PROXY_SECRET_UNSET_MESSAGE =
+  'BFF_TRUST_BOUNDARY is "bff" but BFF_PROXY_SECRET is not set. A BFF-fronted deployment must carry the shared secret on both sides. See design/contracts/rate-limit.md.';
+```
+
+No message interpolates a configured value: an environment read is not eligible for error text
+(ADR-0029).
+
+**What this cannot check**, and it is the same residual its sibling carries: an operator who
+declares neither variable in a real BFF deployment boots cleanly. Every browser request then
+falls through to the declared header, which under ADR-0014 is one address for the entire
+product, and the four IP buckets collapse into one. That state is loud in metrics and silent at
+boot — the BFF still sends `X-Shortkit-Proxy-Auth`, F-033 rule 1 counts every one of them, and
+`bff_proxy_auth_mismatch_total` is nonzero from the first request. A counter is weaker than a
+refusal, and ADR-0040 records it as the price.
 
 ### What a `null` principal does to each bucket
 
@@ -220,7 +302,7 @@ outcome was that it never got built.
 |---|---|---|
 | `authBodyCap` | `apps/api/src/auth/middleware/auth-body-cap.ts` | **TASK-009** |
 | `authRateLimit` (IP buckets) | `apps/api/src/auth/middleware/auth-rate-limit.ts` | **TASK-009** |
-| `resolveRateLimitPrincipal`, header constants, `assertBffProxySecretConfigured` | `apps/api/src/auth/resolve-rate-limit-principal.ts` | **TASK-009** (wave 2; TASK-051's guard imports it) |
+| `resolveRateLimitPrincipal`, header constants, `assertBffProxySecretConfigured`, the `BFF_TRUST_BOUNDARY` constants and messages | `apps/api/src/auth/resolve-rate-limit-principal.ts` | **TASK-009** (wave 2; TASK-051's guard imports it) |
 | email bucket, `hooks.before` | `apps/api/src/auth/auth.config.ts` | **TASK-009** |
 | `AuthRateLimitPort` and its token | `apps/api/src/auth/ports/auth-rate-limit.port.ts` | **TASK-009** |
 | `LocalAuthRateLimiter` (in-process) | `apps/api/src/auth/ports/local-auth-rate-limiter.ts` | **TASK-009** |
@@ -576,6 +658,16 @@ Handled in `apiClient`, centrally, so no screen reimplements it.
   `assertBffProxySecretConfigured()`, and the integration suite sets
   `TRUSTED_CLIENT_IP_HEADER=x-test-client-ip` so the IP buckets are exercisable at all.
   Without that variable F-025's six-different-client-IPs test passes for the wrong reason.
+- **Both calls are unconditional and neither function reads `NODE_ENV`** (F-380, F-385). The
+  gating lives inside each function and keys on its own boundary variable. A test asserting
+  either boot behaviour sets `CLIENT_TRUST_BOUNDARY` or `BFF_TRUST_BOUNDARY`, never `NODE_ENV`.
+- **Three boot tests for this assertion**, all cheap: `BFF_TRUST_BOUNDARY=bff` with no secret
+  refuses; `BFF_TRUST_BOUNDARY=Bff` refuses whatever else is set; unset with no secret boots and
+  the BFF branch stays disabled by F-033 rule 1.
+- **`docker compose up` must boot `api` with none of the four variables set.** That is the case
+  F-385 was filed on. It is worth an explicit test rather than an inference, because the image
+  it runs carries `ENV NODE_ENV=production` and every future production-gated check meets the
+  same trap.
 - `docs/architecture/rate-limits.md` records the limit, the window, the fixed-window
   boundary caveat, and the degraded multiplier.
 - `RateLimitGuard` appears in TASK-056's route enumeration like any other guard, and

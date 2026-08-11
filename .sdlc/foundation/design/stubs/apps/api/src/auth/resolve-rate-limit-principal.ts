@@ -74,12 +74,50 @@
  *     down redirects. "Matches" cannot be verified locally anyway.
  *
  * BOOT-TIME ASSERTION — "set", which IS locally checkable:
- * assertBffProxySecretConfigured() throws when NODE_ENV === 'production' and
- * BFF_PROXY_SECRET is unset or empty. TASK-009 calls it in main.ts beside the
- * auth mount. This catches the common misconfiguration (variable forgotten on the
- * API side) without coupling boot to the other deployable. BFF_PROXY_SECRET is
- * REQUIRED configuration on both deployables: the API (here) and Vercel (TASK-004,
- * web-api-client.md).
+ * assertBffProxySecretConfigured() catches the common misconfiguration (variable
+ * forgotten on the API side) without coupling boot to the other deployable.
+ *
+ * ============================================================================
+ * F-385. THE TRIGGER IS BFF_TRUST_BOUNDARY, NEVER NODE_ENV.
+ * ============================================================================
+ *
+ * This assertion was specified as "throws when NODE_ENV === 'production' and
+ * BFF_PROXY_SECRET is unset or empty". Dockerfile:83 is ENV NODE_ENV=production in the
+ * image docker compose runs, and the compose api service sets only DATABASE_URL
+ * (docker-compose.yml:227, ADR-0035), so that form REFUSES TO BOOT api ON A LAPTOP.
+ * Same live break F-380 removed from assertTrustedClientIpHeaderConfigured, arrived at
+ * independently. Fixed here, not by that repair.
+ *
+ *   BFF_TRUST_BOUNDARY = bff | direct        # unset is read as direct
+ *
+ *   bff    — the first-party Next BFF forwards client addresses to this API,
+ *            authenticated by the shared secret. BFF_PROXY_SECRET is REQUIRED and boot
+ *            fails when it is unset or empty.
+ *   direct — no BFF forwards to this API. Nothing is required. The BFF branch above is
+ *            already disabled by rule 1.
+ *   unset  — read as direct. The default, and it asserts nothing.
+ *   else   — BOOT FAILS, IN EVERY ENVIRONMENT, INCLUDING TESTS AND CI. 'Bff', 'true',
+ *            'proxy' and '1' all refuse. A typo must not silently mean direct, which is
+ *            the branch that skips the requirement.
+ *
+ * IT IS A SEPARATE VARIABLE FROM CLIENT_TRUST_BOUNDARY, ON PURPOSE. That one declares a
+ * hop that strips and sets a header; this one declares a BFF that forwards an address it
+ * authenticates. They vary independently: an API reachable at its own origin behind a
+ * Vercel BFF is direct for one and bff for the other, and it is the deployment where the
+ * secret is the ONLY source of a rate-limit principal. ADR-0040 records why folding them
+ * together lost.
+ *
+ * BFF_TRUST_BOUNDARY DOES NOT AFFECT THE READ. Rules 1 to 4 above depend on
+ * BFF_PROXY_SECRET and the two headers and nothing else. The boundary governs whether
+ * FORGETTING the secret is an error; it never governs what is trusted.
+ *
+ * BFF_PROXY_SECRET is REQUIRED configuration on both deployables, and the two are NOT
+ * symmetric: on the API side it is required under BFF_TRUST_BOUNDARY=bff, and on Vercel
+ * it is required unconditionally (TASK-004, TASK-012, web-api-client.md).
+ *
+ * The assertion checks SET AND NON-EMPTY. It does NOT check the base64url >= 32
+ * character format the Vercel half enforces; that divergence is F-169's and F-385 did
+ * not reopen it.
  *
  * ============================================================================
  * F-320 / ADR-0040. THE FALLBACK IS DECLARED, AND MAY BE ABSENT.
@@ -108,6 +146,8 @@
  * TASK-009 also calls assertTrustedClientIpHeaderConfigured() in main.ts, beside
  * assertBffProxySecretConfigured(), and the integration suite sets
  * TRUSTED_CLIENT_IP_HEADER=x-test-client-ip so the IP buckets are exercisable at all.
+ * BOTH CALLS ARE UNCONDITIONAL AND NEITHER FUNCTION READS NODE_ENV. The gating is inside
+ * each function, on its own boundary variable.
  */
 
 /** Lowercase, as Node presents incoming header names. Set by the BFF (TASK-012). */
@@ -138,12 +178,38 @@ export function resolveRateLimitPrincipal(_headers: RateLimitRequestHeaders): st
   throw new Error('not implemented');
 }
 
+export const BFF_TRUST_BOUNDARY_ENV = 'BFF_TRUST_BOUNDARY';
+
+/** Unset is read as 'direct'. Anything outside this set fails boot, everywhere. */
+export const BFF_TRUST_BOUNDARIES = ['bff', 'direct'] as const;
+export type BffTrustBoundary = (typeof BFF_TRUST_BOUNDARIES)[number];
+
+export const BFF_TRUST_BOUNDARY_INVALID_MESSAGE =
+  'BFF_TRUST_BOUNDARY must be "bff" or "direct", or unset. It is not NODE_ENV and it is not a boolean.';
+
+export const BFF_PROXY_SECRET_UNSET_MESSAGE =
+  'BFF_TRUST_BOUNDARY is "bff" but BFF_PROXY_SECRET is not set. A BFF-fronted deployment must carry the shared secret on both sides. See design/contracts/rate-limit.md.';
+
 /**
- * Production-only. Asserts BFF_PROXY_SECRET is SET AND NON-EMPTY — not that it
- * matches the BFF's copy, which no local check can establish.
+ * Called UNCONDITIONALLY from main.ts. The gating is inside, and it keys on
+ * BFF_TRUST_BOUNDARY, NEVER on NODE_ENV (F-385; Dockerfile:83 is
+ * ENV NODE_ENV=production in the image docker compose runs).
+ *
+ *   1. ALWAYS: BFF_TRUST_BOUNDARY, if set, is 'bff' or 'direct'.
+ *      Otherwise throw BFF_TRUST_BOUNDARY_INVALID_MESSAGE.
+ *   2. ONLY when it is 'bff': BFF_PROXY_SECRET is set and non-empty.
+ *      Otherwise throw BFF_PROXY_SECRET_UNSET_MESSAGE.
+ *   3. Unset or 'direct': assert nothing further and return.
+ *
+ * Asserts SET AND NON-EMPTY, not that the value MATCHES the BFF's copy, which no local
+ * check can establish (F-033), and not the base64url format Vercel enforces (F-169).
+ *
+ * The message NEVER interpolates a configured value: an environment read is not eligible
+ * for error text (ADR-0029).
  *
  * Its sibling assertTrustedClientIpHeaderConfigured() lives in the shared module and is
- * normative in trusted-client-address.md. Both are called from main.ts by TASK-009.
+ * normative in trusted-client-address.md. Both are called from main.ts by TASK-009, both
+ * unconditionally, and each keys on its own boundary variable.
  */
 export function assertBffProxySecretConfigured(_env: Record<string, string | undefined>): void {
   throw new Error('not implemented');

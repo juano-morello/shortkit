@@ -83,6 +83,17 @@ complaint. Nothing local can tell a bare process that it was supposed to be behi
 The state is observable rather than silent, and `trusted_client_ip_unresolved_total` is the
 thing that makes it so, which is why that counter is load-bearing rather than decorative.
 
+**The sibling declaration.** Added 2026-08-11 (F-385). `assertBffProxySecretConfigured` carried
+the same `NODE_ENV` trigger, independently, and now keys on
+`BFF_TRUST_BOUNDARY = bff | direct`, normative in `rate-limit.md`. **It is a separate variable
+on purpose.** This one declares whether a hop in front strips and sets a header; that one
+declares whether the first-party BFF forwards an address it authenticates with a shared secret.
+The hops differ, the trust rests on different things, and the two vary independently — an API
+reachable at its own origin behind a Vercel BFF is `direct` here and `bff` there. What they
+share is the discipline, and sharing it is the point: **a boot assertion keys on a declared
+property of the deployment, never on a build flag**, unset means the permissive value, and an
+unrecognised value is fatal in every environment. ADR-0040 holds both rulings.
+
 ## Normative source
 
 ```ts
@@ -280,7 +291,8 @@ redeploy. Changing either resets no state: rate-limit keys expire within their w
 
 Adding a third `CLIENT_TRUST_BOUNDARY` value is a change to this contract. The set is two
 because there are two topologies, and an enum that grows to cover deployment nuance is how a
-trust boundary becomes a configuration language.
+trust boundary becomes a configuration language. `BFF_TRUST_BOUNDARY` is a sibling variable and
+**not** a third value of this one; F-385 records why folding the two together was rejected.
 
 Accepting a **list** of header names, or a second header as a fallback, is a change to this
 contract and needs its own reasoning. The single-name form is deliberate: a fallback chain is

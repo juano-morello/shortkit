@@ -63,18 +63,9 @@ tasks:
 # TASK-011, TASK-012, TASK-054, TASK-058. They stay in findings.yaml (append-only), parked
 # with the deferral rather than closed.
 
-escalations:
-  - task: TASK-059
-    findings: [F-385]
-    raised: 2026-08-11
-    reason: >-
-      assertBffProxySecretConfigured has the SAME defect as F-380 and INDEPENDENTLY - specified as
-      NODE_ENV === 'production' in rate-limit.md and the stub, with Dockerfile:83 setting that
-      NODE_ENV and ADR-0035 recording that compose does not set BFF_PROXY_SECRET. SO REPAIRING
-      ADR-0040 ALONE DOES NOT UNBREAK `docker compose up`; the sibling still refuses to boot api the
-      day TASK-009 lands. I framed it as collateral when I dispatched F-380 and the architect
-      corrected me. Bounded rather than left open: the other two boot assertions run unconditionally
-      and read no NODE_ENV, so the defect is confined to the two unwritten assertions TASK-009 owns.
+escalations: []
+# F-385 CLEARED 2026-08-11 by the two-property ruling: CLIENT_TRUST_BOUNDARY and
+# BFF_TRUST_BOUNDARY, same shape, two facts. NO TASK IS ESCALATED; ship.md rule 50 is satisfied.
 # F-380 CLEARED 2026-08-11 by the trust-boundary ruling; the trigger is CLIENT_TRUST_BOUNDARY.
 escalations_cleared_f380:
   - task: TASK-059

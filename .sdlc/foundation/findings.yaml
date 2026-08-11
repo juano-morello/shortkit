@@ -12958,6 +12958,93 @@
     assertTrustedClientIpHeaderConfigured() "fails boot in production when..." which F-380 just made
     stale - so both belong in ONE edit.
   owner_slot: sdlc-architect
-  status: escalated
+  status: fixed
+  resolved_by: "sdlc-architect under Juano's ruling"
+  resolved_round: 1
+  resolution: >-
+    APPLIED, AND IT REJECTED ADR-0040's OWN RECOMMENDATION - AND MY DISPATCH'S FRAMING - WITH TWO
+    CONCRETE DEPLOYMENTS RATHER THAN AN ARGUMENT. I asked whether the two assertions share one
+    declared property. THE ANSWER IS TWO, because they are two facts about two hops with two trust
+    mechanisms that vary independently: CLIENT_TRUST_BOUNDARY is about a hop that STRIPS a header,
+    so trust rests on the stripping; BFF_TRUST_BOUNDARY is about our own frontend FORWARDING an
+    address it AUTHENTICATES with a shared secret, so trust rests on the secret - which works with
+    or without a stripping hop, and that is F-033's whole point.
+    THE TWO DEPLOYMENTS THAT BREAK THE COLLAPSE, NEITHER HYPOTHETICAL AFTER ADR-0014 AND ADR-0030:
+    an API at its own origin with Vercel proxying browser traffic is `direct` for the header and
+    BFF-fronted for the secret - and it is the deployment where THE SECRET IS THE ONLY SOURCE OF A
+    RATE-LIMIT PRINCIPAL, so gating on `proxy` asserts nothing exactly where it matters most. And
+    an API behind a CDN serving redirects with no web app is `proxy` with no BFF, where gating on
+    `proxy` refuses boot until the operator INVENTS A SECRET NOTHING READS - teaching `set the
+    variable to silence the error`, which is the fixture alternative Juano rejected, reached by a
+    longer road.
+    So BFF_TRUST_BOUNDARY = bff | direct, THE SAME SHAPE AS ITS SIBLING DELIBERATELY. Juano's `one
+    reader learns one rule` is served by the SHAPE being shared rather than by one variable standing
+    for two things - which is the substitution NODE_ENV was already making.
+    THE UNCONDITIONAL-INVALID-VALUE RULE CARRIES OVER, CONSIDERED RATHER THAN COPIED: `direct` is
+    the permissive branch and what unset means, so a typo must not reach it silently. It named the
+    one honest difference - a mis-set boundary here has a second signal, bff_proxy_auth_mismatch_total
+    - and kept the refusal anyway, because a counter nobody watches yet is not a substitute for one.
+    AND IT PRICED THIS AS A WORSE TRADE THAN F-380's, IN ITS OWN WORDS: what F-380 gave up catching
+    was an absent limit; this gives up catching A PRODUCT OUTAGE - forget both variables in a real
+    BFF deployment and every browser request falls through to one product-wide address, 3 signups
+    an hour and 10 sign-ins per 5 minutes for everyone, which is the F-031 outage by configuration.
+    Both cells of rate-limit.md's two-assertion table were wrong - its own and the one F-380 left
+    stale - and both are rebuilt. The stub typechecks under the repo's pinned TypeScript, verified
+    on a scratchpad copy.
+
+- id: F-386
+  phase: ship
+  task: null
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/foundation/design/contracts/mail-sender.md
+  line: 1
+  summary: >-
+    A THIRD INSTANCE OF THE NODE_ENV TRAP, AND IT IS THE WORST OF THE THREE BECAUSE IT DOES NOT
+    REFUSE TO BOOT. mail-sender.md binds `ResendMailSender` when NODE_ENV is `production` or
+    `staging`. Dockerfile:83 makes that true under `docker compose up`, SO THE LOCAL COMPOSE STACK
+    BINDS THE LIVE RESEND SENDER.
+  failure_scenario: >-
+    It boots cleanly and waits. The first time anyone invites someone from a local stack, REAL EMAIL
+    GOES TO A REAL ADDRESS from a developer's laptop. F-380 and F-385 both fail LOUDLY - they refuse
+    to boot - and this one fails SILENTLY AND LATER, which is the shape that reaches a person rather
+    than a log.
+    THE TWO TEST GUARDS DO NOT COVER IT, and the reason is the point: compose is not a test runner.
+    Found by the architect while applying F-385, having been asked whether any THIRD ASSERTION
+    shared the defect. Its answer was no - readBuildCommitSha() and assertRuntimeRoleCannotBypassRls()
+    both run unconditionally and read no NODE_ENV, and the only other shipped read is a log base
+    field - and then it named this, which is not an assertion at all and is worse.
+    NOT REACHABLE TODAY: mail is unwritten and TASK-017's provider work is deferred with EPIC-002.
+    Filed because the compose stack now exists and the binding rule already does.
+  required_change: >-
+    The sender binding is gated on a declared property rather than on NODE_ENV, the same way F-380
+    and F-385 now are - or mail-sender.md states why a build flag is the right trigger for this one.
+    mail-sender.md and ADR-0017 were outside the architect's write surface.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-387
+  phase: ship
+  task: null
+  source: sdlc-architect
+  round: 1
+  severity: nit
+  kind: contract
+  file: .sdlc/foundation/design/contracts/web-api-client.md
+  line: 1
+  summary: >-
+    web-api-client.md states BFF_PROXY_SECRET as required configuration and may describe the
+    API-side requirement in the same breath. rate-limit.md is normative and now states the
+    asymmetry, so if that file contradicts it, it is a one-line fix.
+  failure_scenario: >-
+    Flagged rather than fixed: it was outside the write surface, and the architect said plainly it
+    had NOT verified whether a contradiction exists rather than implying it had checked.
+  required_change: Read it against rate-limit.md's new asymmetry; fix if it contradicts.
+  owner_slot: sdlc-architect
+  status: open
   resolved_by: null
   resolved_round: null

@@ -147,6 +147,76 @@ therefore declare the header alone, and declares both so its intent is on the re
 The exact error strings, including the new one for an invalid boundary value, are in
 `trusted-client-address.md`. They are stated there once and this ADR does not repeat them.
 
+### The sibling assertion declares its own boundary
+
+Added 2026-08-11 (F-385). The follow-up below named `assertBffProxySecretConfigured` as carrying
+the same trigger independently and left it there. It is not merely the same shape. It is the
+same live break in the same stack: `rate-limit.md` and the design stub both specified "throws
+when `NODE_ENV === 'production'` and `BFF_PROXY_SECRET` is unset or empty", `Dockerfile:83` sets
+that `NODE_ENV` in the image `docker compose` runs, and the compose `api` service's environment
+block carries `DATABASE_URL` and nothing else (`docker-compose.yml:227`, ADR-0035). Repairing
+this ADR alone left `docker compose up` refusing to boot `api` from the day TASK-009 landed.
+
+It gets the same treatment, and the reason that decided it is worth stating: **one reader should
+learn one rule rather than two exceptions.** The rule is that a boot assertion keys on a declared
+property of the deployment and never on a build flag.
+
+Two smaller routes to a booting stack were considered. Both lost.
+
+**Give the compose stack a fixture `BFF_PROXY_SECRET`.**
+
+- **Pros.** The smallest change available. No new variable, no contract amendment, and it works
+  today. The compose file already carries fixture credentials with comments saying they are
+  fixtures, so the pattern is established and a reader would not be surprised.
+- **Cons.** It leaves the `NODE_ENV` trigger in place on an assertion sitting beside one that no
+  longer has it, so F-380's argument applies to one and not the other and the next reader has to
+  learn which is which. It also repairs one environment: a second local stack, a CI job, or a
+  developer running the image directly still meets the refusal, and each gets its own fixture.
+- **Why it lost.** It buys the boot back by giving up the rule.
+
+**Gate it on `CLIENT_TRUST_BOUNDARY=proxy`**, which the follow-up below suggested, on the grounds
+that `proxy` is precisely the condition under which a BFF secret is required.
+
+- **Pros.** No fourth environment variable on the API side. One declaration covers both
+  assertions, so a reader learns one name, and a deployment says its topology once. It is the
+  smaller design and it was this ADR's own recommendation.
+- **Cons.** `proxy` is not that fact. `CLIENT_TRUST_BOUNDARY` declares that a hop in front
+  terminates client connections and strips a header; the BFF secret declares that our own
+  frontend forwards an address it authenticates. The two vary independently, and the case that
+  breaks the collapse is not hypothetical. An API reachable at its own origin with Vercel
+  proxying browser traffic to it is `direct` for the header question and BFF-fronted for the
+  secret question, and it is the deployment where the secret is the **only** source of a
+  rate-limit principal. Gating on `proxy` falls silent exactly there. The converse misfires too:
+  an API behind a CDN serving redirects with no web app deployed would be refused boot until its
+  operator invented a secret nothing reads, which teaches "set the variable to silence the
+  error" — the fixture alternative, reached by a longer road.
+- **Why it lost.** It makes one variable stand for two facts, which is the substitution
+  `NODE_ENV` was already making.
+
+So, a sibling declaration with the same shape:
+
+```
+BFF_TRUST_BOUNDARY = bff | direct        # unset is read as direct
+```
+
+`bff` requires `BFF_PROXY_SECRET` set and non-empty. `direct`, and unset, require nothing. Any
+other value fails boot in every environment, for the reason its sibling does: `direct` is the
+permissive branch and a typo must not reach it silently. The extra signal available here — a
+mis-set boundary in a real BFF deployment also shows up on `bff_proxy_auth_mismatch_total` —
+makes the unconditional check buy slightly less than it does next door. It stays anyway. It
+costs one comparison, and a counter nobody is watching yet is not a substitute for a refusal.
+
+The two variables share their shape deliberately: a named hop or `direct`, unset means `direct`,
+an unrecognised value is fatal everywhere. The rule is learned once and applied twice.
+
+The **read** is untouched. F-033's four rules depend on `BFF_PROXY_SECRET` and the two headers
+and on nothing else, and rule 1 already disables the branch unconditionally when the secret is
+unset. `BFF_TRUST_BOUNDARY` governs whether forgetting the secret is an error and never governs
+what is trusted. Blast radius is the assertion.
+
+The exact strings, including the two new ones, are in `rate-limit.md`, which is normative for
+this assertion. They are stated there once and this ADR does not repeat them.
+
 ### The read
 
 `readTrustedClientAddress(headers, env)` returns a string that `net.isIP` accepts, or `null`.
@@ -196,6 +266,13 @@ The normative mechanism, including the exact error strings and the shared source
 - **A malformed boundary value fails everywhere, not only in production.** The one check that
   can be made unconditional was made unconditional, so a typo surfaces in the environment that
   runs it rather than in the one nobody runs yet.
+- **Both boot assertions key on declared topology and neither reads `NODE_ENV`.** Added
+  2026-08-11 (F-385). `docker compose up` boots `api` with none of the four variables set,
+  which is the state the compose stack documents and the state it was in before either
+  assertion was specified. The next boot precondition anyone adds has a pattern to copy that
+  does not carry the trap.
+- **The two facts are separately declarable.** A deployment can say it is BFF-fronted without
+  claiming a stripping hop it does not have, and still get the secret assertion it needs.
 
 ### The cost accepted
 
@@ -245,6 +322,21 @@ The normative mechanism, including the exact error strings and the shared source
 - **A third required environment variable on the API side**, beside `BFF_PROXY_SECRET` and
   `CLICK_IP_HASH_KEY`. Each one is a thing an operator gets wrong at three in the morning, and
   `apps/api/.env.example` still does not exist to document any of them.
+- **A fourth, and two of the four exist only to say what the other two are for.** Added
+  2026-08-11 (F-385). `BFF_TRUST_BOUNDARY` joins `CLIENT_TRUST_BOUNDARY` as a declaration that
+  carries no value of its own; it exists so a boot check can fire. That is the price of not
+  letting one variable stand for two facts. `apps/api/.env.example`, still unwritten, has to
+  carry all four with the distinction spelled out, or an operator sets one boundary and assumes
+  the other followed.
+- **The BFF secret assertion is opt-in too, so the collapsed-bucket outage boots cleanly.**
+  Added 2026-08-11 (F-385). An operator who deploys the BFF and forgets both
+  `BFF_TRUST_BOUNDARY` and the secret gets a running process in which every browser request
+  falls through to the declared header, which under ADR-0014 is one address for the entire
+  product: 3 signups per hour and 10 sign-ins per 5 minutes, product-wide. That is the F-031
+  outage reached by configuration instead of by design. It is loud in metrics and silent at
+  boot, because the BFF still sends `X-Shortkit-Proxy-Auth` and F-033 rule 1 counts every one on
+  `bff_proxy_auth_mismatch_total`. Same trade as the sibling's, and it is worse here: what the
+  refusal would have caught is a product outage rather than an absent limit.
 - **The declaration is weaker than the property it stands for.** An operator can declare a
   header their infrastructure does not strip, boot cleanly, and be exactly as exposed as
   today. Nothing local can tell the difference. This is the same residual as
@@ -256,7 +348,7 @@ The normative mechanism, including the exact error strings and the shared source
 - TASK-009 writes `assertTrustedClientIpHeaderConfigured` and calls it in `main.ts` beside
   `assertBffProxySecretConfigured`. The call site is unconditional; the gating is inside the
   function.
-- **`assertBffProxySecretConfigured` has the same defect, independently, and this ADR does not
+- ~~**`assertBffProxySecretConfigured` has the same defect, independently, and this ADR does not
   fix it.** Added 2026-08-11 (F-380), named rather than repaired because it is a separate
   finding. Its specification in `rate-limit.md` and in the design stub is "throws when
   `NODE_ENV === 'production'` and `BFF_PROXY_SECRET` is unset or empty". `Dockerfile:83` sets
@@ -265,12 +357,20 @@ The normative mechanism, including the exact error strings and the shared source
   `docker compose up` for exactly the reason this amendment removed from its neighbour.
   **Repairing this ADR alone therefore does not unbreak `docker compose up`.** Whoever owns
   that finding has `CLIENT_TRUST_BOUNDARY` available: `proxy` is precisely the condition under
-  which a BFF secret is required. TASK-009 must not ship the `NODE_ENV` form.
+  which a BFF secret is required.~~ **Done 2026-08-11 (F-385)**, in "The sibling assertion
+  declares its own boundary" above. The facts in the struck text hold and were re-verified at
+  source. **Its recommendation was rejected**: `CLIENT_TRUST_BOUNDARY=proxy` and "a BFF is in
+  front" are two facts about two hops that vary independently, so gating on `proxy` falls
+  silent in the deployment where the secret is the only source of a principal. The trigger is
+  `BFF_TRUST_BOUNDARY`, normative in `rate-limit.md`. TASK-009 must not ship the `NODE_ENV`
+  form of either assertion.
 - The shared source `apps/api/src/common/net/trusted-client-address.ts` has no design stub.
   Its full source is fenced in the contract instead. Whichever of TASK-009 and TASK-033 lands
   first materialises it, and the other imports it, which puts a cross-EPIC import edge between
   EPIC-002 and EPIC-003 that nothing enforces today.
-- `apps/api/.env.example`, still unwritten under ADR-0030's follow-up, gains the variable.
+- `apps/api/.env.example`, still unwritten under ADR-0030's follow-up, gains
+  `TRUSTED_CLIENT_IP_HEADER`, `CLIENT_TRUST_BOUNDARY` and `BFF_TRUST_BOUNDARY`, with the
+  difference between the two boundaries written out rather than left to the names.
 - Testing the trust model needs a hop that strips the header. The compose stack has none, and
   adding one means a reverse proxy in front of `api` that ADR-0035 declined to write for the
   BFF. Recorded, not scheduled.

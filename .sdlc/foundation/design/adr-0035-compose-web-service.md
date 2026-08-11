@@ -154,6 +154,17 @@ variable today, so setting it would bake a wrong value to satisfy no reader.
 `assert:no-secrets`, which is Vercel's build command and CI's check. Nothing in the compose
 build reads the secret.
 
+**Nor does the `api` service set it at runtime, and that fact is now load-bearing twice.** Added
+2026-08-11 (F-385). The paragraph above is about this file's build; the `api` service's
+`environment` block carries `DATABASE_URL` and nothing else. ADR-0040 first cited that to
+explain why the compose stack cannot test the trusted-header model. F-385 cites it again for a
+different reason: `assertBffProxySecretConfigured` was specified to refuse boot when the secret
+is unset under `NODE_ENV=production`, which `Dockerfile:83` sets in the image this stack runs, so
+the assertion would have refused to boot `api` the day TASK-009 landed. That assertion now keys
+on `BFF_TRUST_BOUNDARY`, which the stack also does not set, so `api` sets neither and boots.
+**Adding a `BFF_PROXY_SECRET` to this service to satisfy a boot check is the alternative ADR-0040
+rejected.** A future change that wants one needs a reason of its own.
+
 **`web` declares no `depends_on`.** Nothing in `apps/web` calls the API, so a declared
 dependency would assert a relationship that does not exist. That is the shape the no-Redis
 ruling rejected on this same TASK. When the BFF proxy lands, `web` gains
