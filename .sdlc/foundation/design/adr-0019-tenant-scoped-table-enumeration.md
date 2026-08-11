@@ -18,6 +18,13 @@ date: 2026-08-04
 > erasure sequence are unchanged and remain TASK-053's and TASK-054's. Details in
 > `design/contracts/isolation-coverage.md`, "The registry, and what bounds the covered set
 > before TASK-056 exists".
+>
+> **Extended 2026-08-11, second pass (F-350).** The half-repair above is asymmetric and the
+> first version of this amendment did not say so plainly enough: **the SQL half sees a table
+> that departs from the naming convention and the schema half does not, and it is the schema
+> half that export and erasure iterate.** A new cost bullet states which consumer depends on
+> which enumeration, why that is F-002's shape arriving through a compliance door, why it is
+> unreachable today, and what TASK-053 must do about it.
 
 ## Context
 
@@ -188,6 +195,41 @@ counts, and the schema version.
   the convention matters; **if the arms change, `isolation-coverage.md` is the copy that
   moves first and this bullet follows it.**
 
+- **The two enumerations have different coverage, and the consumers that matter most depend
+  on the weaker one.** Added 2026-08-11 (F-350). Stated as its own cost because the previous
+  bullet's repair is asymmetric and reads as though the gap were closed.
+
+  | Enumeration | Sees a table whose owner column is not `tenant_id` | Consumers |
+  |---|---|---|
+  | the SQL half — five arms, `tenantScopedTableDrift()` | **yes**, through arms 3, 4 and 5 | the isolation suite (SC-1) |
+  | the schema half — `tenantScopedTables()`, this ADR's `Decision` | **no.** One property: `'tenant_id' in getTableColumns(t)` | **the GDPR export (AC-88), erasure and its residue check (AC-90)**, and TASK-056's table-reachability check |
+
+  So a table added with `owning_tenant`, or with the column named right but missing from the
+  barrel, is **named loudly by the isolation suite and silently skipped by erasure**. The
+  export omits a category the tenant owns, and `assertNoTenantResidue()` iterates a list the
+  table is not on and reports zero. That is F-002's shape — a completed erasure that deleted
+  less than it claimed and reported success — arriving through a different door, and the door
+  it arrives through is a compliance one.
+
+  **Not reachable today**, which is why this is recorded rather than escalated: all three
+  consumers are deferred (TASK-053, TASK-054, TASK-056), and `public` holds one table.
+
+  **The decision, so TASK-053 does not inherit it as an open question.** TASK-053 must close
+  the gap on the schema side, and the cheaper of the two ways is the second:
+
+  1. widen `tenantScopedTables()` to a name-independent derivation — the Drizzle table object
+     exposes its foreign keys, so "declares a foreign key to `tenants(id)`" is expressible
+     there and is the same property as SQL arm 5; or
+  2. **keep the one-property filter and make the existing cross-check fail on the
+     difference** — assert `tenantScopedTables()` against the five-arm SQL half rather than
+     against the single-column query in the `Decision` above. The SQL half already exists and
+     is already tested, so this is a test change rather than a schema-reflection change, and
+     it fails closed with the table named.
+
+  Either way the acceptance test is the same: **a table with an `owning_tenant` column and a
+  foreign key to `tenants` must appear in whatever list erasure iterates**, or fail the build
+  naming itself.
+
 - **`ON DELETE CASCADE` on the tenant foreign key now has two consumers, not one.** Added
   2026-08-11 (F-333, F-327). It was required for erasure; it is also the fifth drift arm, the
   only enumeration property independent of both protection and column naming. A schema TASK
@@ -218,10 +260,10 @@ counts, and the schema version.
   `tenantScopedTableDrift()`, in a five-arm form this ADR did not specify. TASK-053 either
   consumes it or supersedes it deliberately; writing the one-property query above a second
   time reintroduces the gap F-303 measured.
-- **The `tenant_id`-only filter in `tenantScopedTables()` is now the weaker half of the
-  pair.** Whether the schema half should widen to match the SQL half — and how, given that
-  Drizzle's column list is the only thing it can read — is TASK-053's decision to make
-  explicitly rather than inherit.
+- **The `tenant_id`-only filter in `tenantScopedTables()` is the weaker half of the pair, and
+  closing that is TASK-053's, with the two options and the acceptance test written out under
+  "Negative / accepted cost" (F-350).** It is a compliance gap rather than a tidiness one:
+  erasure and export iterate the weaker half.
 - TASK-054 owns `privilegedTenantEraser`, `authOwnedUserTables()`,
   `assertNoTenantResidue`, and the cascade fallback if the residue check ever fails.
 - Every schema TASK declares `tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`.

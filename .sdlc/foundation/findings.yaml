@@ -11724,6 +11724,16 @@
     six inches from the code that no longer implements it. The comment is the thing a maintainer
     trusts when deciding whether a change is safe.
   required_change: Bring the docblock to what the file does; point at the contract rather than quoting it.
+  correction_2026_08_11: >-
+    THIS CLOSURE WAS WRONG AND I RECORDED IT ON A CLAIM RATHER THAN A CHECK. I closed it as "the
+    docblock no longer quotes the struck contract sentence", taking the round-4 report at its word.
+    The architect found the quote alive at coverage.ts:210 during the second reconciliation, and I
+    VERIFIED IT: the line still reads "and a refusal is a pass (isolation-coverage.md, 'Attempt
+    semantics': ...)". THE LINE NUMBER MOVED AND THE TEXT SURVIVED, which is exactly how a
+    grep-by-line-number verification fails.
+    Reopened as F-355 rather than by reverting this status, so the sequence stays legible. SAME
+    CLASS AS F-142: a closure recorded from a report instead of from the artifact. Third instance
+    on this initiative, first one that is mine on a code path.
   owner_slot: sdlc-test-architect
   status: fixed
   resolved_by: "sdlc-test-architect"
@@ -12025,3 +12035,38 @@
     ROUTED, NOT DISCARDED: it attaches to F-353's reconciliation or to whoever next opens
     registrations.ts, whichever comes first. Recorded here so the obligation survives the park -
     the F-142 lesson, that a routing recorded as a resolution is not a resolution.
+
+- id: F-355
+  phase: implement
+  task: TASK-006
+  source: sdlc-architect
+  round: 6
+  severity: minor
+  kind: docs
+  file: apps/api/test/isolation/coverage.ts
+  line: 210
+  summary: >-
+    THE STALEST COPY OF THE DISPROVED RULE IS IN THE SHIPPED SOURCE, in the file whose entire
+    subject is documents that described a harness that leaked. coverage.ts:210 still reads
+    "and a refusal is a pass (isolation-coverage.md, 'Attempt semantics': ...)" - the sentence
+    F-294 disproved and F-330 disproved harder. Separately, writeIsolationReport()'s docblock at
+    :1508 and the spec's own comment at :1186 both say "eleven of this file's tests have yet to
+    run" when ALL 29 DO.
+  failure_scenario: >-
+    Prose only; no behaviour depends on either. It is filed because a maintainer deciding whether a
+    change is safe reads the comment six inches from the code, and because a harness that spent
+    three blockers on `the document says one thing and the code does another` should not ship that
+    shape in its own comments.
+    AND IT CORRECTS A CLOSURE OF MINE - see F-346.
+  required_change: >-
+    Both comments say what the file does. The refusal comment should point at the contract rather
+    than quoting it, per the one-copy rule ADR-0020 now carries.
+  owner_slot: sdlc-test-architect
+  status: parked
+  resolved_by: "orchestrator adjudication at the cap, 2026-08-11"
+  resolved_round: null
+  ruling: >-
+    PARKED. TASK-006 is `done` with its fix-round cap spent at 5 of 5, and these are comments with
+    no behaviour behind them. Routed to whoever next opens apps/api/test/isolation/**, alongside
+    F-354, which has the same disposition and the same destination. Recorded rather than rolled up,
+    so the Ship review inherits the list.
