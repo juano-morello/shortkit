@@ -550,14 +550,28 @@ describe('a caller-initiated abort is not a transport failure (F-292)', () => {
     expect(outcome).toBeInstanceOf(errorClassFromClient('RequestAbortedError'));
   });
 
-  it('F-292: an abort while the body is being read raises RequestAbortedError', async () => {
+  it('F-292/F-310: an abort while the body is being read raises RequestAbortedError carrying the signal reason', async () => {
     const controller = new AbortController();
-    networkAbortsWhileReadingBody(controller, new DOMException('aborted', 'AbortError'));
+    const reason = new DOMException('aborted', 'AbortError');
+    networkAbortsWhileReadingBody(controller, reason);
 
     const outcome = await attempt(() => apiClient({ ...listIds(), signal: controller.signal }));
 
     expect(outcome).toBeInstanceOf(errorClassFromClient('RequestAbortedError'));
     expect(outcome).not.toBeInstanceOf(NetworkError);
+    // F-335. The READ leg has its own abort branch, and until this line the only test
+    // reaching it asserted the class alone — so a branch reading the caught rejection
+    // instead of the signal survived the whole suite. The two readings genuinely differ
+    // here, which the round-3 note got wrong: `networkAbortsWhileReadingBody` errors the
+    // stream with `new Error('socket closed')` while `abort(reason)` carries this
+    // DOMException, and `response.text()` rejects with the STREAM error. Measured, not
+    // reasoned: `caught === streamErr` is true and `caught === signal.reason` is false.
+    //
+    // Identity, not a redacted-surface check. `toBe` is strictly stronger than any
+    // `deepErrorSurface` assertion could be — if `cause` IS the object the caller handed
+    // `abort()`, nothing from the platform rejection is reachable through it at all — and
+    // it does not inherit `util.inspect`'s blind spots (F-339).
+    expect((outcome as Error).cause).toBe(reason);
   });
 
   it('F-292: a transport failure on a cancellable request nobody cancelled is a NetworkError', async () => {
@@ -677,7 +691,14 @@ describe('the exports the BFF proxy implementer reads (F-288)', () => {
     expect(exportedFromClient('FORWARDED_REQUEST_HEADERS')).not.toContain('origin');
   });
 
-  it('F-288: MUTATING_METHODS names every method the proxy checks Origin on', () => {
+  it('F-288/ADR-0038: MUTATING_METHODS lists the four mutating methods this design uses', () => {
+    // Retitled 2026-08-11 (F-337). It read "names every method the proxy checks Origin on",
+    // which ADR-0038 made false: the constant is DESCRIPTIVE, `isMutatingMethod` does not
+    // read it, and OPTIONS is checked without appearing here. What the assertion pins is
+    // unchanged — the exported list TASK-012's implementer reads — but a reader who took the
+    // old title at face value would rebuild the four-item allowlist as the predicate, which
+    // is F-233's 403 with every test green. The definition is asserted at 'F-305:
+    // isMutatingMethod is true for OPTIONS' and 'NON_MUTATING_METHODS ... names GET and HEAD'.
     expect(exportedFromClient('MUTATING_METHODS')).toEqual(['POST', 'PATCH', 'PUT', 'DELETE']);
   });
 
@@ -719,10 +740,6 @@ describe('the exports the BFF proxy implementer reads (F-288)', () => {
  * The convention from round 1 is carried: `fetch` is the only thing stubbed, and every
  * assertion that names a HARM is written BEFORE the assertion that names the message, so a
  * fix that stops the wrong URL being built without rejecting the call still fails.
- *
- * NOT TESTED HERE, deliberately: F-305 and F-311 (whether OPTIONS is mutating, and whether
- * `isMutatingMethod` is case-sensitive) are held for Juano's ruling. The stance from round 1
- * stands — the spec exercises only the six method spellings both readings agree on.
  */
 
 /**
@@ -827,11 +844,17 @@ describe('the query string apiClient builds (F-307)', () => {
  * "F-285: refuses a param value of '..'" moved with the constant F-314 rewrote. The
  * assertion is the same assertion against the same path; only the normative text changed.
  *
- * THE ROUND-2 BANNER ABOVE IS SUPERSEDED, not wrong. It records that F-305 and F-311 were
- * held for Juano's ruling and that the spec exercised only the six method spellings both
- * readings agreed on. The ruling landed 2026-08-11 (`TASK-008-contract-cluster-return.md`),
- * so this block exercises the spellings that DISCRIMINATE. The six original assertions at
- * :678-693 are untouched and stay green under the new predicate.
+ * F-305 and F-311 were open when round 2 was written. The ruling landed 2026-08-11
+ * (`TASK-008-contract-cluster-return.md`), so this block exercises the method spellings that
+ * DISCRIMINATE between the two readings, and the round-2 note recording the hold came out
+ * when the ruling landed, as the ruling's own text says it should (F-337). The six original
+ * assertions in "F-288: isMutatingMethod is true for a mutating method and false for GET and
+ * HEAD" are untouched and stay green under the new predicate.
+ *
+ * CLOSE-OUT PASS (2026-08-11, F-335 and F-337) touched two things ABOVE this line, which is
+ * the exception to the first paragraph: "F-292/F-310: an abort while the body is being read"
+ * gained a `cause` assertion for a branch nothing reached, and the MUTATING_METHODS test was
+ * retitled to what it pins. Both are annotated in place. No assertion was removed or weakened.
  *
  * Five rulings, and what each one costs a test:
  *
