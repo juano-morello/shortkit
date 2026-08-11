@@ -3,7 +3,7 @@ id: STORY-002
 epic: EPIC-001
 title: Deployable skeleton with CI
 status: in-progress
-tasks: [TASK-002, TASK-003, TASK-004]
+tasks: [TASK-002, TASK-003, TASK-004, TASK-059, TASK-060]
 depends_on: [STORY-001]
 ---
 
