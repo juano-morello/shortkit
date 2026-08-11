@@ -536,7 +536,7 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-006, wave 2, revised r4. Covers the two tables that carry a tenant boundary ' +
+  'TASK-006, wave 2, revised r5. Covers the two tables that carry a tenant boundary ' +
   'today: `tenants` (the migrated table, four bespoke policies) and `rls_fixture_rows` ' +
   '(a FIXTURE TABLE this suite creates and drops per run, built from the production ' +
   'tenantScopedPolicies()). No routes and no repositories are enumerated, because none ' +
@@ -585,6 +585,15 @@ export const COVERAGE_BOUNDARY =
   'behind it are both withdrawn: a table whose WITH CHECK asks for more than tenancy ' +
   'changes the STATEMENT the unqualified writes issue (F-344), and a table that cannot ' +
   'answer at all goes `unverified` and red. ' +
+  'THAT STATEMENT CHANGE IS A COLUMN AND A BOUND VALUE, NOT A FRAGMENT (F-352). r4 took a ' +
+  'free SQL fragment and claimed it could not hide a leak because the statement still ' +
+  'carried no WHERE clause. The WHERE clause is not what keeps the SELECT policies out — ' +
+  'a column reference anywhere in the statement pulls them back in, and a SET expression ' +
+  'is part of the statement. Measured: `set label = <const>, status = status` reports ' +
+  'UPDATE 1 where `set label = <const>` reports UPDATE 2, so one column reference disarms ' +
+  'both unqualified writes silently, and `version = version + 1` is the idiomatic way to ' +
+  'write one. The field is now a column and a value that is bound as a parameter, so the ' +
+  'mistake is not rejected — it is unexpressible. ' +
   'It does not mean the system has no uncovered cross-tenant surface: most of the ' +
   'system is unwritten, and the module-graph enumeration, the four grep clauses and ' +
   'the pg_policies shape assertion are TASK-056\'s.';
@@ -664,6 +673,8 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
   'isolation_owner_theft_canary',
   'isolation_pk_owner_canary',
   'isolation_guarded_check_canary',
+  // F-352. Its leaky twin: the same stricter WITH CHECK, over a wide-open USING.
+  'isolation_guarded_leak_canary',
 ];
 
 /**

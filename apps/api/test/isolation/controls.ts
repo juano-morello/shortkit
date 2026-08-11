@@ -95,6 +95,7 @@ export const UNQUALIFIED_WRITE_CANARY_TABLE = 'isolation_unqualified_write_canar
 export const OWNER_THEFT_CANARY_TABLE = 'isolation_owner_theft_canary';
 export const PK_OWNER_CANARY_TABLE = 'isolation_pk_owner_canary';
 export const GUARDED_CHECK_CANARY_TABLE = 'isolation_guarded_check_canary';
+export const GUARDED_LEAK_CANARY_TABLE = 'isolation_guarded_leak_canary';
 
 /**
  * F-296's probe. A tenant-scoped table that NOBODY REGISTERS — the wave-3 table the
@@ -524,6 +525,78 @@ export function createGuardedCheckCanary(): void {
 }
 
 /**
+ * =========================================================================
+ * F-352. THE GUARDED TABLE THAT REALLY IS LEAKING — `isolation_guarded_check_canary`'s
+ * TWIN, WITH THE USING CLAUSE WIDENED.
+ * =========================================================================
+ *
+ * F-344 gave a registration a way to satisfy a WITH CHECK stricter than its USING, so a
+ * correctly isolated table could produce an unqualified write that is ADMITTED rather
+ * than refused. The escape was a free `SQL` fragment, and the field's own comment claimed
+ * it "cannot hide a leak: the statement still carries no WHERE clause, so it still sweeps
+ * every row the USING clause admits". THAT CLAIM IS FALSE. The WHERE clause is not what
+ * keeps the SELECT policies out of an UPDATE — A COLUMN REFERENCE ANYWHERE IN THE
+ * STATEMENT PULLS THEM BACK IN, which is the rule `test/support/rls-fixture.ts:175-188`
+ * measured and F-302's whole finding rests on. A SET expression is part of the statement.
+ *
+ * THIS TABLE IS WHERE THAT COSTS SOMETHING. Its SELECT, INSERT and DELETE policies are
+ * correct; its UPDATE policy's USING is wide open and its WITH CHECK asks for an
+ * optimistic lock rather than for tenancy — `lock_token <> ''` — with both rows seeded
+ * unlocked. Measured, as `shortkit_app` in an ordinary tenant-A transaction, 2026-08-11:
+ *
+ *   set label = <const>                              -> 42501, new row violates RLS
+ *   set label = <const>, lock_token = lock_token||'x'-> UPDATE 1   <- SILENT. NO LEAK SEEN
+ *   set label = <const>, lock_token = 'held'         -> UPDATE 2   <- THE LEAK
+ *   set label = <const>, lock_token = 'lock_token'   -> UPDATE 2   <- still the leak
+ *   set tenant_id = <A>                              -> 42501, new row violates RLS
+ *   set tenant_id = <A>,  lock_token = lock_token||'x'-> UPDATE 1  <- SILENT
+ *   set tenant_id = <A>,  lock_token = 'held'        -> UPDATE 2   <- THE LEAK
+ *
+ * Row 1 is why the registration MUST name the column: without it both unqualified writes
+ * are refused and score `unverified`. Row 2 is F-352: `lock_token = lock_token || 'x'` is
+ * the ordinary optimistic-lock idiom, it satisfies the check, and it disarms BOTH
+ * unqualified writes at once — the run goes green over a table whose UPDATE policy admits
+ * every row of every tenant. Row 3 is the same statement with the value BOUND instead of
+ * derived, and it is the one the harness can now express.
+ *
+ * The fourth row is the falsification attempt kept as a control: `'lock_token'` is the
+ * closest a caller can get to a column reference under `{ column, value }`, and it is a
+ * parameter — `"lock_token" = $2` — so the leak is still reported. If the builder ever
+ * inlines the value instead of binding it, that row becomes UPDATE 1 and the adversarial
+ * control goes red.
+ *
+ * The WITH CHECK deliberately says NOTHING about tenancy. With `tenant_id = ctx` in it
+ * this would be `isolation_owner_theft_canary` and the writes would be refused on the
+ * first foreign row; the point here is a check that is satisfied while the USING leaks.
+ */
+export function createGuardedLeakCanary(): void {
+  run(
+    `${createTable(GUARDED_LEAK_CANARY_TABLE, `,
+       lock_token text NOT NULL DEFAULT ''`)}
+
+     ${grantAll(GUARDED_LEAK_CANARY_TABLE)}
+
+     -- BOTH rows unlocked, so the WITH CHECK bites on the acting tenant's OWN row in
+     -- both directions and the registration cannot avoid naming the column.
+     ${seedBothTenants(GUARDED_LEAK_CANARY_TABLE)}
+
+     ALTER TABLE ${GUARDED_LEAK_CANARY_TABLE} ENABLE ROW LEVEL SECURITY;
+     ALTER TABLE ${GUARDED_LEAK_CANARY_TABLE} FORCE  ROW LEVEL SECURITY;
+
+     CREATE POLICY ${GUARDED_LEAK_CANARY_TABLE}_select ON ${GUARDED_LEAK_CANARY_TABLE}
+       FOR SELECT USING (tenant_id = ${TENANT_ID});
+     CREATE POLICY ${GUARDED_LEAK_CANARY_TABLE}_insert ON ${GUARDED_LEAK_CANARY_TABLE}
+       FOR INSERT WITH CHECK (tenant_id = ${TENANT_ID});
+     CREATE POLICY ${GUARDED_LEAK_CANARY_TABLE}_delete ON ${GUARDED_LEAK_CANARY_TABLE}
+       FOR DELETE USING (tenant_id = ${TENANT_ID});
+     -- THE DEFECT: USING wide open, and a WITH CHECK that guards the lock rather than
+     -- the tenant — so it is satisfiable by any tenant, on any row.
+     CREATE POLICY ${GUARDED_LEAK_CANARY_TABLE}_update ON ${GUARDED_LEAK_CANARY_TABLE}
+       FOR UPDATE USING (true) WITH CHECK (lock_token <> '');`,
+  );
+}
+
+/**
  * F-296. A tenant-scoped table added by a later wave whose author forgot the one
  * `registerTenantScopedSurfaces()` call. It is correct in every way `db:check-policies`
  * can see — `tenant_id`, ENABLE, FORCE, a policy — and the isolation suite must still
@@ -642,6 +715,7 @@ export function dropControlTables(): void {
       OWNER_THEFT_CANARY_TABLE,
       PK_OWNER_CANARY_TABLE,
       GUARDED_CHECK_CANARY_TABLE,
+      GUARDED_LEAK_CANARY_TABLE,
       UNREGISTERED_TABLE_PROBE,
       ...OWNER_COLUMN_PROBE_PROTECTIONS.map(ownerColumnProbeTable),
     ]

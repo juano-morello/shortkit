@@ -55,10 +55,12 @@ import {
   createMaskedRefusalCanary,
   createOwnerTheftCanary,
   createPkOwnerCanary,
+  createGuardedLeakCanary,
   createUnqualifiedWriteCanary,
   DIRECTION_CANARY_TABLE,
   GRANT_GAP_CANARY_TABLE,
   GUARDED_CHECK_CANARY_TABLE,
+  GUARDED_LEAK_CANARY_TABLE,
   HALF_SEEDED_CANARY_TABLE,
   MASKED_REFUSAL_CANARY_TABLE,
   OWNER_THEFT_CANARY_TABLE,
@@ -175,18 +177,57 @@ interface TableAccessSpec {
    * Measured on `isolation_guarded_check_canary`, and `reparentAll` — the remedy the
    * message used to offer — is refused identically.
    *
-   * WHAT THIS IS NOT. It is not a declaration that the table is fine, and it cannot hide
-   * a leak: the statement still carries no WHERE clause, so it still sweeps every row the
-   * USING clause admits, and `affected > actorOwnRowsVisible` still fires. It can only
-   * turn a refusal that proved nothing into a row count that proves something. A
-   * registration that omits it when the table needs it goes `unverified` and red — the
-   * failure stays closed and names the surface.
-   *
    * It is deliberately NOT applied to the owner-qualified writes: those name the target
    * in a WHERE clause, PostgreSQL routes them through the SELECT policy, and a refusal on
    * one of them is already complete evidence (F-302, F-330).
+   *
+   * ==========================================================================
+   * F-352, r5. WHY IT IS A COLUMN AND A VALUE RATHER THAN A FRAGMENT, AND WHY THE
+   * PREVIOUS VERSION OF THIS PARAGRAPH WAS FALSE.
+   * ==========================================================================
+   *
+   * r4 took a free `SQL` fragment here and claimed it "cannot hide a leak: the statement
+   * still carries no WHERE clause, so it still sweeps every row the USING clause admits".
+   * THE WHERE CLAUSE IS NOT WHAT KEEPS THE SELECT POLICIES OUT. A COLUMN REFERENCE
+   * ANYWHERE IN THE STATEMENT PULLS THEM BACK IN — the rule
+   * `test/support/rls-fixture.ts:175-188` measured, that F-302's entire finding rests on,
+   * and that `isolation-coverage.md:569` already states normatively — and a SET expression
+   * is part of the statement. Measured on the F-302 canary shape, tenant A, 2026-08-11:
+   *
+   *   set label = <const>                     -> UPDATE 2   the leak; 2 > 1 fires
+   *   set label = <const>, status = status    -> UPDATE 1   SILENT; the digest sees nothing
+   *   set tenant_id = <A>                     -> UPDATE 2
+   *   set tenant_id = <A>, status = status    -> UPDATE 1   SILENT
+   *
+   * One column reference in the fragment disarms BOTH unqualified writes at once, and
+   * `version = version + 1` — an optimistic-lock guard, the idiomatic thing to write here
+   * — is exactly that shape. `isolation_guarded_leak_canary` is the cost measured end to
+   * end: a table whose UPDATE policy admits every row of every tenant, reported entirely
+   * `pass` under such a registration.
+   *
+   * SO THE FIX IS THE TYPE AND NOT A CHECK. A column and a VALUE. The value is bound —
+   * `sql` renders it as `$N` — so the assignment reads `"status" = $2` whatever the value
+   * is, and there is no way to spell a column reference in it. This is what F-345 did for
+   * the WHERE invariant: the difference is that F-345 could derive the invariant from the
+   * compiled SQL and throw, and this one is enforced by the shape being unable to express
+   * the mistake at all.
+   *
+   * `column` passes through `sql.identifier()`, which quotes it and doubles any embedded
+   * quote — verified against drizzle-orm@0.45.2: `identifier('x" = version, "label')`
+   * compiles to `"x"" = version, ""label"`, one identifier — so the column name cannot
+   * carry an expression either.
    */
-  readonly unqualifiedWritesAlsoSet?: SQL;
+  readonly unqualifiedWritesAlsoSet?: readonly RequiredAssignment[];
+}
+
+/**
+ * F-352. ONE COLUMN, AND A VALUE THAT IS A VALUE. `value` is deliberately not `SQL` and
+ * not a template: everything drizzle's `sql` tag interpolates that is not a fragment
+ * becomes a bound parameter, so a caller cannot reach a column from here.
+ */
+export interface RequiredAssignment {
+  readonly column: string;
+  readonly value: string | number | boolean | null;
 }
 
 /**
@@ -307,10 +348,22 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
   );
   // F-344. Empty for every table whose WITH CHECK asks nothing beyond tenancy, which is
   // every table in this repository today.
+  //
+  // F-352. Built HERE from a column and a value rather than taken as a fragment. Each
+  // value reaches the statement through `sql`'s interpolation, which binds it as `$N`, so
+  // the assignment is `"col" = $N` for every value the type admits and the statement
+  // references no existing column. That is the whole mechanism: a SET expression reading
+  // a column would pull the SELECT policies back in and silently reduce both unqualified
+  // writes to the actor's own rows.
   const alsoSets =
-    spec.unqualifiedWritesAlsoSet === undefined
+    spec.unqualifiedWritesAlsoSet === undefined || spec.unqualifiedWritesAlsoSet.length === 0
       ? sql.empty()
-      : sql`, ${spec.unqualifiedWritesAlsoSet}`;
+      : sql`, ${sql.join(
+          spec.unqualifiedWritesAlsoSet.map(
+            (assignment) => sql`${sql.identifier(assignment.column)} = ${assignment.value}`,
+          ),
+          sql`, `,
+        )}`;
 
   return [
     shape({
@@ -585,8 +638,8 @@ function controlAccess(
   subject: string,
   table: string,
   reset: () => void,
-  /** F-344. One control needs the two unqualified updates to satisfy a stricter WITH CHECK. */
-  unqualifiedWritesAlsoSet?: SQL,
+  /** F-344. Two controls need the unqualified updates to satisfy a stricter WITH CHECK. */
+  unqualifiedWritesAlsoSet?: readonly RequiredAssignment[],
 ): TenantScopedSurfaceRegistration {
   return {
     subject,
@@ -716,7 +769,51 @@ export const guardedCheckCanaryAccess = controlAccess(
   // The one column this table's WITH CHECK asks about beyond tenancy. Without it both
   // unqualified updates are refused, score `unverified`, and the run is red over a table
   // that is correctly isolated — which is the measurement F-344 is.
-  sql`${sql.identifier('status')} = ${'active'}`,
+  [{ column: 'status', value: 'active' }],
+);
+
+/**
+ * F-352. `isolation_guarded_check_canary`'s LEAKY TWIN: the same stricter WITH CHECK,
+ * over a USING clause that admits every row of every tenant. See
+ * `createGuardedLeakCanary()` for the seven measured statements.
+ *
+ * The registration names the column the check requires, exactly as the F-344 one does.
+ * What it may NOT do is derive that column's value from the column — the assignment is a
+ * bound value, so the statement references no existing column and the SELECT policies
+ * stay out of it, which is the only reason the unqualified writes can still see the leak.
+ */
+export const guardedLeakCanaryAccess = controlAccess(
+  'GuardedLeakCanaryTableAccess',
+  GUARDED_LEAK_CANARY_TABLE,
+  createGuardedLeakCanary,
+  [{ column: 'lock_token', value: 'held' }],
+);
+
+/**
+ * ============================================================================
+ * F-352. THE FALSIFICATION ATTEMPT, KEPT AS A CONTROL.
+ * ============================================================================
+ *
+ * The same table and the same registration, with the value an author would reach for if
+ * they were trying to write a column reference and the type would not let them: the
+ * COLUMN'S OWN NAME, as a string. It binds as `$N`, so the statement reads
+ * `"lock_token" = $2` with the parameter `'lock_token'` — a constant, not a reference —
+ * and the leak is still reported. Measured on this table, tenant A, 2026-08-11:
+ *
+ *   set label = <const>, lock_token = lock_token || 'x'  -> UPDATE 1   (unexpressible now)
+ *   set label = <const>, lock_token = 'lock_token'       -> UPDATE 2   the leak, still seen
+ *
+ * It exists because the guarantee this round makes is about VALUES BEING BOUND, and a
+ * builder that inlined them instead — `sql.raw`, a template concatenation, a future
+ * "convenience" — would restore the disarm for exactly this value while every other
+ * control stayed green. Under that mutation this attempt reports UPDATE 1 and this
+ * control goes red.
+ */
+export const guardedLeakBoundValueCanaryAccess = controlAccess(
+  'GuardedLeakBoundValueCanaryTableAccess',
+  GUARDED_LEAK_CANARY_TABLE,
+  createGuardedLeakCanary,
+  [{ column: 'lock_token', value: 'lock_token' }],
 );
 
 /** Every surface id this wave covers, hand-written so a battery quietly losing a method fails. */

@@ -41,8 +41,8 @@
  *
  * Declined 2026-08-06: a test asserting that a test helper works is the shape this
  * initiative has twice called hollow. Every assertion below is about what Postgres
- * answered — including the ten negative controls, which are real tables carrying real
- * defects that really do leak, not assertions about the harness's shape.
+ * answered — including the eleven controls, which are real tables carrying real
+ * defects that really do leak — bar one, which is correct and must stay green, not assertions about the harness's shape.
  *
  * FOUR TESTS BELOW ARE THE EXCEPTION AND THEY SAY SO. The F-304 and F-331 tests assert
  * what is in `report.json` on disk part-way through a run: that is not a helper's shape,
@@ -54,11 +54,11 @@
  * the runner actually built for this file.
  *
  * ---------------------------------------------------------------------------
- * THE TEN CONTROLS, AND THE FINDING EACH ONE ANSWERS
+ * THE ELEVEN CONTROLS, AND THE FINDING EACH ONE ANSWERS
  * ---------------------------------------------------------------------------
  *
- * Four audit rounds measured this suite reporting `pass` over a database that was not
- * isolated, eight ways — and once, reporting a red run over a database that was fine.
+ * Five audit rounds measured this suite reporting `pass` over a database that was not
+ * isolated, nine ways — and once, reporting a red run over a database that was fine.
  * Each way is now a table the suite builds, attacks and requires a specific answer for,
  * so the measurement runs on every CI run instead of once:
  *
@@ -87,6 +87,17 @@
  *                                     GREEN: r3's rule left the run permanently red on
  *                                     it, and a check that fires on correct code is the
  *                                     check that gets deleted                     (F-344)
+ *   isolation_guarded_leak_canary     THAT TABLE'S TWIN, WITH THE USING WIDENED. F-344's
+ *                                     escape from the refusal took a free `SQL` fragment,
+ *                                     and one column reference in it — `version =
+ *                                     version + 1`, the optimistic-lock idiom — routes
+ *                                     both unqualified writes back through the SELECT
+ *                                     policy and hides the leak entirely. Measured: this
+ *                                     table reported `pass` on all sixteen attempts. The
+ *                                     field is now `{ column, value }[]` and the value is
+ *                                     bound, so the mistake is unexpressible; two tests
+ *                                     run it, the second with the value an author would
+ *                                     use to try to spell a column anyway       (F-352)
  *
  * ...plus four probes for tables nobody registered: `wave3_workspaces_probe` (F-296) and
  * `wave3_audit_events_probe_{norls,noforce,forced}` (F-303, F-333), which the drift check
@@ -137,6 +148,8 @@ import {
   EXPECTED_SURFACE_IDS,
   grantGapCanaryAccess,
   guardedCheckCanaryAccess,
+  guardedLeakBoundValueCanaryAccess,
+  guardedLeakCanaryAccess,
   halfSeededCanaryAccess,
   leakCanaryAccess,
   maskedRefusalCanaryAccess,
@@ -165,7 +178,7 @@ const REPORT_PATH = fileURLToPath(new URL('report.json', import.meta.url));
  * moving both have to arrive as a visible diff. It reaches `report.json` as
  * `observedTests`, so a reader of the artifact can check it too.
  */
-const TESTS_IN_THIS_FILE = 27;
+const TESTS_IN_THIS_FILE = 29;
 
 /**
  * ===========================================================================
@@ -1053,6 +1066,20 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
         'B->A updateAll',
       ]);
 
+      // ⚠ `rowsAffected: 1` IS ALSO WHAT A DISARMED STATEMENT REPORTS, AND THAT IS WHY
+      // THE ASSERTION SURVIVED r5 UNCHANGED RATHER THAN BEING WEAKENED (F-352). Under
+      // r4's free-`SQL` field, `status = status` referenced a column, PostgreSQL applied
+      // the SELECT policy, and both unqualified writes reported exactly 1 — the same
+      // number a correctly scoped USING clause produces here. The count alone could not
+      // tell the two apart.
+      //
+      // What makes 1 mean something is that the disarmed statement is no longer
+      // EXPRESSIBLE: `unqualifiedWritesAlsoSet` is `{ column, value }[]` and the value is
+      // bound as `$N`, so `updateAll` on this table can only be
+      // `set "label" = $1, "status" = $2` and its row count is the USING clause's answer.
+      // `isolation_guarded_leak_canary` is the other half of the pair, one test below:
+      // the SAME registration mechanism over a wide-open USING, reporting 2 and failing.
+      // Together they say the count discriminates; either alone does not.
       for (const outcome of unqualifiedWrites) {
         expect(outcome.rowsAffected).toBe(1);
         expect(outcome.actorOwnRowsVisible).toBe(1);
@@ -1064,6 +1091,91 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
         registeredNotInDatabase: [],
       });
       expect(control.verdict).toBe('pass');
+    }, 180_000);
+
+    it('F-352: a stricter WITH CHECK over a wide-open USING is reported as failing, not satisfied into silence', async () => {
+      // F-344's escape was a free `SQL` fragment, and the field claimed it "cannot hide a
+      // leak: the statement still carries no WHERE clause, so it still sweeps every row
+      // the USING clause admits". THE WHERE CLAUSE IS NOT WHAT KEEPS THE SELECT POLICIES
+      // OUT — a column reference anywhere in the statement pulls them back in, and a SET
+      // expression is part of the statement. Measured on this table, tenant A,
+      // 2026-08-11:
+      //
+      //   set label = <const>                                -> 42501, refused
+      //   set label = <const>, lock_token = lock_token||'x'   -> UPDATE 1  SILENT
+      //   set label = <const>, lock_token = 'held'            -> UPDATE 2  THE LEAK
+      //   set tenant_id = <A>, lock_token = lock_token||'x'   -> UPDATE 1  SILENT
+      //   set tenant_id = <A>, lock_token = 'held'            -> UPDATE 2  THE LEAK
+      //
+      // `lock_token = lock_token || 'x'` is the ordinary optimistic-lock idiom and it
+      // disarms BOTH unqualified writes at once. This table's UPDATE policy admits every
+      // row of every tenant, and under that registration the whole control came back
+      // `pass`. The break this test catches: the assignment's value derived from a column
+      // rather than bound — which since r5 is unexpressible, and this is the measurement
+      // that says so rather than the type.
+      const control = await runCrossTenantAttempts([guardedLeakCanaryAccess], fixtures);
+
+      // The three owner-qualified writes are routed through the correct SELECT policy and
+      // report zero rows, exactly as on `isolation_unqualified_write_canary`; only the
+      // two statements that reference no existing column can see this policy at all.
+      expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'fail'))).toEqual([
+        'A->B reparentAll',
+        'A->B updateAll',
+        'B->A reparentAll',
+        'B->A updateAll',
+      ]);
+      expect(control.attempts).toHaveLength(16);
+
+      // ...and nothing came back `unverified`: the two unqualified writes were ADMITTED
+      // by the WITH CHECK rather than refused by it, which is the whole point of naming
+      // the column. A refusal here would prove the check held and nothing about the USING.
+      expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'unverified'))).toEqual(
+        [],
+      );
+
+      // Each failure names the victim and the arithmetic: two rows swept by a statement
+      // issued by a tenant that was shown exactly one row of its own.
+      for (const outcome of control.attempts.filter((o) => o.outcome === 'fail')) {
+        expect(outcome.rowsAffected).toBe(2);
+        expect(outcome.leaks.join(' ')).toContain(outcome.target ?? '');
+        expect(outcome.leaks.join(' ')).toContain('2 row(s) affected');
+        expect(outcome.leaks.join(' ')).toContain('only 1 row(s) of its own');
+      }
+
+      expect(control.registryDrift).toEqual({
+        inDatabaseNotRegistered: [],
+        registeredNotInDatabase: [],
+      });
+      expect(control.verdict).toBe('fail');
+    }, 180_000);
+
+    it('F-352: the closest thing to a column reference the shape admits is a bound value, and the leak is still reported', async () => {
+      // THE FALSIFICATION ATTEMPT ON r5's OWN GUARANTEE, KEPT AS A CONTROL. The guarantee
+      // is "no value this field admits can reference a column", and the way to break it
+      // without changing the type is for the BUILDER to stop binding — `sql.raw`, a
+      // template concatenation, a helper that "supports expressions". Under that mutation
+      // the value below stops being the string `'lock_token'` and becomes the column
+      // `lock_token`, both unqualified writes drop to the actor's own row, and this
+      // table's wide-open USING becomes invisible again.
+      //
+      // Same table, same defect, same mechanism as the test above; only the value differs.
+      // Measured, tenant A, 2026-08-11: `set label = <const>, lock_token = 'lock_token'`
+      // reports UPDATE 2, because `"lock_token" = $2` is a parameter and not a reference.
+      const control = await runCrossTenantAttempts([guardedLeakBoundValueCanaryAccess], fixtures);
+
+      expect(labelled(control.attempts.filter((outcome) => outcome.outcome === 'fail'))).toEqual([
+        'A->B reparentAll',
+        'A->B updateAll',
+        'B->A reparentAll',
+        'B->A updateAll',
+      ]);
+
+      for (const outcome of control.attempts.filter((o) => o.outcome === 'fail')) {
+        expect(outcome.rowsAffected).toBe(2);
+        expect(outcome.leaks.join(' ')).toContain('2 row(s) affected');
+      }
+
+      expect(control.verdict).toBe('fail');
     }, 180_000);
   });
 
