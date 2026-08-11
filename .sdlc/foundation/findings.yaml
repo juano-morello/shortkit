@@ -11900,9 +11900,11 @@
     on which. TASK-053 now carries a read-before-starting note that tenantScopedTableDrift()
     already exists in a five-arm form.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: parked
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    PARKED WITH THE RULING RECORDED IN ADR-0019, which now carries the cost bullet plus a TABLE OF WHICH ENUMERATION EACH CONSUMER DEPENDS ON. The split is stated rather than implied: the SQL half sees a table off the naming convention, THE SCHEMA HALF DOES NOT, and the schema half is what export and erasure iterate. Not reachable today - TASK-053, TASK-054 and TASK-056 are all deferred and the schema has one table. The decision is written so TASK-053 does not inherit an open question, with the cheaper of two options named and one acceptance test.
   orchestrator_note: >-
     Filed as major on consequence rather than on reachability, which is the same call made for
     F-300. Nothing reaches it while its three consumers are deferred; the day one returns, the
@@ -12031,9 +12033,11 @@
     by amending a moving target. The finding is filed so the obligation survives the wait, which is
     the F-142 lesson: a routing recorded as a resolution is not a resolution.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    DISCHARGED BY THE SECOND RECONCILIATION, run only after TASK-006 reached done exactly as this finding required. isolation-coverage.md 1029 to 1304 lines; all three source lists taken - r5's A1-A7 and B1-B9, the re-audit's three, plus F-350 and F-354. THE HOLD WAS THE RIGHT CALL AND THE OUTCOME PROVES IT: the first reconciliation was correct for four hours before round 4 landed, and this one was written against a harness that had stopped moving. ADR-0020 needed NOTHING, checked rather than assumed, because the previous pass made it POINT rather than restate - five-places-one-fix cost one document instead of two.
 
 - id: F-354
   phase: implement
@@ -12140,9 +12144,11 @@
     reintroducing the two-clone collision ADR-0032 rejected `name:` to avoid. The red step names
     two repairs; either is acceptable and the ADR must say which and why.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    DISCHARGED at 9191072 by the design rework r2. docker-compose.yml pins `name: shortkit-dev`; the test stack keeps the basename. F-318's objection was MEASURED and half of it is false - COMPOSE_PROJECT_NAME sits ABOVE file `name:` in Compose's precedence, which I reproduced independently, so the override survives and only the two-clone collision is the accepted cost. ORCHESTRATOR-VERIFIED IN PRACTICE: my own `docker compose down -v` at the repository root took the dev stack down and left shortkit-postgres-1 running at three hours up. Before this fix that command would have deleted the integration suite's database.
 
 - id: F-357
   phase: test
@@ -12178,9 +12184,11 @@
     self-announcing. If a probe that proves credentials is wanted, it connects to the container's
     own address rather than loopback. docker-compose.test.yml's comment needs the same correction.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect"
+  resolved_round: 1
+  resolution: >-
+    DISCHARGED at 9191072 and CONFIRMED ON THE SHIPPED STACK. ADR-0036 moves the probe to `-h postgres`; the security auditor reproduced the four trust lines ahead of the appended scram line and both directions - wrong password to 127.0.0.1 inside the container ACCEPTED, same password from the host through the published port REFUSED. Its class hunt found one other instance, docker-compose.test.yml:104, already corrected in the same commit with a do-not-copy comment. And the check's GUARD-1 and GUARD-2 now prove the roles authenticate on every run, which is the part the probe alone never did.
 
 - id: F-358
   phase: test
