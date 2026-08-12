@@ -1,7 +1,7 @@
 slug: foundation
 title: Foundation and tenancy substrate
 type: feature
-phase: retro
+phase: done
 track: full
 wave: 2
 branch: "feat/foundation -> main, merged as aa9c288"
@@ -42,6 +42,7 @@ gates:
     wave_1: approved         # 2026-08-06
     wave_2: approved         # 2026-08-11
     note: "APPROVED 2026-08-11. Ten of ten TASKs done. Evidence run in ONE PASS on a clean tree: unit 189/189, integration 62/62, typecheck 0, lint 0, build 0, db:check-policies OK over one protected table, AC-115 fifteen clauses exit 0, zero dirty files. No open blocker. One escalated major, F-385, ruled the same way as F-380 and dispatched; ship.md rule 50 forbids opening a PR while a TASK is escalated, so it lands before the PR. 83 open minors and nits plus 15 parked findings carry to the Ship triage. PREVIOUS NOTE, CORRECTED 2026-08-11. The previous text - 'TASK-006 is delivered and TASK-003 is in fix round 4/5; TASK-008 is the only TASK still unimplemented' - was false in all three clauses by 2026-08-10. Wave 2 now holds TASK-003 (code-clear, AC-6 amended, F-247 open), TASK-006 (fix round 2, blocker F-302) and TASK-008 (rework green, in scoped re-review). TASK-059 was minted into this wave on 2026-08-11 and is NOT yet designed or tested, so the wave gate cannot be requested until it completes its own design -> test -> implement pass."
+  retro:     { status: approved, approved_at: 2026-08-12, note: "Proposals presented grouped global/project/codebase; Juano approved all eight and both extras. Applied: check-ledger.mjs plus its wiring, the terminal-status list with `routed` explicitly non-terminal, the auditor report path, concurrency as invariant 11 on WRITE surfaces, the design auditor off this project panel, the ownership map, the coverage_gate re-justification, the apps/web stub-drift gate, the global CLAUDE.md status line, and the ledger residue." }
   ship:      { status: approved, approved_at: 2026-08-12, note: "Integration verification clear. Acceptance changes-requested on SC-1s UNTESTABILITY rather than on a defect - it quantifies over every repository method and every authenticated endpoint, both sets empty, so a verbatim reading is vacuously true and the auditor refused to call that partly met. Both Ship blockers closed and verified independently. PR step SKIPPED and recorded: every commit is on main, and retro-branching would rewrite history published 2026-08-06 that hundreds of findings cite by sha." }
 
 tasks:
@@ -63,7 +64,16 @@ tasks:
 # TASK-011, TASK-012, TASK-054, TASK-058. They stay in findings.yaml (append-only), parked
 # with the deferral rather than closed.
 
-escalations: []
+escalations:
+  - task: TASK-040
+    findings: [F-102]
+    raised: 2026-08-03
+    reason: >-
+      AC-68 versus F-097's DNS-proof ordering, against an APPROVED artifact, so routing rule 0
+      makes it Juano's and no agent may settle it. Its owner TASK-040 is deferred with EPIC-004,
+      so nothing dispatches against it until custom domains become an initiative. Declared here
+      2026-08-12 because it had been `escalated` in findings.yaml and absent from this list since
+      2026-08-06 - caught by check-ledger.mjs, which exists because of exactly this class.
 # F-385 CLEARED 2026-08-11 by the two-property ruling: CLIENT_TRUST_BOUNDARY and
 # BFF_TRUST_BOUNDARY, same shape, two facts. NO TASK IS ESCALATED; ship.md rule 50 is satisfied.
 # F-380 CLEARED 2026-08-11 by the trust-boundary ruling; the trigger is CLIENT_TRUST_BOUNDARY.
@@ -1375,3 +1385,8 @@ log:
   - "2026-08-12 ship: MERGED AND SMOKED. PR #1 MERGED at 14:10:57Z, origin/main at aa9c288, and the post-merge smoke passed ON THE MERGED TREE - stack up, /health 200, status ok, `commit` EQUAL TO THE MERGE COMMIT'S SHA, web root 200. That last line is the one worth keeping: AC-6's provenance clause had only ever been measured against a LINEAR commit, and aa9c288 is a sha no build had ever seen. The build-arg chain carried it through an operation nobody designed it for."
   - "2026-08-12 ship: AND BRANCH PROTECTION NOW APPLIES TO EVERY COMMIT INCLUDING LEDGER ONES - the state.yaml commit recording Ship's completion was itself rejected from main. That is the workflow's own rule 51 enforced by the repository, and it changes the working pattern from here: everything lands via a branch and a PR, including .sdlc bookkeeping. Held locally to batch with the Retro's output rather than opening a PR for one ledger line."
   - "2026-08-12 retro: F-386 RULED BY JUANO - same treatment as F-380 and F-385 - AND THE CONTRACT EDIT IS OUTSTANDING FOR A NON-DECISION REASON. Two architect dispatches died on server-side 529s, both writing nothing. Ruled to retry after the Retro lands rather than run two heavy architect passes during an overload, because a third failure mid-write leaves a HALF-EDITED CONTRACT - the exact state this initiative spent a week filing findings against. Exposure today is none and I verified it rather than assuming: mail unwritten, TASK-017 deferred, no Resend key in any environment, no invitation surface in the compose stack. WHAT IS OPEN IS THE DOCUMENT, NOT THE RISK."
+  - "2026-08-12 retro: CLOSED OUT. All eight approved proposals applied plus both extras. check-ledger.mjs went from 22 inconsistencies against the shipped state to CLEAN - and it caught three duplicate-key defects I created while fixing the very thing it checks, which is the strongest argument for it validating every .sdlc YAML rather than only the one being edited."
+  - "2026-08-12 retro: F-386 CLOSED ON ITS THIRD ATTEMPT AND IT EARNED THE F-385 STANDARD. Mail is a THIRD declaration - MAIL_TRANSPORT = resend | console | fake | none, unset binding NoopMailSender - proved with two deployments that break the collapse IN OPPOSITE DIRECTIONS. And its rejected alternative is the one I would have got wrong: `absence binds console` looks like the safe default and would PRINT RAW SINGLE-USE INVITE TOKENS INTO ANY PLATFORM LOG STORE, adding a channel to F-300's list AND MAKING IT THE DEFAULT."
+  - "2026-08-12 retro: THE BINDINGS ENUMERATION CAUGHT A FOURTH SITE BEFORE IT WAS WRITTEN. F-400: domain-provisioning.md:134 says `Production resolves over DNS-over-HTTPS` without naming a selector, and TASK-039 will invent one - the obvious invention being NODE_ENV. Three findings today were `a behavioural choice keyed on a build flag`; this is the fourth, caught PRE-EMPTIVELY because the brief asked for BINDINGS rather than assertions. Asking for the right set was worth more than asking harder."
+  - "2026-08-12 retro: AND THE STUB GATE FOUND THAT MY OWN CLAUSE-4 SWEEP MISSED A SIGNATURE-LEVEL DIVERGENCE. ADR-0039 records `declaration sets matched exactly` for the apps/web client stub - TRUE FOR NAMES, FALSE FOR SIGNATURES: at a977fde^ the stub still carried the trailing optional ErrorOptions that a6dd8fb had removed, which was F-310's whole point. Nothing to repair, the stub is deleted. It is evidence that A HUMAN CHECK COMPARING EXPORTED NAMES CANNOT SEE A CHANGED SIGNATURE, and that sweep authorised ten deletions. F-402."
+  - "2026-08-12 retro: THE GATE'S HONEST LIMIT, DISCLOSED ON EVERY RUN RATHER THAN IN A REPORT - its enforced scope compares ZERO PAIRS today, because apps/web holds one stub whose source does not exist. It prints that instead of a bare green. A gate whose value is entirely in the future, in exactly the window F-288 happened in. F-403 carries the one-line widening."

@@ -60,6 +60,7 @@ Run these from the repository root.
 | `pnpm build` | Bundles the API to `apps/api/dist/` with tsup and builds the Next.js app |
 | `pnpm test:integration` | API suites that need a live Postgres |
 | `pnpm test:compose` | Brings the whole stack up from nothing with Docker and asserts fifteen clauses over it |
+| `pnpm assert:stub-drift` | Compares every surviving design stub with the source file at the same path, on exported shape |
 
 `pnpm build` bundles the API with tsup rather than emitting file by file.
 `packages/contracts` ships TypeScript source and has no build step (ADR-0005), so
@@ -73,6 +74,16 @@ save. `pnpm test:compose` needs Docker, builds four images and takes minutes; it
 `scripts/check-compose-stack.sh`, and the `compose` job in CI runs it on every push, so a
 change to the Dockerfile, the compose file, the roles SQL, the migration or the seed
 cannot break the stack silently.
+
+`pnpm assert:stub-drift` guards a different pair. `.sdlc/foundation/design/stubs/` holds
+design-time copies of boundaries at the paths they will occupy, and ADR-0039 deletes each
+one when the TASK that materialised its file closes. While both copies exist they can
+part: F-288 was a blocker where the stub carried an `origin` header constant the shipped
+file had lost, which would have answered 403 to every signup, sign-in and sign-out in
+production with the whole suite green. The check compares exported shape rather than text,
+so bodies, comments and ordering may differ freely; a declaration the stub exports and the
+source does not is what fails it. It runs as a step in CI's `quality` job. A stub with no
+source file yet is not drift — most of them name a producer that has not been built.
 
 ## Running the whole stack
 

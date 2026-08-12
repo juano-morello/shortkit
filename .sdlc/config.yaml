@@ -41,11 +41,24 @@ auditors:
   - sdlc-reviewer
   - sdlc-security-auditor
   - sdlc-product-auditor
-  - sdlc-design-auditor        # kept: there is a real dashboard UI
+  # sdlc-design-auditor REMOVED from the default panel 2026-08-12, foundation retro.
+  # ZERO findings across 399 in this initiative, and it is the SECOND initiative where it
+  # ran once and found nothing. shortkit has four UI files. Its one dispatch returned
+  # APPROVED and DELIBERATELY DECLINED the only thing it could have raised, on acknowledged
+  # placeholder scaffolding - so the prompt is fine and the STACK is the mismatch.
+  # Sharpening it would manufacture findings, which is what its own judgement avoided.
+  # Re-add it when a rendered surface exists: a dashboard, the branded 404, or the invitation
+  # accept screen. Trigger on a diff touching apps/web/app/**, not on every TASK.
 
 # First match wins. Rule 0 in references/routing.md (design artifacts, test
 # files, approved artifacts) beats every glob here.
 ownership:
+  # Corrected 2026-08-12, foundation retro. ~40 observability findings resolved to the
+  # correct slot ONLY through the `**` fallback below - by luck, because this project's
+  # fallback happens to be the right slot. A project whose fallback were different would
+  # have mis-routed every one. The fallback is a safety net, NOT a router.
+  - { paths: ["apps/api/src/observability/**"], slot: sdlc-implementer-backend }
+  - { paths: [".sdlc/**"], slot: orchestrator }   # findings, ledger, cards: never an implementer
   - { paths: ["apps/web/**"], slot: sdlc-implementer-frontend }
   # packages/** is backend-owned: the API is the source of truth for
   # packages/contracts. Per ADR-0005 the web app imports those zod schemas
@@ -67,7 +80,12 @@ testing:
   # the CI job to it; init.md's "a command collecting nothing is broken" caveat is
   # noted rather than ignored.
   integration: pnpm test:integration
-  coverage_gate: null          # no coverage tooling installed, no threshold chosen
+  # Re-justified 2026-08-12, foundation retro. The 2026-08-04 reason - "no coverage tooling
+  # installed" - IS NOW FALSE: 189 unit and 62 integration tests ship. It stays null as a
+  # DECISION rather than an absence: a threshold set against a substrate whose consumers are
+  # all deferred measures the fixtures, not the system. Revisit when the first request path
+  # lands, which is roadmap item 1.
+  coverage_gate: null
   framework: vitest            # ADR-0001: Vitest 3 in all three workspaces
 
 quality:

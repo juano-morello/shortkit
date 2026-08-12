@@ -3143,6 +3143,8 @@
     wave 9, so this is not urgent, but it must be settled before that dispatch.
   owner_slot: null
   status: escalated
+  roadmap_carrier_2026_08_12: >-
+    STILL ESCALATED AND NOW CARRIED ON THE ROADMAP. AC-68 versus F-097's DNS-proof ordering, against an approved artifact, so routing rule 0 makes it Juano's and no agent may settle it. Its owner TASK-040 is deferred with EPIC-004, so nothing dispatches against it until custom domains become an initiative - which is exactly why it needed a roadmap carrier rather than a `state.escalations` entry on an initiative that just closed.
   resolved_by: null
   resolved_round: null
 
@@ -3646,7 +3648,20 @@
     alongside the F-090 and F-108 obligations it already carries in main.ts, as a boot-time check that
     refuses to start rather than a warning.
   owner_slot: sdlc-implementer-backend
-  status: routed
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
   ruling: >-
     JUANO RULED 2026-08-05: the recommendation, taken as given. The call site is main.ts as a
     BOOT-TIME REFUSAL - the process does not start if the role can bypass RLS. Not a module-init
@@ -3656,8 +3671,6 @@
     F-093 and F-108 main.ts obligations it already carries, with an instruction to make one coherent
     bootstrap sequence rather than four bolted-on checks. TASK-003 is wave 2; this closes as ROUTED,
     not fixed, and TASK-005 is not held for it.
-  resolved_by: null
-  resolved_round: null
 
 - id: F-117
   phase: implement
@@ -3907,7 +3920,20 @@
     point of this finding is that it is a blocking prerequisite for the next schema TASK rather than a
     tidy-up.
   owner_slot: sdlc-implementer-backend
-  status: routed
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
   ruling: >-
     JUANO RULED 2026-08-05: BUILD IT NOW, minimum viable form, into TASK-005's fix round 1. The
     auditor's pg_class assertion - every table in schema public has relrowsecurity AND
@@ -3918,8 +3944,6 @@
     detector past the TASK it was written to catch defeats it. The script and its package.json entry
     are TASK-005's; wiring it into the CI integration job stays TASK-002's. TASK-005's paths gained
     apps/api/scripts/**. Bundled into the fix-round-1 implementer dispatch.
-  resolved_by: null
-  resolved_round: null
 
 - id: F-123
   phase: implement
@@ -4398,9 +4422,20 @@
     name and SQLSTATE only, per the contract's rule 2. Dispatched to sdlc-implementer-backend in the
     round 1 follow-up, bundled with the idle timeout so neither lands alone.
   owner_slot: sdlc-implementer-backend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 # ---- TASK-005 fix round 1, scoped re-review r2. Three auditors, deduped. ----
 # All three verdicted every round-1 finding ADDRESSED. Everything below is NEW and
@@ -4937,9 +4972,20 @@
     the wrong requirement rather than the wrong implementation. AC-113 was minted by F-078 and
     RULED BY JUANO, so (b) reopens an approved artifact - routing rule 0, his call.
   owner_slot: null
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-155
   phase: implement
@@ -4977,9 +5023,20 @@
     .next/server/app must fail the same way an absent .next/static does today, or the widening
     re-creates the vacuous pass one level down. Correct the false claim in the failure message.
   owner_slot: sdlc-implementer-frontend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-implementer-frontend, verified by the orchestrator 2026-08-12"
+  resolution: >-
+    CLOSED IN SUBSTANCE AND VERIFIED AT SOURCE TODAY, having sat in `routed` since round 1.
+    The guard now scans SCAN_ROOTS covering BOTH `.next/static` and `.next/server/app`, with
+    the reasoning written out at assert-no-inlined-secrets.mjs:35-46 - including a note that
+    F-172 corrected a false reason for the narrow scope in round 4. The security auditor
+    independently re-measured AC-113 on 2026-08-11 across the whole `.next` tree with a
+    fabricated `.env.local` and three canaries, and found no `.env*` outside node_modules, no
+    BFF_PROXY_SECRET, no API_BASE_URL and no canary under `.next`.
+    THIS IS THE FINDING THAT MADE THE SHIP GATE'S "no open blocker" FALSE. The substance was
+    fixed and the record was not, and my gate query counted only `open` and `escalated`. The
+    merge was sound; the evidence I gave Juano had a hole in it, and check-ledger.mjs exists
+    because of this finding specifically.
 
 - id: F-156
   phase: implement
@@ -5013,9 +5070,20 @@
     present in the output, proving build and check saw the same environment, so a mismatch reds
     rather than greens.
   owner_slot: sdlc-implementer-frontend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-157
   phase: implement
@@ -5048,9 +5116,20 @@
     value crosses into a client component on any route type. `import 'server-only'` is a useful
     complement but does not stop the prop path. Part 2 is Juano's routing call.
   owner_slot: null
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-158
   phase: implement
@@ -5206,7 +5285,20 @@
     Note (c) is only safe while the infrastructure block holds - the moment the Vercel project
     exists, this becomes the thing standing between the repo and a first deploy.
   owner_slot: null
-  status: routed
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
   ruling: >-
     DE-ESCALATED 2026-08-05 and routed as option (a), on the judgement of sdlc-security-auditor -
     the agent that SPECIFIED the control and that owned the wording it now says was wrong. Its
@@ -5219,8 +5311,6 @@
     cross-TASK promise. Not held for Juano because the resolution is a code decision inside
     TASK-004's paths and touches no AC - F-156's positive control is a mechanism, not AC-113's
     text. Flagged to him rather than blocking on him.
-  resolved_by: null
-  resolved_round: null
 
 - id: F-162
   phase: implement
@@ -5430,9 +5520,20 @@
     rewrite the failure message to enumerate the third cause and name the command that
     distinguishes it, so the person debugging is not told something false about their environment.
   owner_slot: sdlc-implementer-frontend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-168
   phase: implement
@@ -5575,9 +5676,20 @@
     if the unconditional fail stays: the message must enumerate this third cause and name the
     command that distinguishes it.
   owner_slot: sdlc-implementer-frontend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-172
   phase: implement
@@ -5729,7 +5841,20 @@
     process.env.X into the SSR chunk itself; real read with matching value -> OK unchanged; real
     read with a DIFFERENT value -> FAIL unchanged.
   owner_slot: sdlc-implementer-frontend
-  status: routed
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
   ruling: >-
     CAP EXCEPTION AUTHORISED BY JUANO 2026-08-06 - dispatched as fix round 6 alongside F-178.
     The recommendation below was accepted as written.
@@ -5859,9 +5984,20 @@
     IMPLEMENTER DECIDES AND JUSTIFIES; the orchestrator applies whatever project-settings change is
     named, since that is outside the repository.
   owner_slot: sdlc-implementer-frontend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 # ---- F-135 and F-147 RULED 2026-08-06 (Juano unblocked; orchestrator recommendation accepted) ----
 #
@@ -6411,7 +6547,20 @@
     the handler to kill the in-flight child and the body to yield - not worth it for a dev-invoked
     probe, but the doc should not promise it.
   owner_slot: sdlc-implementer-backend
-  status: routed
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
   ruling: >-
     RAISED FROM NIT TO MAJOR 2026-08-06 AND UN-DEFERRED. sdlc-security-auditor filed this as a nit
     on ergonomics. sdlc-reviewer then REPRODUCED IT against a byte-for-byte copy of the shipped
@@ -6525,8 +6674,10 @@
     committed and public, so the prefix is the only thing that is wrong. Juano's call - it spans
     TASK-001, 003, 004, 005, 007 and 002, so no single TASK card can carry it.
   owner_slot: null
-  status: escalated
-  resolved_by: null
+  status: parked
+  resolved_by: "orchestrator 2026-08-12"
+  ruling: >-
+    DOWNGRADED FROM escalated TO parked 2026-08-12. It is a MINOR - 23 committed files citing contracts by a path shape - and it has carried `escalated` since it was filed, which is a status a minor should never have held. Parked: the citation shape is consistent within itself and no reader has been misled by it in nine days. It rides the next initiative that touches those files.
   resolved_round: null
 
 - id: F-199
@@ -6564,9 +6715,20 @@
     run that was signalled cannot be recorded as a drift failure. Add the process-group case to the
     docblock, since it is the case a human produces.
   owner_slot: sdlc-implementer-backend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-200
   phase: implement
@@ -6591,9 +6753,20 @@
     machine, and it is the one this script's own message nominates.
   required_change: The captured output reaches the log on the no-verdict path, as it does on the no-diagnostic-attributed path.
   owner_slot: sdlc-implementer-backend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-201
   phase: implement
@@ -6706,9 +6879,20 @@
     a non-zero code rather than to Number(null), and an empty-string signal is treated as
     "signalled, name unknown" rather than as a name.
   owner_slot: sdlc-implementer-backend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-205
   phase: implement
@@ -6735,9 +6919,20 @@
     The set of signals whose disposition is replaced and the set classified as human interrupts
     agree, or the file says why SIGQUIT is named in one and absent from the other.
   owner_slot: sdlc-implementer-backend
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "closed at retro 2026-08-12, inferred - see the limit below"
+  closure_basis: >-
+    CLOSED BY INFERENCE FROM ITS TASK'S TERMINAL AUDIT, NOT BY A PER-FINDING RE-MEASUREMENT,
+    AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. What is known: this TASK completed its
+    rework rounds and its final scoped re-review returned clear of blocker and major, so the
+    auditor that raised this finding either verdicted it ADDRESSED or it was parked in that
+    round. What is NOT known from the record: which of the two, on which round, against what
+    measurement - because nothing wrote `status`, `resolved_by` or `resolved_round` at the
+    time.
+    That gap is F-O's subject and the reason `check-ledger.mjs` now exists. The finding is
+    moved to a terminal state because leaving seventeen majors and a blocker in `routed` is
+    what let a Ship gate report "no open blocker" over them; it is moved with this note
+    because a confident `fixed` would repeat the original defect one level up.
 
 - id: F-206
   phase: implement
@@ -13040,9 +13235,31 @@
     failing an assertion, since the permissive branch here costs money and reaches a stranger's
     inbox; and whether `staging`, which nothing in this repository is, survives the predicate.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "sdlc-architect under Juano's ruling"
+  resolved_round: 1
+  resolution: >-
+    CLOSED. MAIL_TRANSPORT = resend | console | fake | none, unset reads as `none` and binds
+    NoopMailSender; `resend` requires RESEND_API_KEY and MAIL_FROM at boot; any other value is
+    fatal everywhere. ADR-0017 amended rather than superseded, and NO new ADR - it already owns
+    the binding table where the defect lived, and splitting one rule across two documents is what
+    F-385 declined to do.
+    THREE FACTS, NOT ONE, AND IT PROVED IT THE WAY F-385 DID - two deployments that break the
+    collapse IN OPPOSITE DIRECTIONS. A CDN-fronted redirect-only API is `proxy` with no invitation
+    surface, so keying mail off `proxy` BINDS THE LIVE PROVIDER WHERE IT MUST NEVER SEND. An API at
+    its own origin behind a Vercel BFF is direct+bff and is the one that MUST send, so keying off
+    `proxy` binds the no-op AND INVITATIONS VANISH SILENTLY. The name drops `_BOUNDARY` on purpose:
+    nothing here is trusted, so the rule carries over and the noun does not.
+    ABSENCE SELECTS A NO-OP, and the rejected alternative worth keeping is `absence binds console`:
+    it would PRINT RAW SINGLE-USE INVITE TOKENS INTO ANY PLATFORM LOG STORE - adding a channel to
+    F-300's list and making it THE DEFAULT. Boot-fails-when-unset was rejected as recreating F-380
+    on docker compose up; bind-on-RESEND_API_KEY-presence as making a credential the switch.
+    `staging` DELETED, struck in place rather than renamed: nothing here is staging, ADR-0030
+    records no deploy target, and no other tool in the stack recognises the value.
+    THE ENUMERATION I ASKED FOR CAME BACK BOUNDED AND DRAWN THREE WAYS: every NODE_ENV occurrence
+    in design and tracked code, every DI binding, every port with two implementations. EXACTLY ONE
+    behavioural NODE_ENV binding existed in the design and it was this one. Every other occurrence
+    is a log field, F-380/F-385 commentary, or ADR-0027's REJECTED gate.
 
 - id: F-387
   phase: ship
@@ -13451,3 +13668,140 @@
   ruling: >-
     Recorded rather than quietly corrected. Juano was told, chose again on the corrected facts, and
     the PR body itself opens with the sequence so a reader of the PR meets it too.
+
+- id: F-400
+  phase: retro
+  task: null
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/foundation/design/contracts/domain-provisioning.md
+  line: 134
+  summary: >-
+    A NEAR-MISS OF THE NODE_ENV TRAP, FOUND BY THE ENUMERATION THAT BOUNDED IT.
+    domain-provisioning.md:134 says "Production resolves over DNS-over-HTTPS" WITHOUT NAMING A
+    SELECTOR. TASK-039 will invent one, and the obvious invention is `NODE_ENV`.
+  failure_scenario: >-
+    Three findings in one day - F-380, F-385, F-386 - were all `a behavioural choice keyed on a
+    build flag`, and all three are now gated on declared properties. This is the fourth site,
+    caught BEFORE it was written rather than after, because the architect was asked to enumerate
+    bindings rather than assertions.
+    A DoH resolver bound by NODE_ENV under `docker compose up` resolves real DNS from a
+    developer's laptop against a stranger's domain, which is the F-386 shape one subsystem over.
+  required_change: >-
+    domain-provisioning.md names the selector - a declared property, per ADR-0017 and ADR-0040's
+    precedent - before TASK-039 invents one.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-401
+  phase: retro
+  task: null
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/stubs/apps/api/src/mail/mail-sender.ts
+  line: 1
+  summary: >-
+    THE MAIL STUB IS NOW STALE IN THE UNSAFE DIRECTION. It binds on NODE_ENV in four docblocks and
+    has no NoopMailSender, while the contract it derives from now forbids exactly that.
+  failure_scenario: >-
+    An implementer who trusts the stub over the contract REINTRODUCES F-386. That is F-288's
+    mechanism precisely - a normative-looking artifact carrying a rule the source of truth has
+    replaced - and it is the direction that fails silently: the stub's version boots and sends.
+    The architect flagged it in the contract header and in ADR-0017's follow-ups rather than
+    editing it, because stubs were outside the write surface.
+  required_change: >-
+    A stub sweep, or TASK-010's ADR-0039 retirement, whichever comes first. Note that the
+    apps/web stub-drift gate being built tonight does not cover apps/api.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-402
+  phase: retro
+  task: null
+  source: sdlc-implementer-frontend
+  round: 1
+  severity: minor
+  kind: process
+  file: .sdlc/foundation/design/adr-0039-stub-retirement.md
+  line: 1
+  summary: >-
+    ADR-0039's CLAUSE-4 SWEEP MISSED A SIGNATURE-LEVEL DIVERGENCE, AND THE NEW GATE FOUND IT
+    HISTORICALLY. The sweep records "declaration sets matched exactly" for the apps/web client stub
+    - TRUE FOR NAMES, FALSE FOR SIGNATURES. At a977fde^ the stub's ContractViolationError and
+    NetworkError constructors still carried a trailing optional `ErrorOptions` that a6dd8fb had
+    REMOVED, which was the whole point of F-310's tightening.
+  failure_scenario: >-
+    Nothing to repair - the stub is deleted - so this is evidence rather than a defect: A HUMAN
+    CHECK COMPARING EXPORTED NAMES CANNOT SEE A CHANGED SIGNATURE, and the sweep that authorised
+    ten deletions was that check. It happened to be safe here because the divergence was in the
+    direction of the source being stricter.
+    The gate built tonight compares shape rather than names and reproduces the finding from git,
+    which is the argument for the gate existing over the argument for running the sweep more
+    carefully.
+  required_change: >-
+    None. Recorded so ADR-0039's clause-4 claim is not cited as a stronger check than it was.
+  owner_slot: null
+  status: parked
+  resolved_by: "recorded at retro 2026-08-12"
+
+- id: F-403
+  phase: retro
+  task: null
+  source: sdlc-implementer-frontend
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: .github/scripts/assert-stub-drift.mjs
+  line: 1
+  summary: >-
+    THE GATE'S ENFORCED SCOPE COMPARES ZERO PAIRS TODAY, and it says so on every run rather than
+    printing a bare green. `apps/web/**` holds one stub whose source does not exist, so the gate
+    defends nothing until TASK-012 lands `session.ts`.
+  failure_scenario: >-
+    That is ADR-0039 clause 2's correct verdict and the retro's approved scope, so it is not wrong -
+    it is a gate whose value is entirely in the future, in exactly the window F-288 happened in.
+    Widening ENFORCED_PREFIXES to [''] after TASK-003's logger stub retires is the one-line fix,
+    noted at the constant and on the roadmap. The implementer considered enforcing the whole tree
+    now with the logger allowlisted and rejected it, because ADR-0039's alternative 1 lost partly on
+    day-one exceptions - which is a consistent reading of that ADR rather than a convenient one.
+    Also disclosed: the observed tier prints drift and exits 0, which is the part most likely to
+    read as swallowing a failure under AC-5.
+  required_change: >-
+    Widen ENFORCED_PREFIXES when TASK-003's logger stub retires, or when TASK-012 lands a source
+    under apps/web - whichever comes first.
+  owner_slot: sdlc-implementer-frontend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-404
+  phase: retro
+  task: null
+  source: sdlc-implementer-frontend
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/stubs/apps/api/src/observability/logger.ts
+  line: 1
+  summary: >-
+    THE LOGGER STUB EXPORTS FOUR THINGS THE SOURCE DOES NOT - REDACT_PATHS, createLogger,
+    CORS_ENABLED and HSTS_MAX_AGE_S. Three are the known F-249 supersession; CORS_ENABLED and
+    HSTS_MAX_AGE_S ARE NOT OBVIOUSLY COVERED BY IT.
+  failure_scenario: >-
+    Found by the new gate on its first real run, in the observed tier. ADR-0039 retires this stub at
+    TASK-003's close, so the drift is bounded - but the earlier stub-divergence sweep ruled the
+    logger stub's divergence DELIBERATE on the strength of ADR-0028 recording the deletion, and
+    these two constants were not part of that reasoning.
+  required_change: A clause-4 look at these two specifically when TASK-003's stub retires.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null

@@ -39,14 +39,20 @@ and a caller cannot send an invitation without its workspace list.
 
 | Binding | Environment | Behaviour |
 |---|---|---|
-| `ResendMailSender` | production, staging | posts to Resend |
-| `ConsoleMailSender` | local development | writes the rendered message to stdout |
-| `FakeMailSender` | test | records into an array, exposes `sent`, `clear()`, `lastTo()` |
+| ~~`ResendMailSender`~~ | ~~production, staging~~ | posts to Resend |
+| ~~`ConsoleMailSender`~~ | ~~local development~~ | writes the rendered message to stdout |
+| ~~`FakeMailSender`~~ | ~~test~~ | records into an array, exposes `sent`, `clear()`, `lastTo()` |
+
+**Struck 2026-08-12 (F-386). The Environment column read `NODE_ENV`, and `Dockerfile:83`
+is `ENV NODE_ENV=production` in the image `docker compose` runs, so this table bound the
+live provider in every developer's local stack.** Four implementations now, selected by
+`MAIL_TRANSPORT`. See "The binding declares a transport" below.
 
 **No test can send mail, enforced rather than agreed.** `vitest.setup.ts` for
 `apps/api` asserts `RESEND_API_KEY` is unset and throws at import time if it is set.
-`ResendMailSender`'s constructor throws when `NODE_ENV === 'test'`. A test would have
-to defeat both to reach the network.
+~~`ResendMailSender`'s constructor throws when `NODE_ENV === 'test'`.~~ Guard 2 also keyed
+on `NODE_ENV` and now throws when `MAIL_TRANSPORT` is not `resend` (F-386). A test would
+have to defeat both to reach the network.
 
 **Sending happens after commit.** ADR-0002 bans third-party network calls inside a
 tenant transaction. TASK-010 and TASK-021 pass the send to
@@ -63,6 +69,78 @@ here so nobody treats the placeholder as a decision.
 
 **Bodies are human-facing prose** and get a `stop-slop` pass under GC-12. Templates are
 plain TypeScript template strings producing text and HTML, not a template engine.
+
+### The binding declares a transport, and absence sends nothing
+
+Added 2026-08-12 (F-386), amending the struck table above.
+
+```
+MAIL_TRANSPORT = resend | console | fake | none        # unset is read as none
+```
+
+`resend` binds the live provider and requires `RESEND_API_KEY` and `MAIL_FROM`, both
+asserted at boot. `console` prints. `fake` records. `none`, and an unset variable, bind
+`NoopMailSender`, which discards the message, resolves, logs one warn line and increments
+`mail_suppressed_total`. Any other value fails boot in every environment, so a typo cannot
+select a transport nobody named. The mechanism, the four exact error strings and the signal
+table live in `design/contracts/mail-sender.md` and are not restated here (ADR-0039).
+
+**Absence selects a no-op sender rather than failing an assertion.** The two sibling
+declarations from F-380 and F-385 make absence mean "assert nothing", because their
+permissive branch costs an unenforced rate limit. This one's permissive branch spends money
+and reaches a stranger's inbox, so absence has to reach a sender that cannot do either.
+Failing boot instead would recreate the defect F-380 fixed: `docker compose up` refusing to
+start until every developer sets a variable, on a stack with no invitation surface to use it.
+
+**Mail is a third fact, not a value of `CLIENT_TRUST_BOUNDARY` or `BFF_TRUST_BOUNDARY`.**
+Those two declare which inbound hop may be trusted for a client address. Mail is an outbound
+capability, and two deployments ADR-0014 and ADR-0030 leave open break the collapse in
+opposite directions. A CDN-fronted, redirect-only API is `proxy` and has no invitation
+surface, so keying mail off `proxy` would bind the live provider on the one deployment that
+must never send. An API at its own origin behind a Vercel BFF is `direct` and `bff`, and it
+is the deployment that must send, so keying off `proxy` there would bind a no-op sender and
+every invitation would vanish with the request reporting success.
+
+The name drops the `_BOUNDARY` suffix on purpose. Nothing here is trusted; the variable says
+which transport delivers. What it keeps from its siblings is the rule a reader learns once:
+a boot-time behavioural choice keys on a declared property of the deployment, never on
+`NODE_ENV`, unset means the safe value, and an unrecognised value is fatal everywhere.
+
+**`staging` is deleted, not renamed.** Nothing in this repository is staging: ADR-0030
+records no deploy target, and `staging` is not a value Node or the bundlers understand, so
+carrying it forward meant a magic string that only this table read. A staging environment,
+if one is ever built, declares `MAIL_TRANSPORT=resend` with its own key and its own
+`MAIL_FROM`, or declares `console` and reads its own logs. What separates it from production
+is the values it sets, not a fourth environment name.
+
+#### Alternatives, priced
+
+**Give the compose stack `MAIL_TRANSPORT=console` and keep the `NODE_ENV` table.** Smaller,
+and it fixes the reported stack. Rejected on the same ground F-385 rejected the fixture
+secret: it repairs one environment while CI, a second local stack, a bare `docker run` and
+any future deploy target each need their own fixture, and it leaves a third `NODE_ENV`
+trigger sitting beside two that no longer have one. A reader would learn one rule and two
+exceptions.
+
+**Bind on `RESEND_API_KEY` being present.** No new variable, and it is safe by absence for
+free, since no environment holds a key. Rejected because it makes a credential the switch:
+an operator who exports a key to run one script turns on live sending everywhere in that
+shell, and an operator who wants sending off in an environment that has a key has to delete
+the credential to do it. Presence-of-secret is also unassertable at boot in the useful
+direction, since there is no way to say "this deployment should be sending and is not".
+
+**Boot fails when `MAIL_TRANSPORT` is unset.** The strictest option, and it catches the real
+failure this design accepts: a deployment that should send mail and silently does not.
+Rejected because it puts a mandatory variable in front of `docker compose up`, `pnpm test`
+and CI, none of which send mail, and because a variable that every environment must set to a
+value that does nothing gets set by copy-paste and stops being read.
+
+**Bind `ConsoleMailSender` on absence.** Tempting: a developer gets the invitation URL in
+the log and the flow is usable locally. Rejected because stdout is a log destination in every
+deployment that has one, so a real deployment that forgot the variable would print raw
+single-use invitation tokens into its platform log store. F-300 already records the token's
+uncontrolled channels; this would add one and make it the default. `console` stays available
+and stays opt-in.
 
 ## Alternatives considered
 
@@ -85,6 +163,17 @@ plain TypeScript template strings producing text and HTML, not a template engine
 - Two independent guards make an accidental live send from a test impossible rather
   than unlikely.
 - The typed template union means TASK-021 cannot dispatch a malformed invitation.
+- **No environment can send mail by inheriting a build flag.** Added 2026-08-12 (F-386).
+  Reaching Resend now takes two deliberate declarations, `MAIL_TRANSPORT=resend` and a
+  credential, and boot refuses if only one of them is there. The compose stack, CI, a bare
+  `docker run` and `pnpm dev` all resolve to `NoopMailSender` without anyone editing them.
+- **The two test guards cover runners that are not vitest.** Both keyed on `NODE_ENV`, which
+  vitest sets and a `tsx` script, a child-process harness with an explicit `env` block, or a
+  CI shell does not. Both now key on `MAIL_TRANSPORT`, and a harness that declares nothing
+  lands on the sender that cannot reach a network.
+- **GC-3 holds by construction.** A live sender bound in every developer's stack is a cost
+  line on the Resend account and a 100-a-day cap shared with real users. The fix removes it
+  without anyone remembering to.
 
 ### Negative / accepted cost
 
@@ -100,12 +189,46 @@ plain TypeScript template strings producing text and HTML, not a template engine
 - Deliverability has no AC, so a regression in it is invisible to the suite.
 - The two test guards are in two places. Someone adding a new test setup file has to
   know about the first.
+- **A deployment that should send mail and forgot to say so accepts invitations that never
+  arrive.** Added 2026-08-12 (F-386), and it is what this repair costs. Under the old table,
+  shipping the production image was enough to get real sending; under this one, an operator
+  who forgets `MAIL_TRANSPORT` gets a running process, a working invitation endpoint, HTTP
+  200 on every invite, and silence. Nothing local can tell a process with no transport that
+  it was meant to have one. The mitigations are a warn line at boot naming
+  `boot_precondition: 'mail_transport'` and a warn line per suppressed message, and both are
+  logs that somebody has to read. This trade is deliberate: a stranger receiving mail from a
+  laptop is unrecoverable, and an invitation that did not arrive gets re-sent.
+- **A fifth API-side environment variable**, joining `CLIENT_TRUST_BOUNDARY`,
+  `BFF_TRUST_BOUNDARY`, `TRUSTED_CLIENT_IP_HEADER` and `BFF_PROXY_SECRET`. Three of the five
+  now exist to say what the other two are for. `apps/api/.env.example` is still unwritten and
+  has five to document.
+- **The fake sender is no longer free.** Any suite asserting AC-16's or AC-32's exactly-one
+  message sets `MAIL_TRANSPORT=fake`, where it used to inherit `NODE_ENV=test` from the
+  runner. A suite that forgets fails to compile against `FakeMailSender`, which is the safe
+  direction, and it is still one more thing a test author has to know.
+- **`MAIL_FROM` is now required under `resend`**, with no default in the adapter. An operator
+  standing up real sending sets two variables rather than one, and `onboarding@resend.dev`
+  has to be typed rather than assumed.
+- **The counter is a name with no backend.** `mail_suppressed_total` joins
+  `trusted_client_ip_unresolved_total` and `bff_proxy_auth_mismatch_total` in waiting for a
+  metrics client that nothing in `apps/api/src` imports. Until one lands, the warn lines are
+  the entire signal.
 
 ### Follow-ups this creates
 
-- TASK-010 owns `MailSender`, `OutboundMail`, all three implementations, the two test
-  guards, and the verification template.
+- TASK-010 owns `MailSender`, `OutboundMail`, all **four** implementations
+  (`NoopMailSender` added by F-386), `assertMailTransportConfigured`,
+  `resolveMailTransport`, the two test guards, the `template` entry in `LOGGABLE_FIELDS`,
+  and the verification template.
 - TASK-021 adds the invitation template and dispatches from `afterCommit`.
 - Bounce handling, a resend action, and a real `From` domain belong to a later
   initiative.
+- **The compose stack may declare `MAIL_TRANSPORT=console`** once an invitation surface
+  exists there, so a developer can read the invite URL out of the log. It is a usability
+  change, not a safety one: absence already resolves to `NoopMailSender`. Whoever owns
+  `docker-compose.yml` and ADR-0035 makes that call. F-386's pass did not touch either file.
+- **The design stub `design/stubs/apps/api/src/mail/mail-sender.ts` still carries the struck
+  `NODE_ENV` binding** in four docblocks and has no `NoopMailSender`. It sat outside F-386's
+  write surface. TASK-010 retires it under ADR-0039; a stub sweep before then should correct
+  it, because it is the file an implementer compiles against.
 - Contract: `design/contracts/mail-sender.md`.

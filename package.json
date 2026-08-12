@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:integration": "pnpm --filter @shortkit/api test:integration",
     "test:compose": "./scripts/check-compose-stack.sh",
+    "assert:stub-drift": "node .github/scripts/assert-stub-drift.mjs",
     "build": "pnpm -r build"
   },
   "devDependencies": {

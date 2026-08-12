@@ -149,6 +149,11 @@ inherits it and the ruling that produced it.
 | **F-350** — the drift repair reached the isolation suite and not the GDPR paths. `tenantScopedTables()` still has no name-independent derivation, and it is what export and erasure iterate. | Item 4, and any entry adding a tenant-scoped table | ADR-0019 amendment, 2026-08-11 |
 | **F-386** — `mail-sender.md` binds the **live Resend sender** when `NODE_ENV` is `production`, which `Dockerfile:83` sets under `docker compose up`. It does not refuse to boot; it waits, and sends real email the first time anyone invites someone from a local stack. | Item 1, or whichever entry writes mail | filed 2026-08-11, unruled |
 
+| **F-236 — the GDPR eraser erases nothing and reports success.** `PrivilegedTenantEraser.erase` written the obvious way deletes no rows and returns cleanly. This is F-002's class — a design blocker fixed at *policy* level in design round 1 — reappearing at *statement* level, because the policy fix was verified against the policy set and never against a statement issued under it. **The most consequential item in this table.** | Item 1, and any entry touching GDPR erasure | filed at TASK-006 delivery; owner TASK-054, deferred |
+| **F-239 — `ALTER DEFAULT PRIVILEGES` grants `shortkit_app` full DML on every table the migrator creates**, so a new table is writable by the runtime role before anyone writes a policy for it. | Item 1, and any entry adding a table | owner TASK-009, deferred |
+| **F-102 — AC-68 versus F-097's DNS-proof ordering.** A finding against an approved artifact, so routing rule 0 makes it Juano's, and it must settle before custom domains are dispatched. | Item 3 (custom domains) | escalated 2026-08-03, unresolved |
+| **F-157 — no build-output scan can cover dynamic routes**, which is where the entire authenticated surface will live. AC-113's guard is sound for what it scans and structurally blind to what comes next. | Item 1, when the first authenticated route lands | closed against TASK-004; the residual is real |
+
 **Why this block exists rather than a pointer to `findings.yaml`.** The initiative named the same
 defect four times in its own logs — a routing recorded as a resolution, a record that lagged its
 artifact, a fix that landed where the finding pointed and survived everywhere it did not. It is
@@ -177,3 +182,47 @@ could least be verified locally. So, recorded before anyone needs it:
 Recorded here because the choice and its fallback had no carrier otherwise, which is F-389's exact
 shape one day later — and it was the implementer, not an auditor, that pointed out its own decision
 had nowhere to live.
+
+## The stub-drift gate: its scope, and when to widen it (F-288, 2026-08-12)
+
+`.github/scripts/assert-stub-drift.mjs` closes the gap ADR-0039 admits it leaves open — the gap
+F-288 came through, named four times across the foundation initiative and gated by nothing. It
+compares each surviving stub with the source file at the same path on **exported shape** and fails
+when a declaration the stub exports is missing from the source or has a different signature. Bodies,
+comments, declaration order, interface member order, union order, parameter names and `async` are
+all excluded, because a check that fires on those is a check nobody keeps green.
+
+**It gates as a step in `quality`, not as a fourth job.** `quality` is already named in `gate`'s
+`needs`, its `env:` and its assertion loop, so a step inside it blocks a merge with no wiring to
+keep in step across three places — which is the failure F-390 filed against the compose script. A
+job earns its three entries when it needs its own services or its own timeout; this one is a
+filesystem walk and a parse, well under a second. **De-gating it is therefore one line**: delete the
+`Assert no surviving design stub has drifted from its source` step. Do not weaken the script, and do
+not touch `gate`.
+
+**Two things about its scope are true today and should not be discovered by surprise:**
+
+- **It enforces `apps/web/**` only, and that stub has no source yet, so it currently compares zero
+  gating pairs.** That is the retro's approved scope and the correct verdict under ADR-0039 clause 2,
+  and the run prints both facts rather than reporting a clean green. It starts defending the moment
+  TASK-012 lands `apps/web/src/lib/session/session.ts` — the same window F-288 happened in.
+- **`apps/api/src/observability/logger.ts` is really drifted and is reported without gating.** The
+  stub exports `REDACT_PATHS`, `createLogger`, `CORS_ENABLED` and `HSTS_MAX_AGE_S`; the source
+  exports none of them. This is the known F-249 supersession, not a new defect —
+  `design/stubs/README.md` already calls that stub "superseded and unsafe to copy" and ADR-0028
+  deleted `REDACT_PATHS` from the running logger. Enforcing the whole tree today would mean shipping
+  an allowlist entry on day one for a divergence already agreed to, which is one of the costs
+  ADR-0039's alternative 1 lost on.
+
+**Widen `ENFORCED_PREFIXES` to `['']` when TASK-003 closes and retires the logger stub.** Nothing
+else in the tree has a source file, so at that point the whole tree enforces with no exception to
+write, and the constant is the only edit.
+
+**One real divergence this check found in history, recorded because nothing else records it.** Run
+against the F-288 pair as it stood at `ecc9275`, it names all three missing exports. Run against the
+same pair as it stood the commit before the stub was deleted, it still fails: the stub's
+`ContractViolationError` and `NetworkError` constructors took a trailing optional `ErrorOptions`
+parameter that `a6dd8fb` had removed from the source. ADR-0039's clause 4 pre-deletion check was
+performed on that stub and reported the exported declaration sets matching exactly — true at the
+level of names, false at the level of signatures. The stub is gone and there is nothing to fix; the
+point is that the human check missed it and this one does not.
