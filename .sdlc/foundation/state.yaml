@@ -1,10 +1,10 @@
 slug: foundation
 title: Foundation and tenancy substrate
 type: feature
-phase: ship
+phase: retro
 track: full
 wave: 2
-branch: main
+branch: "feat/foundation -> main, merged as aa9c288"
 created: 2026-08-03
 updated: 2026-08-11
 
@@ -1368,3 +1368,7 @@ log:
   - "2026-08-12 ship: AND THE REJECTION EXPOSED AN ERROR OF MINE THAT A DECISION WAS RESTING ON. F-399. When I put the branch question to Juano I priced `branch retroactively and open a PR` as REWRITING PUBLISHED HISTORY with shas moving under dozens of findings. THAT WAS FALSE. origin/main is 248 commits BEHIND and a STRICT ANCESTOR of local HEAD, so pushing a branch creates a new ref and moves nothing. The destructive part - resetting origin/main - was in my own option text and nothing required it."
   - "2026-08-12 ship: THE CHECK THAT WOULD HAVE CAUGHT IT IS ONE COMMAND, `git merge-base --is-ancestor origin/main HEAD`, AND I RAN IT ONLY AFTER THE PUSH FAILED. Every other claim I made today I measured before stating; this one I reasoned about, and it was the one with a ruling resting on it. A cost stated in a question's option is a load-bearing claim and gets measured like any other."
   - "2026-08-12 ship: JUANO RE-RULED ON THE CORRECTED FACTS - push a branch and open the PR, which is what phases/ship.md and GC-10 both wanted and which was available at no cost the whole time. The PR body's opening was itself false by then, saying `there is no pull request, and this file is not one`; corrected, with the sequence recorded IN the body so a reader of the PR meets it rather than only the ledger."
+  - "2026-08-12 ship: PR #1 GREEN ON EVERY CHECK AND MERGED. quality 1m04s, integration 1m13s, compose 2m38s, gate 3s, Vercel deployed. Merged as aa9c288 with a MERGE COMMIT rather than a squash, because invariant 6 is traceability and 193 of the 248 commits carry a TASK id a squash would destroy. origin/main now contains the work; local HEAD is an ancestor of it."
+  - "2026-08-12 ship: THREE THINGS BECAME TRUE FOR THE FIRST TIME. AC-5 and AC-114 are met IN FACT rather than in definition - they carried `never observed on a runner` the whole initiative because the remote had never received a push. The `compose` job's risk DID NOT MATERIALISE: four cold image builds in 2m38s, so the de-gating fallback on the roadmap stays there unused, which is the right place for it. And `gate` PROVED IT GATES, running in 3 seconds after its three dependencies - which is what the three-place needs/env/loop wiring was for."
+  - "2026-08-12 ship: POST-MERGE SMOKE PASSED ON THE MERGED TREE, AND IT TESTED SOMETHING NOTHING ELSE HAD. The stack rebuilt at aa9c288 - A MERGE COMMIT, a sha no build had ever seen - and /health returned 200 with status ok and `commit` EQUAL TO THE MERGED HEAD, plus the web root at 200. AC-6's provenance clause had only ever been measured against a linear commit; a merge commit is the first honest test of whether the build-arg chain survives an operation nobody designed it for. It does."
+  - "2026-08-12 ship: SHIP IS COMPLETE. Phase advanced to retro. The material is already in this log: TEN lagging ledger fields, every one mine; THREE decisions whose validity conditions nothing enforces (F-390's check wired into nothing, ADR-0039's own admission that it replaces a missing drift gate with a missing retirement gate, and F-395's additive-only precondition); F-399, a cost I stated in a question's option WITHOUT MEASURING IT, with a ruling resting on it; GC-10 having a slot for a TASK id and NONE for a finding id, which is why Ship-gate fixes read as orphans; and TASK-006 needing three blockers and five fix rounds because a harness is only ever proven against the attacks someone thought to run."
