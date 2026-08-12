@@ -1,15 +1,25 @@
-# Release note: `foundation`
+# `foundation`: a multi-tenant substrate with isolation enforced by Postgres
 
-**There is no pull request, and this file is not one.** Every commit in this initiative
-landed on `main`. Juano ruled push-to-main and skip-the-PR, and `phases/ship.md` records
-the skipped step. The body below exists because the linked ids, the design decisions, the
-test evidence, the migration posture and the risk assessment are worth keeping whether or
-not GitHub renders them. Read it as a merge summary.
+**Corrected 2026-08-12.** This file opened by stating there was no pull request. There is
+one, and this is its body. The sequence is worth recording because it is the same defect
+this initiative spent a week filing against other documents: a direct push to `main` was
+rejected by branch protection requiring the `gate` check, and the orchestrator had earlier
+priced the branch alternative as "rewrites published history" — which was false.
+`origin/main` is 248 commits behind and a strict ancestor of this branch, so pushing a ref
+moves no sha and rewrites nothing. The expensive option did not exist; the cheap one did,
+and it is the one `phases/ship.md` and GC-10 both wanted.
 
 | | |
 |---|---|
 | Initiative | `foundation` (re-scoped from `launch-core` on 2026-08-09) |
-| Branch | `main` |
+| Branch | `feat/foundation` into `main` |
+| Base | `cee06e4`, a strict ancestor — no history rewritten |
+| Deploy target | none, by decision (ADR-0030) |
+| First CI run | **this PR.** `quality`, `integration` and `compose` have never executed on a runner |
+
+| | |
+|---|---|
+| Initiative | `foundation` (re-scoped from `launch-core` on 2026-08-09) |
 | Range | `be8f9e2` (2026-08-03) to `4a5ab8a` (2026-08-11) |
 | Commits | 257 |
 | Deploy target | none, by decision (ADR-0030) |
