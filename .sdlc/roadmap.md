@@ -135,10 +135,16 @@ Also riding item 3: two stale quotations of the retired exemption at
 
 ## Carried forward from `foundation` (F-389, 2026-08-11)
 
-**Six obligations belong to deferred work and had no carrier past this initiative.** Ship is the
-last gate where the record is still in one place — `findings.yaml` is 770 KB, and one of these
+**Twelve obligations belong to deferred work and had no carrier past this initiative.** Ship is the
+last gate where the record is still in one place — `findings.yaml` is 808 KB, and one of these
 items has a record that reads `status: fixed`. Each is named here with the roadmap entry that
 inherits it and the ruling that produced it.
+
+Six came from F-389's sweep on 2026-08-11. Four more — F-236, F-239, F-102, F-157 — were added at
+the Retro gate on 2026-08-12, because the prose-driven sweep missed them; that is why
+`check-ledger.mjs` rule 4 now asserts this table mechanically. The last two, F-400 and F-401, are
+Retro-phase findings and are **below `check-ledger`'s reach**: it only asserts a carrier for
+`major` and `blocker`, and both were filed `minor`.
 
 | Obligation | Inherited by | Ruling |
 |---|---|---|
@@ -147,8 +153,9 @@ inherits it and the ruling that produced it.
 | **F-036, F-037** — parked majors on the architect, from the design phase. | whichever entry revives their subject | parked at the design cap |
 | **F-300 / F-362** — `invitation-tokens.md` invariant 5 is corrected but the mechanism is undecided: the raw token sits in the URL path on **both** the `GET` and the `POST` accept legs, so the two recorded fixes are **not** equivalent. A redirect covers the GET and not the POST. | Item 1 | Juano's park-and-correct ruling, 2026-08-11 |
 | **F-350** — the drift repair reached the isolation suite and not the GDPR paths. `tenantScopedTables()` still has no name-independent derivation, and it is what export and erasure iterate. | Item 4, and any entry adding a tenant-scoped table | ADR-0019 amendment, 2026-08-11 |
-| **F-386** — `mail-sender.md` binds the **live Resend sender** when `NODE_ENV` is `production`, which `Dockerfile:83` sets under `docker compose up`. It does not refuse to boot; it waits, and sends real email the first time anyone invites someone from a local stack. | Item 1, or whichever entry writes mail | filed 2026-08-11, unruled |
-
+| **F-386** — `mail-sender.md` binds the **live Resend sender** when `NODE_ENV` is `production`, which `Dockerfile:83` sets under `docker compose up`. It does not refuse to boot; it waits, and sends real email the first time anyone invites someone from a local stack. | Item 1, or whichever entry writes mail | ruled 2026-08-12: `MAIL_TRANSPORT` is a third declaration, unset binds `NoopMailSender` |
+| **F-401 — the mail stub is stale in the unsafe direction.** `design/stubs/apps/api/src/mail/mail-sender.ts` still binds on `NODE_ENV` in four docblocks and has no `NoopMailSender`, while the contract F-386 just corrected forbids exactly that. **An implementer who trusts the stub over the contract reintroduces F-386**, and it fails silently — the stub's version boots and sends. This is F-288's mechanism: a normative-looking artifact carrying a rule the source of truth has replaced. The `apps/web` stub-drift gate does not cover `apps/api`. | Item 1, or whichever entry writes mail | a stub sweep, or TASK-010's ADR-0039 retirement, whichever comes first |
+| **F-400 — `domain-provisioning.md:134` names no selector.** It says "Production resolves over DNS-over-HTTPS" and TASK-039 will invent one; the obvious invention is `NODE_ENV`. A DoH resolver bound that way under `docker compose up` resolves real DNS from a laptop against a stranger's domain — the F-386 shape one subsystem over. Caught before it was written, because the architect was asked to enumerate bindings rather than assertions. | Item 3 (custom domains) | name the selector as a declared property, per ADR-0017 and ADR-0040 |
 | **F-236 — the GDPR eraser erases nothing and reports success.** `PrivilegedTenantEraser.erase` written the obvious way deletes no rows and returns cleanly. This is F-002's class — a design blocker fixed at *policy* level in design round 1 — reappearing at *statement* level, because the policy fix was verified against the policy set and never against a statement issued under it. **The most consequential item in this table.** | Item 1, and any entry touching GDPR erasure | filed at TASK-006 delivery; owner TASK-054, deferred |
 | **F-239 — `ALTER DEFAULT PRIVILEGES` grants `shortkit_app` full DML on every table the migrator creates**, so a new table is writable by the runtime role before anyone writes a policy for it. | Item 1, and any entry adding a table | owner TASK-009, deferred |
 | **F-102 — AC-68 versus F-097's DNS-proof ordering.** A finding against an approved artifact, so routing rule 0 makes it Juano's, and it must settle before custom domains are dispatched. | Item 3 (custom domains) | escalated 2026-08-03, unresolved |
@@ -202,13 +209,15 @@ not touch `gate`.
 
 **Two things about its scope are true today and should not be discovered by surprise:**
 
-- **It enforces `apps/web/**` only, and that stub has no source yet, so it currently compares zero
-  gating pairs.** That is the retro's approved scope and the correct verdict under ADR-0039 clause 2,
+- **F-403 — it enforces `apps/web/**` only, and that stub has no source yet, so it currently
+  compares zero gating pairs.** That is the retro's approved scope and the correct verdict under ADR-0039 clause 2,
   and the run prints both facts rather than reporting a clean green. It starts defending the moment
   TASK-012 lands `apps/web/src/lib/session/session.ts` — the same window F-288 happened in.
-- **`apps/api/src/observability/logger.ts` is really drifted and is reported without gating.** The
-  stub exports `REDACT_PATHS`, `createLogger`, `CORS_ENABLED` and `HSTS_MAX_AGE_S`; the source
-  exports none of them. This is the known F-249 supersession, not a new defect —
+- **F-404 — `apps/api/src/observability/logger.ts` is really drifted and is reported without
+  gating.** The stub exports `REDACT_PATHS`, `createLogger`, `CORS_ENABLED` and `HSTS_MAX_AGE_S`;
+  the source exports none of them. `REDACT_PATHS` and `createLogger` are the known F-249
+  supersession; **`CORS_ENABLED` and `HSTS_MAX_AGE_S` are not obviously covered by it** and should
+  be checked rather than assumed when the stub retires. Treated as known drift, not a new defect —
   `design/stubs/README.md` already calls that stub "superseded and unsafe to copy" and ADR-0028
   deleted `REDACT_PATHS` from the running logger. Enforcing the whole tree today would mean shipping
   an allowlist entry on day one for a divergence already agreed to, which is one of the costs
@@ -225,4 +234,6 @@ same pair as it stood the commit before the stub was deleted, it still fails: th
 parameter that `a6dd8fb` had removed from the source. ADR-0039's clause 4 pre-deletion check was
 performed on that stub and reported the exported declaration sets matching exactly — true at the
 level of names, false at the level of signatures. The stub is gone and there is nothing to fix; the
-point is that the human check missed it and this one does not.
+point is that the human check missed it and this one does not. Filed as **F-402**, parked, and
+recorded so ADR-0039's clause-4 claim is never cited as a stronger check than it was — that sweep
+authorised ten deletions.
