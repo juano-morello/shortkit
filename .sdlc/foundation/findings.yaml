@@ -13023,6 +13023,22 @@
     The sender binding is gated on a declared property rather than on NODE_ENV, the same way F-380
     and F-385 now are - or mail-sender.md states why a build flag is the right trigger for this one.
     mail-sender.md and ADR-0017 were outside the architect's write surface.
+  ruled_2026_08_12: >-
+    RULED BY JUANO: the same treatment as F-380 and F-385 - gate the sender binding on a declared
+    property rather than on NODE_ENV. His reasoning, carried from the F-385 ruling: one reader should
+    learn one rule rather than two exceptions.
+    THE CONTRACT EDIT IS OUTSTANDING AND THE REASON IS NOT A DECISION. Two architect dispatches died
+    on server-side 529s, both writing nothing, so mail-sender.md and adr-0017 still carry the
+    NODE_ENV predicate. Juano ruled 2026-08-12 to retry after the Retro lands rather than run two
+    heavy architect passes during an overload - a third failure mid-write would leave a half-edited
+    contract, which is the state this initiative spent a week filing findings against.
+    EXPOSURE TODAY IS NONE, verified: mail is unwritten, TASK-017 is deferred with EPIC-002, no
+    Resend key exists in any environment, and the compose stack has no invitation surface to trigger
+    a send. What is open is the document, not the risk.
+    Three specific questions are already framed for the retry: whether mail is a third fact or a
+    value of an existing declaration; whether ABSENCE SHOULD SELECT A NO-OP SENDER rather than merely
+    failing an assertion, since the permissive branch here costs money and reaches a stranger's
+    inbox; and whether `staging`, which nothing in this repository is, survives the predicate.
   owner_slot: sdlc-architect
   status: open
   resolved_by: null
