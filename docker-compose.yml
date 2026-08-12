@@ -1,0 +1,345 @@
+# The whole stack, up from nothing (AC-115).
+#
+# Contract: design/contracts/rls-policy-template.md (roles, grants, env vars)
+# ADR: adr-0030 .. adr-0037
+# Produced by: TASK-059
+# Measured by: scripts/check-compose-stack.sh
+#
+#   docker compose up                                                  # AC-115's command
+#   GIT_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up --build   # real provenance
+#   docker compose down -v                                             # the only reset
+#
+# The README carries the reset ladder, the two published ports, and what a green stack
+# does and does not give you.
+#
+# ---------------------------------------------------------------------------
+# LOCAL DEVELOPMENT ONLY. THIS IS NOT A PRODUCTION DATABASE, AND THERE IS NO
+# PRODUCTION DATABASE (ADR-0030).
+# ---------------------------------------------------------------------------
+#
+# In the same form as docker-compose.test.yml's banner, and for the same reason: this is
+# the repository's only worked example of standing the system up, so it is what someone
+# reaches for under time pressure. Half of it is meant to be copied and half must not be.
+#
+# Reusable — this is rls-policy-template.md's "Roles" section, applied:
+#   - both roles NOBYPASSRLS, both with attribute defaults otherwise;
+#   - shortkit_app owns nothing and receives DML only through
+#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator;
+#   - USAGE on schema public and nothing more;
+#   - migrations run as shortkit_migrator and the seed runs as shortkit_app, from a
+#     stage that is not the deployed image (ADR-0033).
+#
+# NOT reusable — docker-compose.test.yml's list minus tmpfs, plus one:
+#   - default passwords in a committed file, including the bootstrap superuser's;
+#   - no TLS, so every connection on the compose network is plaintext. A production DSN
+#     with `sslmode=require` gets encryption with NO certificate verification;
+#     `sslmode=verify-full` is the one that means what it looks like;
+#   - ALTER DEFAULT PRIVILEGES is scoped to the identity `shortkit_migrator`, so a stack
+#     that runs migrations as any other role grants shortkit_app nothing. It fails
+#     closed, and here it fails at `seed` rather than at runtime, which is the whole
+#     reason the seed connects as the app role (ADR-0033);
+#   - `restart: unless-stopped` on postgres. It is right for a development stack and it
+#     means a database holding the committed superuser password comes back on every
+#     Docker daemon start, including after a reboot, until someone stops it. In a
+#     production file that exposure window is permanent rather than "while I am working";
+#   - GIT_COMMIT_SHA defaulting to forty zeros (ADR-0037). Whatever builds an image that
+#     will serve a request supplies a real SHA. Nothing inherits this default.
+#
+# The roles SQL below is transcribed from the contract, NOT copied from
+# docker-compose.test.yml (ADR-0031). Neither file is derived from the other and nothing
+# enforces that they agree, so a change to the contract's "Roles" section edits both in
+# the same commit. What catches the drift that matters is execution, in three places:
+# the API's boot check, this stack's seed, and the integration suite's fixture.
+#
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE ADDING A VARIABLE: EVERY `$` THE CONTAINER MUST SEE IS `$$`
+# ---------------------------------------------------------------------------
+#
+# Compose interpolates `configs.*.content`, `healthcheck.test` and `command` against the
+# HOST environment at parse time (F-315, F-316). On the machine AC-115 describes those
+# variables are unset, so a single `$` is substituted with the empty string BEFORE the
+# container sees it. It does not fail loudly: libpq treats an empty user as unset,
+# PostgreSQL answers `PASSWORD ''` with a NOTICE, ON_ERROR_STOP=1 never fires, and the
+# container reports initialisation complete with two passwordless roles.
+#
+# `$$` reaches the container as one `$`. `${VAR:-default}` under `environment:`, `args:`
+# and `ports:` is a different thing and is correct as written: that is interpolation we
+# want, from the host, with a default.
+#
+# `docker compose config` prints `$$` back either way, so reading the rendered output
+# proves nothing. What is observable is the lexer: `$$NAME` emits NO warning where a real
+# reference to an unset variable always warns. To check the escaping without starting
+# anything, run `docker compose config -q` in a shell with nothing exported and look for
+# the ABSENCE of a warning.
+name: shortkit-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      # The bootstrap superuser. Nothing else in the stack uses it: every statement the
+      # API, the migrator and the seed issue comes from one of the two NOBYPASSRLS roles,
+      # because a superuser is exempt from every policy.
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
+      # `postgres`, so the entrypoint does not create `shortkit` itself. The
+      # `CREATE DATABASE shortkit OWNER shortkit_migrator` in the init script is what
+      # makes the migrator the owner, which is what makes it own schema `public` through
+      # pg_database_owner and run DDL with no further grant (ADR-0003).
+      POSTGRES_DB: postgres
+      # Read by the init script and, for the app one, by the health probe on every
+      # interval. Both survive into the running server's environment: the entrypoint's
+      # `unset "${!POSTGRES_@}"` does not match them, so `docker inspect` and
+      # /proc/1/environ hold them for the container's lifetime. Fixtures, so that is
+      # fine; an override is a disclosure and this stack has no secret mechanism.
+      SHORTKIT_MIGRATOR_PASSWORD: ${SHORTKIT_MIGRATOR_PASSWORD:-migrator}
+      SHORTKIT_APP_PASSWORD: ${SHORTKIT_APP_PASSWORD:-app}
+    ports:
+      # 127.0.0.1 explicitly, on every published port in this file: a stack with the
+      # password `app` is not on the LAN. 55432 sits beside the test stack's 55433 and is
+      # not 5432, so a Postgres already running on this machine is neither shadowed nor
+      # connected to by accident. Ports are NOT what keeps this stack and the integration
+      # suite's apart — `name:` above is (ADR-0032, F-356).
+      - '127.0.0.1:55432:5432'
+    volumes:
+      # A named volume, not tmpfs and not a bind mount (ADR-0032). The test stack's tmpfs
+      # is right there and is wrong here: a stack that seeds and then forgets on
+      # `restart` does not satisfy AC-115. Compose namespaces it `shortkit-dev_pgdata`.
+      - pgdata:/var/lib/postgresql/data
+    configs:
+      - source: shortkit_roles_sh
+        target: /docker-entrypoint-initdb.d/10-roles.sh
+        # 0555, not Compose's default 0444. The Postgres entrypoint branches on the
+        # executable bit for `*.sh`: it RUNS an executable file as a child process and
+        # SOURCES a non-executable one into its own shell. Sourcing would leave this
+        # script's `set -eu` set for the rest of initialisation, in a file nobody here
+        # controls. Measured: the config lands `-r-xr-xr-x` and the entrypoint logs
+        # `running`, so Docker's "mode is ignored for bind-mounted config content" does
+        # not apply to a `content:` config.
+        mode: 0555
+    healthcheck:
+      # Executes a statement AS shortkit_app, over TCP, against the real `shortkit`
+      # database. Four halves, all load-bearing, and `pg_isready` has none of them: it
+      # does not authenticate — its -U and -d only affect what the server logs — and with
+      # no -h it uses the unix socket. The postgres entrypoint runs initdb, starts a
+      # TEMPORARY socket-only server, runs the init script, stops it, then starts the
+      # real one. A `pg_isready` probe landing in that window returns 0 and marks the
+      # container healthy, so `up --wait` returns and the next command gets ECONNREFUSED
+      # or "role shortkit_app does not exist".
+      #
+      # `-h postgres`, NOT `-h 127.0.0.1`, and this is the half that is easy to get wrong
+      # (ADR-0036, F-357). postgres:17-alpine's generated pg_hba.conf puts
+      # `host all all 127.0.0.1/32 trust` AHEAD of the `scram-sha-256` line the entrypoint
+      # appends, and the first matching line wins, so a loopback probe from inside this
+      # container never reads PGPASSWORD. Measured both ways: a wrong password over
+      # 127.0.0.1 is accepted; the same wrong password over the container's own address
+      # is `FATAL: password authentication failed`. The service name resolves through the
+      # compose network to that address, so this probe authenticates, and it travels the
+      # same path with the same credential shape as migrate, seed and api.
+      #
+      # DO NOT "simplify" this. The three cheap repairs for "postgres is never healthy"
+      # are a literal password here (the F-131 shape ADR-0031 avoids), `pg_isready` (the
+      # measured false positive above), and POSTGRES_HOST_AUTH_METHOD=trust (a Postgres
+      # on 55432 accepting any password for shortkit_migrator). Check the `$$` first.
+      #
+      # `>/dev/null` with no `2>&1`, deliberately: psql's own FATAL line then lands in
+      # `docker inspect --format '{{json .State.Health}}' shortkit-dev-postgres-1`, which
+      # is where you look when `up --wait` reports this container unhealthy.
+      test:
+        - 'CMD-SHELL'
+        - 'PGPASSWORD="$$SHORTKIT_APP_PASSWORD" psql -h postgres -p 5432 -U shortkit_app -d shortkit -tAc "select 1" >/dev/null'
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  # One-shot. Applies every migration the database has not seen, as shortkit_migrator,
+  # from the `migrator` image stage — which is NOT the deployed image and carries
+  # drizzle-kit, a devDependency the runtime stage deliberately does not install
+  # (ADR-0033, F-119). Migrations never run from application boot (ADR-0004) and never
+  # from /docker-entrypoint-initdb.d, which runs as the superuser and would leave every
+  # table owned by `postgres` with shortkit_app granted nothing.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    pull_policy: build
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # The higher-privileged of the two DSNs: this role owns every table and can DROP
+      # any of them. `docker inspect` and `docker compose config` print it. Fixture.
+      #
+      # An overridden password has to be URL-safe. A DSN has no escaping mechanism the
+      # way psql's `:'variable'` does, and this is string interpolation.
+      DATABASE_MIGRATION_URL: postgres://shortkit_migrator:${SHORTKIT_MIGRATOR_PASSWORD:-migrator}@postgres:5432/shortkit
+    command: ['pnpm', '--filter', '@shortkit/api', 'db:migrate']
+
+  # One-shot, and it is two things at once. It inserts the demo tenant, and by connecting
+  # as shortkit_app it is the check that the migration ran as shortkit_migrator: the
+  # grants shortkit_app holds come from `ALTER DEFAULT PRIVILEGES FOR ROLE
+  # shortkit_migrator`, so a stack that migrated as any other identity fails here with
+  # `permission denied for table tenants` — before the API starts, rather than inside
+  # whatever feature first read the table.
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    pull_policy: build
+    restart: 'no'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
+    command: ['node', 'apps/api/scripts/seed.mts']
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # The production image AC-6 measures, unmodified. The sentinel below travels with
+      # this artifact, not with this file (ADR-0037).
+      target: runtime
+      args:
+        # Git's null object id, forty zeros. It matches the Dockerfile guard's
+        # /^[0-9a-f]{40}$/, so all three of ADR-0027's refusal layers stay in place with
+        # no fallback added to any TypeScript file, and `git rev-parse HEAD` can never
+        # return it, so /health reporting it is unambiguous: this image was built by
+        # `docker compose` and its provenance is unknown.
+        #
+        # For a real commit: GIT_COMMIT_SHA="$(git rev-parse HEAD)" docker compose up --build
+        # It is not sticky. The next bare `up` rebuilds with forty zeros and /health
+        # reverts, with nothing announcing it.
+        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-0000000000000000000000000000000000000000}
+    # `up` builds only when no image exists, so without this the override above is a
+    # no-op on any machine that has run the stack once, and a source edit serves the
+    # previous image (F-319). The cost is a build-graph evaluation on every `up`.
+    pull_policy: build
+    restart: unless-stopped
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
+    ports:
+      - '127.0.0.1:3001:3001'
+    healthcheck:
+      # Asserts exactly what AC-115 asserts: 200, and `status` equal to "ok". `node -e`
+      # needs nothing installed and Node 24 has global fetch.
+      #
+      # NO `$$` HERE, and that is not an oversight. This string contains no `$` at all,
+      # so there is nothing to escape; adding `$$` where there is no `$` would be cargo
+      # cult. The `$$` rule at the top of this file applies to dollars, not to strings.
+      test:
+        - 'CMD-SHELL'
+        - 'node -e "fetch(''http://127.0.0.1:3001/health'').then(async r => { if (r.status !== 200) process.exit(1); const b = await r.json(); if (b.status !== ''ok'') process.exit(1); }).catch(() => process.exit(1))"'
+      interval: 5s
+      timeout: 3s
+      # 30s, and the number is coupled to `DATABASE_REACHABLE_BUDGET_MS` in
+      # apps/api/src/main.ts, not chosen. Boot retries an unreachable database for 20
+      # seconds before it refuses; a start period at or below that would start counting
+      # failures while the process rides out exactly the cold wake the retry exists to
+      # survive. RAISING ONE MEANS RAISING THE OTHER. This is fly.toml's 30s
+      # `grace_period` moving into the file that replaces it (ADR-0030, ADR-0036).
+      start_period: 30s
+      retries: 12
+    # A green `api` means the process bound its port and /health answered. /health
+    # touches no database (ADR-0006). What carries the database claim is the boot
+    # sequence: main.ts refuses to serve unless it reached the database and established
+    # that shortkit_app cannot bypass RLS. So green means "at boot, Postgres was
+    # reachable and the runtime role was NOBYPASSRLS". It does not mean the database is
+    # reachable now.
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    pull_policy: build
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:3000:3000'
+    healthcheck:
+      test:
+        - 'CMD-SHELL'
+        - 'node -e "fetch(''http://127.0.0.1:3000/'').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"'
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    # NO `depends_on`, deliberately (ADR-0035). Nothing under apps/web calls the API, so
+    # a declared dependency would assert a relationship that does not exist.
+    #
+    # WHAT A GREEN `web` DOES NOT MEAN. Anything through `apiClient()` returns 404,
+    # because the BFF proxy route it targets — apps/web/app/api/bff/[...path]/route.ts —
+    # does not exist in this repository. No screen calls it today, so nothing is broken,
+    # but two green containers are not evidence of a working frontend-to-backend path.
+    # `http://api:3001/...` is reachable from inside this container and from no browser;
+    # `http://localhost:3001/...` is reachable from a browser and not from inside here.
+    # When the proxy lands it brings `depends_on: api: service_healthy` and reads
+    # API_BASE_URL=http://api:3001/api server-side, in the same commit as the route.
+    #
+    # No NEXT_PUBLIC_* is set for the build, deliberately: Next inlines those, and the
+    # only two candidate values are one no browser can resolve and one that would be
+    # baked wrong anywhere but this machine.
+
+volumes:
+  pgdata:
+
+configs:
+  # Inline rather than a mounted file, matching docker-compose.test.yml: the roles are
+  # only meaningful together with the service that runs them.
+  #
+  # A shell script rather than a `.sql`, so that `psql -v` is available and the
+  # contract's `:'app_password'` form works verbatim (ADR-0031). The entrypoint runs a
+  # `.sql` in this directory through `psql -f` with no `-v` flags, which is what forced
+  # the test stack's literal passwords. psql does the quoting here, so an overridden
+  # password of any shape is quoted correctly instead of concatenated into DDL.
+  #
+  # `<<'SQL'` is quoted, so the shell performs no expansion inside the heredoc — which
+  # protects nothing unless the `$$` above the file is right, because Compose runs first.
+  shortkit_roles_sh:
+    content: |
+      #!/bin/sh
+      set -eu
+      psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname postgres \
+        -v migrator_password="$$SHORTKIT_MIGRATOR_PASSWORD" \
+        -v app_password="$$SHORTKIT_APP_PASSWORD" <<'SQL'
+      -- design/contracts/rls-policy-template.md "Roles", verbatim.
+      --
+      -- NOBYPASSRLS on BOTH roles. It is the Postgres default, and it is written out
+      -- because a role that can bypass RLS makes every isolation claim in this system a
+      -- tautology: the API's boot check would refuse, the integration suite's assertions
+      -- would pass over a role exempt from every policy, and nothing else looks. The
+      -- reader most likely to delete it as redundant is the one who cannot see why it is
+      -- there. docker-compose.test.yml carries the same sentence for the same reason.
+      CREATE ROLE shortkit_migrator LOGIN PASSWORD :'migrator_password' NOBYPASSRLS;
+      CREATE ROLE shortkit_app      LOGIN PASSWORD :'app_password'      NOBYPASSRLS;
+
+      -- The migrator owns the database, so it owns schema `public` through
+      -- pg_database_owner and can run DDL without any further grant. The app role owns
+      -- nothing (ADR-0003).
+      CREATE DATABASE shortkit OWNER shortkit_migrator;
+
+      \connect shortkit
+
+      -- Nothing here grants shortkit_app anything on a table directly. It receives DML
+      -- only through ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator, which is what
+      -- makes the seed's connection a real grant check (ADR-0033).
+      GRANT USAGE ON SCHEMA public TO shortkit_app;
+      ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
+      ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+        GRANT USAGE, SELECT ON SEQUENCES TO shortkit_app;
+      SQL
+      # ON_ERROR_STOP=1 above: without it psql reports success after a failed statement
+      # and the container comes up with half the roles. It does not fire on a NOTICE,
+      # which is the door the interpolation defect comes through.
+      #
+      # This script runs EXACTLY ONCE, on the first `up` against an empty data directory.
+      # Editing it afterwards changes nothing until `docker compose down -v`, the stack
+      # keeps working with the old roles, and there is no error anywhere (ADR-0032).

@@ -1,0 +1,57 @@
+# The Dockerfile copies explicit paths rather than the tree, so this file is about the
+# size of the context BuildKit uploads, not about correctness. `node_modules` in a pnpm
+# workspace is a forest of symlinks into `.pnpm`; sending it costs a gigabyte and is never
+# read, because every stage runs its own `pnpm install`.
+node_modules
+**/node_modules
+
+# Build output. The image builds its own; a stale local `dist` must never win.
+dist
+**/dist
+.next
+**/.next
+coverage
+**/coverage
+*.tsbuildinfo
+
+.git
+.github
+.sdlc
+.superpowers
+.vercel
+docs
+
+# Never into an image, and this repository is public so anything that lands there is
+# rotated rather than deleted.
+#
+# BOTH FORMS, and the recursive ones are the ones that matter (F-317). Docker matches
+# these against the context-relative path, so a pattern with no `**/` prefix matches at
+# the context root ONLY — which is why this file already carries `dist` and `**/dist`.
+# The secret block had only the root form, so `apps/web/.env.local`, which
+# `apps/web/.env.example` line 1 tells developers to create and which holds
+# `BFF_PROXY_SECRET`, was uploaded into every build context.
+#
+# Reading `.gitignore` is what makes that gap invisible: its patterns ARE recursive, so
+# the file is correctly never committed, and a reader assumes the block two directories
+# away does the same job.
+#
+# This is the backstop. The guarantee is that both Dockerfiles COPY an explicit list and
+# neither writes `COPY apps/web apps/web` (ADR-0035).
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+.npmrc
+**/.npmrc
+*.pem
+**/*.pem
+*.key
+**/*.key
+
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.test.yml
+README.md

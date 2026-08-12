@@ -1,0 +1,406 @@
+# The merge gate.
+#
+# ADR: adr-0018-ci-performance-gate.md, adr-0001-test-framework.md
+# Produced by: TASK-002 (AC-5, AC-113, AC-114; F-039, F-055, F-064, F-084, F-091, F-122)
+#
+# `performance` and `performance-full` are ADR-0018's Layer 1 and Layer 2 and belong to
+# TASK-037, not here. The ADR's title covers all four jobs; its Follow-ups section is what
+# splits them.
+#
+# NOTHING HERE MAY SWALLOW A FAILURE (AC-5). No `continue-on-error`, no `|| true`, no
+# `set +e`, no step that reads an exit code and reports success anyway. Every command's
+# non-zero exit fails its step, its job, and the workflow.
+name: ci
+
+on:
+  # Every branch, not just `main`: a push is the earliest place a red gate can be seen,
+  # and a solo project pushes long-lived branches before opening a pull request. The cost
+  # is that a branch with an open PR runs both events; `concurrency` below keeps each
+  # event's runs from stacking, but it does not merge the two, and that is accepted.
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Not on the default branch. Cancelling is right on a feature branch or a pull request,
+  # where only the latest push matters — but two merges landing close together on `main`
+  # would cancel the first one's run, leaving that commit with a `gate` check of
+  # `cancelled` and no green record.
+  #
+  # It NARROWS the gap rather than closing it: Actions keeps one running and one pending
+  # run per group, so a third merge arriving inside the same window still displaces the
+  # pending middle commit, which ends up with no verdict of its own. Fully per-commit
+  # verdicts would need `cancel-in-progress: false` and a queue, and the cost of that on a
+  # solo project is not worth what it buys. Cancelled is a safe direction to fail in — the
+  # `gate` job below treats it as failure — so this is bookkeeping, not a hole.
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    # Observed 56s on the first green run (31113561948). GitHub Actions offers no
+    # separate queue timeout — `timeout-minutes` bounds queue time and execution time
+    # together, counted from `started_at`. 30 minutes is roughly thirty times observed
+    # execution, which absorbs a slow registry, a cold Next build and a congested runner
+    # pool, and still bounds the job: `pull_request` on a public repo runs an attacker's
+    # `pnpm-workspace.yaml`, lockfile and package scripts, so the six-hour default is
+    # three jobs' worth of free compute per PR, repeatable. A wrong-but-present bound
+    # beats 360.
+    #
+    # F-219 (2026-08-06): a run can be CANCELLED at exactly this bound with every step
+    # unexecuted — GitHub's queue congested for over an hour and cancelled three jobs
+    # before any of them started. That run and a genuine failure both report `failure` /
+    # `cancelled` at a glance. THE SIGNATURE: `gh api .../actions/runs/<id>/jobs` shows
+    # ZERO STEPS EXECUTED on a queue-cancelled job, and at least one step on a job that
+    # actually ran and then failed or hung. Read zero-steps as "the queue was long,"
+    # not as a defect in this workflow or the tree it ran against.
+    timeout-minutes: 30
+    # JOB-LEVEL, NOT STEP-LEVEL, AND THAT IS THE POINT (F-156). AC-113's guard searches
+    # the built output for the VALUE of BFF_PROXY_SECRET, so it only means anything if
+    # the build it inspects ran with the same value the check reads. A build in one step
+    # and a check in another under different env is a green that proves nothing. Declaring
+    # the environment once for the whole job makes that agreement structural instead of
+    # something two step-level `env:` blocks have to keep matching.
+    #
+    # This BFF_PROXY_SECRET is CI's own, deliberately NOT the value registered on Vercel.
+    # That divergence is what makes the job-level scope above cheap: every step in this
+    # job, including `pnpm install`'s build scripts, sees a random base64url string that
+    # authenticates nothing. Setting this secret to the production value would silently
+    # convert that reach into a real exposure — the rule and its rotation are recorded in
+    # docs/security/ci-secrets.md, which is the file to read before changing either value.
+    env:
+      BFF_PROXY_SECRET: ${{ secrets.BFF_PROXY_SECRET }}
+      NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+      API_BASE_URL: ${{ vars.API_BASE_URL }}
+    steps:
+      # persist-credentials: false — the default writes GITHUB_TOKEN into .git/config as an
+      # http.extraheader, readable by every later step including dependency build scripts.
+      # Nothing after checkout runs git, so nothing needs it. Its reach today is bounded
+      # entirely by `permissions: contents: read`, which is exactly why it should not be
+      # left for a future job that needs a write scope to convert into an exposure.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-toolchain
+
+      # FAIL FAST AND SAY WHY, NEVER SKIP. `assert:no-secrets` already refuses to run
+      # without this value — correctly, since a search with nothing to search for is a
+      # vacuous pass, which is the whole shape F-156 exists to prevent. What that failure
+      # does not say is WHY the value is missing on this particular run, and there are two
+      # non-obvious causes:
+      #
+      #   1. Dependabot. GitHub runs Dependabot-triggered `push` and `pull_request` events
+      #      with Dependabot secrets only — Actions secrets are not exposed — so
+      #      `secrets.BFF_PROXY_SECRET` is empty on every bump PR unless the same value is
+      #      ALSO registered under Settings > Secrets and variables > Dependabot. ADR-0018
+      #      makes Dependabot the only mechanism that raises a version, so this failing
+      #      quietly trains a human to bypass the gate on exactly the pull requests that
+      #      carry security fixes.
+      #   2. A pull request from a fork, which receives no secrets by design.
+      #
+      # This step is deliberately NOT a conditional skip of the AC-113 steps below. A skip
+      # would report the guard as having run, which is the vacuous green the guard exists
+      # to prevent — four minutes earlier and with a friendlier log.
+      #
+      # No step-level `env:` here on purpose. It would re-declare BFF_PROXY_SECRET from
+      # the same expression the job-level block forty lines above declares it from, and
+      # the stated reason for that block is that the value is declared exactly ONCE so no
+      # two places can drift. Two identical declarations are identical only until one of
+      # them is edited: change the job-level value and leave this one, and this step
+      # prints `OK: BFF_PROXY_SECRET is present.` on a run where the build got nothing —
+      # a preflight that green-lights the exact condition it exists to catch. It reads
+      # the job-level declaration instead, which is the value the build will actually see.
+      - name: Assert the inlined-secret guard has a value to search for
+        run: |
+          if [ -z "${BFF_PROXY_SECRET:-}" ]; then
+            echo '::error::BFF_PROXY_SECRET is empty, so the AC-113 inlined-secret guard would have nothing to search for.'
+            echo 'Register it as a Dependabot secret as well as an Actions secret if this is a Dependabot run'
+            echo '(Settings > Secrets and variables > Dependabot). Fork pull requests receive no secrets at all.'
+            echo 'See docs/security/ci-secrets.md. Do not repair this by skipping the guard.'
+            exit 1
+          fi
+
+          echo 'OK: BFF_PROXY_SECRET is present.'
+
+      # ADR-0018: the merge gate audits the PRODUCTION graph only, so a dev-only advisory
+      # with no fix available cannot block a merge. The price is not only dev-only
+      # advisories: `--no-optional` (F-226, F-230) also takes every optional-peer edge out
+      # of the graph, and that now includes `sharp` and the `@next/swc-*` binaries, which
+      # run in the Vercel build and are real production code. That is an accepted cost,
+      # not an oversight — the weekly `dependencies` workflow still reports everything
+      # this step is blind to, which downgrades detection from a red check to an email.
+      # Two obligations, not one gate run twice.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --no-optional --audit-level moderate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # AC-113. `pnpm build` above already builds apps/web under this same job env, and
+      # this rebuild is still deliberate: it puts the build the guard inspects immediately
+      # next to the guard, so the pairing survives a future change to what `pnpm -r build`
+      # covers. TASK-004 owns the script; this TASK owns the invocation (F-084's split).
+      - name: Build apps/web for the inlined-secret scan
+        run: pnpm --filter @shortkit/web build
+
+      - name: Assert no server-only value was inlined into the build
+        run: pnpm --filter @shortkit/web assert:no-secrets
+
+      # AC-14, specified in design/test-strategy.md and revised by F-091 to two mutations.
+      # Last because it is the slowest step here — it runs the recursive typecheck twice —
+      # and everything above fails faster.
+      - name: Assert a breaking contract change fails a consumer's typecheck
+        run: node .github/scripts/assert-contract-drift.mjs
+
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    # Observed 51s on run 31113561948, of which 14s was pulling and starting the service
+    # container. Same 30-minute bound and the same reasoning as `quality` — see its
+    # comment for why the bound covers queue time as well as execution, and for the
+    # zero-steps-executed signature that tells the two apart (F-219) — with one extra
+    # margin here: `test/support/psql.ts` falls back to `docker run … psql` per statement
+    # if the runner image ever stops shipping a client, which took 24s locally against
+    # 10s here.
+    timeout-minutes: 30
+    env:
+      # The same DSNs docker-compose.test.yml documents in its header, down to the port,
+      # so the commands below read identically to the local ones. Fixture credentials for
+      # a container destroyed with the runner.
+      #
+      # 55433 rather than 5432 because the ubuntu-latest image ships a PostgreSQL server
+      # package of its own; the mapping stays off the default port for the same reason
+      # the compose file does.
+      DATABASE_URL: postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test
+      DATABASE_MIGRATION_URL: postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          # The bootstrap superuser. Nothing below connects as it except the provisioning
+          # step: every statement the suite issues comes from one of the two NOBYPASSRLS
+          # roles, because a superuser is exempt from every policy and would make
+          # AC-8..AC-11 vacuous.
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 55433:5432
+        # NOT `pg_isready` (F-127). The postgres entrypoint runs initdb, starts a
+        # TEMPORARY socket-only server, then stops it and starts the real one. `pg_isready`
+        # does not authenticate — its -U and -d only affect what the server logs — and with
+        # no -h it uses the unix socket, so a probe landing in that window returns 0 and
+        # the service is marked healthy while the next command gets ECONNREFUSED.
+        #
+        # This probe authenticates, over TCP, against a real database on the real server.
+        # It cannot be the compose file's probe (authenticating as shortkit_app against
+        # shortkit_test) because GitHub Actions has no way to create those roles before the
+        # service starts — see the provisioning step below. The rest of F-127's property is
+        # recovered there and in `db:check-policies`, which is the first thing to connect
+        # over the host mapping as shortkit_app.
+        options: >-
+          --health-cmd "psql 'postgres://postgres:postgres@127.0.0.1:5432/postgres' -tAc 'select 1'"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 10s
+    steps:
+      # persist-credentials: false — see the note on the same step in `quality`.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-toolchain
+
+      # GitHub Actions' `services:` has no equivalent to Compose's `configs:` block, so
+      # the roles cannot be baked into the image the way docker-compose.test.yml does
+      # them. They are created here instead, as a step, once the service is healthy.
+      #
+      # Run through the service container's own psql rather than the runner's: it is the
+      # matching major version, and it removes any dependency on what the runner image
+      # happens to ship. PGPASSWORD is set so the `\connect` in the file reconnects
+      # without prompting.
+      - name: Provision the migrator and app roles
+        run: |
+          docker exec -i -e PGPASSWORD=postgres "${{ job.services.postgres.id }}" \
+            psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U postgres -d postgres -f - \
+            < .github/scripts/provision-test-database.sql
+
+      # As shortkit_migrator (DATABASE_MIGRATION_URL, read by drizzle.config.ts). This is
+      # also the first statement issued over the host port mapping, so a mapping that is
+      # not actually reachable fails here rather than inside the suite.
+      - name: Apply migrations
+        run: pnpm --filter @shortkit/api db:migrate
+
+      # F-122. DATABASE_URL, never DATABASE_MIGRATION_URL: the script inspects the catalog
+      # as shortkit_app, the role whose access the policies exist to constrain, and hard-
+      # fails if DATABASE_URL is unset (docs/architecture/migrations.md).
+      #
+      # ORDER IS LOAD-BEARING. This runs after `db:migrate` and BEFORE the suite.
+      # apps/api/test/support/rls-fixture.ts drops and recreates `tenants` per test and
+      # drops it again on teardown, so after the suite schema `public` holds either an
+      # unprotected fixture table or nothing at all — and the migrator skips an already-
+      # recorded migration, so re-running `db:migrate` would not repair it.
+      - name: Assert row-level security is on for every migrated table
+        run: pnpm --filter @shortkit/api db:check-policies
+
+      # The JSON report is what the next step reads; the default reporter is what a human
+      # reads in the log. Both, not one.
+      - name: Integration suite
+        run: >-
+          pnpm test:integration
+          --reporter=default
+          --reporter=json
+          --outputFile.json="${{ runner.temp }}/integration-results.json"
+
+      # AC-114 / F-064 obligation 2. vitest already fails a run matching zero FILES
+      # (passWithNoTests was removed by TASK-005), but a matched file with no tests inside
+      # it still exits 0 — a job that stands up Postgres and asserts nothing, reporting
+      # green.
+      - name: Assert the integration suite collected tests
+        run: node .github/scripts/assert-integration-collected.mjs "${{ runner.temp }}/integration-results.json"
+
+  # AC-115, on every push (F-390). Produced by the Ship phase, not TASK-002.
+  #
+  # WHY THIS IS A GATING JOB AND NOT A NIGHTLY. Amendment A-8 took the deploy clause out of
+  # AC-6 and minted AC-115 in its place, which makes `scripts/check-compose-stack.sh` the
+  # only evidence this repository runs as a system rather than as a test suite. Until this
+  # job existed it had been measured exactly once, by hand, and a change to the Dockerfile,
+  # `docker-compose.yml`, the roles SQL, the migration or the seed broke it silently — the
+  # next person to find out being the next person to clone. `.sdlc/roadmap.md` holds this
+  # project to the opposite standard in its own words: the isolation harness ships its
+  # negative controls "so those measurements run on every CI run rather than once on the
+  # afternoon somebody thought of them."
+  #
+  # A schedule was the other defensible option and is weaker on the thing that matters.
+  # `dependencies.yml` is scheduled because it re-asks a question about UNCHANGED code, and
+  # its header records the reasoning; this check is the opposite — it only ever goes red
+  # because something in the tree changed, and a nightly reports that up to a day later,
+  # attached to no commit. Same triggers as the rest of the gate, so the run that breaks it
+  # is the run that names it.
+  #
+  # NOT PATH-FILTERED. Everything the four images are built from feeds it: the lockfile,
+  # both Dockerfiles, every migration, the seed, and `apps/api/src` itself. A filter that
+  # covered all of that would fire on nearly every push anyway, and the mechanism it needs
+  # — a job that skips — is exactly what the `gate` comment below says GitHub counts as
+  # satisfying a required check.
+  #
+  # ⚠ NEVER OBSERVED ON A GITHUB RUNNER. Every measurement of this script to date was taken
+  # on Juano's machine; the first run of this job is itself the first measurement of it in
+  # CI, and a red one is a result rather than a regression. What it needs is git, node,
+  # Docker with Compose v2, ports 3000/3001/55432 free, and a shell with none of
+  # POSTGRES_USER, SHORTKIT_MIGRATOR_PASSWORD or SHORTKIT_APP_PASSWORD exported. The script
+  # exits 2, distinctly, when it could not run at all — read a 2 as "nothing was measured",
+  # not as an AC-115 failure. The clause table it prints says which reading applies.
+  compose:
+    name: compose
+    runs-on: ubuntu-latest
+    # Two `up`s and a `restart` against four images built cold, with no layer cache between
+    # runs. The script bounds each `up` itself at SHORTKIT_CHECK_UP_TIMEOUT (900s, left at
+    # its default here), so its own worst case is around 32 minutes; this bound sits above
+    # that and absorbs checkout, install and queue time on top — see `quality` for why
+    # `timeout-minutes` covers queue time as well as execution, and for the
+    # zero-steps-executed signature that tells a queue cancellation apart from a defect.
+    timeout-minutes: 45
+    steps:
+      # persist-credentials: false — see the note on the same step in `quality`. The script
+      # DOES run git after checkout, but only `git rev-parse --show-toplevel` and
+      # `git ls-files`, neither of which touches a remote.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # For pnpm and for the pinned Node floor. The check shells out to `node` for one HTTP
+      # request and two JSON documents, and the install is what keeps ADR-0018's "every CI
+      # job installs with a frozen lockfile" literally true rather than nearly true.
+      - uses: ./.github/actions/setup-toolchain
+
+      # Through the package script, so the command in CI is the command in the README and
+      # the one a contributor runs locally. No `env:` block: the check refuses to run with
+      # the fixture passwords exported, because a value present here silently repairs a
+      # missing `$$` escape in the compose file and turns a stack that is red on a clean
+      # machine green on this one (F-315, F-316).
+      - name: AC-115 — the whole stack comes up from nothing
+        run: pnpm test:compose
+
+  # The branch's required check, and the only one that should be (test-strategy.md).
+  # GitHub Actions rejects a workflow whose `needs` names a job that does not exist, so a
+  # job silently dropped or renamed becomes a hard configuration error here instead of a
+  # green pipeline that ran nothing.
+  #
+  # ⚠ A JOB ADDED ABOVE AND NOT ADDED HERE GATES NOTHING. `needs`, the `env:` block and the
+  # loop below are three places, and all three have to name a job for it to be able to
+  # block a merge. That is the shape F-390 filed against `check-compose-stack.sh`, which
+  # existed and was wired into nothing.
+  #
+  # ⚠ `needs:` ALONE DOES NOT GATE. A job whose `needs` dependency failed does not fail —
+  # it is SKIPPED, and it publishes a check run named `gate` with conclusion `skipped`.
+  # GitHub's status-check reference counts `success`, `skipped` AND `neutral` as satisfying
+  # a required check, so branch protection requiring only `gate` raised no objection on a
+  # run where `quality` went red. Every control this job fans in — `pnpm audit`,
+  # `db:check-policies`, the AC-113 inlined-secret guard, the AC-114 collection assertion,
+  # the AC-115 stack check, lint, typecheck, test, build — blocked nothing. Not weakened
+  # in the failure case: inoperative in it, which is the only case the gate exists for.
+  #
+  # The earlier version of this comment asserted the opposite, and the branch protection
+  # was configured on the strength of it. That is why the correction is written out rather
+  # than quietly replaced.
+  #
+  # So: `if: always()` to make the job RUN whatever its dependencies did, and an explicit
+  # assertion on each result. `always()` here does not mask a failure (AC-5) — it is what
+  # lets the step below observe one. `needs.<job>.result` is `success`, `failure`,
+  # `cancelled` or `skipped`, and only the first passes; `cancelled` is reachable through
+  # the `concurrency` block above, which cancels superseded runs on every ref except the
+  # default branch.
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    needs: [quality, integration, compose]
+    if: always()
+    # This job checks nothing out and calls no API. `{}` grants the GITHUB_TOKEN no scope
+    # at all, rather than inheriting the workflow's `contents: read`.
+    permissions: {}
+    # 10 minutes, up from 5 (F-219): `gate` waits on `needs:`, so its own `started_at`
+    # can sit in the same queue `quality`, `integration` and `compose` do before this
+    # job's single step ever runs. The step itself is a few seconds of shell; the budget
+    # above that is entirely queue absorption, not expected execution.
+    timeout-minutes: 10
+    steps:
+      - name: Assert quality, integration and compose all succeeded
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+          COMPOSE: ${{ needs.compose.result }}
+        run: |
+          echo "quality=$QUALITY integration=$INTEGRATION compose=$COMPOSE"
+
+          failed=0
+          for pair in "quality:$QUALITY" "integration:$INTEGRATION" "compose:$COMPOSE"; do
+            job="${pair%%:*}"
+            result="${pair#*:}"
+            if [ "$result" != 'success' ]; then
+              echo "::error::job '$job' finished as '$result', not 'success'."
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo 'The merge gate fails when any job is anything but success — including skipped and cancelled.'
+            exit 1
+          fi
+
+          echo 'quality, integration and compose all succeeded.'

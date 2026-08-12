@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Makes the `engines.node` floor in package.json a hard failure rather than a
+# warning. It lives here and not in `.npmrc` because `.npmrc` is gitignored —
+# `actions/setup-node` appends a registry `_authToken` to it, and git ignores
+# files rather than lines, so the file cannot be both committed and safe.
+engineStrict: true
+
+# pnpm refuses to run a dependency's install scripts unless it is listed here.
+# @swc/core and esbuild both compile a native binary at install time; without
+# them a clean clone gets a runner that cannot transform anything.
+allowBuilds:
+  '@swc/core': true
+  esbuild: true

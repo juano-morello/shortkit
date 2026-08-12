@@ -1,0 +1,114 @@
+# The toolchain every CI job starts from.
+#
+# ADR: adr-0018-ci-performance-gate.md ("Every CI job installs with a frozen lockfile")
+# Produced by: TASK-002 (F-064 obligation 1)
+#
+# Three jobs need the same four steps. Sharing them here rather than repeating them is
+# what makes "every job installs with a frozen lockfile" structurally true instead of a
+# thing three copies have to keep agreeing on.
+name: Set up the pinned toolchain
+description: >-
+  Installs Node at the floor declared in package.json's engines, activates the pnpm
+  version pinned in packageManager (integrity hash verified), and installs with a frozen
+  lockfile.
+
+runs:
+  using: composite
+  steps:
+    # `engines.node` is the single source of truth for the Node version, and this reads
+    # the FLOOR out of it rather than handing the range to actions/setup-node.
+    #
+    # setup-node resolves a range to the newest version that satisfies it, and
+    # `>=24.13.0` is satisfied by every future major. That matters here for a specific,
+    # verified reason: Node 25 stopped distributing Corepack (nodejs/node#57617,
+    # "build: stop distributing Corepack", SEMVER-MAJOR in v25), and Corepack is the
+    # only thing that checks the sha512 in `packageManager`. Handing setup-node the
+    # bare range today resolves to Node 26, where `corepack enable` does not exist.
+    #
+    # The floor is also the version `engines` actually commits to supporting, so CI
+    # running on it is the stricter reading of the field, not a workaround for it.
+    - name: Resolve the Node floor from package.json engines
+      id: node
+      shell: bash
+      run: |
+        floor="$(node -p "require('./package.json').engines.node")"
+
+        case "$floor" in
+          '>='[0-9]*) ;;
+          *)
+            echo "::error::engines.node is '$floor'. This action pins CI to the declared floor and only understands a '>=x.y.z' range. Update .github/actions/setup-toolchain/action.yml alongside package.json."
+            exit 1
+            ;;
+        esac
+
+        echo "version=${floor#>=}" >> "$GITHUB_OUTPUT"
+
+    # The symmetric check for the pnpm half, and F-064's defect reintroduced through
+    # absence if it is left out (F-188). Corepack only verifies a hash that is THERE. Drop
+    # `packageManager` — a bad merge, a tool rewriting the manifest — and `corepack enable`
+    # still succeeds, pnpm resolves to Corepack's own bundled release, nothing compares it
+    # to anything, no sha512 is checked, and the log reads exactly as it does on a correct
+    # run. That is the decorative hash F-064 was filed about, arriving through the field
+    # being gone rather than through a hardcoded version.
+    #
+    # The `+sha512.` half of the glob is the point: `pnpm@11.20.0` alone would satisfy
+    # Corepack and verify nothing.
+    - name: Resolve the pnpm pin from package.json packageManager
+      id: pnpm
+      shell: bash
+      run: |
+        pin="$(node -p "require('./package.json').packageManager ?? ''")"
+
+        case "$pin" in
+          pnpm@*+sha512.*) ;;
+          '')
+            echo "::error::package.json has no packageManager field. Corepack would fall back to its own bundled pnpm and verify no integrity hash."
+            exit 1
+            ;;
+          *)
+            echo "::error::packageManager is '$pin'. It must read pnpm@<version>+sha512.<hash>: without the hash Corepack installs the version but verifies nothing, which reads as supply-chain coverage that does not exist (F-064)."
+            exit 1
+            ;;
+        esac
+
+        version="${pin#pnpm@}"
+        echo "version=${version%%+*}" >> "$GITHUB_OUTPUT"
+
+    - name: Install Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ steps.node.outputs.version }}
+
+    # Corepack, not a hardcoded version and not a pnpm-installing action: the
+    # `packageManager` field carries `pnpm@11.20.0+sha512.9a6f330a...`, and Corepack is
+    # what verifies that hash before running anything. A step that installs a bare
+    # `11.20.0` never checks it, which leaves the hash decorative while reading as
+    # supply-chain coverage (F-064).
+    #
+    # COREPACK_ENABLE_DOWNLOAD_PROMPT is set so a version Corepack has not seen before
+    # is downloaded without waiting on a prompt no one can answer on a runner.
+    - name: Activate the pinned pnpm
+      shell: bash
+      env:
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        PINNED_PNPM: ${{ steps.pnpm.outputs.version }}
+      run: |
+        corepack enable
+
+        actual="$(pnpm --version)"
+
+        # `pnpm --version` printed on its own proves only that A pnpm exists. Comparing it
+        # to the pinned version is what makes the preceding step's validation load-bearing
+        # all the way through to the install below.
+        if [ "$actual" != "$PINNED_PNPM" ]; then
+          echo "::error::pnpm resolved to $actual, but package.json pins $PINNED_PNPM. Corepack did not activate the pinned release, so the integrity hash was not the thing that gated this install."
+          exit 1
+        fi
+
+        echo "OK: pnpm $actual, activated by Corepack from the integrity-hashed packageManager pin."
+
+    # --frozen-lockfile on every job (ADR-0018): without it, resolution can drift
+    # between the tree CI tested and the tree that gets deployed.
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

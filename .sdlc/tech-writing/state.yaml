@@ -1,12 +1,12 @@
 slug: tech-writing
-title: Publish the launch-core engineering posts
+title: Publish the shortkit engineering posts
 type: feature
 phase: refine
 status: deferred
 created: 2026-08-03
 updated: 2026-08-03
 
-blocked_by: launch-core
+blocked_by: foundation
 
 gates:
   refine:    { status: not-started, approved_at: null }
@@ -21,3 +21,4 @@ escalations: []
 
 log:
   - "2026-08-03 stub created. SC-8 moved out of launch-core (Amendment A-3) because the publication venue was undecided and one candidate answer requires an unplanned blog surface. Refine this after launch-core implementation."
+  - "2026-08-09 blocked_by retargeted launch-core -> foundation. That initiative was re-scoped to its foundation EPIC alone and renamed; EPIC-002..006 are now named entries in .sdlc/roadmap.md. THE DEPENDENCY IS WEAKER THAN THE FIELD SUGGESTS AND WILL NEED RE-READING AT REFINE: SC-8 wanted four posts each citing a real artifact, and three of the artifacts it had in mind - the redirect latency baseline, the provisioning flow doc, the full isolation coverage report - belong to deferred work and do not exist. What foundation actually produces to write about is the RLS tenant-context mechanism, the error-envelope contract, and the observability redaction work, which is a different set of posts than the one A-3 assumed."

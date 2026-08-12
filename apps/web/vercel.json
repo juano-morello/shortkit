@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "pnpm install --frozen-lockfile --filter @shortkit/web...",
+  "buildCommand": "pnpm build && pnpm run assert:no-secrets",
+  "outputDirectory": ".next"
+}

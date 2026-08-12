@@ -1,0 +1,136 @@
+# The Postgres `pnpm test:integration` runs against locally.
+#
+# Contract: design/contracts/rls-policy-template.md (roles, grants, env vars)
+# ADR: adr-0001-test-framework.md, adr-0003-rls-policy-template-and-roles.md
+# Produced by: TASK-005 (F-038)
+#
+#   docker compose -f docker-compose.test.yml up -d --wait
+#   export DATABASE_URL='postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test'
+#   export DATABASE_MIGRATION_URL='postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test'
+#   pnpm test:integration
+#   docker compose -f docker-compose.test.yml down -v
+#
+# The CI equivalent is a `services:` container in the `integration` job and belongs
+# to TASK-002 (F-039), not here.
+#
+# 55433 rather than 5432 so a Postgres already running on the developer's machine
+# is neither shadowed nor connected to by accident: a test suite that silently
+# reaches a real database drops and recreates `tenants`.
+#
+# The credentials below are fixtures. They exist in a file that only ever points at
+# a throwaway container, and the suite refuses to run against a role that could
+# bypass RLS, so there is nothing here to protect.
+#
+# ---------------------------------------------------------------------------
+# TEST-ONLY. DO NOT ADAPT THIS FILE INTO A PRODUCTION DATABASE (F-131).
+# ---------------------------------------------------------------------------
+#
+# It is the repository's only worked example of role provisioning, so it is what
+# someone reaches for under time pressure. Half of it is meant to be copied and
+# half of it must not be.
+#
+# Reusable — this is rls-policy-template.md's "Roles" section, applied:
+#   - both roles NOBYPASSRLS, both with attribute defaults otherwise;
+#   - shortkit_app owns nothing and receives DML only through
+#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator;
+#   - USAGE on schema public and nothing more.
+#
+# NOT reusable:
+#   - literal passwords in a committed file, including the bootstrap superuser's;
+#   - no TLS requirement. A production DSN with `sslmode=require` gets encryption
+#     with NO certificate verification; `sslmode=verify-full` is the one that means
+#     what it looks like;
+#   - tmpfs storage, which loses everything on restart;
+#   - ALTER DEFAULT PRIVILEGES is scoped to the identity `shortkit_migrator`, so a
+#     deploy that runs migrations as any other role grants shortkit_app nothing.
+#     That fails closed, but it fails at runtime rather than at deploy.
+#
+# Provisioning the production roles is not this file's job and is not yet owned by
+# any TASK; it is routed alongside F-116.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      # The bootstrap superuser. Neither DSN above uses it: every statement the
+      # suite issues comes from one of the two NOBYPASSRLS roles, because a
+      # superuser is exempt from every policy and would make AC-8..AC-11 vacuous.
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - '127.0.0.1:55433:5432'
+    # tmpfs, not a volume: the suite drops and recreates its fixture per test and
+    # nothing here is worth keeping between runs. `down` leaves no disk behind.
+    tmpfs:
+      - /var/lib/postgresql/data
+    configs:
+      - source: shortkit_roles_sql
+        target: /docker-entrypoint-initdb.d/10-roles.sql
+    healthcheck:
+      # Executes a statement AS shortkit_app, over TCP, against shortkit_test
+      # (F-127). All three halves are load-bearing, and `pg_isready` has none of
+      # them: it does not authenticate — its -U and -d only affect what the server
+      # logs — and with no -h it uses the unix socket. The postgres entrypoint runs
+      # initdb, starts a TEMPORARY socket-only server, runs the init script, stops
+      # it, then starts the real one. A `pg_isready` probe landing in that window
+      # returns 0 and marks the container healthy, so `up -d --wait` returns and the
+      # next command gets ECONNREFUSED or "role shortkit_app does not exist". This
+      # probe is false until the roles exist, the database exists, and the real
+      # server is accepting TCP connections.
+      #
+      # IT DOES NOT CHECK THE PASSWORD, and this comment used to claim it did
+      # (F-357, corrected 2026-08-11). postgres:17-alpine's generated pg_hba.conf
+      # puts `host all all 127.0.0.1/32 trust` AHEAD of the `scram-sha-256` line the
+      # entrypoint appends, and the first matching line wins, so a connection to
+      # 127.0.0.1 from inside this container is trusted and the `app` in the DSN
+      # below is never verified. Measured against a running container: a wrong
+      # password over 127.0.0.1 was accepted; the same wrong password over the
+      # container's own bridge address was refused.
+      #
+      # The gap is inert here, which is why the probe is left alone. Both passwords
+      # are literals, in the configs block below and in the DSNs at the top of this
+      # file, with no interpolation anywhere, so there is no mechanism that can make
+      # them disagree. The suite's own connections come from the host through the
+      # published port and arrive on the container's eth0 rather than its loopback,
+      # so the suite authenticates for real even though this probe does not.
+      #
+      # DO NOT COPY THE `127.0.0.1` INTO A STACK WHOSE PASSWORDS COME FROM THE
+      # ENVIRONMENT. There, a probe that skips authentication reports a database
+      # with unusable roles as healthy. docker-compose.yml uses `-h postgres` for
+      # exactly that reason (ADR-0036). Changing this probe to match is a behaviour
+      # change to TASK-005's file and needs that TASK's owner, not a drive-by.
+      test:
+        - 'CMD-SHELL'
+        - 'psql "postgres://shortkit_app:app@127.0.0.1:5432/shortkit_test" -tAc "select 1" >/dev/null 2>&1'
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+configs:
+  # Inline rather than a mounted file: F-038 assigns TASK-005 `docker-compose.test.yml`
+  # and nothing beside it, and the roles are only meaningful together with the
+  # service that runs them.
+  shortkit_roles_sql:
+    content: |
+      -- design/contracts/rls-policy-template.md "Roles", verbatim but for the
+      -- literal passwords, which psql cannot take as :'variables' here.
+      --
+      -- NOBYPASSRLS on BOTH roles. It is the default, and it is written out because
+      -- a role that can bypass RLS turns every isolation assertion in the suite into
+      -- a tautology; test/support/rls-fixture.ts re-checks it before each run.
+      CREATE ROLE shortkit_migrator LOGIN PASSWORD 'migrator' NOBYPASSRLS;
+      CREATE ROLE shortkit_app      LOGIN PASSWORD 'app'      NOBYPASSRLS;
+
+      -- The migrator owns the database, so it owns schema `public` through
+      -- pg_database_owner and can run DDL without any further grant. The app role
+      -- owns nothing (ADR-0003).
+      CREATE DATABASE shortkit_test OWNER shortkit_migrator;
+
+      \connect shortkit_test
+
+      GRANT USAGE ON SCHEMA public TO shortkit_app;
+      ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
+      ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+        GRANT USAGE, SELECT ON SEQUENCES TO shortkit_app;

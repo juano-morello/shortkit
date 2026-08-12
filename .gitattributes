@@ -1,0 +1,4 @@
+# ADR-0004: drizzle migration metadata never merges. A conflict here means two
+# branches generated migrations from different snapshots; regenerate instead.
+apps/api/drizzle/meta/** -merge
+apps/api/drizzle/*.sql   -merge

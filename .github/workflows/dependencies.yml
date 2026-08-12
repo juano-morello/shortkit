@@ -1,0 +1,66 @@
+# The weekly whole-tree audit.
+#
+# ADR: adr-0018-ci-performance-gate.md ("A `dependencies` job audits the whole tree
+#      weekly", amended 2026-08-05 by F-124)
+# Produced by: TASK-002
+#
+# WHY THIS IS NOT A JOB IN ci.yml. Its triggers are `schedule` and `workflow_dispatch`,
+# and ci.yml's are `push` and `pull_request`. Merging them would mean adding two triggers
+# to the merge gate and then suppressing `quality`, `integration` and `gate` on both with
+# `if:` conditions — three chances for a job to run when it should not, or to be skipped
+# and read as passing. The job id below is `dependencies`, which is what the ADR names.
+#
+# WHY IT EXISTS AT ALL, given `quality` already audits. Every dependency is exact-pinned
+# and every job installs `--frozen-lockfile`, so nothing in the tree changes between
+# merges: an audit that only runs on push and pull request cannot see an advisory
+# PUBLISHED against a version already merged, because no push triggers it. The schedule is
+# the only thing that re-asks the question against unchanged code.
+#
+# It drops `--prod` on purpose. The merge gate's `--prod` buys a deliberate blind spot —
+# a dev-only advisory with no fix must not be able to block a merge — and the price is
+# that `quality` can never surface an advisory in drizzle-kit, tsup, vitest or any other
+# devDependency, at any severity. This is the only thing in launch-core that looks at that
+# half of the tree. The two are two obligations, not one gate run twice.
+#
+# ACCEPTED COST, RECORDED IN ADR-0018: GitHub disables a scheduled workflow after 60 days
+# of repository inactivity. It does so silently, and it takes the whole devDependency
+# tree's only detection with it.
+name: dependencies
+
+on:
+  # Mondays, 06:17 UTC. Off the hour because scheduled runs cluster there and get delayed.
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    name: dependencies
+    runs-on: ubuntu-latest
+    # Checkout, install and one audit. The comparable work in `quality` — everything up to
+    # and including the first audit step — took 18s on run 31113561948. 10 minutes is the
+    # same order of headroom the other jobs get; this one never runs a build, so it needs
+    # less. Anything is better than the six-hour default.
+    timeout-minutes: 10
+    steps:
+      # persist-credentials: false — the default leaves GITHUB_TOKEN in .git/config for
+      # every later step. Nothing here runs git after checkout.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-toolchain
+
+      # The step name carries the register's path so the failure email GitHub sends the
+      # repo owner points at it: an accepted, unfixable advisory fails this run every
+      # week, and the register is where to check whether this is the known one before
+      # spending an hour on it (F-124).
+      #
+      # `pnpm audit` gets no `--ignore` and no override, here or anywhere. The register is
+      # a document a human reads; nothing consumes it. An accepted advisory still fails
+      # this run and still has to be re-read.
+      - name: Audit the whole tree — known advisories are in docs/security/known-advisories.md
+        run: pnpm audit --audit-level moderate

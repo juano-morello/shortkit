@@ -1,0 +1,41 @@
+# ADR: adr-0018-ci-performance-gate.md ("`.github/dependabot.yml` is what moves versions")
+# Produced by: TASK-002 (F-055)
+#
+# Every dependency in this repository is pinned to an exact version, which means a
+# security patch arrives only when someone merges a bump. The audits detect; nothing in
+# them raises a version. This file is the remediation half — remove it and the two audit
+# steps become detection with no path to a fix, which is how a known advisory stays
+# deployed for a quarter.
+#
+# One `npm` entry at the root covers all four manifests: Dependabot reads
+# pnpm-workspace.yaml and pnpm-lock.yaml (v9) and resolves the workspace from there.
+#
+# Minor and patch group into one pull request; majors arrive one at a time, because a
+# major merged in a batch is a major nobody read the release notes for. **A pull request
+# that bumps `better-auth` does not merge until the four Better Auth facts in ADR-0018's
+# pinning paragraph are re-checked against the new version.**
+#
+# ⚠ DEPENDABOT PULL REQUESTS DO NOT RUN LIKE ANY OTHER, WHICH THIS LINE USED TO CLAIM.
+# GitHub runs Dependabot-triggered `push` and `pull_request` events with a read-only
+# GITHUB_TOKEN and with DEPENDABOT secrets only — Actions secrets are not exposed to them.
+# `BFF_PROXY_SECRET` is registered as an Actions secret, so `quality` fails at the AC-113
+# guard on every bump unless the same value is ALSO registered under
+# Settings > Secrets and variables > Dependabot. Since ADR-0018 makes this file the only
+# mechanism that raises a version, a bump that can never go green trains a human to bypass
+# the gate on precisely the pull requests that carry security fixes.
+#
+# `quality` fails fast and names this cause; see the preflight step in ci.yml and
+# docs/security/ci-secrets.md. The repair is the Dependabot secret, never a skipped guard.
+#
+# `integration` and `gate` need no secrets and run normally.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
