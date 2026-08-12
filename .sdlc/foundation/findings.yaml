@@ -8114,7 +8114,10 @@
     F-076. Route helmet/HSTS to a TASK or rule it out of launch-core. Decide who owns the two stale
     logger comments now that TASK-003 has closed. All three are Juano's under routing rule 0.
   owner_slot: null
-  status: escalated
+  status: fixed
+  resolved_by: "orchestrator 2026-08-12"
+  resolution: >-
+    CLOSED 2026-08-12, AND IT IS THE ELEVENTH LAGGING RECORD OF THIS RUN. All three clauses are discharged and have been for hours: clause 1, logger.ts's paths, corrected on the TASK-003 card; clause 2, helmet and invariant 4, shipped and measured on the wire; clause 3 re-graded into F-247, re-routed to TASK-060 and closed there at c7bc5f3. The status stayed `escalated` throughout. Found by me only because ship.md rule 50 - do not open a PR while any TASK is escalated - made me count them at the gate.
   resolved_by: null
   resolved_round: null
 
