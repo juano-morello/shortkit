@@ -65,3 +65,188 @@
   status: fixed
   resolved_by: "Juano ruled WIDEN at the Design wave-1 gate 2026-08-13; paths widened by the six files, wave table unchanged and the reason recorded on the card"
   resolved_round: 1
+
+- id: F-003
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: blocker
+  kind: behavior
+  file: .sdlc/identity-membership/design/adr-0045-token-mint-membership-lookup.md
+  line: 74
+  summary: >-
+    ON ANY POOLED CONNECTION THAT HAS ALREADY SERVED A TENANT TRANSACTION, THE MINT-TIME READ
+    RAISES 22P02 INSTEAD OF RETURNING A ROW. After a transaction-local set_config, the
+    app.tenant_id GUC reverts to the EMPTY STRING, not NULL, so tenantScopedPolicies'
+    `current_setting('app.tenant_id', true)::uuid` is still ORed into the SELECT and `''::uuid`
+    raises. The ADR's premise - "with the flag unset current_setting returns NULL" - holds only
+    on a backend where the placeholder has NEVER been created.
+  failure_scenario: >-
+    REPRODUCED THROUGH THE REAL pg.Pool with client.ts's own settings against a scratch database
+    carrying the ADR's policy verbatim: mint #1 on a cold pool returned the tenant id, one
+    ordinary tenant transaction ran, and mints #2 and #3 both failed
+    `22P02 invalid input syntax for type uuid: ""`. Confirmed at statement level in psql:
+    after a committed set_config, `current_setting('app.tenant_id', true)` is `''` and not NULL.
+    Not avoidable by narrowing the statement - the bare select, the UNIQUE-index form, the
+    no-membership path and a structurally identical EMPTY table all raise, because the
+    isolation policy's cast is evaluated whatever the membership arm returns.
+    Production consequence: definePayload cannot mint `tid`. The first mint after process start
+    succeeds; every mint borrowing a connection that has served one authenticated request fails.
+    At POOL_MAX 10 that is every connection within seconds of taking traffic - sign-in and token
+    refresh break for all users. The thrown value is a pg.DatabaseError, NOT
+    NoTenantMembershipError, so tenantIdForUser's declared contract is violated and the mint
+    path has no branch for it.
+  required_change: >-
+    A tenant-scoped table's isolation predicate must RETURN ZERO ROWS, not raise, when
+    app.tenant_id holds the empty string - the state of every pooled backend that has served one
+    tenant transaction. On a pooled connection the NULL case is the exceptional one. The
+    reviewer verified the property is reachable: with the predicate made empty-string tolerant
+    the same warm-connection lookup returns 0 rows. WHICH PREDICATE CARRIES IT IS THE
+    ARCHITECT'S CALL - see F-005, which is the same defect on shipped code.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-004
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: .sdlc/identity-membership/design/adr-0045-token-mint-membership-lookup.md
+  line: 240
+  summary: >-
+    NEITHER INTEGRATION CONTROL THE ADR SPECIFIES CAN OBSERVE F-003, because both are written
+    without reference to connection state and both pass on a cold pool.
+  failure_scenario: >-
+    The ADR specifies "with the flag set to user A the table shows A's row and not B's; with no
+    flag set it shows zero rows". Both are TRUE on a backend that has never run set_config for
+    app.tenant_id and both are FALSE on one that has - the second raises rather than returning
+    zero. A fixture seeding through the migrator DSN, which is what test/support/rls-fixture.ts
+    does via querySql(migrationDsn()), LEAVES THE APPLICATION POOL COLD, so both controls go
+    green over the blocker.
+  required_change: >-
+    At least one control issues the mint-time read on a pooled connection that has ALREADY
+    committed a withTenantTransaction in the same process and pool, and asserts the row comes
+    back. The zero-rows assertion moves into that same state, since that is the state in which
+    it is currently untrue.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-005
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: behavior
+  file: apps/api/src/db/rls.ts
+  line: 70
+  summary: >-
+    THE SAME 22P02 FAILURE REPRODUCES ON THE SHIPPED REDIRECT-READ ESCAPE, so this is a property
+    of tenantScopedPolicies()'s predicate - MERGED CODE - and ADR-0045 is the first caller to
+    reach it rather than its cause.
+  failure_scenario: >-
+    Built `links` with tenantScopedPolicies('links') plus redirectReadPolicy('links') verbatim.
+    On a cold backend the redirect read returned its row; after one ordinary tenant transaction
+    on the same session the identical read raised `invalid input syntax for type uuid: ""`.
+    EVERY PUBLIC REDIRECT SERVED ON A CONNECTION THAT HAD PREVIOUSLY SERVED AN AUTHENTICATED
+    REQUEST WOULD FAIL - and the redirect path is the one thing in this product that must never
+    return 5xx to a visitor.
+    Nothing reaches it today: `links` and `domains` do not exist (TASK-024, TASK-028) and
+    withRedirectRead is TASK-029's, all deferred. It is latent, not live. IT MATTERS NOW BECAUSE
+    IT DECIDES WHERE F-003's FIX BELONGS - repairing only the new policy leaves this one armed,
+    and by the same argument the privileged eraser (TASK-054) too.
+    THIS IS F-236's CLASS A THIRD TIME: a policy verified against the policy set and never
+    against a statement issued under it, with connection state as the variable nobody varied.
+  required_change: >-
+    Whatever makes the mint-time lookup fail closed rather than raise must hold for EVERY escape
+    reading a table that carries tenantScopedPolicies() without setting app.tenant_id.
+    TASK-002's paths now reach rls.ts, so the repair is in scope for this wave.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-006
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/identity-membership/design/adr-0045-token-mint-membership-lookup.md
+  line: 245
+  summary: >-
+    THE FLAG-TABLE EDIT IS MISCOUNTED. CONTEXT_FLAG_OWNERS has THREE entries today
+    (app.tenant_id, app.redirect_context, app.privileged_erase), so the new flag makes a FOURTH
+    row and a fourth permitted name, not a third.
+  failure_scenario: >-
+    coverage.ts:1718-1722 declares three. The ADR says "gains a third row" and "now three app.
+    flags rather than two escapes plus tenancy". Both are one short. A TASK-056 implementer
+    working from the ADR writes an assertion over three flags and the fourth goes unenumerated -
+    the exact failure mode the ADR's own "What keeps it narrow" section exists to prevent.
+    Documentation gap, not a runtime failure, so it is a NOTE rather than a round.
+  required_change: The counts in the ADR match CONTEXT_FLAG_OWNERS as it exists.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-007
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/identity-membership/design/adr-0045-token-mint-membership-lookup.md
+  line: 235
+  summary: >-
+    TASK-002's EDIT LIST OMITS rls.ts's OWN HEADER DOCBLOCK, which enumerates the three permitted
+    flag strings by name and calls itself exhaustive - and becomes false in the same commit that
+    adds the fourth.
+  failure_scenario: >-
+    rls.ts:10-19 reads "THIS FILE READS ALL THREE CONTEXT FLAGS AND SETS NONE (F-118). It is the
+    one file besides each flag's setter that may contain the strings app.tenant_id,
+    app.redirect_context and app.privileged_erase". Adding membershipLookupPolicy() puts a fourth
+    flag string in that file against a docblock naming three. The ADR is otherwise exhaustive
+    about stale counts - it lists five "exactly two" sites by file and line - SO THE OMISSION
+    READS AS A DECISION RATHER THAN AN OVERSIGHT. Documentation gap; a NOTE, not a round.
+  required_change: The ADR's TASK-002 follow-up list names rls.ts's header alongside the five "exactly two" sites.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-008
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/isolation/cross-tenant-isolation.int-spec.ts
+  line: 1360
+  summary: >-
+    The AC-12 edit moves toHaveLength(2) to (3) and leaves the test TITLED "AC-12: exactly two
+    isolation exclusions are declared", asserting three under a name that says two.
+  failure_scenario: >-
+    A reader greps "exactly two", finds a GREEN test whose name contradicts its assertion. The
+    ADR's cited line range covers it and its described edit does not. Documentation gap.
+  required_change: The title and the comment move with the number.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
