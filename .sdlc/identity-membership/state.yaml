@@ -29,8 +29,19 @@ gates:
   design:
     wave_1: in-progress   # ADRs + contracts + stubs written; steps 6 and 8 NOT yet run
 
-escalations: []
-# F-002 and F-010 BOTH CLEARED by Juano's widen rulings, 2026-08-13. No TASK is escalated.
+escalations:
+  - task: TASK-002
+    findings: [F-024]
+    raised: 2026-08-13
+    reason: >-
+      ADR-0044 priced its accepted cost in READS and refused a shortkit_auth role split against
+      that price. The auditor demonstrated WRITES from tenant A's ordinary transaction -
+      overwriting tenant B's password hash, inserting a forged session with a chosen token, and
+      changing their email. ACCOUNT TAKEOVER IS A STRICTLY LARGER CLAIM THAN THE ONE THE REFUSAL
+      WAS MADE AGAINST, so the refusal has to be re-decided against the corrected cost. The split
+      reopens ADR-0031 and touches six provisioning artifacts across three waves, which makes it
+      Juano's rather than the architect's.
+# F-002 and F-010 CLEARED by Juano's widen rulings, 2026-08-13.
 
 # Four obligations from `foundation` land here, per .sdlc/roadmap.md's carried-forward table.
 # They are inputs to this refinement, not findings against it.
@@ -65,3 +76,6 @@ log:
   - "2026-08-13 design: AND IT DISPUTED F-005 WITH EVIDENCE INSTEAD OF ACCEPTING IT. redirectReadPolicy is a TEXT comparison and '' = 'on' is false, so it was never unsafe; the raise the reviewer saw came from the tenantScopedPolicies policy that `links` ALSO carries. Recorded as a `correction` on F-005 with the original text kept verbatim. THE CORRECTION MAKES THE FINDING STRONGER AND NARROWS THE REPAIR - the redirect path needs no change of its own. Two agents in one wave have now corrected a claim I passed them; the scout's absence claim was the other."
   - "2026-08-13 design: F-009 IS THE COST IT NAMED WITHOUT BEING ASKED. controls.ts:131 hand-writes the production predicate and THE DOCBLOCK ON THE NEXT LINE CLAIMS IT COMES `from the same production constant`. I verified both lines directly. After ADR-0049 the harness would go on proving isolation against the OLD predicate AND STAY GREEN, because the old form isolates correctly on a cold connection - the only state the fixture creates. F-288's class, found and not fixed, in the one file whose whole job is catching this. It also recorded the obvious AND-guard alternative as MEASURED WRONG: installed verbatim, re-run warm, still raises. That is the fix a reviewer accepts on sight."
   - "2026-08-13 design: TASK-002 WIDENED A SECOND TIME IN ONE WAVE, F-010, ruled by Juano. THE PATTERN IS WORTH THE RETRO'S ATTENTION: the plan's reachability pass checked every deliverable THE PLAN named and was clean; Design then named six more (F-002), and Design's own rework named two more again (F-010), because moving the fix into a shared template gave it more consumers than the policy it replaced. A reachability check is only ever as complete as the design it runs against, and Design runs after Plan. NOT AN ARGUMENT AGAINST THE CHECK - both widenings were caught before an implementer hit them, by the agent that created the need."
+  - "2026-08-13 design: SECURITY PASS, ROUND 2 OF 2 - THE CAP. 1 blocker, 5 major, 2 minor, F-020..F-027, report at audits/design-sdlc-security-auditor-r1.md. IT EXECUTED RATHER THAN READ, in a scratch database it created and dropped. F-020: BETTER_AUTH_SECRET is bound NOWHERE across seven ADRs, three contracts and seventeen cards, and 1.6.26's validateSecret returns early under isTest() and throws on the default ONLY under isProduction - so the two environments that exist are the two it does not cover. I VERIFIED IT MYSELF at create-context.mjs:38-45 rather than taking the report. The default is the symmetric key for jwks.privateKey, so one jwks row plus a published constant is the signing key and every control in this initiative hangs off a forgeable tid. Dockerfile:83's unconditional NODE_ENV=production means compose WOULD refuse to boot; the exposure is local pnpm dev. AND THE SHAPE IS GC-B's OWN HAZARD ARRIVING FROM INSIDE A DEPENDENCY, where a rule this project wrote for itself cannot reach."
+  - "2026-08-13 design: F-024 ESCALATED, AND IT REOPENS A REFUSAL RATHER THAN ADDING A FINDING. ADR-0044 priced its accepted cost IN READS - `reads every session.token, every account.password and every email` - and refused the shortkit_auth role split against that price. The auditor, from tenant A's ORDINARY transaction, OVERWROTE TENANT B's PASSWORD HASH, INSERTED A FORGED SESSION WITH A CHOSEN TOKEN AND CHANGED THEIR EMAIL, while the tenant-scoped read in the same transaction returned 0. F-239's ALTER DEFAULT PRIVILEGES is what grants the DML and no policy on the five exempt tables denies it. ACCOUNT TAKEOVER IS A STRICTLY LARGER CLAIM THAN THE ONE THE REFUSAL WAS MADE AGAINST. The ADR is not wrong to have written a cost down - it is wrong about the cost, which is a different and more dangerous thing, because the refusal LOOKS reasoned."
+  - "2026-08-13 design: TWO FINDINGS ARE THIS INITIATIVE CONTRADICTING ITSELF INSIDE ONE ROUND. F-021: membershipLookupPolicy compares a TEXT flag and rests on `no user row has id ''` - and ADR-0049, written in the SAME round, names that exact hazard class in its own Consequences. The wave shipped the first instance of the hazard in the same commit that documented it. F-022: ADR-0049's cast control passes two renderings that still raise, so the enforcement offered IN PLACE OF documentation does not enforce. F-025: the ADR cites four controls, three `already existing`, and CONTEXT_FLAG_OWNERS HAS NO CONSUMER ANYWHERE - a narrowness argument resting on nothing. All three are the retro's `validity conditions nothing enforces` pattern, now inside the artifacts written to fix a different instance of it."

@@ -357,3 +357,222 @@
   status: fixed
   resolved_by: "TASK-011.md:43 now quotes the nullif form with the reason and the ADR id, 2026-08-13"
   resolved_round: 1
+
+# F-020..F-027 from the design-mode security audit, round 2 of 2 (full-track cap).
+# Full detail, attacker paths and executed statements: audits/design-sdlc-security-auditor-r1.md
+
+- id: F-020
+  phase: design
+  wave: 1
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: blocker
+  kind: security
+  file: .sdlc/identity-membership/design/adr-0043-better-auth-schema-is-hand-written-and-pinned.md
+  line: 1
+  summary: >-
+    BETTER_AUTH_SECRET IS BOUND NOWHERE, AND 1.6.26 FALLS BACK TO A PUBLISHED CONSTANT WITHOUT
+    THROWING OUTSIDE PRODUCTION. Seven ADRs, three contracts and seventeen TASK cards mention
+    the variable descriptively and nothing binds it.
+  failure_scenario: >-
+    EXECUTED BY THE AUDITOR, then verified independently by me at
+    node_modules/.pnpm/better-auth@1.6.26/.../dist/context/create-context.mjs:38-45.
+    validateSecret returns immediately under isTest() and throws on the default ONLY under
+    isProduction, so the two environments that actually exist are the two it does not cover.
+    With NODE_ENV=development and the variable unset the secret in use is the shipped constant
+    `better-auth-secret-12345678901234567890` and nothing throws.
+    That constant is the symmetric key for jwks.privateKey, so ONE `jwks` ROW PLUS A VALUE
+    EVERYONE ALREADY HAS IS THE JWT SIGNING KEY, and every control this initiative builds hangs
+    off a forgeable `tid`.
+    MITIGATION, MEASURED: Dockerfile:83 sets NODE_ENV=production unconditionally (GC-B), so the
+    compose stack WOULD refuse to boot. The live exposure is local `pnpm dev`.
+    AND THE SHAPE IS GC-B's OWN HAZARD ARRIVING FROM INSIDE A DEPENDENCY - a behavioural choice
+    keyed on NODE_ENV, in a library, where the rule this project wrote for itself cannot reach.
+  required_change: >-
+    A declared binding for BETTER_AUTH_SECRET with a boot assertion that does not depend on
+    NODE_ENV, per GC-B's pattern. The alternative of passing `secret` in the config still needs
+    a source for the value.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-021
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: security
+  file: .sdlc/identity-membership/design/adr-0045-token-mint-membership-lookup.md
+  line: 1
+  summary: >-
+    membershipLookupPolicy() COMPARES A TEXT FLAG AND RESTS ON "no user row has id ''". With
+    such a row present, an out-of-context read on a warm backend returns it, AND TENANT A's
+    ORDINARY TRANSACTION RETURNS TENANT B's FULL MEMBERSHIP ROW.
+  failure_scenario: >-
+    Measured. It falsifies rls-policy-template.md invariant 1 - THE INVARIANT THIS WAVE AMENDED
+    IN THIS SAME ROUND. ADR-0049 names this hazard class in its own Consequences ("the repair
+    does not extend to a flag compared as text") and ADR-0045 SHIPS THE FIRST INSTANCE OF IT IN
+    THE SAME COMMIT.
+    Latent rather than live: the auditor checked parseUserInput and it strips `id`, so no
+    sign-up path creates the row today. The repair is the same nullif(..., '') and the auditor
+    verified it closes the hole and preserves the index.
+  required_change: membershipLookupPolicy() wraps its flag in nullif(..., '') like every other flag.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-022
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: security
+  file: .sdlc/identity-membership/design/adr-0049-context-flags-are-never-cast-directly.md
+  line: 1
+  summary: >-
+    ADR-0049's CAST-CONTROL REGEX PASSES TWO FORMS THAT STILL RAISE 22P02 -
+    `nullif(current_setting(...), 'x')::uuid` and `(current_setting(...) || '')::uuid`.
+  failure_scenario: >-
+    Measured against real pg_policies.qual strings. The control is the enforcement ADR-0049
+    offers in place of documentation, so a control that passes unsafe renderings leaves the rule
+    unenforced while reporting green - which is the same shape as F-390's check wired into
+    nothing, recorded in foundation's retro.
+  required_change: The control matches the safe form rather than rejecting a blacklist of unsafe ones.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-023
+  phase: design
+  wave: 1
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: security
+  file: .sdlc/identity-membership/design/contracts/auth-schema.md
+  line: 1
+  summary: >-
+    BETTER AUTH'S OWN console.error/console.warn LOGGER IS A SECOND UNSTRUCTURED LOG CHANNEL
+    THAT NO ARTIFACT DECIDES. origin-check.mjs:110 echoes an attacker-controlled Referer onto it
+    UNAUTHENTICATED, and `logger.level: 'info'` is one key from putting an email on the line.
+  failure_scenario: >-
+    GC-G names email as the field that must not be added to LOGGABLE_FIELDS, and ADR-0028 says
+    there is exactly one censoring mechanism, deliberately. A second channel that bypasses the
+    allowlist defeats that by construction rather than by defect. F-300's class - a credential
+    or PII reaching a log store through a channel nobody enumerated.
+  required_change: >-
+    An ADR binding Better Auth's logger to the structured logger, or explicitly recording that
+    it is disabled and why. ADR-0041's precedent - any other logger is gated at the dependency
+    list - is the nearest existing rule.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-024
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: security
+  file: .sdlc/identity-membership/design/adr-0044-better-auth-tables-carry-no-rls.md
+  line: 1
+  summary: >-
+    ADR-0044 PRICES ITS ACCEPTED COST IN READS AND THE COST INCLUDES WRITES. From tenant A's
+    ordinary transaction the auditor OVERWROTE TENANT B's PASSWORD HASH, INSERTED A FORGED
+    SESSION WITH A CHOSEN TOKEN, AND CHANGED THEIR EMAIL - while the tenant-scoped read in the
+    same transaction returned 0.
+  failure_scenario: >-
+    F-239's ALTER DEFAULT PRIVILEGES grants shortkit_app full DML on every table the migrator
+    creates, and the five exempt tables carry no policy to deny it. The ADR's Consequences
+    section says "reads every session.token, every account.password and every email"; ACCOUNT
+    TAKEOVER BY WRITING A SESSION ROW IS A STRICTLY LARGER CLAIM and it is the one the evidence
+    supports.
+    THIS REOPENS THE ADR's CENTRAL REFUSAL. It priced a shortkit_auth role split against a
+    read-only exposure and refused it. The refusal was made against an understated cost.
+  required_change: >-
+    ADR-0044's Consequences corrected to what was measured, and its refusal of the role split
+    re-decided against the corrected cost rather than the original one. Juano's, because the
+    split reopens ADR-0031 and touches six provisioning artifacts across three waves.
+  owner_slot: sdlc-architect
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-025
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: test-coverage
+  file: .sdlc/identity-membership/design/adr-0045-token-mint-membership-lookup.md
+  line: 1
+  summary: >-
+    ADR-0045 CITES "four controls, three of which already exist" AND NONE OF THEM EXECUTES.
+    CONTEXT_FLAG_OWNERS has no consumer anywhere in the repository.
+  failure_scenario: >-
+    The ADR's narrowness argument rests on those controls. A control that no test runs is a
+    control in name only, and the ADR's "What keeps it narrow" section is therefore resting on
+    nothing. Same shape as F-390 and ADR-0039's own admission, both recorded in foundation's
+    retro as decisions whose validity conditions nothing enforces.
+  required_change: Either a consumer that executes CONTEXT_FLAG_OWNERS, or the ADR stops citing it as a control.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-026
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: contract
+  file: .sdlc/identity-membership/design/contracts/tenant-membership-lookup.md
+  line: 1
+  summary: The exclusion table's Reach column overstates what the new exclusion can reach.
+  failure_scenario: Documentation gap; a NOTE rather than a round. Detail in the audit report.
+  required_change: The Reach column matches the policy as written.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-027
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: contract
+  file: .sdlc/identity-membership/design/contracts/tenant-membership-lookup.md
+  line: 1
+  summary: >-
+    THE err_stack JUSTIFICATION FOR TRUNCATING THE USER ID IS BUILT ON A PREMISE logger.ts:880-884
+    WAS WRITTEN TO MAKE FALSE.
+  failure_scenario: >-
+    The contract argues the id must be truncated because err_stack begins with the message and
+    reaches the log line. The logger already handles that. The truncation may still be right;
+    ITS STATED REASON IS NOT. Documentation gap, a NOTE rather than a round - but the class
+    matters, because a correct rule resting on a false reason is one refactor from being dropped
+    as noise.
+  required_change: The justification cites what logger.ts actually does, or the truncation is re-argued.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
