@@ -6,7 +6,11 @@ title: Better Auth tables, tenant_memberships with its unique constraint, and te
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: []
-paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts"]
+paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/schema/auth.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts"]
+# paths WIDENED 2026-08-13 by Juano at the Design wave-1 gate, F-002. Six files its own design
+# requires and its original declaration did not reach. THE WAVE TABLE IS UNCHANGED: TASK-001 is
+# packages/contracts/** only, so wave 1 stays parallel-safe, and every other claimant of these
+# files (003 w2, 005 w4, 014 w8, 015 w9) is strictly later. A declaration gap, not an ordering one.
 contracts: [design/contracts/rls-policy-template.md, design/contracts/isolation-coverage.md, design/contracts/tenant-context.md]
 test_files: ["apps/api/src/auth/tenant-id-for-user.spec.ts (unit)", "apps/api/test/auth/tenant-memberships.int-spec.ts (integration)", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts (isolation, registration only — the assertions there are TASK-015's)"]
 acceptance: [AC-2, AC-4]
@@ -42,10 +46,12 @@ policy exists for it.
 
 **Better Auth's tables carry no `tenant_id` and no row-level security.** ADR-0013 fixes
 that, ADR-0003 explains why it is not a GC-5 exception, and
-`apps/api/scripts/check-policies.mts` already names `user`, `session`, `account` and
-`verification` as its Better Auth exemptions. The `jwt` plugin adds a key-storage table, so
-that exemption list gains an entry — check the script's list against the tables this
-migration actually creates rather than assuming the four.
+`apps/api/scripts/check-policies.mts` already names `user`, `session`, `account`,
+`verification` **and `jwks`** — **FIVE entries, not four**. Corrected 2026-08-13 at the Design
+wave-1 gate; `jwks` was added by F-232 on 2026-08-07, so the `jwt` plugin's table is already
+listed. **Add no entry to that list.** Per ADR-0044 you add only the `EXEMPT.size !== 5`
+length control. The script's own docblock still says "None of the four exist yet" and is
+stale in the same way — that correction is yours, filed as F-001.
 
 `apps/api/src/db/schema/auth.ts` is Better Auth's schema for the pinned `1.6.26` with the
 `jwt` and `bearer` plugins enabled, checked in and owned from then on by drizzle-kit

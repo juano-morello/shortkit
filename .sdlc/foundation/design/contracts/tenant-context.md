@@ -296,25 +296,41 @@ already forbids that, and this section is the reason it matters more than it loo
 
 ## What the implementer must guarantee
 
-- `apps/api/src/db/client.ts` is the only file constructing the Drizzle client, and it
-  does not export it. It additionally exports `postgresErrorCode` and
+- `apps/api/src/db/client.ts` is the only file constructing the Drizzle client. ~~and it
+  does not export it.~~ **Amended 2026-08-12 (ADR-0046).** It exports exactly one client,
+  `betterAuthDatabase()`, typed over `betterAuthSchema` — the five RLS-exempt Better Auth
+  tables and no others — to exactly one caller, `apps/api/src/auth/auth.config.ts`. Better
+  Auth's adapter issues one statement at a time from a handler mounted outside the Nest
+  graph and has no callback boundary a transaction can be handed to. A statement issued on
+  that client runs outside any transaction and therefore with no context flag, so on every
+  tenant-scoped table it sees zero rows and writes none: the same fail-closed property this
+  contract already rests on, not a new one. The narrowing is a type and types erase; the
+  protection is RLS. It additionally exports `postgresErrorCode` and
   `postgresErrorConstraint`, which any file may import.
-- **`databaseTransaction` has exactly four sanctioned consumers.** Amended 2026-08-05
-  (F-126). This list named three; the fourth arrived when TASK-005 put the boot check in
-  `rls.ts`, and TASK-056 needs a list that is true.
+- **`databaseTransaction` has exactly five sanctioned consumers.** Amended 2026-08-05
+  (F-126) from three to four; amended 2026-08-12 (ADR-0045) from four to five. TASK-056
+  needs a list that is true.
 
   | Consumer | File | Path |
   |---|---|---|
   | `withTenantTransaction` | `apps/api/src/tenancy/tenant-context.ts` | data |
   | `withRedirectRead` | `apps/api/src/redirect/db/redirect-read.ts` | data |
   | `privilegedTenantEraser` | `apps/api/src/gdpr/privileged-eraser.ts` | data |
+  | `withMembershipLookup` | `apps/api/src/auth/membership-lookup.ts` | data |
   | `assertRuntimeRoleCannotBypassRls` | `apps/api/src/db/rls.ts` | control |
 
-  The three data-path consumers reach tenant-scoped tables, and each is narrowed by
+  The four data-path consumers reach tenant-scoped tables, and each is narrowed by
   policy in `rls-policy-template.md`. The control-path consumer reads `pg_roles` and
   `pg_class` before the process accepts traffic, touches no tenant-scoped table and
-  returns no tenant data, so **`ISOLATION_EXCLUSIONS` stays at two** and the "Deliberate
-  exclusions" table below is unchanged. A fourth consumer is not a third exclusion.
+  returns no tenant data, so it is not an exclusion. A consumer being on this list does not
+  make it one; ~~**`ISOLATION_EXCLUSIONS` stays at two**~~ **`ISOLATION_EXCLUSIONS` is
+  three**, because `withMembershipLookup` does reach a tenant-scoped table outside tenant
+  context (ADR-0045).
+
+  **The note at `apps/api/src/db/client.ts:21-22` is stale in the other direction.** It says
+  "`design/contracts/tenant-context.md` still names three" and reports the amendment as
+  outstanding. F-126 made it four on 2026-08-05, which is above. Nothing was owed; the
+  docblock had not caught up. TASK-002 rewrites that paragraph along with the caller list.
 
   **What the list is for.** Not unreachability: any module can import
   `databaseTransaction`, and no type prevents it. The guarantee is that a transaction
@@ -322,9 +338,13 @@ already forbids that, and this section is the reason it matters more than it loo
   none, which is fail-closed by policy rather than by enumeration. The list is what makes
   a fifth caller a reviewed diff instead of an unremarked one.
 
-  **Admitting a fifth.** It qualifies only if it is one of the two `ISOLATION_EXCLUSIONS`,
-  or if it reads `pg_catalog` and `information_schema` only and runs before the process
-  serves traffic. Anything else needs an ADR superseding ADR-0002.
+  **Admitting a sixth.** It qualifies only if it is one of the three
+  `ISOLATION_EXCLUSIONS`, or if it reads `pg_catalog` and `information_schema` only and runs
+  before the process serves traffic. Anything else needs an ADR superseding ADR-0002.
+
+  The fifth arrived through that door and paid the toll: ADR-0045 amends ADR-0002, and
+  `withMembershipLookup` is the third exclusion. The rule worked as written — the price was
+  named in advance and an ADR was what it cost.
 
   **TASK-056 asserts it.** Over `apps/api/src/**/*.ts`, excluding `*.spec.ts` and
   excluding `client.ts` itself, the set of files containing the string
@@ -367,17 +387,23 @@ already forbids that, and this section is the reason it matters more than it loo
 
 ## Deliberate exclusions
 
-Exactly two paths reach tenant-scoped tables outside this contract. Both are recorded
-in `isolation-coverage.md` and narrowed by database policy in `rls-policy-template.md`.
+~~Exactly two~~ **Exactly three, amended 2026-08-12 (ADR-0045).** Three paths reach
+tenant-scoped tables outside this contract. All three are recorded in
+`isolation-coverage.md` and narrowed by database policy in `rls-policy-template.md`.
 
 | Path | File | Reach |
 |---|---|---|
 | `withRedirectRead` | `apps/api/src/redirect/db/redirect-read.ts` | `SELECT` only, on `domains` and `links` only, in a `READ ONLY` transaction |
 | `privilegedTenantEraser` | `apps/api/src/gdpr/privileged-eraser.ts` | `DELETE` only, scoped to one `tenant_id` by policy |
+| `withMembershipLookup` | `apps/api/src/auth/membership-lookup.ts` | `SELECT` only, on `tenant_memberships` only, scoped to one `user_id` by policy, in a `READ ONLY` transaction |
 
-A third is a build failure: `isolation-coverage.md` asserts the exclusion list length
-is 2, and the grep test asserts each context-flag string appears in exactly one
-non-test source file.
+A **fourth** is a build failure: `isolation-coverage.md` asserts the exclusion list length
+is 3, and the grep test asserts each context-flag string appears in exactly one
+non-test source file. The flag table in clause A1 now carries three names —
+`app.tenant_id`, `app.redirect_context`, `app.privileged_erase` — plus
+`app.membership_lookup_user`, whose one permitted setter is
+`apps/api/src/auth/membership-lookup.ts` and which may also appear in
+`apps/api/src/db/rls.ts`.
 
 ## Versioning
 

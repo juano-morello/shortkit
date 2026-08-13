@@ -102,6 +102,10 @@ From `packages/contracts/src/roles.ts` (shipped, partly stubbed):
   - `ACCESS_TOKEN_LIFETIME_SECONDS = 300` — the value ADR-0013 fixes; TASK-003 reads it rather than restating `'5m'`
 - `packages/contracts/src/members/index.ts` exporting:
   - `tenantMembershipContract` — zod schema for `{ id: string; tenantId: string; userId: string; role: TenantRole; createdAt: string }`
-  - `type TenantMembership = z.infer<typeof tenantMembershipContract>`
+  - **Superseded 2026-08-13 by ADR-0048.** Not `z.infer`: a brand inside an inferred contract
+    type is what `roles.ts:150-156` names and refuses. Export `tenantMembershipContract` with
+    an UNBRANDED `role` (`z.enum(TENANT_ROLES)`), plus `TenantMembershipWire`, a declared
+    `interface TenantMembership` whose `role` is branded, and `parseTenantMembership()` — the
+    one place `asTenantRole` is called. Wire type and domain type are separate.
 - `packages/contracts/src/roles.ts` — `asTenantRole` and `tenantRoleRank` implemented, no longer throwing
 - `packages/contracts/src/index.ts` — `export * from './auth';` and `export * from './members';` uncommented and live

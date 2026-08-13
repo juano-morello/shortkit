@@ -1,0 +1,67 @@
+# Findings — identity-membership. Append-only. Ids restart at F-001 for this initiative.
+# Terminal statuses: fixed, parked, deferred-minor, wont-fix, superseded.
+# NOT terminal: open, routed, escalated. `routed` records who was asked, never what happened.
+
+- id: F-001
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: correctness
+  file: apps/api/scripts/check-policies.mts
+  line: 60
+  summary: >-
+    THE EXEMPTION LIST'S OWN DOCBLOCK IS STALE IN THE SAME WAY THE PLAN WAS. The comment reads
+    "None of the four exist yet (TASK-009)" while the Map below it holds FIVE entries; `jwks`
+    was added by F-232 on 2026-08-07 and the comment was never updated with it.
+  failure_scenario: >-
+    An implementer reading the docblock rather than counting the Map believes the list holds
+    four and adds a fifth entry for the jwt plugin's table. `jwks` is then listed twice. The
+    cross-check at main() validates each entry against the system catalogue and a duplicate
+    name passes, so nothing fails — the list simply carries a lie about its own size, which is
+    what ADR-0044's `EXEMPT.size !== 5` control exists to catch and would then be wrong at 6.
+    This is the third artifact in one day found describing four where the code says five: the
+    plan's decision 3, TASK-002's card, and now the script itself. The first two were mine.
+  required_change: >-
+    Correct the docblock to five and to name `jwks`. The deferral clause "(TASK-009)" is also
+    stale — TASK-009 left this initiative in the 2026-08-09 re-scope and the tables now land in
+    TASK-002.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-002
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: orchestrator
+  round: 1
+  severity: major
+  kind: plan
+  file: .sdlc/identity-membership/tasks/TASK-002.md
+  line: 9
+  summary: >-
+    TASK-002's `paths` DOES NOT REACH SIX FILES ITS OWN DESIGN REQUIRES: db/rls.ts,
+    db/client.ts, auth/membership-lookup.ts, db/schema/auth.spec.ts, test/isolation/coverage.ts
+    and test/isolation/cross-tenant-isolation.int-spec.ts.
+  failure_scenario: >-
+    The implementer cannot write the third exclusion entry, the `betterAuthDatabase()` export,
+    the "exactly two" corrections, or its own pinning spec, and either stops or writes outside
+    its declared surface. This is the F-S class the plan's reachability section was written to
+    prevent, arriving from the Design side rather than the Plan side: the plan checked every
+    deliverable IT named against paths, and Design then named six more.
+    The architect found it, checked the wave consequences itself, and DECLINED TO MAKE THE EDIT
+    because a TASK card is not its write surface. TASK-001 is `packages/contracts/**` only, so
+    wave 1 stays parallel-safe; every other claimant of those files (003 w2, 005 w4, 014 w8,
+    015 w9) is strictly later, so no wave conflict is created. A declaration gap, not an
+    ordering one.
+  required_change: >-
+    Widen TASK-002's `paths` by the six files, and record that the wave table is unchanged.
+    Juano's, because the plan gate is approved and its ids are frozen.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "Juano ruled WIDEN at the Design wave-1 gate 2026-08-13; paths widened by the six files, wave table unchanged and the reason recorded on the card"
+  resolved_round: 1

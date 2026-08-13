@@ -203,8 +203,10 @@ Listed, not decided. Design owns every one.
    list at `client.ts:11-23`.
 2. How Better Auth's `drizzleAdapter` obtains a client under the same constraint.
 3. Whether Better Auth's own tables can carry RLS at all, and the exemption list in
-   `apps/api/scripts/check-policies.mts` — it names four tables today and the `jwt` plugin adds
-   a fifth.
+   `apps/api/scripts/check-policies.mts`. **Corrected 2026-08-13, Design wave 1: it already
+   names FIVE**, not four — `jwks` was added by F-232 on 2026-08-07. The original wording said
+   the `jwt` plugin "adds a fifth", which would have had an implementer write a duplicate
+   entry. Settled by ADR-0044.
 4. How `apps/api/src/db/schema/auth.ts` is obtained. ADR-0013 says CLI-generated, and the CLI
    reads a config TASK-003 writes *after* TASK-002 needs the file.
 5. The revocation store binding. ADR-0013 specifies Redis `revoked:jti:<jti>` with a 300-second
