@@ -11,7 +11,7 @@ summary and returns non-zero on the inconsistencies that used to reach one.
 | Initiative | Slug | Track | Phase | Gate | TASKs | Updated |
 |---|---|---|---|---|---|---|
 | Foundation and tenancy substrate | foundation | full | **done** | merged `aa9c288`, retro applied and its residue repaired | 10 — all done | 2026-08-12 |
-| Identity, tenancy and membership | identity-membership | full | design | plan **approved** | 17 — all todo | 2026-08-12 |
+| Identity, tenancy and membership | identity-membership | full | design | **waves 0-1 approved** `6fd953d`; waves 2-9 undesigned | 18 — all todo | 2026-08-13 |
 | Publish the shortkit engineering posts | tech-writing | — | refine | not started; deferred | 0 | 2026-08-10 |
 
 ## foundation — closed 2026-08-12
