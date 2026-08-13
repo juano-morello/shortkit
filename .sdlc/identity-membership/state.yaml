@@ -1,0 +1,45 @@
+slug: identity-membership
+title: Identity, tenancy and membership
+type: feature
+phase: plan
+track: full
+wave: null
+branch: null
+created: 2026-08-12
+updated: 2026-08-12
+
+# Roadmap item 1, opened 2026-08-12 after `foundation` closed and its retro residue was
+# repaired. The roadmap words it: "An agency operator signs up, structures the agency into
+# client workspaces, and invites a teammate scoped to specific workspaces."
+#
+# TRACK IS FORCED, NOT CHOSEN. config.yaml's force_full_paths covers apps/api/src/auth/**,
+# apps/api/src/invitations/tokens/**, packages/contracts/src/auth/**, apps/api/drizzle/** and
+# apps/api/src/tenancy/**. Any honest reading of item 1 touches at least three of those, so
+# `full` is stated at the gate rather than offered as an option.
+#
+# SCOPE CUT AT THE REFINE GATE, not before it. Juano ruled 2026-08-12 to start from the whole
+# of item 1 and let the one-shippable-increment check do the work, because `foundation` was
+# re-scoped mid-flight after a pre-decided scope proved too big. The cut: THIS IS ITEM 1a -
+# signup, session and workspaces. Invitations, capability tokens and mail are item 1b and keep
+# the four carried obligations that belong to them.
+
+gates:
+  refine: { status: approved, approved_at: 2026-08-12, note: "Track full, FORCED by force_full_paths, stated rather than offered. Shippability check passes: built alone and stopped, an operator signs up and structures their agency, which is roadmap item 1s own first clause. Interview stopped at ~95% confidence after five questions; rollout, blast radius and data sensitivity were skipped because ADR-0030 and ADR-0028 already answer them. No blocking open questions." }
+  plan:   { status: not-started }
+
+# Four obligations from `foundation` land here, per .sdlc/roadmap.md's carried-forward table.
+# They are inputs to this refinement, not findings against it.
+carried_in:
+  - F-018      # @Public() invitation routes have no IP-keyed limit in any environment today
+  - F-300      # raw invite token in the URL path on BOTH the GET and POST accept legs
+  - F-362      # ...and the two recorded fixes are not equivalent; a redirect covers only GET
+  - F-386      # mail transport binding; ruled 2026-08-12, MAIL_TRANSPORT, unset -> NoopMailSender
+  - F-401      # the mail STUB still binds NODE_ENV against the corrected contract
+  - F-239      # ALTER DEFAULT PRIVILEGES grants shortkit_app DML on every new table
+  - F-157      # no build-output scan covers dynamic routes, which is the authenticated surface
+  - F-236      # the GDPR eraser erases nothing and reports success (owner deferred; watch item 4)
+
+log:
+  - "2026-08-12 refine: INITIATIVE OPENED. Scout dispatched for grounding before any question was put to Juano. TWO OF THE SCOUT'S CONCLUSIONS WERE WRONG AND I CHECKED THEM RATHER THAN REPEATING THEM: it reported `registerTenantScopedSurfaces() does not exist anywhere in the repo - could not confirm this premise`, and it is exported from apps/api/test/isolation/coverage.ts and called at registrations.ts:591; it also reported the CI gate as three jobs against index.md's four-check claim, which is a wording question about whether `gate` counts itself and is not load-bearing here. The scout searched src and the function lives under test/. ITS ABSENCE CLAIM WAS THE ONE THING IT FLAGGED AS UNCONFIRMED, WHICH IS WHY IT WAS CHEAP TO CATCH."
+  - "2026-08-12 refine: GATE APPROVED. Five questions, stopped at ~95% rather than at the end of the list. THE CUT THAT MATTERED WAS THE FIRST ONE: invitations out, which took capability tokens, mail and four carried obligations with it and left a sentence that still stands alone. The other four followed from it - a workspace with one human in it has nothing to scope, so `memberships` is not built; verification cannot be required when MAIL_TRANSPORT unset binds NoopMailSender, so it is off as a DATED DECISION WITH ITS TRIGGER rather than as an omission; screens are in because an operator who signs up is a person at a screen and without them the increment's only user is a test; and SC-1 is inherited REWORDED, bounded to this initiative's surface, because the verbatim form is the shape F-295 refuses."
+  - "2026-08-12 refine: THREE ACCEPTED ADRs ALREADY BIND THIS WORK and I read them rather than interviewing Juano about what the repo had settled. ADR-0013 fixes the auth mount, its middleware ordering and the two middlewares that are the fix for what mounting ahead of Nest costs. ADR-0015 fixes cardinality at UNIQUE (user_id) and SPLITS MEMBERSHIP ACROSS TWO TABLES AT TWO LEVELS, which is what makes the workspace-membership deferral clean - tenant_memberships is table stakes for signup and is IN, `memberships` is OUT, and they were never the same decision. ADR-0015 also states `Signup creates a tenant. Invited signup does not.`, so cutting invitations removes a branch rather than half a design."

@@ -21,6 +21,30 @@ Each item below needs the one above it.
 1. **Identity, tenancy and membership.** An agency operator signs up, structures the agency
    into client workspaces, and invites a teammate scoped to specific workspaces.
 
+   **Split at the Refine gate, 2026-08-12.** The sentence held two increments.
+
+   - **1a — `identity-membership`, in flight.** Signup, session, tenant membership and
+     workspaces. Better Auth per ADR-0013, `tenant_memberships` per ADR-0015 with its
+     `UNIQUE (user_id)`, a tenant-scoped `workspaces` table, and three screens in `apps/web`.
+     Email verification off as a dated decision, because `MAIL_TRANSPORT` unset binds
+     `NoopMailSender` and requiring verification would make signup uncompletable. This is the
+     first request path in shortkit and the first time SC-1 is testable.
+     See `.sdlc/identity-membership/refinement.md`.
+   - **1b — invitations.** The second-human path: capability tokens per ADR-0021, mail, the
+     accept legs, `memberships` and `WorkspaceRole` enforcement. **F-018, F-300/F-362 and
+     F-386/F-401 belong to this entry**, not to 1a, and stay in the carried-forward table
+     below until it opens.
+
+   Why the cut fell there: a workspace with exactly one human who can see it has nothing to
+   scope, so `memberships` would be a table nothing reads. ADR-0015 already separates tenant
+   membership from workspace membership across two tables at two levels, so 1a builds one of
+   them and 1b builds the other. ADR-0015 also states "Signup creates a tenant. Invited signup
+   does not", so removing invitations removes a branch rather than half a design.
+
+   The known cost, recorded rather than discovered later: 1b adds a boundary to a `workspaces`
+   table and policy set that never had one, which is F-236's class at one remove. Design owes
+   an ADR clause naming what 1b adds and why the existing policies survive it.
+
 2. **Links and the redirect hot path.** A multi-tenant URL shortener on the system default
    domain, with a redirect that stays fast, stays correct when someone edits a destination,
    degrades instead of failing when Redis is gone, and accumulates click events.

@@ -10,7 +10,8 @@ summary and returns non-zero on the inconsistencies that used to reach one.
 
 | Initiative | Slug | Track | Phase | Gate | TASKs | Updated |
 |---|---|---|---|---|---|---|
-| Foundation and tenancy substrate | foundation | full | **done** | merged `aa9c288`, retro applied | 10 — all done | 2026-08-12 |
+| Foundation and tenancy substrate | foundation | full | **done** | merged `aa9c288`, retro applied and its residue repaired | 10 — all done | 2026-08-12 |
+| Identity, tenancy and membership | identity-membership | full | plan | refine **approved** | 0 — not yet planned | 2026-08-12 |
 | Publish the shortkit engineering posts | tech-writing | — | refine | not started; deferred | 0 | 2026-08-10 |
 
 ## foundation — closed 2026-08-12
