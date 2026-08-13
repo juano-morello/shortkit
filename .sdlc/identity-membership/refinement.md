@@ -45,8 +45,17 @@ unfalsifiable once it is not. Bounded to this initiative's surface, it is testab
 and grows with the system. The build-fails clause already holds;
 `test/isolation/registrations.ts` fails the run on an unregistered table.
 
-**SC-2.** An operator completes signup, sign-in and workspace creation in a browser against
+**SC-2.** An operator completes signup, sign-in and workspace creation against
 `docker compose up`, with no seed data and no manual step.
+
+**Measured at the transport, not in a browser, and the limit is stated rather than implied.**
+No test tier in this repository drives a browser, and Juano ruled at the Plan gate on
+2026-08-12 that transport-level measurement discharges this criterion. AC-16 through AC-19
+exercise the transport a browser uses; AC-28 exercises HTTP against the composed stack. What
+goes unmeasured is rendering, client-side navigation and anything that only breaks in a real
+browser engine. Adding a browser driver would be a fourth test tier and a tooling decision
+nobody has asked Design for. The word "in a browser" came out of the criterion rather than
+staying in it unmeasured, which is the same move A-8 made on AC-6 and F-154 made on AC-113.
 
 **SC-3.** Signup creates exactly one tenant and exactly one `tenant_memberships` row, and the
 `UNIQUE (user_id)` constraint from ADR-0015 rejects a second tenant for that user at the

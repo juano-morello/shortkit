@@ -41,14 +41,23 @@ auditors:
   - sdlc-reviewer
   - sdlc-security-auditor
   - sdlc-product-auditor
-  # sdlc-design-auditor REMOVED from the default panel 2026-08-12, foundation retro.
-  # ZERO findings across 399 in this initiative, and it is the SECOND initiative where it
-  # ran once and found nothing. shortkit has four UI files. Its one dispatch returned
-  # APPROVED and DELIBERATELY DECLINED the only thing it could have raised, on acknowledged
-  # placeholder scaffolding - so the prompt is fine and the STACK is the mismatch.
-  # Sharpening it would manufacture findings, which is what its own judgement avoided.
-  # Re-add it when a rendered surface exists: a dashboard, the branded 404, or the invitation
-  # accept screen. Trigger on a diff touching apps/web/app/**, not on every TASK.
+  - sdlc-design-auditor
+  # REMOVED 2026-08-12 at the foundation retro, RE-ADDED 2026-08-12 at the identity-membership
+  # Plan gate. Both decisions stand; the condition changed under them.
+  #
+  # Why it was removed: ZERO findings across 399, the SECOND initiative where it ran once and
+  # found nothing. shortkit had four UI files. Its one dispatch returned APPROVED and
+  # DELIBERATELY DECLINED the only thing it could have raised, on acknowledged placeholder
+  # scaffolding - so the prompt was fine and the STACK was the mismatch. The removal note set
+  # the re-add trigger as "when a rendered surface exists" and predicted item 3 or item 5.
+  #
+  # Why it is back: identity-membership ships THREE REAL SCREENS under apps/web/app/** -
+  # signup, sign-in, and workspace list with create - which arrives at item 1a, earlier than
+  # that note predicted. Juano ruled it back at the Plan gate.
+  #
+  # TRIGGER, unchanged from the removal note: dispatch on a diff touching apps/web/app/**,
+  # NOT on every TASK. Three of seventeen TASKs are frontend (007, 008, 013). Dispatching it
+  # on the other fourteen would rebuild the zero-finding record that removed it.
 
 # First match wins. Rule 0 in references/routing.md (design artifacts, test
 # files, approved artifacts) beats every glob here.
