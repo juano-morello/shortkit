@@ -6,7 +6,11 @@ title: Compose stack and declared environment for the auth surface
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-004]
-paths: ["docker-compose.yml", "apps/api/.env.example", "apps/web/.env.example", "README.md"]
+paths: ["docker-compose.yml", "docker-compose.test.yml", "apps/api/.env.example", "apps/web/.env.example", "README.md"]
+# docker-compose.test.yml ADDED 2026-08-13 at the Design wave-1 gate, F-032 — ADR-0050 assigns
+# it here and it was in NO card's paths at all. TASK-018 also touches both compose files in
+# wave 0, for the CREATE ROLE blocks only; this card owns the `environment:` blocks. Same file,
+# different blocks, four waves apart — the app.module.ts pattern.
 contracts: [design/contracts/trusted-client-address.md, design/contracts/rate-limit.md]
 test_files: ["scripts/check-compose-stack.sh (compose tier, existing file — run, not edited here; TASK-017 extends it)"]
 acceptance: [AC-20]
@@ -71,6 +75,27 @@ is the shape of failure this TASK exists to prevent.
 
 `README.md` gains the commands and the variables an operator needs — `docs.required:
 [README]` in `config.yaml`, and every command listed in it must exit 0 when run.
+
+## Two more declarations, and a second compose file — added 2026-08-13, Design rounds 3 to 5
+
+**`BETTER_AUTH_SECRET` and `DATABASE_AUTH_URL`** exist because of round 3. Neither was in
+this card before the Design gate (F-032). `BETTER_AUTH_SECRET` is the F-020 blocker's
+binding — unset, better-auth falls back to a published constant that is the symmetric key
+for `jwks.privateKey`. `DATABASE_AUTH_URL` is the second pool's DSN and connects as
+**`shortkit_auth`**, never as `shortkit_app`.
+
+**Their compose declarations are NOT this card's — they moved to TASK-018, wave 0** by
+Juano's ruling on F-034. A boot assertion is only as early as the binding it asserts, and
+both are asserted from wave 2 while this card is wave 4; leaving them here made the required
+`compose` check unpassable for two waves. What stays here is `.env.example`, README, and
+every **other** `environment:` entry.
+
+**`apps/web/.env.example` gets neither variable** (F-036). It is a Vercel project
+environment and reads no database DSN and no auth secret; adding them there would be
+declaring a binding nothing reads, which is the opposite of what GC-B is for.
+
+**`docker-compose.test.yml` is now in this card's paths** and was in no card's at all. The
+`CREATE ROLE` blocks in both compose files are TASK-018's — this card creates no roles.
 
 ## Out of scope for this TASK
 

@@ -23,12 +23,19 @@
  * THE MESSAGE CARRIES A PREFIX, NOT THE USER ID. THIS IS NOT STYLE.
  * ============================================================================
  *
- * `serializers.err` reduces a logged error to `err_name` and `err_stack`, and
- * `Error.stack` begins with the message — so anything interpolated into the message
- * reaches the log line whatever `LOGGABLE_FIELDS` says (ADR-0028, GC-G). Whether a user
- * identifier joins that allowlist, and under what name, is a decision this initiative has
- * not made, and this error must not make it by accident. Eight characters and a length,
- * the same rule `InvalidTenantIdError` follows (F-132).
+ * NOT because `err_stack` leaks it — it does not, and believing so is F-027.
+ * `logger.ts:159` binds `serializers.err` with `includeMessage: false`, and
+ * `logger.ts:880-884` records that `err_stack` carries frames only: the
+ * `${name}: ${message}` header is stripped by prefix and then by shape. The logger was
+ * built to make exactly that premise untrue (F-090, F-093, F-108, F-111).
+ *
+ * The reasons that hold: `includeMessage: true` is opt-in at two sanctioned call sites and
+ * `DomainError` is one, so a message is one subclass change from being logged; and this
+ * error is thrown inside `definePayload`, on a mount outside the Nest graph, so the code
+ * that handles it belongs to the dependency (ADR-0052 binds its logger and drops its
+ * positional args). Whether a user identifier joins `LOGGABLE_FIELDS`, and under what name,
+ * is a decision this initiative has not made, and this error must not make it by accident.
+ * Eight characters and a length, the same rule `InvalidTenantIdError` follows (F-132).
  *
  * The full value is on `.userId` for the caller. NO EMAIL ADDRESS APPEARS HERE IN ANY
  * FORM: this is the one path that holds a user id and an email at the same time.

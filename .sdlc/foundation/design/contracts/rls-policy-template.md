@@ -4,11 +4,18 @@
 - **Normative form:** the SQL below, applied verbatim per table.
 - **Produced by:** TASK-005.
 - **Consumed by:** TASK-013, 016, 020, 023, 027, 033, 038, 045, 048, 054. Verified by TASK-006, TASK-053, TASK-056.
-- **The "Roles" section below has two transcriptions, and both are consumers.**
-  `docker-compose.test.yml` (TASK-005) and `docker-compose.yml` (TASK-059). Neither is
-  derived from the other and nothing enforces that they agree, so a change to that section
-  edits both files in the same commit. ADR-0031 records why they are duplicated rather than
-  shared, and which runtime assertions catch the drift that matters.
+- **The "Roles" section below has ~~two~~ three transcriptions, and all three are consumers.**
+  Amended 2026-08-13 (ADR-0050). `docker-compose.test.yml` (TASK-005), `docker-compose.yml`
+  (TASK-059) and `.github/scripts/provision-test-database.sql`, which was always a
+  transcription and was never listed. None is derived from another and nothing enforces that
+  they agree, so a change to that section edits all three in the same commit. ADR-0031 records
+  why they are duplicated rather than shared, and which runtime assertions catch the drift
+  that matters.
+
+  The provisioning SQL additionally hardcodes the role **set**, not just the names:
+  `WHERE rolname IN ('shortkit_app', 'shortkit_migrator')` at `:57`, and a `count(*) <> 2`
+  guard at `:66`. Adding a role means editing the guard, and a guard left at two passes while
+  describing a two-role model that no longer exists.
 - **ADRs:** ADR-0003, ADR-0004, ADR-0019.
 
 ## Roles
@@ -20,20 +27,43 @@ CREATE ROLE shortkit_migrator LOGIN PASSWORD :'migrator_password' NOBYPASSRLS;
 -- app: runtime. Owns nothing.
 CREATE ROLE shortkit_app LOGIN PASSWORD :'app_password' NOBYPASSRLS;
 
-GRANT USAGE ON SCHEMA public TO shortkit_app;
+-- auth: runtime, Better Auth only. Owns nothing. Added 2026-08-13 (ADR-0050).
+CREATE ROLE shortkit_auth LOGIN PASSWORD :'auth_password' NOBYPASSRLS;
+
+GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO shortkit_app;
 ```
 
+**`shortkit_auth` gets no default privilege.** The `ALTER DEFAULT PRIVILEGES` above grants
+`shortkit_app` DML on every table the migrator creates, forever, so the split cannot be
+expressed as a default privilege in either direction. Each auth table carries an explicit
+`REVOKE` from `shortkit_app` and an explicit `GRANT` to `shortkit_auth` in the migration that
+creates it. Forgetting either fails open; the grant-matrix check in `check-policies.mts` is
+what catches it. ADR-0050 carries the DDL and the reasoning.
+
 | Env var | Role | Used by |
 |---|---|---|
 | `DATABASE_URL` | `shortkit_app` | the API process, always |
+| `DATABASE_AUTH_URL` | `shortkit_auth` | the API process's second pool, reached only through `betterAuthDatabase()` (ADR-0050, ADR-0046) |
 | `DATABASE_MIGRATION_URL` | `shortkit_migrator` | `db:migrate`, `db:generate`, integration test setup |
 
-`shortkit_app` must never hold `BYPASSRLS`, `SUPERUSER`, `CREATEROLE` or table
-ownership. Boot asserts the first two.
+**`DATABASE_AUTH_URL` never falls back to `DATABASE_URL`.** Unset fails boot in every
+environment, with no `NODE_ENV` consulted. A fallback silently reinstates `shortkit_app` as
+the auth role and every gate stays green, which is the failure ADR-0050 exists to close.
+
+| Role | tenant-scoped tables | `user`, `session`, `account`, `verification`, `jwks` |
+|---|---|---|
+| `shortkit_app` | `SELECT, INSERT, UPDATE, DELETE`, bounded by RLS | **none** |
+| `shortkit_auth` | **none** | `SELECT, INSERT, UPDATE, DELETE` |
+| `shortkit_migrator` | owns everything, runs DDL, holds no `BYPASSRLS` | same |
+
+Neither `shortkit_app` nor `shortkit_auth` may hold `BYPASSRLS`, `SUPERUSER`, `CREATEROLE` or
+table ownership. Boot asserts all three properties for `shortkit_app` through
+`assertRuntimeRoleCannotBypassRls` and for `shortkit_auth` through `assertAuthRoleSeparation`,
+which also asserts the grant matrix above in both directions.
 
 ## Setting a context flag
 
@@ -96,7 +126,7 @@ CREATE POLICY <t>_tenant_isolation ON <t>
 
 CREATE POLICY <t>_privileged_erase ON <t>
   FOR DELETE
-  USING (tenant_id::text = current_setting('app.privileged_erase', true));
+  USING (tenant_id::text = nullif(current_setting('app.privileged_erase', true), ''));
 
 CREATE INDEX <t>_tenant_id_idx ON <t> (tenant_id);
 ```
@@ -128,12 +158,25 @@ not guarantee left-to-right evaluation of `AND` operands in a policy predicate. 
 `tenant_id` is preserved under `nullif` — verified, `Bitmap Index Scan on
 <t>_tenant_id_idx`.
 
-**No policy expression may apply a cast directly to `current_setting(...)`.**
-`pnpm db:check-policies` asserts this over `pg_policies.qual` and `with_check` for every
-table in schema `public`. The two renderings differ in the catalogue —
-`(current_setting('app.tenant_id'::text, true))::uuid` against
-`(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid` — which is what
-makes the check mechanical.
+**Widened 2026-08-13 (F-021, F-022). ~~No policy expression may apply a cast directly to
+`current_setting(...)`.~~ EVERY reference to a context flag in a policy expression is wrapped
+in `nullif(..., '')`, cast or not.** The cast is not what makes `''` dangerous; the comparison
+is. A raw text comparison against `''` matched a `"user"` row whose `id` is the empty string
+and returned another tenant's membership row — measured, F-021 — so the two text-comparison
+policies above take the wrapper too, even though `''` matched nothing in them.
+
+`pnpm db:check-policies` asserts it over `pg_policies.qual` and `with_check` for every table
+in schema `public`, **by requiring the safe form to be present rather than a blacklist to be
+absent** (F-022): count occurrences of `current_setting(` and of
+`NULLIF(current_setting('<flag>'::text, true), ''::text)`, and require the two counts to be
+equal. The earlier blacklist form passed `nullif(current_setting(...), 'x')::uuid` and
+`(current_setting(...) || '')::uuid`, both of which still raise.
+
+A syntactic check over a rendered expression is a proxy. It cannot see that the flag is
+compared against the right column, and it cannot see a flag reached by a wrapper function or
+a view. The behavioural control is the other half: on a connection that has committed one
+transaction-local `set_config` of each declared flag, a no-context `SELECT` on every table
+returns zero rows rather than raising.
 
 `<t>_privileged_erase` is `FOR DELETE` and stays `FOR DELETE`. It grants no read. The
 eraser's work list is collected by the caller in an ordinary tenant transaction; see
@@ -146,11 +189,26 @@ and **no ordinary `DELETE`**. Revised 2026-08-04 (F-005): a `FOR ALL` policy her
 any authenticated handler delete its own tenant row and cascade-destroy `click_events`
 and `audit_entries` while setting no context flag.
 
-**Migration `0000` is applied and carries the pre-`nullif` form of the three casting
-policies.** ADR-0004 is forward-only, so the repair is a `DROP POLICY` / `CREATE POLICY`
-pair per policy in migration `0001` (TASK-002), never an edit to `0000`. A reviewer seeing
+**Migration `0000` is applied and carries the pre-`nullif` form of ~~the three casting
+policies~~ all four policies on `tenants`.** Corrected 2026-08-13 (F-029): the count was
+three because `tenants_privileged_erase` never casts and never raised, but the control
+counts wrappers rather than casts, and the applied form of that policy
+(`((id)::text = current_setting('app.privileged_erase'::text, true))`) is rejected by it.
+Measured against the control on real `pg_policies.qual` renderings.
+
+ADR-0004 is forward-only, so the repair is a `DROP POLICY` / `CREATE POLICY` pair per policy
+in migration `0001` (TASK-002), **four pairs**, never an edit to `0000`. A reviewer seeing
 `DROP` in a generated migration is told by ADR-0004 to stop and ask for the ADR; it is
 ADR-0049.
+
+**The property `0001` establishes, and it is checkable in one query: no policy in schema
+`public` survives `0001` in a form the counting control rejects.** `pnpm db:check-policies`
+runs over every row of `pg_policies` in schema `public`, not over a list of repaired names, so
+a policy nobody thought of fails it rather than being skipped by it.
+
+`<t>_redirect_read` has no applied instance: `domains` and `links` do not exist yet, so the
+change is to `redirectReadPolicy()` in `apps/api/src/db/rls.ts` and `0001` carries no
+statement for it.
 
 ```sql
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
@@ -171,17 +229,17 @@ CREATE POLICY tenants_self_insert ON tenants
 
 -- The only DELETE path on tenants, anywhere in the system.
 CREATE POLICY tenants_privileged_erase ON tenants
-  FOR DELETE USING (id::text = current_setting('app.privileged_erase', true));
+  FOR DELETE USING (id::text = nullif(current_setting('app.privileged_erase', true), ''));
 ```
 
 ## Additional policy: `domains` and `links` only
 
 ```sql
 CREATE POLICY domains_redirect_read ON domains
-  FOR SELECT USING (current_setting('app.redirect_context', true) = 'on');
+  FOR SELECT USING (nullif(current_setting('app.redirect_context', true), '') = 'on');
 
 CREATE POLICY links_redirect_read ON links
-  FOR SELECT USING (current_setting('app.redirect_context', true) = 'on');
+  FOR SELECT USING (nullif(current_setting('app.redirect_context', true), '') = 'on');
 ```
 
 `FOR SELECT` only. Applied to these two tables only. Set only by `withRedirectRead`,
@@ -246,6 +304,14 @@ code reads `user` only through `userDirectory.findByIds()`, which joins
 6. **No ordinary tenant code path can delete a `tenants` row.** There is no `FOR
    DELETE` policy on `tenants` keyed on `app.tenant_id`, so an authenticated handler
    issuing `DELETE FROM tenants` affects zero rows.
+7. **`shortkit_app` holds no privilege of any kind on `user`, `session`, `account`,
+   `verification` or `jwks`, and `shortkit_auth` holds none on any table above.** Added
+   2026-08-13 (ADR-0050). This is a grant, not a policy: a statement crossing the boundary
+   fails with `permission denied for table <t>` rather than affecting zero rows. Column-level
+   grants count as privilege here, and the check that enforces it reads
+   `has_any_column_privilege` alongside `has_table_privilege` for exactly that reason.
+   The one path across the boundary is `ON DELETE CASCADE` from `"user"` into
+   `tenant_memberships`, which runs as a referential action and is covered by invariant 5.
 
 ## What the implementer must guarantee
 
@@ -253,6 +319,13 @@ code reads `user` only through `userDirectory.findByIds()`, which joins
   `pg_policies` and `pg_class`, that each table from `tenantScopedTables()` has
   `relrowsecurity`, `relforcerowsecurity`, and exactly the policies the approved set
   permits for it. CI's `integration` job runs it.
+- **The same script asserts the grant matrix**, added 2026-08-13 (ADR-0050): for every table
+  in schema `public`, a table is exempt if and only if `shortkit_auth` reaches it and
+  `shortkit_app` does not, and every other table is the reverse. Note that a comma-separated
+  privilege list in `has_table_privilege` is ANY-of rather than ALL-of, so the two negative
+  directions are the ones carrying the security property; and that `has_any_column_privilege`
+  rejects `DELETE` as an unrecognised privilege type, because `DELETE` is not
+  column-grantable. Both measured.
 - Drizzle Kit does not generate policy DDL. The producing TASK appends these statements
   to the generated migration by hand, in the same commit.
 - **Never write `SET` or `SET LOCAL` for a context flag. Always `set_config(name, $n,

@@ -114,6 +114,43 @@ BFF_TRUST_BOUNDARY    = bff   | direct      # unset is read as direct
   requires `BFF_PROXY_SECRET` set and non-empty. `direct` and unset require nothing.
 - The call sites in `main.ts` are **unconditional; the gating lives inside the functions.**
 
+## The auth-role separation assertion — added 2026-08-13, Design rounds 3 and 4
+
+**`boot-assertions.ts` is created by TASK-003 in wave 2, not here.** Juano moved the secret
+assertion there at the Design gate (F-033) so it lands with the config it guards. This TASK
+**adds to** that file rather than creating it, and the secret assertion has left this card.
+
+**`assertAuthRoleSeparation()`** proves the negative that ADR-0050's role split rests on. Get
+its shape right, because round 4 measured three ways the obvious version fails (F-031):
+
+- Assert the **whole privilege set**, not `SELECT`. The attack this closes is an `INSERT`.
+  A check that reads `SELECT` only passes green while `shortkit_app` inserts a forged session
+  row for another tenant's user — measured, `INSERT 0 1`, both directions green. That is
+  ADR-0044's original error reproduced inside the ADR written to correct it.
+- Assert over the **whole exempt list** in both directions — all five as `shortkit_app`,
+  and the tenant-scoped tables as `shortkit_auth`. `account` (password hashes) and `jwks`
+  (the signing key) were unchecked in the first draft.
+- `has_table_privilege` alone **misses a column-level grant**: `GRANT SELECT (email) ON
+  "user"` leaves the table-level call `false` while `SELECT email` returns the row. OR in
+  `has_any_column_privilege`, whose list is **three** — it raises `unrecognized privilege
+  type` on `DELETE`.
+- The comma list is **ANY-of**, so the negated form is the one that holds.
+- **One catalogue query per direction**, reading `pg_class`, not one call per table name:
+  `has_table_privilege` on an absent table raises `42P01`, and a missing table means
+  "migrations have not run", which is a different verdict from "privileges are wrong".
+- Also assert `shortkit_auth`'s three role attributes — `NOBYPASSRLS`, not superuser, owns
+  nothing.
+
+**`main.ts` gains `AUTH_VERDICT_PREFIX = 'DATABASE_AUTH_URL connect'`** and a third
+`BootPrecondition`, `'auth_role_separation'`, with the reachability half retried on the
+existing budget. The prefixes were checked not to collide: `'DATABASE_AUTH_URL connects as
+x'.startsWith('DATABASE_URL connect')` is `false`.
+
+**Explicitly NOT this TASK:** parameterising `assertRuntimeRoleCannotBypassRls` or touching
+`RLS_VERDICT_PREFIX`. Round 4 ruled that function stays parameterless and `DATABASE_URL`-only
+(F-030); the auth role's posture is asserted by `assertAuthRoleSeparation`, which already
+holds an auth-pool connection.
+
 ## Out of scope for this TASK
 
 The Better Auth instance and its plugins (TASK-003 — this TASK imports `auth` and does not
@@ -157,8 +194,10 @@ From `apps/api/src/observability/logger.ts` (shipped): `logger`,
 - `apps/api/src/common/net/trusted-client-address.ts` exporting
   `readTrustedClientAddress(headers: IncomingHttpHeaders, env: NodeJS.ProcessEnv): string | null`
   — never throws; never reads `X-Forwarded-For` or `Forwarded` in any position
-- `apps/api/src/auth/boot-assertions.ts` exporting
-  `assertTrustedClientIpHeaderConfigured(env: NodeJS.ProcessEnv): void` and
-  `assertBffProxySecretConfigured(env: NodeJS.ProcessEnv): void` — both throw on refusal, and
-  neither reads `NODE_ENV`
+- `apps/api/src/auth/boot-assertions.ts` — **added to, not created here** (TASK-003 creates
+  it in wave 2) — gaining
+  `assertTrustedClientIpHeaderConfigured(env: NodeJS.ProcessEnv): void`,
+  `assertBffProxySecretConfigured(env: NodeJS.ProcessEnv): void` and
+  `assertAuthRoleSeparation(): Promise<void>` — all throw on refusal, and none reads
+  `NODE_ENV`. `assertBetterAuthSecretConfigured` is **not** here; it is TASK-003's.
 - `apps/api/src/main.ts` — the ADR-0013 mount, `bodyParser: false`, both assertions called

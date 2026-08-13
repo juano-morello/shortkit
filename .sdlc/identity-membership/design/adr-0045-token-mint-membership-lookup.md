@@ -88,7 +88,7 @@ export function membershipLookupPolicy(): PolicySet {
     statements: [
       `CREATE POLICY tenant_memberships_membership_lookup ON tenant_memberships\n` +
         `  FOR SELECT\n` +
-        `  USING (user_id = current_setting('app.membership_lookup_user', true));`,
+        `  USING (user_id = nullif(current_setting('app.membership_lookup_user', true), ''));`,
     ],
   };
 }
@@ -98,10 +98,28 @@ The table name is a literal rather than a parameter. This policy applies to one 
 design and a parameter would invite a second.
 
 **`user_id` is `text` and `current_setting` returns `text`, so this policy never casts and
-was never affected by F-003.** With the flag unset it reads NULL and with it reset it reads
+was never affected by F-003.** ~~With the flag unset it reads NULL and with it reset it reads
 `''`; `user_id = NULL` is NULL and `user_id = ''` matches no row, because `user_id` is a
 foreign key into `"user"(id)` and no such row exists. The policy admits nothing in either
-state, and an ordinary tenant transaction is unaffected because PostgreSQL ORs permissive
+state~~
+
+**Corrected 2026-08-13 (F-021). "No such row exists" is a data property asserted as if it
+were a constraint, and it was wrong to rest on it.** `user.id` is `text PRIMARY KEY` with no
+`CHECK` and no non-empty constraint. With one `"user"` row whose `id` is `''` and a
+membership referencing it, measured on a warm backend as `shortkit_app`: a no-flag read
+returned that row, and **tenant A's ordinary transaction returned tenant B's full membership
+row** — `tenant_id`, `user_id` and `role` — through the permissive OR. That falsifies
+`rls-policy-template.md` invariant 1, which this wave amended one round earlier.
+
+Latent, not live: `parseUserInput` drops `id` on the sign-up route, so nothing creates the row
+today. It is one `INSERT`, one custom `advanced.database.generateId`, or one item-1b
+invitation path away, and no constraint stands between here and there.
+
+The repair is the `nullif` above, per ADR-0049's widened rule. Verified: with the `''` row
+present, the warm no-flag read returns zero rows, tenant A sees only its own row, the warm
+mint still resolves, and the plan still uses `tenant_memberships_user_unique`.
+
+An ordinary tenant transaction is unaffected either way, because PostgreSQL ORs permissive
 policies.
 
 ~~The isolation policy beside it is what raised.~~ The isolation policy beside it **did**
@@ -167,10 +185,35 @@ database reach.
 **`NoTenantMembershipError.message` carries an eight-character prefix of the user id and its
 length, never the whole id.** The full value is on a readable `userId` property for the
 mint path. This is F-132's rule and it is load-bearing here for a different reason:
-`serializers.err` reduces a logged error to `err_name` and `err_stack`, and `Error.stack`
+~~`serializers.err` reduces a logged error to `err_name` and `err_stack`, and `Error.stack`
 begins with the message, so anything interpolated into the message reaches the log line
-whatever `LOGGABLE_FIELDS` says. Whether a user identifier joins that allowlist is a
-separate decision this initiative has not made.
+whatever `LOGGABLE_FIELDS` says.~~
+
+**Corrected 2026-08-13 (F-027). The rule is right and this reason for it was false against
+shipped code.** `logger.ts:159` binds `serializers.err` with `includeMessage: false`, and
+`errorLogFields` emits `err_message` only when that is true; `logger.ts:880-884` records as a
+measured result that `err_stack` carries frames only, because the `${name}: ${message}` header
+is stripped by prefix and then by shape. F-090, F-093, F-108 and F-111 are the findings that
+made it so. **A message does not reach a log line through `err`, and did not before this wave
+either.**
+
+Keep the truncation, on the grounds that are true:
+
+- **`includeMessage: true` is opt-in at two sanctioned call sites**, and `DomainError` is one
+  of them. A message is one subclass change from being logged, and the change would not look
+  like a logging change.
+- **The full value is on `.userId` and nothing needs it in the message.** `LOGGABLE_FIELDS`
+  has no `userId` entry, so an object carrying it renders `[redacted]`, and `serializers.err`
+  builds a fixed field set rather than copying the error's own properties (F-244). Truncating
+  the message costs a caller nothing.
+- **This error is thrown inside `definePayload`, on the Better Auth mount, outside the Nest
+  graph** — so `ApiExceptionFilter` never sees it and the code that does is the dependency's.
+  ADR-0052 binds that logger and drops its positional `args`, which closes the channel the
+  auditor identified; it closes it by a decision made in the same round, not by a property
+  that predates this one.
+
+Whether a user identifier joins `LOGGABLE_FIELDS` is a separate decision this initiative has
+not made.
 
 ### The exclusion
 
@@ -193,7 +236,85 @@ was built to prevent.
 
 ### What keeps it narrow
 
-Four controls, three of which already exist:
+~~Four controls, three of which already exist:~~
+
+**Corrected 2026-08-13 (F-025). None of the four executes today, and "three of which already
+exist" was the sentence a gate reviewer weighs.** Checked against the shipped test tier:
+`CONTEXT_FLAG_OWNERS` is exported at `coverage.ts:1718` and **has no consumer anywhere in
+`apps/api`**; no test reads a source file for a flag string; and controls 3 and 4 are
+TASK-056's, which is deferred. The only mechanism that runs is
+`expect(ISOLATION_EXCLUSIONS).toHaveLength(2)`, which counts *declared* exclusions and cannot
+detect an undeclared one.
+
+**Wave 1 therefore ships one executing control**, and it is the cheapest honest one: ~~a unit
+test that greps `apps/api/src/**/*.ts` (excluding `*.spec.ts`) for `set_config(` first
+arguments and asserts the result equals `CONTEXT_FLAG_OWNERS`.~~ That is clause A1 as a live
+test rather than a declaration, it gives `CONTEXT_FLAG_OWNERS` its first consumer, and it
+needs nothing from TASK-056.
+
+**Corrected 2026-08-13 (F-039). Equality is red on the day it lands. Wave 1 asserts the
+subset direction.** Two of the three rows already in `CONTEXT_FLAG_OWNERS`
+(`coverage.ts:1718-1722`) name files that do not exist:
+`apps/api/src/redirect/db/redirect-read.ts` belongs to TASK-029 and
+`apps/api/src/gdpr/privileged-eraser.ts` to TASK-054, both deferred out of this initiative.
+`isolation-coverage.md:540-542` records the same thing in as many words: A1 is not runnable
+earlier. An equality assertion in wave 1 fails on first run, and the cheap way to get the
+build green is to delete the control or weaken it to nothing, which re-opens F-025.
+
+The wave 1 control is therefore:
+
+> Grep `apps/api/src/**/*.ts`, excluding `*.spec.ts`, for `set_config(` calls whose first
+> argument is a string literal beginning `app.`. Every `{ flag, file }` pair found must
+> appear in `CONTEXT_FLAG_OWNERS`. Rows in `CONTEXT_FLAG_OWNERS` with no occurrence in the
+> scan set are not a failure.
+
+Two details the equality wording got wrong and this one has to state. The scan set also
+contains `statement_timeout` and `idle_in_transaction_session_timeout`
+(`tenant-context.ts:217-219`), which are PostgreSQL's own GUCs and are not registry rows, so
+the first argument is filtered on the `app.` prefix rather than taken whole. And the match is
+on the pair, not the flag alone: a second file setting `app.tenant_id` is exactly the escape
+clause A1 exists to catch, and a flag-only subset would pass it.
+
+The subset direction carries the security claim on its own. What it catches is a new,
+unregistered flag setter appearing in `apps/api/src`, which is the only way an escape enters
+without a reviewer seeing the registry change. What it does not catch is a registry row that
+has gone stale, and a stale row grants nothing.
+
+**The equality direction is deferred, and TASK-054 re-enables it.** Equality becomes green
+only once both deferred setters exist, so it belongs to whichever of TASK-029 and TASK-054
+lands second; on the foundation plan's ordering that is TASK-054. That card flips the
+assertion to equality and deletes the "rows with no occurrence are not a failure" clause.
+Until then the control is half-armed by design rather than by accident. **Without it, this ADR's narrowness argument rests on four
+declarations and nothing else** — the pattern foundation's retro named as decisions whose
+validity conditions nothing enforces.
+
+**Where that control lives. Added 2026-08-13 (F-032).** Round 3 decided the control and gave
+it no file, so no card owned it and nobody would have written it. That is F-025 again, inside
+the fix for F-025.
+
+**`apps/api/src/db/context-flag-owners.spec.ts`, owned by TASK-002, wave 1.** Four constraints
+pin that path:
+
+- It is a unit test, and `vitest.config.ts` includes `src/**/*.spec.ts` and nothing else.
+  A file under `apps/api/test/` never runs under `pnpm test`, which is the command the
+  `quality` job runs.
+- `src/db/rls.ts` renders every policy that reads these flags, so `src/db/` is where the
+  registry belongs. `src/db/client.spec.ts` and `src/db/client-logging.spec.ts` are the
+  sibling-spec precedent for a cross-cutting assertion filed there.
+- TASK-002 already owns `src/db/rls.ts`, `src/db/client.ts`, `test/isolation/coverage.ts` and
+  `src/auth/membership-lookup.ts`, so the control, the flag it adds and the list it asserts
+  against all land in one commit. TASK-002's `paths` name files rather than globs, so this
+  path is an added entry rather than one already covered.
+- It imports `CONTEXT_FLAG_OWNERS` from `../../test/isolation/coverage`.
+  `apps/api/src/observability/framework-400-request-body.spec.ts:12` is the precedent for a
+  `src` spec importing from `test/`, and `apps/api/tsconfig.json` includes both trees.
+
+The scan set excludes `*.spec.ts`, which is also what keeps this file's own literal
+`set_config(` occurrences out of its own result. The fourth row it asserts against is
+`{ flag: 'app.membership_lookup_user', file: 'apps/api/src/auth/membership-lookup.ts' }`,
+added to `CONTEXT_FLAG_OWNERS` at `coverage.ts:1718-1722` by the same card.
+
+The four controls, with what actually runs marked:
 
 1. **Clause A1** — `app.membership_lookup_user` is set in exactly one file in the scan set,
    `apps/api/src/auth/membership-lookup.ts`. It is the **fourth** flag, not the third:
@@ -262,9 +383,22 @@ Four controls, three of which already exist:
   does. The guarantee is that the import is a reviewed diff, and TASK-056 is what turns it
   into an assertion — until then it is a rule.
 - The escape returns a tenant uuid for any user id the caller supplies. In the mint path the
-  user id is the authenticated subject, so this is not a leak; if the file-level control
-  ever fails, the leak is a routing identifier rather than tenant data. Stated so it is not
-  discovered later.
+  user id is the authenticated subject, so this is not a leak. ~~if the file-level control
+  ever fails, the leak is a routing identifier rather than tenant data.~~
+
+  **Corrected 2026-08-13 (F-025). That sentence is true in one direction only and understates
+  the failure.** Measured: in a transaction where **both** `app.tenant_id` (tenant A) and
+  `app.membership_lookup_user` (tenant B's user) are set, a whole-table read returned two rows
+  — A's own and tenant B's complete membership row, `tenant_id`, `user_id` and `role`.
+  PostgreSQL ORs permissive policies. So a second setter of the lookup flag anywhere on a
+  request path is **a cross-tenant read of tenant data**, not of a routing identifier. That is
+  what the file-level control is holding back, and it is a larger thing than this ADR said.
+
+  Two adjacent claims were re-measured and both hold: `FOR SELECT` does **not** widen `UPDATE`
+  or `DELETE` — both returned zero rows under the same two flags, because PostgreSQL requires
+  the `ALL`/`UPDATE` `USING` policy independently of `SELECT` visibility — and
+  `SET TRANSACTION READ ONLY` does block a write to the RLS-exempt auth tables
+  (`cannot execute UPDATE in a read-only transaction`).
 - `withMembershipLookup` takes a pooled connection for the duration of a token mint, so
   token minting now competes with request handling for the ten connections `POOL_MAX`
   allows. A 5-minute token lifetime means roughly twelve mints an hour per active session

@@ -62,6 +62,22 @@ under ADR-0037, which is accepted and correct.
 `403 MISSING_OR_NULL_ORIGIN`.** A browser always sends one; `curl` does not. Clause 1 will
 fail with a 403 that looks like an auth defect unless the request carries one.
 
+**The stack that comes up is a THREE-role stack — added 2026-08-13, Design rounds 4 and 5.**
+ADR-0050 splits `shortkit_auth` out of `shortkit_app`, so this script's model of what a
+healthy stack looks like has to widen with it: assert three roles come up, not two. A script
+asserting two would go green against a stack missing the auth role entirely, and the failure
+it would miss is the one where `api` boots, sign-in works because the `REVOKE` never landed,
+and the whole split is silently absent. This was in no card before the Design gate (F-032).
+
+**Its contaminant guard is hardcoded to three variables and needs the fourth** (F-037).
+`scripts/check-compose-stack.sh:180` loops over `POSTGRES_USER
+SHORTKIT_MIGRATOR_PASSWORD SHORTKIT_APP_PASSWORD` and refuses when any is exported in the
+calling shell. The new role brings a fourth password variable, and left out of that list it
+is the one exported value that can silently repair a missing `$$` escape — which is the
+whole defect F-315 and F-316 put the guard there to catch. This is availability rather than
+exposure: an empty-password role is not loginable externally, measured. It is still the same
+class of hole the guard exists to close, one variable wide.
+
 **The residual, stated rather than closed: this is not a browser.** No tier in this
 repository drives one — `config.yaml` names unit, integration and compose, and none of them
 opens a page. These clauses measure the transport a browser uses. Whether to add a browser
@@ -70,8 +86,10 @@ evidence available for SC-2.
 
 ## Out of scope for this TASK
 
-The compose file and the environment declarations (TASK-009 — this TASK reads that stack and
-does not edit it). Any application code. Any `.github/workflows/ci.yml` change, including
+The compose files and every environment declaration (**TASK-018** in wave 0 for the roles,
+`BETTER_AUTH_SECRET`, `DATABASE_AUTH_URL` and the new role's password; **TASK-009** in wave 4
+for the rest — corrected 2026-08-13, F-041, which found this card crediting TASK-009 with
+declarations F-034 had already moved). This TASK reads that stack and edits none of it. Any application code. Any `.github/workflows/ci.yml` change, including
 adding a job. Weakening any existing clause. Asserting the `commit` field. Adding a browser
 driver or a new test tier.
 
@@ -79,9 +97,11 @@ driver or a new test tier.
 
 **Consumes**
 
-From TASK-009: `docker-compose.yml` with the `api` service's auth environment declared, the
-`web` service's API base URL, and **neither trust boundary declared**; `apps/api/.env.example`
-and `apps/web/.env.example`.
+From TASK-018 (wave 0): `docker-compose.yml` carrying three roles, and the `api` service's
+`BETTER_AUTH_SECRET` and `DATABASE_AUTH_URL`.
+
+From TASK-009 (wave 4): the `web` service's API base URL, **neither trust boundary declared**,
+`apps/api/.env.example` and `apps/web/.env.example`.
 
 From TASK-013 (over HTTP): the workspace list screen and its create control, at the routes
 that TASK owns.

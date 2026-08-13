@@ -32,10 +32,13 @@ been run. It is not a guarantee about lint: `eslint.config.mjs` was not run agai
 
 ## What is deliberately not here
 
-`betterAuthDatabase()` and the fifth sanctioned-caller entry are edits to
-`apps/api/src/db/client.ts`, a shipped file. A stub mirroring a shipped file reads as a
-replacement for it, and ADR-0039 retired the last two stubs in that position. The normative
-signature is in ADR-0046 and in the amended `tenant-context.md`.
+`betterAuthDatabase()`, **the auth pool it is built on** and the fifth sanctioned-caller entry
+are edits to `apps/api/src/db/client.ts`, a shipped file. A stub mirroring a shipped file
+reads as a replacement for it, and ADR-0039 retired the last two stubs in that position. The
+normative signature is in ADR-0046 and in the amended `tenant-context.md`; **the pool it runs
+on is in ADR-0050, and ADR-0046 is superseded in part on that point (F-028)**. Reading
+ADR-0046 alone produces one pool on `DATABASE_URL`, which cannot read `user` after migration
+`0001`.
 
 The same applies to `membershipLookupPolicy()` in `apps/api/src/db/rls.ts`: the normative
 form is the SQL in `design/contracts/tenant-membership-lookup.md`.

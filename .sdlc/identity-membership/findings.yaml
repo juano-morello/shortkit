@@ -394,9 +394,10 @@
     NODE_ENV, per GC-B's pattern. The alternative of passing `secret` in the config still needs
     a source for the value.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    ADR-0051: BETTER_AUTH_SECRET becomes a declared binding, asserted at boot without consulting NODE_ENV, rejected by exact value against the library default and by length, and passed explicitly as options.secret so the library env lookup and its isTest()/isProduction validation leave the path. TASK-004 owns the assertion, TASK-003 the config and its spec. Confirmed create-context.mjs:38-45 and :66-80 independently.
+  resolved_round: 3
 
 - id: F-021
   phase: design
@@ -422,9 +423,10 @@
     verified it closes the hole and preserves the index.
   required_change: membershipLookupPolicy() wraps its flag in nullif(..., '') like every other flag.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    ADR-0049 widened from 'never cast' to 'never compare raw': every context flag in every policy is wrapped in nullif(..., ''), including the two text comparisons that were safe by luck. membershipLookupPolicy() repaired in ADR-0045, tenant-membership-lookup.md and rls-policy-template.md. Reproduced the ghost-row cross-tenant read and verified the repair closes it with the index intact.
+  resolved_round: 3
 
 - id: F-022
   phase: design
@@ -446,9 +448,10 @@
     nothing, recorded in foundation's retro.
   required_change: The control matches the safe form rather than rejecting a blacklist of unsafe ones.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    ADR-0049's control replaced: it now requires the safe form to be PRESENT (count current_setting( occurrences against count of NULLIF(current_setting('flag'::text, true), ''::text) and require equality) rather than a blacklist to be absent. Verified against real pg_policies.qual for nine variants: it rejects every form that raises and accepts only the repaired one. A behavioural control is specified beside it, and the ADR now records what a syntactic proxy cannot see.
+  resolved_round: 3
 
 - id: F-023
   phase: design
@@ -474,9 +477,10 @@
     it is disabled and why. ADR-0041's precedent - any other logger is gated at the dependency
     list - is the nearest existing rule.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    ADR-0052: TASK-003 states logger on the composed config with a log hook forwarding into the shared pino instance, level 'error', disableColors true, and args deliberately dropped; auth.config.spec.ts asserts it. The origin-check.mjs:110 residual is recorded as accepted and not closed - binding relocates caller-controlled bytes into msg, which the repository already treats as uncensored, and F-108 is why truncation was not chosen.
+  resolved_round: 3
 
 - id: F-024
   phase: design
@@ -506,9 +510,10 @@
     re-decided against the corrected cost rather than the original one. Juano's, because the
     split reopens ADR-0031 and touches six provisioning artifacts across three waves.
   owner_slot: sdlc-architect
-  status: escalated
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    Juano reversed ADR-0044's refusal at the round-3 gate. ADR-0044's Negative bullet and trigger list struck through in place with the measured write results; ADR-0050 designs the shortkit_auth role split, the per-table REVOKE/GRANT in migration 0001, the grant-matrix control in check-policies.mts, the second pool and DATABASE_AUTH_URL under GC-B, and assertAuthRoleSeparation in both directions. Takeover re-measured and then re-measured closed: permission denied for table account. Three plan-artifact gaps reported, not made.
+  resolved_round: 3
 
 - id: F-025
   phase: design
@@ -530,9 +535,10 @@
     retro as decisions whose validity conditions nothing enforces.
   required_change: Either a consumer that executes CONTEXT_FLAG_OWNERS, or the ADR stops citing it as a control.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    ADR-0045 corrected: none of the four controls executes today and the ADR now says so, naming the ISOLATION_EXCLUSIONS length assertion as the only live mechanism. Wave 1 now ships one executing control - a unit test grepping set_config( first arguments across apps/api/src and asserting equality with CONTEXT_FLAG_OWNERS, which gives that constant its first consumer and needs nothing from TASK-056. The 'routing identifier rather than tenant data' sentence is corrected with the measured two-flag result: a second setter is a cross-tenant read of tenant data.
+  resolved_round: 3
 
 - id: F-026
   phase: design
@@ -548,9 +554,10 @@
   failure_scenario: Documentation gap; a NOTE rather than a round. Detail in the audit report.
   required_change: The Reach column matches the policy as written.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    tenant-context.md's Deliberate exclusions table gains a note that the Reach column describes what the policy grants and not what the handle reaches, that every escape handle additionally reaches the five RLS-exempt tables with no predicate, that SET TRANSACTION READ ONLY rather than policy is what bounds two of the three, and that privilegedTenantEraser is the one with no such bound.
+  resolved_round: 3
 
 - id: F-027
   phase: design
@@ -573,6 +580,563 @@
     as noise.
   required_change: The justification cites what logger.ts actually does, or the truncation is re-argued.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    The err_stack justification is replaced in all four artifacts with reasons that are true against logger.ts:159 and :880-884. The truncation is kept on three grounds: includeMessage true is opt-in at two sanctioned call sites with DomainError among them, .userId carries the full value and has no LOGGABLE_FIELDS entry, and the error is thrown on a mount outside the Nest graph.
+  resolved_round: 3
+
+# ---- Round 3 scoped re-review, 2026-08-13. F-020..F-027 all verdicted ADDRESSED, five of the
+# eight by RE-EXECUTION rather than re-reading. These six are NEW, raised against the round-3
+# revisions themselves. Round 3 was already an over-cap round authorised by Juano, so these
+# survivors go to adjudication rather than to a round 4 taken on my own judgement.
+
+- id: F-028
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: contract
+  file: .sdlc/identity-membership/design/adr-0050-better-auth-tables-get-their-own-database-role.md
+  line: 94
+  summary: >-
+    ADR-0050 DECIDES THE SECOND POOL THAT ADR-0046 EXPLICITLY REJECTED, AND ADR-0046 IS NEITHER
+    AMENDED NOR ANNOTATED - still status: accepted, still normative for betterAuthDatabase().
+    Third instance in three rounds of this initiative contradicting itself inside one commit;
+    F-021 and F-022 were the first two.
+  failure_scenario: >-
+    ADR-0046:57-60 and :114 say one pool, and its Alternatives table rejects a second pool on
+    verbatim the cost ADR-0050 now accepts. An implementer following ADR-0046 builds one pool on
+    DATABASE_URL, which connects as shortkit_app - the role migration 0001 revokes on all five
+    auth tables - so Better Auth cannot read `user` and nobody can sign in. TWO WAYS OUT: add the
+    second pool, or DROP THE REVOKE. The second is a one-line edit to a migration nobody re-reads
+    and it silently restores the account-takeover path F-024 measured and Juano reversed a
+    decision to close. The CI grant-matrix check catches it only in the integration job.
+  required_change: >-
+    ADR-0050 names ADR-0046 in supersedes_in_part; ADR-0046 gains superseded_in_part_by: ADR-0050
+    and a correction block over the four now-false sentences - the treatment ADR-0044 received
+    this same round.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    ADR-0046 gains superseded_in_part_by: ADR-0050 and a correction block over the four false
+    sentences, naming the trap explicitly - if sign-in is failing the answer is ADR-0050's auth
+    pool, do not touch the REVOKE. :57-60 struck in place, the Alternatives second-pool row marked
+    TAKEN with its Cons column left intact, the one-pool Positive struck. ADR-0050's front matter
+    now reads supersedes_in_part: ADR-0044, ADR-0046. Pointers repaired in stubs/README.md:35 and
+    contracts/auth-schema.md:129-134. VERIFIED ON DISK by the orchestrator: both front-matter keys
+    present.
+  resolved_round: 4
+
+- id: F-029
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: contract
+  file: .sdlc/identity-membership/design/adr-0049-context-flags-are-never-cast-directly.md
+  line: 139
+  summary: >-
+    ADR-0049's WIDENED DECISION SAYS ALL FOUR FLAGS TAKE THE WRAPPER; ITS OWN MIGRATION AND
+    rls.ts SECTIONS, FIFTY LINES LOWER AND NOT UPDATED, STILL SAY tenants_privileged_erase "is
+    untouched" AND "redirectReadPolicy is untouched". The new counting control rejects both
+    untouched forms, so the ADR specifies DDL ITS OWN CONTROL FAILS.
+  failure_scenario: >-
+    Measured against real pg_policies.qual renderings using the control exactly as ADR-0049
+    specifies it: both untouched forms REJECT. apps/api/drizzle/0000_odd_betty_ross.sql:33-34
+    already ships tenants_privileged_erase in the raw form and ADR-0004 is forward-only, so only
+    a migration 0001 statement can change it - and ADR-0049 says not to write one. rls.ts:76
+    emits the same raw form for every tenant-scoped table, so tenant_memberships is a SECOND
+    instance created in wave 1. Consequence: pnpm db:check-policies GOES RED IN WAVE 1 on a
+    database built exactly as ADR-0049 instructs, and the pressure at that point is on the
+    control rather than the DDL - which is the failure mode ADR-0049 exists to record.
+    VERIFIED INDEPENDENTLY by the orchestrator at 0000_odd_betty_ross.sql:33-34.
+  required_change: >-
+    Strike the two "is untouched" paragraphs and the tenantScopedPolicies() snippet's omission of
+    <t>_privileged_erase; extend migration 0001's statement list to drop and recreate
+    tenants_privileged_erase alongside the three casting policies. The checkable property: no
+    policy in schema public survives 0001 in a form the counting control rejects.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    Both `is untouched` paragraphs struck in place; the tenantScopedPolicies() snippet now shows
+    <t>_privileged_erase with rls.ts:74-76 named as the raw site; migration 0001 is FOUR
+    DROP/CREATE pairs. redirectReadPolicy corrected precisely - no applied instance, so the change
+    is to rls.ts:89-100 and 0001 carries no statement for it. Re-measured with the control as
+    specified: shipped raw form REJECT, recreated NULLIF form ACCEPT. A Negative bullet records the
+    cost of dropping the only DELETE policy on tenants for a rule rather than a bug. Same
+    corrections in rls-policy-template.md.
+  resolved_round: 4
+
+- id: F-030
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: documentation
+  file: .sdlc/identity-membership/design/adr-0050-better-auth-tables-get-their-own-database-role.md
+  line: 50
+  summary: >-
+    "assertRuntimeRoleCannotBypassRls is unchanged and now runs for both runtime roles" IS FALSE.
+    It is parameterless and reaches the database only through databaseTransaction, the
+    application pool. VERIFIED INDEPENDENTLY by the orchestrator at rls.ts:137.
+  failure_scenario: >-
+    A second call parameterised on DATABASE_AUTH_URL either reuses the "DATABASE_URL connects as"
+    verdict wording, making the log line wrong about which DSN failed, or uses different wording,
+    which main.ts:47's RLS_VERDICT_PREFIX match treats as unreachable - a twenty-second retry
+    budget then a less precise refusal. Exposure is small and it is filed minor for that reason:
+    BYPASSRLS on shortkit_auth buys nothing without table privileges. WHAT IS WRONG IS THE CLAIM.
+    F-025's shape - an ADR resting on a control that does not execute - filed by the same auditor
+    one round earlier, inside an ADR written to answer it.
+  required_change: >-
+    Say what is true, or give the function a DSN parameter with the verdict wording generalised
+    and main.ts's prefix updated.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    Claim struck and replaced with what is true. RULED: assertRuntimeRoleCannotBypassRls stays
+    parameterless and DATABASE_URL-only; the auth role's posture is asserted by
+    assertAuthRoleSeparation, which already holds an auth-pool connection. main.ts gains
+    AUTH_VERDICT_PREFIX = 'DATABASE_AUTH_URL connect' and a third BootPrecondition;
+    RLS_VERDICT_PREFIX untouched, and the prefixes were checked not to collide.
+  resolved_round: 4
+
+- id: F-031
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: security
+  file: .sdlc/identity-membership/design/adr-0050-better-auth-tables-get-their-own-database-role.md
+  line: 128
+  summary: >-
+    assertAuthRoleSeparation - THE ONE CONTROL THAT RUNS IN A DEPLOYED PROCESS - CHECKS SELECT ON
+    ONE TABLE PER DIRECTION. THE ATTACK ADR-0050 EXISTS TO CLOSE IS AN INSERT, AND `account` AND
+    `jwks` ARE NOT CHECKED AT ALL.
+  failure_scenario: >-
+    Constructed and measured: REVOKE ALL on the five, then GRANT INSERT ON "session" TO
+    shortkit_app - a hand-written revoke that reasoned about the read half, which is PRECISELY THE
+    ERROR ADR-0044 MADE AND F-024 CORRECTED. Both boot directions pass green, and from an ordinary
+    withTenantTransaction for tenant A: INSERT INTO "session" ... -> INSERT 0 1. A working session
+    credential of the attacker's choosing for another tenant's user, with the boot assertion green.
+    Same shape for a REVOKE omitting `account` (password hashes) or `jwks` (the JWT signing key).
+    The CI grant-matrix check does catch the state - in the integration job, while the boot
+    assertion is what runs in the process that serves traffic.
+  required_change: >-
+    Assert the whole privilege set over the whole exempt list in both directions: NOT
+    has_table_privilege(current_user, t, 'SELECT,INSERT,UPDATE,DELETE') for each of the five as
+    shortkit_app, and the same against the tenant-scoped tables as shortkit_auth. The comma list
+    is ANY-of (measured), so the negated form is the one that holds.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    The SELECT-on-one-table form struck with its reproduction included, replaced by the full
+    privilege set over the whole exempt list in both directions. THREE MEASURED FACTS CHANGED THE
+    SHAPE beyond the required_change: the comma list is ANY-of; has_table_privilege MISSES A
+    COLUMN-LEVEL GRANT (GRANT SELECT (email) ON "user" leaves the table-level call false while
+    SELECT email returns the row), so has_any_column_privilege is OR'd in; and that function
+    REJECTS DELETE with unrecognized privilege type, so its list is three. Both directions read
+    pg_class in one query because has_table_privilege on an absent table raises 42P01, with a
+    separate migrations-have-not-run verdict. Same strengthening in the CI grant-matrix SQL and
+    rls-policy-template.md invariant 7.
+  resolved_round: 4
+
+- id: F-032
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: process
+  file: .sdlc/identity-membership/tasks/TASK-002.md
+  line: 9
+  summary: >-
+    NOT ONE OF THE SEVENTEEN TASK CARDS MENTIONS BETTER_AUTH_SECRET, shortkit_auth,
+    DATABASE_AUTH_URL, assertAuthRoleSeparation, CONTEXT_FLAG_OWNERS, ADR-0050, ADR-0051 or
+    ADR-0052. Everything round 3 decided exists ONLY IN ADRs. This is design.md step 7 not run.
+  failure_scenario: >-
+    The Implement phase runs from the card. A BLOCKER FIX (F-020) AND A REVERSED GATE DECISION
+    (F-024) CURRENTLY HAVE NO DELIVERY VEHICLE. Item by item: ADR-0050 assigns the migration
+    REVOKE/GRANT, the grant-matrix assertion and the second pool to TASK-002 wave 1, whose paths
+    reach all three files but whose Approach names none of them; ADR-0050 assigns
+    docker-compose.test.yml to TASK-009, WHOSE PATHS DO NOT CONTAIN IT and no other card's do
+    either; ADR-0051 assigns assertBetterAuthSecretConfigured() to TASK-004 and the explicit
+    secret to TASK-003, neither of which mentions a secret; ADR-0052 assigns the logger key to
+    TASK-003, which does not mention a logger; ADR-0045's ONE EXECUTING WAVE-1 CONTROL - the
+    entire answer to F-025 - has no file name, no owning card, no test_files entry; ADR-0049's
+    behavioural control likewise. VERIFIED INDEPENDENTLY: git diff HEAD -- tasks/ is EMPTY. The
+    two cards reported as revised this round were never touched; their mtimes moved on a no-op
+    write, which is why a find(1) check said otherwise and a content check did not.
+  required_change: >-
+    TASK-002, -003, -004 and -009 each state their new obligations in Approach and Produces with
+    the ADR id; TASK-009's paths gain docker-compose.test.yml; the two new controls get a file
+    name and a test_files entry. The three genuinely unowned artifacts stay the Plan-gate matter
+    ADR-0050 escalated - with its own point that CI provisioning must land in or before wave 1,
+    not wave 4, or TASK-002 cannot go green.
+  owner_slot: orchestrator
+  status: fixed
+  correction: >-
+    2026-08-13, round-4 re-review. I MARKED THIS FIXED AND IT WAS NOT. Four of the six items
+    were done - the five card sections, TASK-018, TASK-009's paths, the plan amendment - and
+    TWO WERE UNTOUCHED: ADR-0045's set_config(/CONTEXT_FLAG_OWNERS grep control and ADR-0049's
+    behavioural control still have no file, no owning card and no test_files entry. Verified by
+    grep across all eighteen cards: neither string appears. THE FIRST ONE IS THE BASIS ON WHICH
+    F-025 WAS CLOSED, and F-025 was `an ADR cites four controls and none of them executes` - so
+    a control with no file is that same finding again, one round later, inside its own fix.
+    Reopened rather than left green. Round 5 names both files.
+  resolved_by: >-
+    Round 5 closed the remaining two. ADR-0045's grep control is
+    apps/api/src/db/context-flag-owners.spec.ts, TASK-002, wave 1 - it MUST live under src/**
+    because vitest.config.ts:10 includes src/**/*.spec.ts and nothing else, so the same file under
+    test/ would collect in no tier and pass by not running. ADR-0049's behavioural control is
+    apps/api/test/tenancy/warm-connection-no-context.int-spec.ts, TASK-002, wave 1;
+    apps/api/test/tenancy/ was in NO card's paths, verified across all eighteen. Both are now in
+    TASK-002's paths and test_files with the reasoning on the card. The architect ALSO CAUGHT THAT
+    ADR-0049's control as written would fail on the day ADR-0050 lands - `every table in public`
+    answers permission denied (42501) to shortkit_app on the exempt five, not zero rows - and
+    replaced the scope with a computed has_table_privilege set, flagging the edit as beyond its
+    brief rather than smuggling it.
+  resolved_round: 5
+
+- id: F-033
+  phase: design
+  wave: 1
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: security
+  file: .sdlc/identity-membership/design/adr-0051-better-auth-secret-is-a-declared-binding.md
+  line: 96
+  summary: >-
+    ADR-0051 SAYS betterAuthSecret() "reads the declared binding" AND NEVER SAYS WHAT IT RETURNS
+    WHEN THE BINDING IS ABSENT. A falsy return SILENTLY RESTORES THE PUBLISHED DEFAULT, because
+    options.secret is the first operand of a || chain rather than an override.
+  failure_scenario: >-
+    Executed against the pinned better-auth@1.6.26, one process per row: secret '' -> published
+    default; secret undefined -> published default; explicit non-empty -> ours, even with env set
+    to junk. create-context.mjs:70 is options.secret || env... || "" then || DEFAULT_SECRET.
+    The window is real rather than theoretical: TASK-003 (wave 2) composes the config, TASK-004
+    (wave 3) owns the boot assertion that is the only thing making the accessor safe - SO WAVE 2
+    IS A WAVE IN WHICH pnpm dev BOOTS ON THE PUBLISHED CONSTANT WITH NO ASSERTION ANYWHERE, which
+    is F-020's original state. The production row confirms ADR-0051's stated mitigation holds.
+  required_change: >-
+    State that betterAuthSecret() THROWS when the binding is unset or empty rather than returning
+    a falsy value, and why. Either move the assertion into wave 2 with TASK-003, or record in
+    ADR-0051 that wave 2 ships an auth surface whose secret is unasserted and wave 3 is where it
+    closes.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    ADR-0051 gains a normative docblock for betterAuthSecret(): string - THROWS on unset, empty,
+    under 32 chars, or the published default - with the reason stated as the || chain at
+    create-context.mjs:70 and the auditor's seven-row table. Assertion moved to TASK-003/wave 2 per
+    Juano's ruling, struck in place in the Decision and Follow-ups. ONE CORRECTION OF THE
+    ARCHITECT'S OWN: the ADR's `the integration tier has no owner for the value` follow-up is FALSE
+    - auth-fixture.ts:85 already sets a 53-character non-default BETTER_AUTH_SECRET. Struck and
+    replaced. VERIFIED ON DISK by the orchestrator. What that fixture lacks is DATABASE_AUTH_URL,
+    now TASK-018's.
+  resolved_round: 4
+
+# ---- Round 4 scoped re-review, 2026-08-13. F-028..F-031 and F-033 ADDRESSED, two of them by
+# re-execution. F-032 NOT ADDRESSED on two of six items - see its correction block above; that
+# one is mine. F-034..F-038 are new, and F-034 is the unpriced cost of Juano's own F-033 ruling.
+
+- id: F-034
+  phase: design
+  wave: 1
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 4
+  severity: major
+  kind: process
+  file: .sdlc/identity-membership/plan.md
+  line: 143
+  summary: >-
+    TASK-003 ADDS AN UNCONDITIONAL BETTER_AUTH_SECRET BOOT ASSERTION IN WAVE 2 AND THE AUTH POOL
+    NEEDS DATABASE_AUTH_URL FROM WAVE 2; BOTH VARIABLES REACH docker-compose.yml's api SERVICE
+    ONLY IN WAVE 4. Waves 2 and 3 ship a repository whose required `compose` check cannot go
+    green. Wave 0 precedes every consumer of the ROLE - that holds - but not of the DSN or the
+    secret.
+  failure_scenario: >-
+    VERIFIED INDEPENDENTLY by the orchestrator: ci.yml:382-386 makes `compose` one of three jobs
+    the required `gate` fans in, and docker-compose.yml:227-228 gives the api service exactly one
+    variable, DATABASE_URL. check-compose-stack.sh asserts the API reaches a healthy state, so an
+    api container that refuses to boot fails three clauses.
+    THE REDNESS IS NOT THE DANGER, THE REPAIR PRESSURE IS. The two cheapest fixes available to
+    someone facing a red required check are deleting the boot assertion Juano moved into wave 2
+    to close a one-wave window, or giving DATABASE_AUTH_URL a fallback to DATABASE_URL - which
+    ADR-0050 NAMES BY NAME as the change that "would silently restore shortkit_app as the auth
+    role and every gate would stay green". Juano's F-033 ruling widened this from one wave to
+    two; it is the right ruling and this is its unpriced cost.
+  required_change: >-
+    Move the two compose declarations to a wave at or before 2. Juano ruled: into TASK-018, wave
+    0, which already holds both compose files in paths. TASK-009 keeps .env.example and README.
+    ADR-0050's GC-B section and ADR-0051's follow-up name the wave, not just the TASK.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    TASK-018 gains an F-034 section and two Produces entries covering BETTER_AUTH_SECRET and
+    DATABASE_AUTH_URL on the api service in both compose files, with the repair-pressure argument
+    written where the implementer lands. TASK-009's section corrected to say the declarations
+    moved and it keeps .env.example, README and every other environment: entry. ADR text is
+    round 5's.
+  resolved_round: 5
+
+- id: F-035
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: contract
+  file: .sdlc/identity-membership/tasks/TASK-002.md
+  line: 1
+  summary: TASK-002 states the grant matrix in ONE direction; ADR-0050 decides it in TWO.
+  failure_scenario: >-
+    A one-directional matrix proves the five auth tables are closed to shortkit_app and says
+    nothing about the tenant-scoped tables being closed to shortkit_auth - and the second is what
+    stops the new role becoming a route around RLS. The card is what the implementer builds from.
+  required_change: The card states both directions.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    TASK-002's grant-matrix paragraph now states both directions and says in words why the second
+    exists.
+  resolved_round: 5
+
+- id: F-036
+  phase: design
+  wave: 1
+  task: TASK-009
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: correctness
+  file: .sdlc/identity-membership/tasks/TASK-009.md
+  line: 1
+  summary: >-
+    TASK-009 said both variables go in "both .env.example files". apps/web/.env.example is a
+    VERCEL PROJECT ENVIRONMENT and reads neither a database DSN nor an auth secret.
+  failure_scenario: >-
+    Declaring a binding nothing reads is the opposite of what GC-B is for, and it puts a secret's
+    name in a file on the web side of the boundary for no reason.
+  required_change: The card names only the API-side .env.example.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    TASK-009's section says apps/web/.env.example gets neither and why. Round 5 checks whether any
+    ADR carries the same error; if it is only card text, nothing in design/** changes.
+  resolved_round: 5
+
+- id: F-037
+  phase: design
+  wave: 1
+  task: TASK-017
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: test-coverage
+  file: scripts/check-compose-stack.sh
+  line: 180
+  summary: >-
+    THE F-315/F-316 CONTAMINANT GUARD IS HARDCODED TO THREE VARIABLES and no card widens it for
+    the new role's password. VERIFIED at :180 - the loop is POSTGRES_USER,
+    SHORTKIT_MIGRATOR_PASSWORD, SHORTKIT_APP_PASSWORD.
+  failure_scenario: >-
+    The fourth password variable, left out of the list, is the one exported value that can
+    silently repair a missing $$ escape - the whole defect the guard was added to catch.
+    Measured by the auditor as AVAILABILITY, NOT EXPOSURE: an empty-password role is not
+    loginable externally. Same class of hole, one variable wide.
+  required_change: TASK-017 widens the loop with the new role's password variable.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: TASK-017 gains the obligation with the availability-not-exposure distinction recorded.
+  resolved_round: 5
+
+- id: F-038
+  phase: design
+  wave: 1
+  task: null
+  source: sdlc-security-auditor
+  round: 4
+  severity: nit
+  kind: documentation
+  file: .sdlc/identity-membership/plan.md
+  line: 3
+  summary: plan.md:3, :5-6 and :269 still say seventeen TASKs, 24 cards and nine waves.
+  failure_scenario: Stale counts in the file that is the graph. No runtime consequence.
+  required_change: The counts match the amended plan.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    plan.md's header amended in place - 25 cards, eighteen TASKs, ten waves, 23 edges - with the
+    2026-08-12 verification line KEPT VERBATIM as what was true when the gate approved it. The AC
+    wrinkle is stated rather than smoothed: 36 is unchanged and TASK-018 claims none, so "each
+    claimed by exactly one TASK" is now about seventeen of eighteen. :269 corrected to ten waves
+    and fifteen of eighteen backend.
+  resolved_round: 5
+
+# ---- Round 5 scoped re-review, 2026-08-13. F-032, F-034..F-038 ALL ADDRESSED - every count in
+# plan.md recomputed from disk and every one correct. F-039..F-043 are new. THREE OF THE FIVE ARE
+# MINE and were fixed without a dispatch; two are ADR text and go to Juano.
+
+- id: F-039
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: test-coverage
+  file: .sdlc/identity-membership/design/adr-0045-token-mint-membership-lookup.md
+  line: 1
+  summary: >-
+    THE ONE EXECUTING CONTROL WAVE 1 SHIPS FAILS ON ITS FIRST RUN. ADR-0045's grep control asserts
+    set EQUALITY with CONTEXT_FLAG_OWNERS, and two of its three rows name files that DO NOT EXIST -
+    src/redirect/db/redirect-read.ts and src/gdpr/privileged-eraser.ts belong to TASK-029 and
+    TASK-054, both deferred. VERIFIED INDEPENDENTLY: both paths absent, coverage.ts:1718-1722 holds
+    three rows.
+  failure_scenario: >-
+    isolation-coverage.md:540-542 already says "A1 is not runnable earlier" in as many words. An
+    equality assertion in wave 1 is red on the day it lands, and THE CHEAP REPAIRS RE-OPEN F-025 -
+    delete the control, or weaken it to nothing. The subset direction (every set_config( first
+    argument in apps/api/src appears in CONTEXT_FLAG_OWNERS) carries the security claim and runs
+    today; the equality direction is what waits for the deferred files.
+  required_change: >-
+    ADR-0045 specifies the control as a SUBSET assertion for wave 1, with the equality direction
+    named and deferred to the TASK that lands the second flag setter.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    ADR-0045's wave-1 control restated as a SUBSET assertion, equality struck in place and named as
+    deferred to whichever of TASK-029/TASK-054 lands second (TASK-054 on the foundation plan's
+    ordering), with that card's job spelled out. AND THE ARCHITECT FOUND MY REPLACEMENT WORDING WAS
+    ITSELF RED ON ARRIVAL: `every set_config( first argument` catches tenant-context.ts:217-219's
+    statement_timeout and idle_in_transaction_session_timeout, neither a registry row. VERIFIED
+    INDEPENDENTLY - exactly three distinct first arguments exist in apps/api/src and two are these.
+    The control now filters on the `app.` prefix and matches on the { flag, file } PAIR rather than
+    the flag alone, pair-level being what catches a second file setting an existing flag. The
+    deferred equality flip inherits the fix. TASK-002's card corrected to match.
+  resolved_round: 6
+
+- id: F-040
+  phase: design
+  wave: 1
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 5
+  severity: major
+  kind: process
+  file: .sdlc/identity-membership/tasks/TASK-018.md
+  line: 1
+  summary: >-
+    TASK-018's Out-of-scope line sent EVERY OTHER environment: entry to wave 4 - INCLUDING THE
+    NEW ROLE'S PASSWORD ITS OWN CREATE ROLE LINE CONSUMES UNDER set -eu. And no artifact stated
+    BETTER_AUTH_SECRET's compose default, which must clear four constraints or it reproduces F-034.
+  failure_scenario: >-
+    VERIFIED: docker-compose.yml:310-311 passes existing passwords in as -v app_password=
+    "$$SHORTKIT_APP_PASSWORD". A CREATE ROLE shortkit_auth ... PASSWORD :'auth_password' with no
+    variable plumbed through fails initialisation outright. Separately, betterAuthSecret() throws
+    on unset, empty, under 32 chars and the published default, and its assertion is unconditional
+    from wave 2 - so a compose default tripping any of the four is F-034 again.
+    THE SCOPE SENTENCE WAS DRAWN FROM THE ADR RATHER THAN FROM THE FILE, which is the same error
+    as my docker-compose.test.yml claim in the same card an hour earlier.
+  required_change: The card carves out the password variable and states the secret's default and its four constraints.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    TASK-018 gains an F-040 section: the password variable is explicitly this card's in both compose
+    files and in the -v list, with the set -eu failure named; and BETTER_AUTH_SECRET's compose
+    default is specified as a development throwaway clearing all four constraints, in the shape
+    auth-fixture.ts:85 already uses. Out-of-scope line rewritten to name the three variables it keeps.
+  resolved_round: 5
+
+- id: F-041
+  phase: design
+  wave: 1
+  task: null
+  source: sdlc-security-auditor
+  round: 5
+  severity: minor
+  kind: documentation
+  file: .sdlc/identity-membership/plan.md
+  line: 155
+  summary: >-
+    plan.md:155 and :169 still described the arrangement F-034 UNDID - TASK-009 owning the compose
+    environment: blocks - and :141 said 22 edges against the header's 23. TASK-017:89,98 credited
+    TASK-009 with declarations that had already moved.
+  failure_scenario: >-
+    A wave table that contradicts its own amendment three rows later, in the file that IS the graph.
+    No runtime consequence, but this is the artifact an implementer reads to find out who owns what.
+  required_change: The wave-0 row, the multi-claimant list, the edge count and TASK-017's Interfaces all match F-034.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    plan.md:141 corrected to 23 edges naming the new one; the wave-0 row and the multi-claimant list
+    now say TASK-018 owns the three wave-2-critical env entries and that docker-compose.test.yml has
+    no api service; TASK-017's Out-of-scope and Consumes split by wave between TASK-018 and TASK-009.
+  resolved_round: 5
+
+- id: F-042
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 5
+  severity: minor
+  kind: correctness
+  file: .sdlc/identity-membership/design/adr-0049-context-flags-are-never-cast-directly.md
+  line: 289
+  summary: >-
+    ADR-0049 SCOPES THE BEHAVIOURAL CONTROL WITH has_table_privilege ALONE and calls it "the
+    predicate ADR-0050's grant matrix already uses". ROUND 4 CHANGED THAT MATRIX to OR it with
+    has_any_column_privilege.
+  failure_scenario: >-
+    A column-granted table drops out of the computed set, which defeats the sixth-auth-table
+    property the ADR claims for it - the one where a table nobody revoked stays in scope, has no
+    policy, returns rows, and the control fires. One clause of the predicate, not its shape.
+  required_change: The scope predicate matches the grant matrix, OR'ing in has_any_column_privilege.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    ADR-0049's scope predicate struck and replaced with has_table_privilege(current_user, c.oid,
+    'SELECT') OR has_any_column_privilege(current_user, c.oid, 'SELECT'), matching ADR-0050's grant
+    matrix, with the F-031 measurement as the reason and the sixth-auth-table property restated as
+    depending on it. A warning records that has_any_column_privilege takes only the three
+    column-grantable privileges and raises on DELETE, so the 'SELECT' term is safe as written and
+    must not be widened. TASK-002's card corrected to match.
+  resolved_round: 6
+
+- id: F-043
+  phase: design
+  wave: 1
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 5
+  severity: nit
+  kind: documentation
+  file: .sdlc/identity-membership/tasks/TASK-018.md
+  line: 1
+  summary: >-
+    TASK-018 now edits TWO BLOCKS of docker-compose.yml with OPPOSITE $ conventions and named
+    neither, nor F-315/F-316.
+  failure_scenario: >-
+    The init script is a configs.*.content body interpolated against the HOST environment at parse
+    time and needs $$; the environment: block is ordinary ${VAR:-default}. Carrying one convention
+    into the other block is exactly F-315 and F-316, and the guard at check-compose-stack.sh:180
+    exists because of them.
+  required_change: The card names both conventions and why they differ.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: TASK-018 gains the two-conventions paragraph citing F-315/F-316 and the contaminant guard.
+  resolved_round: 5

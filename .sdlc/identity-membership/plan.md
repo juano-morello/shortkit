@@ -1,10 +1,21 @@
 # Plan — identity-membership (roadmap item 1a)
 
-One EPIC, six STORIEs, seventeen TASKs, thirty-six acceptance criteria. Track `full`, forced.
+One EPIC, six STORIEs, **eighteen** TASKs, thirty-six acceptance criteria. Track `full`, forced.
 
 Cards are authoritative; this file is the graph and the constraints. Verified 2026-08-12:
 24 cards parse, 36 ACs each claimed by exactly one TASK, no duplicate ids, no empty `paths`,
 graph acyclic across 22 edges, both owner slots valid.
+
+**Amended 2026-08-13 at the Design wave-1 gate (F-032, F-034, F-038).** TASK-018 is new, and
+so is wave 0 — the counts above were written on 2026-08-12 and describe the plan as approved.
+Now: **25 cards, eighteen TASKs, ten waves, 23 edges.** The AC count is unchanged at 36 and
+that is the wrinkle: **TASK-018 claims none**, so "each claimed by exactly one TASK" is now a
+statement about seventeen of eighteen TASKs. The role split arrived from a measured
+account-takeover (F-024) after these criteria were written, and no criterion describes it.
+Adding one amends an approved STORY, which is Juano's call and was flagged at the gate rather
+than taken. The round-4 re-review judged the gap **not load-bearing** — a skipped TASK-018
+fails loudly one wave later, at the migration's `GRANT`, and both the widened CI guard and
+`assertAuthRoleSeparation` catch the state it would leave.
 
 ## Global Constraints
 
@@ -98,6 +109,7 @@ Naming any other slot fails at dispatch. `git.ai_attribution: false`, hard.
 ```mermaid
 graph TD
   TASK-001[001 auth+member contracts] --> TASK-003
+  TASK-018[018 provision shortkit_auth at all three creation sites] --> TASK-002
   TASK-002[002 auth tables, tenant_memberships, tenantIdForUser] --> TASK-003
   TASK-003[003 Better Auth instance + onUserCreated] --> TASK-004
   TASK-004[004 Express mount, body cap, IP buckets, boot assertions] --> TASK-005
@@ -126,14 +138,22 @@ graph TD
   TASK-017[017 compose end-to-end]
 ```
 
-Acyclic, 22 edges, no edge to a nonexistent TASK.
+Acyclic, **23** edges, no edge to a nonexistent TASK — the 23rd is `TASK-018 --> TASK-002`,
+added 2026-08-13 (F-041 corrected this line; it still read 22 against the header's 23).
 
 ## Waves
 
 Parallel-safety computed from `paths` overlap, not intuition.
 
+**AMENDED 2026-08-13 at the Design wave-1 gate**, by Juano's ruling on F-032 and ADR-0050's
+escalation. Wave **0** is new; waves 1–9 keep their membership and their numbers, so
+`design.wave_1` and every other recorded wave reference still means what it meant. The
+alternative — renumbering to ten waves — would have put every existing reference off by one,
+including a gate already recorded. TASK count is now **18**.
+
 | Wave | TASKs | Parallel-safe? | Notes |
 |---|---|---|---|
+| 0 | 018 | — | Provisioning only. **Strictly before 002**: it creates `shortkit_auth`, and 002's migration `0001` GRANTs to that role — a forward-only migration fails with `role "shortkit_auth" does not exist`. Touches `docker-compose.yml` and `docker-compose.test.yml` for their `CREATE ROLE` blocks, **and `docker-compose.yml`'s `api` `environment:` block for `BETTER_AUTH_SECRET`, `DATABASE_AUTH_URL` and the new role's password** (F-034 — the boot assertions that read them are wave 2). TASK-009 owns every other `environment:` entry, four waves later. `docker-compose.test.yml` has no `api` service. |
 | 1 | 001, 002 | yes | `packages/contracts/**` versus `apps/api/src/db/**` + `drizzle/**`. Disjoint. |
 | 2 | 003 | — | Writes `auth.config.ts` wholesale; nothing else may touch it. |
 | 3 | 004 | — | Sole owner of `main.ts`. GC-C is one registration in one file. |
@@ -146,7 +166,15 @@ Parallel-safety computed from `paths` overlap, not intuition.
 
 Files touched by more than one TASK, all wave-separated: `app.module.ts` (003, 006, 012, 016),
 `test/isolation/registrations.ts` (002, 011, 015), `schema/index.ts` and `drizzle/**` (002,
-011), `contracts/src/index.ts` (001, 012), `test/isolation/coverage.ts` (014, 015).
+011), `contracts/src/index.ts` (001, 012), `test/isolation/coverage.ts` (014, 015),
+`docker-compose.yml` (018 roles + the three wave-2-critical env entries, 009 the rest),
+`docker-compose.test.yml` (018 roles only — it has no `api` service), `main.ts` (003 the secret-assertion call, 004 the mount),
+`auth/boot-assertions.ts` (003 creates, 004 extends), `test/support/auth-fixture.ts` (018).
+
+The last four are new on 2026-08-13. **`main.ts` is no longer TASK-004's sole file** — Juano's
+F-033 ruling moved `assertBetterAuthSecretConfigured()` into TASK-003/wave 2 so that no wave
+ships an auth surface booting on better-auth's published constant. TASK-003 reaches `main.ts`
+only to call it; TASK-004 still owns the mount, one wave later.
 
 ## Coverage
 
@@ -250,7 +278,7 @@ TASK-014 to need a second session.
 AC-19 measure the transport a browser uses; AC-28 measures HTTP against the composed stack. A
 strict reading of SC-2 needs a browser driver, and STORY-003 grows a TASK.
 
-**The critical path is nine waves and only three parallelise.** Fourteen of seventeen TASKs are
+**The critical path is ten waves and only three parallelise.** Fifteen of eighteen TASKs are
 backend. Waves 2, 3, 6 and 7 are single-TASK by necessity — `auth.config.ts`, `main.ts`,
 migration ordering, the contracts barrel — not by preference.
 

@@ -128,10 +128,14 @@ barrel's namespace alongside every product table.
    the matching SQL name.
 3. **None of the five carries `tenant_id` and none carries row-level security** (ADR-0044).
    A statement against them returns rows regardless of tenant context, including no context
-   at all.
+   at all. **Amended 2026-08-13 (ADR-0050): what bounds them instead is a grant.** Migration
+   `0001` revokes `shortkit_app` on all five and grants `shortkit_auth`, so a statement from
+   the application pool fails with `permission denied for table <t>` rather than returning
+   rows.
 4. `id` is `text` on all five, so a foreign key into `user(id)` is `text`.
 5. `betterAuthDatabase()` from `apps/api/src/db/client.ts` is typed over exactly this schema
-   (ADR-0046).
+   (ADR-0046), and is built on the **auth** pool, `DATABASE_AUTH_URL`, connecting as
+   `shortkit_auth` (ADR-0050, which supersedes ADR-0046's one-pool decision — F-028).
 
 ## What the implementer must guarantee
 

@@ -61,8 +61,12 @@ export type MembershipLookupDb = PgTransaction<any, typeof schema, any> & {
 
 /**
  * The rejected value is reported as a short prefix and a length, never in full (F-132).
- * A user id is a stable identifier for a person, `LOGGABLE_FIELDS` has no name for one,
- * and `serializers.err` puts `err_stack` on the line — which begins with the message.
+ * A user id is a stable identifier for a person and `LOGGABLE_FIELDS` has no name for one.
+ *
+ * NOT because `err_stack` begins with the message (F-027): `serializers.err` passes
+ * `includeMessage: false` and `err_stack` carries frames only, by construction
+ * (`logger.ts:159,880-884`). The reason is that `includeMessage: true` is opt-in at two
+ * sanctioned call sites, so a message is one subclass change from being logged.
  */
 export class InvalidLookupUserIdError extends Error {
   constructor(_value: string) {

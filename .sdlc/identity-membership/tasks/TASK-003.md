@@ -6,9 +6,13 @@ title: The Better Auth instance, its plugin configuration, and tenant creation o
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001, TASK-002]
-paths: ["apps/api/src/auth/auth.config.ts", "apps/api/src/auth/on-user-created.ts", "apps/api/src/auth/revocation-store.ts", "apps/api/src/auth/auth.module.ts", "apps/api/src/app.module.ts"]
+paths: ["apps/api/src/auth/auth.config.ts", "apps/api/src/auth/on-user-created.ts", "apps/api/src/auth/revocation-store.ts", "apps/api/src/auth/auth.module.ts", "apps/api/src/app.module.ts", "apps/api/src/auth/boot-assertions.ts", "apps/api/src/main.ts"]
+# WIDENED 2026-08-13 at the Design wave-1 gate by Juano's ruling on F-033. boot-assertions.ts
+# is CREATED here rather than by TASK-004, because the secret guard has to land in the same
+# wave as the config it guards. main.ts is reached only to call it. TASK-004 remains the sole
+# owner of the mount itself and is a wave later, so the two never write concurrently.
 contracts: [design/contracts/auth-tokens.md, design/contracts/tenant-context.md]
-test_files: ["apps/api/src/auth/auth.config.spec.ts (unit)", "apps/api/src/auth/on-user-created.spec.ts (unit)", "apps/api/test/auth/signup-creates-tenant.int-spec.ts (integration)"]
+test_files: ["apps/api/src/auth/auth.config.spec.ts (unit)", "apps/api/src/auth/on-user-created.spec.ts (unit)", "apps/api/src/auth/boot-assertions.spec.ts (unit — the secret half; TASK-004 extends this file with assertAuthRoleSeparation in wave 3)", "apps/api/test/auth/signup-creates-tenant.int-spec.ts (integration)"]
 acceptance: [AC-1, AC-3, AC-5]
 rework_count: 0
 ---
@@ -107,11 +111,42 @@ unacceptable, and a cleanup path is a second decision.
 `app.module.ts` gains `AuthModule` in its `imports` array. That is the file's only change
 here; `APP_FILTER` and `HealthModule` are untouched.
 
+## The secret and the logger — added 2026-08-13, Design rounds 3 and 4
+
+**Both keys go on the composed config, and neither was in this card before the Design gate**
+(F-032). ADR-0051 and ADR-0052 are the sources; read them.
+
+**`secret: betterAuthSecret()`.** Without an explicit key, better-auth@1.6.26 falls back to a
+**published constant** — `create-context.mjs:70` is `options.secret || env.BETTER_AUTH_SECRET
+|| env.AUTH_SECRET || ""` and then `|| DEFAULT_SECRET`. That constant is the symmetric key
+for `jwks.privateKey`, so one `jwks` row plus a value anyone can read from npm forges any
+`tid` claim in the product. `validateSecret` returns early under `isTest()` and throws only
+under `isProduction`, so **the two environments that exist here are the two it does not
+cover** (F-020).
+
+`betterAuthSecret(): string` **throws** — on unset, on empty, under 32 characters, and on the
+published default itself. It must never return `''` or `undefined`, and the reason is the
+`||` chain above: a falsy return is not an override, it falls straight through to the
+default and restores exactly the state this is fixing (F-033).
+
+**`assertBetterAuthSecretConfigured()` is yours, not TASK-004's.** Juano moved it here from
+wave 3 at the Design gate, because the alternative was one whole wave in which `pnpm dev`
+boots an auth surface on the published constant with no assertion anywhere. Create
+`apps/api/src/auth/boot-assertions.ts` and call it from `main.ts`. TASK-004 adds
+`assertAuthRoleSeparation()` to the same file in wave 3.
+
+**`logger`.** Better Auth's own `console.error`/`console.warn` channel bypasses the field
+allowlist entirely, which defeats ADR-0028's "exactly one censoring mechanism" by
+construction rather than by defect. State a `log` hook forwarding into the shared pino
+instance, `level: 'error'`, `disableColors: true`, args deliberately dropped (ADR-0052).
+`auth.config.spec.ts` asserts the secret is not the default and the logger key is present.
+
 ## Out of scope for this TASK
 
-The Express mount, `bodyParser: false`, `authBodyCap`, `authRateLimit` and the boot
-assertions (TASK-004 — ADR-0013 fixes the mount as one registration in one file and it is
-`main.ts`, which this TASK does not touch). `AuthGuard` and the revocation **read**
+The Express mount, `bodyParser: false`, `authBodyCap` and `authRateLimit` (TASK-004 —
+ADR-0013 fixes the mount as one registration in one file). **`assertAuthRoleSeparation` and
+`assertBffProxySecretConfigured` are TASK-004's**, in the file this TASK creates; the secret
+assertion above is the only boot assertion here. `AuthGuard` and the revocation **read**
 (TASK-005). Invitation validation and any `before` hook body (item 1b — this TASK ships the
 registry empty). Email verification, mail, password reset. Any Redis binding.
 

@@ -53,13 +53,23 @@ membershipLookupPolicy()                     -- rls.ts, one statement, ADR-0045
 ```sql
 CREATE POLICY tenant_memberships_membership_lookup ON tenant_memberships
   FOR SELECT
-  USING (user_id = current_setting('app.membership_lookup_user', true));
+  USING (user_id = nullif(current_setting('app.membership_lookup_user', true), ''));
 ```
 
-`FOR SELECT` and it stays `FOR SELECT`. `user_id` and `current_setting` are both `text`, so
-**this policy never casts** and it admits nothing whether the flag reads NULL (cold backend)
-or `''` (any backend that has served a tenant transaction): `user_id = NULL` is NULL, and
-`user_id = ''` matches no row because `user_id` is a foreign key into `"user"(id)`.
+`FOR SELECT` and it stays `FOR SELECT`.
+
+**The `nullif` is required even though this policy never casts** (F-021, ADR-0049's widened
+rule). The earlier form compared the flag raw and rested on "no `"user"` row has id `''`" —
+a data property stated as if it were a constraint. `user.id` is `text PRIMARY KEY` with no
+`CHECK`. With such a row present, measured on a warm backend: a no-flag read returned it, and
+**tenant A's ordinary transaction returned tenant B's full membership row** through the
+permitted OR, falsifying `rls-policy-template.md` invariant 1. Latent today only because
+`parseUserInput` drops `id` on the sign-up route.
+
+With the wrapper, the flag reads NULL whether it was never set or was reset to `''`, and
+`user_id = NULL` is NULL. Verified with the `''` row present: no-flag read zero rows, tenant A
+sees only its own row, the warm mint still resolves on
+`tenant_memberships_user_unique`.
 
 **`tenantScopedPolicies()`'s isolation predicate must be the ADR-0049 form for this to work
 at all.** The two policies are ORed into the same `SELECT`, so a raise in either aborts the
@@ -152,12 +162,29 @@ lower case already; the call is there so the value is the canonical form
 `assertUuid` (`tenant-context.ts:308-314`) returns, and so a later equality test against a
 row's `tenant_id` cannot disagree by case (F-130).
 
-**`NoTenantMembershipError.message` must not contain the raw user id.** `serializers.err`
-reduces a logged error to `err_name` and `err_stack`, and `Error.stack` begins with the
-message, so anything interpolated into the message reaches the log line whatever
-`LOGGABLE_FIELDS` says (ADR-0028, GC-G). Whether a user identifier joins that allowlist is
-a decision this initiative has not made. The message carries an eight-character prefix and
-the length; the full value is on `.userId`.
+**`NoTenantMembershipError.message` must not contain the raw user id.** The message carries
+an eight-character prefix and the length; the full value is on `.userId`.
+
+Amended 2026-08-13 (F-027). ~~`serializers.err` reduces a logged error to `err_name` and
+`err_stack`, and `Error.stack` begins with the message, so anything interpolated into the
+message reaches the log line whatever `LOGGABLE_FIELDS` says.~~ **That reason is false against
+shipped code**: `logger.ts:159` binds `serializers.err` with `includeMessage: false`, and
+`logger.ts:880-884` records that `err_stack` carries frames only because the
+`${name}: ${message}` header is stripped by prefix and then by shape. The logger was built to
+make that premise untrue (F-090, F-093, F-108, F-111).
+
+The rule stands on three grounds that are true:
+
+1. `includeMessage: true` is opt-in at two sanctioned call sites and `DomainError` is one, so
+   a message is one subclass change from being logged.
+2. `.userId` carries the full value, and `LOGGABLE_FIELDS` has no `userId` entry, so an object
+   carrying it renders `[redacted]` and `serializers.err` builds a fixed field set rather than
+   copying the error's own properties (F-244). Truncating the message costs a caller nothing.
+3. This error is thrown inside `definePayload`, on a mount outside the Nest graph, so the code
+   that handles it is the dependency's. ADR-0052 binds that logger and drops its positional
+   `args`; the channel is closed by a decision, not by a pre-existing property.
+
+Whether a user identifier joins `LOGGABLE_FIELDS` is a decision this initiative has not made.
 
 **No email address appears in either error, in any form.** GC-G bans `email` from log lines
 and this is the one path that holds a user id and an email at the same time.

@@ -5,8 +5,42 @@ title: Better Auth's five tables carry no row-level security, and shortkit_app k
 status: accepted
 supersedes: null
 amends: null
+superseded_in_part_by: ADR-0050
 date: 2026-08-12
 ---
+
+> **Corrected 2026-08-13 (F-024), round 3. THE CENTRAL REFUSAL IN THIS ADR IS REVERSED BY
+> JUANO'S RULING, AND IT WAS REFUSED AGAINST A COST THIS ADR STATED TOO SMALL.**
+>
+> Everything below about *why the five tables carry no row-level security* stands: they have
+> no `tenant_id`, so there is no predicate to write, and a `USING (true)` policy would be a
+> lie. That decision is unchanged.
+>
+> What was wrong is the price tag. This ADR costed the exposure **in reads** — "reads every
+> `session.token`, every `account.password` and every email" — and its three role-split
+> triggers are all read-shaped. The security auditor executed the write half from inside a
+> perfectly ordinary `withTenantTransaction` for tenant A, with `app.tenant_id` set
+> correctly. Re-measured independently here, same result:
+>
+> ```
+> UPDATE "account" SET password='OWNED'            WHERE user_id='user-b'  -> UPDATE 1
+> INSERT INTO "session" (...token...)  VALUES ('ATTACKER-CHOSEN', 'user-b') -> INSERT 0 1
+> UPDATE "user"    SET email='attacker@evil.test'  WHERE id='user-b'        -> UPDATE 1
+> ```
+>
+> **That is not disclosure of credentials. It is silent takeover of any account in any
+> tenant, without knowing a password, without mail and without a token** — a session row
+> with a chosen `token` is a working credential, by this ADR's own table. None of the three
+> stated triggers describes a write path.
+>
+> Juano reversed the refusal at the round-3 gate on 2026-08-13 and accepted exactly the cost
+> the refusal was avoiding — reopening ADR-0031 and touching six provisioning artifacts
+> across three waves — because it is the only option under which a SQL defect anywhere in
+> `apps/api` cannot forge a session row. **ADR-0050 designs the split.**
+>
+> The original Negative section and trigger list are struck through in place rather than
+> rewritten, because the failure here was a reasoned-looking refusal made against the wrong
+> number, and a reader needs to see the number that was used.
 
 ## Context
 
@@ -25,6 +59,11 @@ migrates are readable and writable by `shortkit_app` from the moment they exist,
 request, in every tenant's context, with no policy standing between a statement and a row.
 
 What is in them, measured against `better-auth@1.6.26`:
+
+**This table is headed "reading" and that is half the grant** (F-024). `ALTER DEFAULT
+PRIVILEGES` grants `SELECT, INSERT, UPDATE, DELETE`. Read each row below as what one row
+gives an attacker who can only read, and then read the correction block above for what the
+same defect gives an attacker who can write.
 
 | Table | The sensitive column | What reading one row gives an attacker |
 |---|---|---|
@@ -91,11 +130,20 @@ its exception list.
 
 ### Negative / accepted cost
 
-- **Any SQL defect anywhere in `apps/api` reads every session token, every password hash and
+- ~~**Any SQL defect anywhere in `apps/api` reads every session token, every password hash and
   every email address in the system, regardless of which tenant's request it is running
   under.** Row-level security bounds the blast radius of such a defect on every product
   table and bounds none of it on these five. This is the accepted cost and it is the largest
-  one in this initiative.
+  one in this initiative.~~
+
+  **Corrected 2026-08-13 (F-024). The verb was wrong and it was the load-bearing word.** Any
+  SQL defect anywhere in `apps/api` **reads and writes** every session token, every password
+  hash and every email address, from inside an ordinary tenant transaction with
+  `app.tenant_id` set correctly. Measured: password overwritten, session forged with a chosen
+  token, email changed — all three for a user in another tenant, all three succeeding while
+  the tenant-scoped read in the same transaction returned zero rows. The consequence is
+  account takeover, not credential disclosure. **This cost is no longer accepted; ADR-0050
+  removes it.**
 - The compensating controls are conventions, not mechanisms. Statements are built with
   `sql` template interpolation, which binds parameters, and `client.ts` exposes no raw
   query path — but nothing fails a build if a future TASK writes string-concatenated SQL
@@ -112,16 +160,24 @@ its exception list.
   because `privilegedTenantEraser` deletes `user` rows afterwards (ADR-0015), which is
   application code rather than a database constraint on the tenant boundary.
 
-### What would force the role split
+### ~~What would force the role split~~ — it was already forced, and none of these is why
 
-Any one of these, and none is scheduled:
+**Struck 2026-08-13 (F-024).** Every trigger below describes a *read* path, which is the
+error this list shares with the bullet above it. The split was forced by a write path that
+already exists, not by any of these.
 
-- A deploy target with a real user base. ADR-0030 says there is none; the blast radius today
-  is a developer's machine and CI.
-- A second service or a background worker connecting as `shortkit_app`, which widens the set
-  of code that can issue a statement against `session`.
-- A raw-SQL surface that takes caller input — a search endpoint, a reporting query, an
-  admin console.
+- ~~A deploy target with a real user base. ADR-0030 says there is none; the blast radius today
+  is a developer's machine and CI.~~
+- ~~A second service or a background worker connecting as `shortkit_app`, which widens the set
+  of code that can issue a statement against `session`.~~
+- ~~A raw-SQL surface that takes caller input — a search endpoint, a reporting query, an
+  admin console.~~
+
+The trigger the list needed and did not have: **any code path that issues DML against
+`user`, `session` or `account` outside Better Auth's own adapter.** One already exists in the
+design — `privilegedTenantEraser` deletes `user` rows after the tenant cascade (ADR-0015) —
+and this ADR names it three paragraphs down without noticing that it is the trigger. See
+ADR-0050, which is what the corrected trigger produced.
 
 ### Follow-ups this creates
 

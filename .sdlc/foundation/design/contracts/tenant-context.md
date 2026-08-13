@@ -304,9 +304,24 @@ already forbids that, and this section is the reason it matters more than it loo
   graph and has no callback boundary a transaction can be handed to. A statement issued on
   that client runs outside any transaction and therefore with no context flag, so on every
   tenant-scoped table it sees zero rows and writes none: the same fail-closed property this
-  contract already rests on, not a new one. The narrowing is a type and types erase; the
-  protection is RLS. It additionally exports `postgresErrorCode` and
+  contract already rests on, not a new one. ~~The narrowing is a type and types erase; the
+  protection is RLS.~~ It additionally exports `postgresErrorCode` and
   `postgresErrorConstraint`, which any file may import.
+
+  **Amended 2026-08-13 (ADR-0050). `betterAuthDatabase()` is built on a second pool, and the
+  protection is now a grant rather than a policy.** `client.ts` constructs two `pg.Pool`s:
+  the application pool on `DATABASE_URL` as `shortkit_app`, max 10, reached through
+  `databaseTransaction`; and the auth pool on `DATABASE_AUTH_URL` as `shortkit_auth`, max 5,
+  reached only through `betterAuthDatabase()`. Both carry the `pool.on('error')` and
+  `pool.on('connect')` listeners verbatim, and `closeDatabase()` ends both. Fifteen
+  connections per instance, and nothing enforces the sum.
+
+  The narrowing is still a type and types still erase, but the sentence that followed is no
+  longer the whole story: after migration `0001`, a statement issued on the application pool
+  against `user`, `session`, `account`, `verification` or `jwks` fails with `permission denied
+  for table <t>`, and a statement issued on the auth pool against a tenant-scoped table fails
+  the same way. `client.ts` remains the only file in `apps/api` constructing a Drizzle client
+  or a `pg.Pool`; ADR-0046's rejection of a pool built in `auth.config.ts` stands.
 - **`databaseTransaction` has exactly five sanctioned consumers.** Amended 2026-08-05
   (F-126) from three to four; amended 2026-08-12 (ADR-0045) from four to five. TASK-056
   needs a list that is true.
@@ -382,6 +397,13 @@ already forbids that, and this section is the reason it matters more than it loo
   (`auth-tokens.md`).
 - Boot-time assertion: the connected role has `rolbypassrls = false` and
   `is_superuser = off`. The process exits non-zero otherwise.
+- **Boot-time assertion, second: the two runtime roles cannot reach each other's tables.**
+  Added 2026-08-13 (ADR-0050, F-031). `assertRuntimeRoleCannotBypassRls` is parameterless and
+  covers `DATABASE_URL` only; it is not given a DSN parameter, because `main.ts:47` matches on
+  its verdict prefix `DATABASE_URL connect`. `assertAuthRoleSeparation` covers the auth role's
+  three attributes and the grant matrix in both directions, with its own prefix
+  `DATABASE_AUTH_URL connect` and its own `BootPrecondition` value. The two prefixes do not
+  collide; checked.
 - **Validate the tenant id as a uuid before calling `withTenantTransaction`.** Use
   `set_config`, never `SET LOCAL`, and never build a flag value by concatenation.
 
@@ -396,6 +418,26 @@ tenant-scoped tables outside this contract. All three are recorded in
 | `withRedirectRead` | `apps/api/src/redirect/db/redirect-read.ts` | `SELECT` only, on `domains` and `links` only, in a `READ ONLY` transaction |
 | `privilegedTenantEraser` | `apps/api/src/gdpr/privileged-eraser.ts` | `DELETE` only, scoped to one `tenant_id` by policy |
 | `withMembershipLookup` | `apps/api/src/auth/membership-lookup.ts` | `SELECT` only, on `tenant_memberships` only, scoped to one `user_id` by policy, in a `READ ONLY` transaction |
+
+**The Reach column describes what the POLICY grants, not what the HANDLE reaches, and from
+this wave forward those differ.** Amended 2026-08-13 (F-026). Every `databaseTransaction`
+consumer receives a `PgTransaction` over the whole `typeof schema`. Until this wave that
+schema held only `tenants`, so the column was nearly true. This wave adds five tables with no
+`tenant_id`, no policy and no predicate (ADR-0044), so **every escape handle additionally
+reaches `user`, `session`, `account`, `verification` and `jwks` with nothing standing in the
+way.** Measured inside a `withMembershipLookup` transaction with only the lookup flag set:
+`session` returned 2 rows including the token, `account` 2 rows including the password hash,
+`user` 2 rows including both email addresses, and `tenants` 0.
+
+What bounds two of the three is **`SET TRANSACTION READ ONLY`, not policy** — verified, a
+write to `account` inside a lookup transaction fails with `cannot execute UPDATE in a
+read-only transaction`. `privilegedTenantEraser` is the one with no such bound, so its row's
+"`DELETE` only, scoped to one `tenant_id` by policy" will be false for the three auth tables
+from the moment TASK-054 exists.
+
+ADR-0050 is what removes this: once `shortkit_app` is revoked on the five, no handle built on
+the application pool reaches them at all, and this note becomes historical. Until that lands
+across all its waves, the column above understates every row.
 
 A **fourth** is a build failure: `isolation-coverage.md` asserts the exclusion list length
 is 3, and the grep test asserts each context-flag string appears in exactly one

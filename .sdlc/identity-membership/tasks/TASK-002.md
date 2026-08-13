@@ -5,8 +5,11 @@ epic: EPIC-001
 title: Better Auth tables, tenant_memberships with its unique constraint, and tenantIdForUser
 status: todo
 owner_slot: sdlc-implementer-backend
-depends_on: []
-paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/schema/auth.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts", "apps/api/test/isolation/controls.ts", "docs/architecture/rls.md"]
+depends_on: [TASK-018]
+# TASK-018 ADDED 2026-08-13 at the Design wave-1 gate. It creates `shortkit_auth` in wave 0;
+# this card's migration 0001 GRANTs to that role. The edge is hard — a forward-only migration
+# on a database that has already applied 0000 fails with `role "shortkit_auth" does not exist`.
+paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/schema/auth.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts", "apps/api/test/isolation/controls.ts", "docs/architecture/rls.md", "apps/api/src/db/context-flag-owners.spec.ts", "apps/api/test/tenancy/warm-connection-no-context.int-spec.ts"]
 # paths WIDENED 2026-08-13 by Juano at the Design wave-1 gate, F-002. Six files its own design
 # requires and its original declaration did not reach. THE WAVE TABLE IS UNCHANGED: TASK-001 is
 # packages/contracts/** only, so wave 1 stays parallel-safe, and every other claimant of these
@@ -17,8 +20,12 @@ paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-members
 # TASK. WITHOUT controls.ts, F-009 IS UNFIXABLE AND THE HARNESS GOES ON PROVING ISOLATION
 # AGAINST THE PREDICATE ADR-0049 REPLACED - green, because the old form isolates correctly on a
 # cold connection, which is the only state the fixture creates.
+# WIDENED A THIRD TIME 2026-08-13, round 5, F-032's remainder: the two control spec files.
+# apps/api/test/tenancy/ was in NO card's paths — verified across all eighteen. Consuming
+# rls-fixture.ts is not editing it, so that file stays TASK-018's; if the behavioural control
+# turns out to need a fixture change, that is a wave-0 edit and not this card's.
 contracts: [design/contracts/rls-policy-template.md, design/contracts/isolation-coverage.md, design/contracts/tenant-context.md]
-test_files: ["apps/api/src/auth/tenant-id-for-user.spec.ts (unit)", "apps/api/test/auth/tenant-memberships.int-spec.ts (integration)", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts (isolation, registration only — the assertions there are TASK-015's)"]
+test_files: ["apps/api/src/db/context-flag-owners.spec.ts (unit — ADR-0045's grep control, the ONE executing control wave 1 ships and the entire basis on which F-025 was closed)", "apps/api/test/tenancy/warm-connection-no-context.int-spec.ts (integration — ADR-0049's behavioural control)", "apps/api/src/auth/tenant-id-for-user.spec.ts (unit)", "apps/api/test/auth/tenant-memberships.int-spec.ts (integration)", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts (isolation, registration only — the assertions there are TASK-015's)"]
 acceptance: [AC-2, AC-4]
 rework_count: 0
 ---
@@ -93,6 +100,105 @@ Migration ordering: this is migration `0001`. TASK-011 adds `workspaces` as a la
 migration. Two TASKs generating migrations concurrently would collide on drizzle's
 `_journal.json`, which is why TASK-011 depends on this one.
 
+## The role split and the flag wrapper — added 2026-08-13, Design rounds 3 and 4
+
+**Everything in this section arrived after the Plan gate.** It comes from a measured
+account-takeover (F-024), Juano's reversal of ADR-0044's refusal, and the `nullif` wrapper
+ADR-0049 introduced. None of it was in this card before the Design gate, which is what F-032
+was. Read ADR-0049, ADR-0050 and the amended `rls-policy-template.md` before starting.
+
+**Migration `0001` drops and recreates FOUR policies on `tenants`, not three.**
+`tenants_self_select`, `tenants_self_update`, `tenants_self_insert` **and
+`tenants_privileged_erase`**. The fourth is the one round 3 left out and round 4 put back
+(F-029): `apps/api/drizzle/0000_odd_betty_ross.sql:33-34` already ships it in the raw
+`current_setting('app.privileged_erase', true)` form, ADR-0004 is forward-only, and the
+counting control rejects that form — so omitting it turns `pnpm db:check-policies` red in
+this wave. `redirectReadPolicy` is **not** in `0001`: it has no applied instance, so its
+correction is to `apps/api/src/db/rls.ts:89-100` and nothing else.
+
+**The wrapper goes on three predicates in `tenantScopedPolicies()`** — the isolation `USING`,
+the isolation `WITH CHECK`, and `<t>_privileged_erase`'s `USING` — plus
+`redirectReadPolicy()`'s one. `rls.ts:74-76` is the raw site that would otherwise create
+`tenant_memberships` in a form the control rejects, in this same wave.
+
+**Migration `0001` also carries the role split.** `REVOKE ALL PRIVILEGES ON "user",
+"session", "account", "verification", "jwks" FROM shortkit_app`, and the matching `GRANT` to
+`shortkit_auth`. **`shortkit_auth` is created by TASK-018 in wave 0** — this card does not
+create it, and without wave 0 the `GRANT` fails with `role "shortkit_auth" does not exist`.
+
+**`client.ts` gets a SECOND POOL, and this is the trap in the whole wave.** The auth pool
+connects on `DATABASE_AUTH_URL`, max 5, with both connection-error listeners, and
+`closeDatabase()` ends both pools. **ADR-0046 alone will lead you to build one pool on
+`DATABASE_URL`, and that build is wrong.** ADR-0046 was written against the single-role model
+and is now `superseded_in_part_by: ADR-0050`; read its correction block. One pool on
+`DATABASE_URL` connects as `shortkit_app`, which this migration has just revoked on all five
+auth tables, so Better Auth cannot read `user` and nobody can sign in. **If sign-in is
+failing, the answer is the auth pool. Do not touch the `REVOKE`** — deleting it restores the
+cross-tenant session forgery this split exists to close, and the CI check that would catch
+that runs in the `integration` job, not `quality`.
+
+**`check-policies.mts` gains two assertions.** The counting control runs over **every** row
+of `pg_policies` in schema `public` — not a list of repaired names, because a list only ever
+covers what was known when it was written.
+
+Plus the grant matrix, **in both directions** (F-035 — ADR-0050 decides two and this card
+originally stated one): all five `EXEMPT` names present, and for each, `shortkit_app` holding
+none of `SELECT,INSERT,UPDATE,DELETE`; **and** `shortkit_auth` holding none of the same on
+the tenant-scoped tables. A one-directional matrix proves the auth tables are closed to the
+app role while saying nothing about the app tables being closed to the auth role, and the
+second is what stops the new role becoming a way around RLS. Use `has_table_privilege`
+**OR'd with** `has_any_column_privilege` — a column-level grant is invisible to the
+table-level call, measured — and note `has_any_column_privilege` rejects `DELETE` with
+`unrecognized privilege type`, so its list is three.
+
+**Two controls, and they are the reason two earlier findings are closed.** Added 2026-08-13,
+round 5, after the round-4 re-review found F-032 only four-sixths done: both were cited by
+ADRs and neither had a file, a card or a `test_files` entry anywhere.
+
+- `apps/api/src/db/context-flag-owners.spec.ts` (unit) — greps `set_config(` first arguments
+  across `apps/api/src`, **keeps only those with the `app.` prefix**, and asserts every
+  surviving **`{ flag, file }` pair** appears in `CONTEXT_FLAG_OWNERS`, which it imports from
+  `../../test/isolation/coverage`.
+
+  **The `app.` filter is not tidiness — without it the control is red on arrival.**
+  `apps/api/src/tenancy/tenant-context.ts:217-219` sets `statement_timeout` and
+  `idle_in_transaction_session_timeout` through `set_config`, and neither is a registry row.
+  Verified: exactly three distinct first arguments exist in `apps/api/src` today and two of
+  them are these. **Match on the pair, not the flag alone** — a second file setting an
+  already-registered flag is the case clause A1 exists to catch, and a flag-only match sails
+  straight past it.
+
+  **A subset, not an equality** (F-039, corrected 2026-08-13 round 6). `coverage.ts:1718-1722`
+  holds three rows and two name files that do not exist yet — `redirect-read.ts` (TASK-029)
+  and `privileged-eraser.ts` (TASK-054), both deferred out of this initiative. An equality
+  assertion would be **red on the day it lands**, and the cheap way to make a red build green
+  is to delete the control — which re-opens F-025. The subset direction carries the entire
+  security claim: it is what catches a new, unregistered flag setter. The equality direction
+  is deferred to whichever TASK lands the second setter.
+
+  **It must live under `src/**`**: `vitest.config.ts:10`
+  includes `src/**/*.spec.ts` and nothing else, so the same file under `test/` would collect
+  in no tier and pass by not running. Precedent for a `src` spec importing from `test`:
+  `apps/api/src/observability/framework-400-request-body.spec.ts:12`.
+  **This is the one executing control wave 1 ships**, it gives `CONTEXT_FLAG_OWNERS` its
+  first consumer, and F-025 — "an ADR cites four controls and none of them executes" — was
+  closed on the strength of it. Skip it and that finding reopens.
+- `apps/api/test/tenancy/warm-connection-no-context.int-spec.ts` (integration) — ADR-0049's
+  behavioural control: a warm, no-context `SELECT` returns zero rows. **Scope it to the tables
+  `has_table_privilege(current_user, c.oid, 'SELECT') OR has_any_column_privilege(current_user,
+  c.oid, 'SELECT')` says this role can read** — both terms, matching ADR-0050's grant matrix,
+  because a column-level grant is invisible to the table-level call (measured, F-031) and a
+  column-granted table would otherwise drop out of the set and take the sixth-auth-table
+  property with it. Do not widen the `'SELECT'` argument: `has_any_column_privilege` accepts
+  only the three column-grantable privileges and raises on `DELETE`. Not scoped
+  to every table in `public`: after migration `0001` the five exempt tables answer
+  `permission denied` (42501) to `shortkit_app`, not zero rows, so the naive form fails on
+  the day the role split lands. The computed set has a bonus property — a sixth auth table
+  nobody revoked stays in it, has no policy, returns rows, and the control fires.
+
+**F-001 is still yours** and is unrelated to the above: `check-policies.mts`'s docblock says
+four exempt tables where the Map holds five.
+
 ## Out of scope for this TASK
 
 The Better Auth instance and its plugin configuration (TASK-003) — this TASK writes no
@@ -142,3 +248,18 @@ From `packages/contracts/src/roles.ts` (shipped): `TENANT_ROLES`, `TENANT_ROLE`.
   `registerTenantScopedSurfaces()` call for subject `TenantMembershipsTableAccess`, table
   `tenant_memberships`, owner column `tenant_id`.
 - `apps/api/src/db/schema/index.ts` — two added `export *` lines.
+
+Added 2026-08-13, Design rounds 3 and 4 — see the role-split section above:
+
+- `apps/api/drizzle/0001_*.sql` — **four** DROP/CREATE policy pairs on `tenants`, including
+  `tenants_privileged_erase`; plus `REVOKE ALL PRIVILEGES ON "user","session","account",
+  "verification","jwks" FROM shortkit_app` and the matching `GRANT` to `shortkit_auth`.
+- `apps/api/src/db/rls.ts` — `nullif(<flag>, '')` on three predicates in
+  `tenantScopedPolicies()` and on `redirectReadPolicy()`'s one.
+- `apps/api/src/db/client.ts` — a second `pg.Pool` on `DATABASE_AUTH_URL`, max 5, both
+  error listeners, ended by `closeDatabase()`; `betterAuthDatabase()` built on it.
+- `apps/api/scripts/check-policies.mts` — the counting control over every `pg_policies` row
+  in schema `public`, and the grant-matrix assertion with its `has_any_column_privilege`
+  term and the all-five-`EXEMPT`-names-present check.
+- `apps/api/test/isolation/controls.ts` — the hand-written predicate reconciled with the
+  production constant (F-009). Already in this card's `paths` from the F-010 widening.
