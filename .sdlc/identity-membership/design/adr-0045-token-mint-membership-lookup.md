@@ -5,8 +5,26 @@ title: Token-mint tenant resolution reads one membership row through a third con
 status: accepted
 supersedes: null
 amends: ADR-0002, ADR-0020
+depends_on: ADR-0049
 date: 2026-08-12
 ---
+
+> **Corrected 2026-08-13 (F-003, F-005, F-006, F-007, F-008), round 1.** This ADR asserted
+> twice that an unset `app.tenant_id` makes `current_setting` return NULL, so the isolation
+> policy would admit nothing and the mint-time lookup would work. **That is true only on a
+> backend where the flag placeholder has never been created.** A transaction-local
+> `set_config` leaves the placeholder behind with a reset value of the **empty string**, and
+> `pg.Pool` never resets the backend, so on any connection that has served one tenant
+> transaction `''::uuid` raises `22P02` and the mint fails. Reproduced through the real pool
+> by the reviewer and confirmed at statement level here.
+>
+> The premise was wrong; the decision was not. The escape's shape, its narrowing and its
+> controls all stand. What changed is that the predicate it relies on had to be repaired
+> first, and the repair belongs to the shared template rather than to this policy —
+> **ADR-0049**, which also covers `redirectReadPolicy`'s table, the privileged eraser, and
+> the plain out-of-context read that no escape is involved in.
+>
+> Every corrected sentence below is struck through in place rather than deleted.
 
 ## Context
 
@@ -20,10 +38,18 @@ that is the whole reason the claim exists.
 migration. Its isolation policy reads
 `tenant_id = current_setting('app.tenant_id', true)::uuid`.
 
-So the obvious implementation returns nothing. `databaseTransaction` sets no flag,
-`current_setting` returns NULL with the second argument true, `tenant_id = NULL` is NULL,
-zero rows. `withTenantTransaction` is not available either: it needs the tenant id this
-function exists to produce. The lookup is fail-closed against itself.
+So the obvious implementation returns nothing. `databaseTransaction` sets no flag, so
+~~`current_setting` returns NULL with the second argument true, `tenant_id = NULL` is NULL,
+zero rows.~~ **corrected 2026-08-13 (F-003):** the flag reads NULL on a cold backend and the
+**empty string** on any backend that has already served a tenant transaction, because a
+transaction-local `set_config` leaves a session placeholder whose reset value is `''` and
+`pg.Pool` issues no reset. Under the original template the first case returns zero rows and
+the second **raises `22P02`**. Either way the lookup gets no tenant id; it is fail-closed
+against itself on a cold connection and fail-loud on a warm one. ADR-0049 repairs the
+predicate so both cases return zero rows.
+
+`withTenantTransaction` is not available either: it needs the tenant id this function exists
+to produce.
 
 Three artifacts already priced the escape hatch:
 
@@ -71,10 +97,18 @@ export function membershipLookupPolicy(): PolicySet {
 The table name is a literal rather than a parameter. This policy applies to one table by
 design and a parameter would invite a second.
 
-`user_id` is `text` and `current_setting` returns `text`, so no cast appears. With the flag
-unset `current_setting` returns NULL, `user_id = NULL` is NULL, and the policy admits
-nothing: an ordinary tenant transaction is unaffected, because PostgreSQL ORs permissive
-policies and this one contributes no rows.
+**`user_id` is `text` and `current_setting` returns `text`, so this policy never casts and
+was never affected by F-003.** With the flag unset it reads NULL and with it reset it reads
+`''`; `user_id = NULL` is NULL and `user_id = ''` matches no row, because `user_id` is a
+foreign key into `"user"(id)` and no such row exists. The policy admits nothing in either
+state, and an ordinary tenant transaction is unaffected because PostgreSQL ORs permissive
+policies.
+
+~~The isolation policy beside it is what raised.~~ The isolation policy beside it **did**
+raise, on every warm connection, and that is ADR-0049's subject rather than this one's. The
+two policies are ORed into the same `SELECT`, so a raise in either aborts the statement
+whatever the other would have returned — which is why repairing only this policy would have
+changed nothing.
 
 ### The setter
 
@@ -162,7 +196,10 @@ was built to prevent.
 Four controls, three of which already exist:
 
 1. **Clause A1** — `app.membership_lookup_user` is set in exactly one file in the scan set,
-   `apps/api/src/auth/membership-lookup.ts`.
+   `apps/api/src/auth/membership-lookup.ts`. It is the **fourth** flag, not the third:
+   `CONTEXT_FLAG_OWNERS` (`coverage.ts:1718-1722`) already holds `app.tenant_id`,
+   `app.redirect_context` and `app.privileged_erase`, so this adds a fourth row and a fourth
+   permitted `app.` name (corrected 2026-08-13, F-006).
 2. **Clause A2** — the string appears in exactly that file and `rls.ts`.
 3. **The `databaseTransaction` file list** in `tenant-context.md` grows from four paths to
    five, and TASK-056's grep asserts set equality.
@@ -204,14 +241,22 @@ Four controls, three of which already exist:
   exclusions" table plus its "**`ISOLATION_EXCLUSIONS` stays at two**" sentence. Each is a
   deliberate edit in TASK-002's commit, and each is a place a future reader can find a stale
   count if one is missed.
+
+  **Two of those edits are more than a number** (added 2026-08-13, F-007 and F-008).
+  `rls.ts:10-19`'s header enumerates the three permitted flag strings by name and calls
+  itself exhaustive — `membershipLookupPolicy()` puts a fourth string in that file, so the
+  header is false in the same commit unless it moves. And the AC-12 test is *titled*
+  "AC-12: exactly two isolation exclusions are declared"; moving only the assertion leaves a
+  green test whose name contradicts what it asserts, which is what a reader greps for. The
+  title and its comment move with the number.
 - **ADR-0015 argued against the `user.tenant_id` alternative partly on the grounds that
   "SC-1's exclusion count is exactly two".** That argument no longer distinguishes. The
   alternative is still rejected, for the stronger reason in the table above, but an accepted
   ADR's stated reasoning is weakened by this decision and that is recorded rather than
   quietly outgrown.
-- A third flag means a third thing a reviewer has to hold in mind when reading a policy, and
-  clause A4's permitted-name list is now three `app.` flags rather than two escapes plus
-  tenancy.
+- ~~A third flag~~ **A fourth flag** (F-006) means one more thing a reviewer has to hold in
+  mind when reading a policy, and clause A4's permitted-name list is now four `app.` flags
+  rather than three.
 - **The narrowing control on the caller is a grep over file names, not a type or a runtime
   guard.** Any module can import `withMembershipLookup`; nothing throws if a controller
   does. The guarantee is that the import is a reviewed diff, and TASK-056 is what turns it
@@ -236,11 +281,37 @@ Four controls, three of which already exist:
   migration `0001` beside `tenantScopedPolicies('tenant_memberships')`, writes
   `membership-lookup.ts` and `tenant-id-for-user.ts`, adds the fifth entry to `client.ts`'s
   docblock caller list, adds the third `ISOLATION_EXCLUSIONS` entry, and corrects the
-  five "exactly two" sites.
-- TASK-002 ships two integration controls in
-  `apps/api/test/auth/tenant-memberships.int-spec.ts`: with the flag set to user A, a
-  `select * from tenant_memberships` returns A's row and not B's; with no flag set, it
-  returns zero rows.
+  five "exactly two" sites — plus **`rls.ts`'s own header docblock at lines 10-19**, which
+  names the three permitted flag strings and calls itself exhaustive (F-007), and the
+  **AC-12 test's title and comment** (F-008).
+- TASK-002 also carries ADR-0049's repair, which lands in the same `rls.ts` and the same
+  migration: the `nullif` predicates, the three `DROP POLICY`/`CREATE POLICY` pairs for
+  `tenants`, the `check-policies.mts` cast control, and `controls.ts:130`.
+- TASK-002 ships three integration controls in
+  `apps/api/test/auth/tenant-memberships.int-spec.ts`. **Corrected 2026-08-13 (F-004): the
+  two originally specified here could not observe F-003.** Both were written with no
+  reference to connection state, both are true on a cold backend, and
+  `test/support/rls-fixture.ts` seeds through the migrator DSN, which leaves the application
+  pool cold — so both would have gone green over the blocker. **Connection state is the
+  variable, so every control names it:**
+
+  1. **Warm-connection mint.** Commit a `withTenantTransaction` first, in the same process
+     and the same pool, then call `tenantIdForUser` and assert it resolves to the right
+     tenant id. This is the only control that would have failed before ADR-0049 and it is
+     the one that matters. `POOL_MAX` is 10, so the test must either exhaust or pin the pool
+     to guarantee the mint reuses a used backend rather than a fresh one — asserting on a
+     connection you did not choose is asserting on luck.
+  2. **Warm-connection isolation.** In the same state, with the lookup flag set to user A, a
+     whole-table read returns exactly A's row and not tenant B's. Verified by hand:
+     it returns one row.
+  3. **Warm-connection zero rows.** In the same state, with no flag set at all, the read
+     returns zero rows rather than raising. This is the assertion that was untrue before
+     ADR-0049, and it is AC-10's shape rather than this escape's.
+
+  A refusal is not a pass in any of the three: row-level security denies a read by returning
+  zero rows and never by raising, so a test that throws proves nothing
+  (`isolation-coverage.md`, corrected statement 2). A `22P02` here is the blocker, not a
+  denial.
 - TASK-056 (deferred): clause A1's flag table gains a third row; the
   `databaseTransaction` file list gains a fifth path; control 4 above becomes an assertion.
 - `design/contracts/tenant-context.md` is amended in this initiative — the fifth consumer,

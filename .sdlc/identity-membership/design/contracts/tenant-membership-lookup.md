@@ -57,8 +57,22 @@ CREATE POLICY tenant_memberships_membership_lookup ON tenant_memberships
 ```
 
 `FOR SELECT` and it stays `FOR SELECT`. `user_id` and `current_setting` are both `text`, so
-there is no cast. With the flag unset `current_setting` returns NULL, `user_id = NULL` is
-NULL, and the policy admits nothing, so an ordinary tenant transaction is unaffected.
+**this policy never casts** and it admits nothing whether the flag reads NULL (cold backend)
+or `''` (any backend that has served a tenant transaction): `user_id = NULL` is NULL, and
+`user_id = ''` matches no row because `user_id` is a foreign key into `"user"(id)`.
+
+**`tenantScopedPolicies()`'s isolation predicate must be the ADR-0049 form for this to work
+at all.** The two policies are ORed into the same `SELECT`, so a raise in either aborts the
+statement whatever the other would have returned. Under the pre-ADR-0049 template,
+`current_setting('app.tenant_id', true)::uuid` evaluates `''::uuid` on every warm connection
+and raises `22P02`. Migration `0001` therefore carries:
+
+```sql
+CREATE POLICY tenant_memberships_tenant_isolation ON tenant_memberships
+  FOR ALL
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+```
 
 ## `withMembershipLookup`
 
@@ -181,7 +195,11 @@ and this is the one path that holds a user id and an email at the same time.
    AC-12 assertion in `cross-tenant-isolation.int-spec.ts` moves to `toHaveLength(3)` with
    the id added — **in TASK-002's commit, not a later one**.
 6. The three "exactly two" claims at `rls.ts:72`, `rls.ts:87` and `coverage.ts:490-499` are
-   corrected to three in the same commit.
+   corrected to three in the same commit, along with `rls.ts:10-19`'s header, which
+   enumerates three permitted flag strings and calls itself exhaustive while this commit adds
+   a fourth, and the AC-12 test's **title**, which says "exactly two".
+7. `tenantScopedPolicies()` carries ADR-0049's `nullif` form before this policy can work at
+   all. The two land in one commit; neither is useful alone.
 
 ## Error cases
 
@@ -211,15 +229,27 @@ must not receive a credential.
 
 ## Isolation controls this owes
 
-TASK-002 ships both in `apps/api/test/auth/tenant-memberships.int-spec.ts`:
+TASK-002 ships three in `apps/api/test/auth/tenant-memberships.int-spec.ts`. **All three run
+on a WARM pooled connection** — one that has already committed a `withTenantTransaction` in
+the same process and the same pool. Corrected 2026-08-13 (F-004): the two originally
+specified here named no connection state, and both are true on a cold backend, so both would
+have passed over F-003. `test/support/rls-fixture.ts` seeds through the migrator DSN and
+leaves the application pool cold, so cold is the default a test falls into by accident.
 
-1. With `app.membership_lookup_user` set to user A, `SELECT * FROM tenant_memberships`
-   returns A's row and does not return tenant B's row.
-2. With no flag set, the same statement returns zero rows.
+1. **Warm mint.** `tenantIdForUser(userA)` resolves to tenant A's id. This is the only one
+   that fails without ADR-0049.
+2. **Warm isolation.** With `app.membership_lookup_user` set to user A, `SELECT * FROM
+   tenant_memberships` returns exactly A's row and not tenant B's.
+3. **Warm zero rows.** With no flag set, the same statement returns zero rows rather than
+   raising.
 
-Both run as `shortkit_app`. A refusal is not a pass: row-level security denies a read by
+`POOL_MAX` is 10, so a control must pin or exhaust the pool to guarantee the statement
+reuses a used backend. A test that happens to draw a fresh connection asserts nothing.
+
+All three run as `shortkit_app`. A refusal is not a pass: row-level security denies a read by
 returning zero rows and never by raising (isolation-coverage.md, corrected statement 2), so
-a test that throws proves nothing and must be treated as a defect in the test.
+a test that throws proves nothing and must be treated as a defect in the test. A `22P02`
+here is F-003, not a denial.
 
 TASK-002 also registers the table with the harness:
 

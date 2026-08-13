@@ -106,9 +106,9 @@
     the same warm-connection lookup returns 0 rows. WHICH PREDICATE CARRIES IT IS THE
     ARCHITECT'S CALL - see F-005, which is the same defect on shipped code.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "ADR-0049: the empty-string tolerance goes in tenantScopedPolicies() (the template), not in the new policy. Reproduced independently at statement level and repaired with nullif(current_setting(...), ''); verified warm out-of-context read returns 0 rows and warm mint returns the tenant id. rls-policy-template.md amended."
+  resolved_round: 1
 
 - id: F-004
   phase: design
@@ -136,9 +136,9 @@
     back. The zero-rows assertion moves into that same state, since that is the state in which
     it is currently untrue.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "ADR-0045 and tenant-membership-lookup.md now specify THREE controls, all on a warm pooled connection that has already committed a withTenantTransaction in the same process and pool, with a note that POOL_MAX 10 means the test must pin or exhaust the pool."
+  resolved_round: 1
 
 - id: F-005
   phase: design
@@ -172,9 +172,24 @@
     reading a table that carries tenantScopedPolicies() without setting app.tenant_id.
     TASK-002's paths now reach rls.ts, so the repair is in scope for this wave.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "ADR-0049 repairs the shared template rather than the new policy, so links/domains and the privileged eraser are fixed before they exist. tenants' three casting policies are repaired via DROP/CREATE in migration 0001, since 0000 is applied and ADR-0004 is forward-only."
+  resolved_round: 1
+  correction: >-
+    THE ATTRIBUTION IN THIS FINDING'S SUMMARY IS WRONG AND THE ARCHITECT DISPUTED IT WITH
+    EVIDENCE RATHER THAN ACCEPTING IT. redirectReadPolicy is a TEXT comparison and `'' = 'on'`
+    is simply false, so it was never unsafe. The raise the reviewer saw came from the
+    tenantScopedPolicies() policy that `links` ALSO carries, not from the redirect policy it was
+    testing. The original text is kept verbatim so the record shows what was believed and when
+    it was disproven.
+    THE CORRECTION MAKES THE FINDING STRONGER, NOT WEAKER. The architect reproduced a case
+    NEITHER F-003 NOR F-005 CONTAINS: an out-of-context `count(*)` on a tenantScopedPolicies
+    table, warm connection, NO ESCAPE INVOLVED AT ALL, raises 22P02. That is AC-10's own shape,
+    and rls.ts:52-56 says in so many words that the `true` argument exists to make exactly that
+    read return zero rows - the comment describes the behaviour the defect removes. So `which
+    predicate carries the tolerance` was settled by measurement rather than by preference: the
+    TEMPLATE, because the failure is reachable with no escape in the picture. It also means the
+    redirect path needs no change of its own.
 
 - id: F-006
   phase: design
@@ -198,9 +213,9 @@
     Documentation gap, not a runtime failure, so it is a NOTE rather than a round.
   required_change: The counts in the ADR match CONTEXT_FLAG_OWNERS as it exists.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "ADR-0045 corrected: fourth flag and fourth permitted name, against CONTEXT_FLAG_OWNERS at coverage.ts:1718-1722."
+  resolved_round: 1
 
 - id: F-007
   phase: design
@@ -225,9 +240,9 @@
     READS AS A DECISION RATHER THAN AN OVERSIGHT. Documentation gap; a NOTE, not a round.
   required_change: The ADR's TASK-002 follow-up list names rls.ts's header alongside the five "exactly two" sites.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: "ADR-0045 TASK-002 follow-up list now names rls.ts:10-19 header alongside the five 'exactly two' sites."
+  resolved_round: 1
 
 - id: F-008
   phase: design
@@ -247,6 +262,98 @@
     ADR's cited line range covers it and its described edit does not. Documentation gap.
   required_change: The title and the comment move with the number.
   owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: "ADR-0045 now requires the AC-12 test title and comment to move with the number."
+  resolved_round: 1
+
+- id: F-009
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/controls.ts
+  line: 131
+  summary: >-
+    THE ISOLATION HARNESS HAND-WRITES THE PRODUCTION PREDICATE UNDER A COMMENT CLAIMING IT COMES
+    FROM THE PRODUCTION CONSTANT. controls.ts:131 declares its own
+    `current_setting('app.tenant_id', true)::uuid` and the docblock on the very next line reads
+    "The same shape every tenant-scoped table has, from the same production constant." IT IS NOT
+    IMPORTED FROM ANYWHERE.
+  failure_scenario: >-
+    ADR-0049 changes the production predicate to wrap every flag cast in `nullif(<flag>, '')`.
+    The harness's copy does not change with it, so THE SUITE GOES ON PROVING ISOLATION AGAINST
+    THE OLD, DEFECTIVE PREDICATE while production runs the new one - and it goes green, because
+    the old predicate isolates correctly on a cold connection, which is the only state the
+    fixture creates. The harness that exists to catch this class would be measuring a shape the
+    product no longer has.
+    F-288's CLASS, FOUND AND NOT FIXED: a normative-looking artifact carrying a rule the source
+    of truth has replaced, with a comment asserting a provenance it does not have. Verified by
+    reading controls.ts:131-132 directly.
+  required_change: >-
+    Either import the predicate from the production constant so the claim becomes true, or
+    correct the comment to say it is a hand-written copy and add a check that the two agree.
+    The architect named it and did not fix it; controls.ts is not in TASK-002's paths - see
+    F-010.
+  owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-010
+  phase: design
+  wave: 1
+  task: TASK-002
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: plan
+  file: .sdlc/identity-membership/tasks/TASK-002.md
+  line: 9
+  summary: >-
+    ROUND 1's REPAIR NEEDS TWO MORE PATHS TASK-002 CANNOT REACH - apps/api/test/isolation/controls.ts
+    and docs/architecture/rls.md - both LIVE SITES OF THE OLD PREDICATE.
+  failure_scenario: >-
+    F-002's widening covered six files against the ORIGINAL design. ADR-0049 moved the fix into
+    the shared template, which has more consumers than the new policy did, so the surface grew
+    with the fix. Leave them out and the harness keeps asserting the old predicate (F-009) and
+    the architecture doc keeps documenting it.
+    SECOND TIME IN ONE WAVE THAT DESIGN NAMED FILES THE PLAN'S REACHABILITY PASS COULD NOT HAVE
+    KNOWN ABOUT. The plan checked every deliverable IT named; Design then named more, twice. The
+    architect checked wave consequences again and reports neither file is claimed by any other
+    TASK, so no wave conflict is created.
+  required_change: >-
+    Widen TASK-002's paths by both files. Juano's, for the same reason F-002 was: the plan gate
+    is approved and its ids are frozen.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "Juano ruled WIDEN 2026-08-13, second widening of this card in one wave; both files added, wave table unchanged, reason recorded on the card"
+  resolved_round: 1
+
+- id: F-011
+  phase: design
+  wave: 1
+  task: TASK-011
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: plan
+  file: .sdlc/identity-membership/tasks/TASK-011.md
+  line: 43
+  summary: >-
+    TASK-011's Approach QUOTES THE OLD PREDICATE VERBATIM - `tenant_id = current_setting('app.tenant_id', true)::uuid`
+    - which ADR-0049 replaced. TASK-011 creates the `workspaces` table in wave 6.
+  failure_scenario: >-
+    An implementer reads only its own TASK and the contracts it references. TASK-011's card tells
+    it to write the defective predicate for a NEW tenant-scoped table, five waves after the
+    template was corrected, and the card is more immediate than the contract. The result passes
+    every cold-connection test.
+    Verified at TASK-011.md:43. The architect flagged it and correctly did not edit it: a TASK
+    card is not its write surface.
+  required_change: The card quotes the nullif form, or stops quoting the predicate and points at rls-policy-template.md.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: "TASK-011.md:43 now quotes the nullif form with the reason and the ADR id, 2026-08-13"
+  resolved_round: 1

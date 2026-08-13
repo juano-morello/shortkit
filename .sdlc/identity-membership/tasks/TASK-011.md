@@ -40,7 +40,9 @@ runtime role from the moment it exists and before any policy covers it.
 
 `tenantScopedPolicies` produces four DDL statements plus the `tenant_id` index: enable RLS,
 force RLS, one `FOR ALL` policy with **matching** `USING` and `WITH CHECK` on
-`tenant_id = current_setting('app.tenant_id', true)::uuid`, and a privileged-erase
+`tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid` - **corrected 2026-08-13
+by ADR-0049, F-011; the bare cast this card originally quoted raises 22P02 on any pooled
+connection that has served one tenant transaction** - and a privileged-erase
 `FOR DELETE` policy. `workspaces` is a template-shaped table and takes the template unchanged
 — it is **not** a cascade root and must not copy `tenants`' bespoke four-policy set.
 

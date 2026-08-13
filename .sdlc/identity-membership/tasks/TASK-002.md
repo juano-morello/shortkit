@@ -6,11 +6,17 @@ title: Better Auth tables, tenant_memberships with its unique constraint, and te
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: []
-paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/schema/auth.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts"]
+paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/schema/auth.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts", "apps/api/test/isolation/controls.ts", "docs/architecture/rls.md"]
 # paths WIDENED 2026-08-13 by Juano at the Design wave-1 gate, F-002. Six files its own design
 # requires and its original declaration did not reach. THE WAVE TABLE IS UNCHANGED: TASK-001 is
 # packages/contracts/** only, so wave 1 stays parallel-safe, and every other claimant of these
 # files (003 w2, 005 w4, 014 w8, 015 w9) is strictly later. A declaration gap, not an ordering one.
+# WIDENED A SECOND TIME 2026-08-13, F-010, after design round 1 moved the fix into the shared
+# RLS template, which has more consumers than the new policy did. controls.ts and
+# docs/architecture/rls.md are live sites of the old predicate. Neither is claimed by another
+# TASK. WITHOUT controls.ts, F-009 IS UNFIXABLE AND THE HARNESS GOES ON PROVING ISOLATION
+# AGAINST THE PREDICATE ADR-0049 REPLACED - green, because the old form isolates correctly on a
+# cold connection, which is the only state the fixture creates.
 contracts: [design/contracts/rls-policy-template.md, design/contracts/isolation-coverage.md, design/contracts/tenant-context.md]
 test_files: ["apps/api/src/auth/tenant-id-for-user.spec.ts (unit)", "apps/api/test/auth/tenant-memberships.int-spec.ts (integration)", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts (isolation, registration only — the assertions there are TASK-015's)"]
 acceptance: [AC-2, AC-4]

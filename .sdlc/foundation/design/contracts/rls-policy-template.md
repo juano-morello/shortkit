@@ -91,8 +91,8 @@ ALTER TABLE <t> FORCE  ROW LEVEL SECURITY;
 
 CREATE POLICY <t>_tenant_isolation ON <t>
   FOR ALL
-  USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
 CREATE POLICY <t>_privileged_erase ON <t>
   FOR DELETE
@@ -101,9 +101,39 @@ CREATE POLICY <t>_privileged_erase ON <t>
 CREATE INDEX <t>_tenant_id_idx ON <t> (tenant_id);
 ```
 
-`current_setting(name, true)` returns NULL when unset. `NULL = uuid` is NULL, which
-the policy treats as false, so a query with no context returns zero rows (AC-10) and an
-insert with no context fails (AC-9).
+**Amended 2026-08-13 (ADR-0049, F-003, F-005). The `nullif` is not decoration and the
+paragraph this replaces was wrong.**
+
+~~`current_setting(name, true)` returns NULL when unset. `NULL = uuid` is NULL, which the
+policy treats as false, so a query with no context returns zero rows (AC-10) and an insert
+with no context fails (AC-9).~~
+
+`current_setting(name, true)` returns NULL only while the flag placeholder has **never been
+created on that backend**. A transaction-local `set_config` creates it, and its reset value
+after COMMIT is the **empty string**. `pg.Pool` returns the connection with no reset query,
+so every backend that has served one tenant transaction reads `''` for the rest of its life.
+Measured, one session: cold `is null = true`; after one committed transaction-local
+`set_config`, `is null = false` and the value is `''`.
+
+Without the `nullif`, `''::uuid` raises `22P02 invalid input syntax for type uuid: ""`, so
+the AC-10 read **raises instead of returning zero rows** on every warm connection, and so
+does every escape reading the table without setting the flag. With it, both the never-set
+and the reset states collapse to NULL, `tenant_id = NULL` is NULL, and the policy treats it
+as false: zero rows (AC-10) and a failed insert (AC-9), on a cold backend and a warm one
+alike.
+
+**`nullif` and not an `AND` guard.** `current_setting(...) <> '' AND tenant_id = ...::uuid`
+was installed verbatim and re-measured on a warm session: it still raises. PostgreSQL does
+not guarantee left-to-right evaluation of `AND` operands in a policy predicate. The index on
+`tenant_id` is preserved under `nullif` — verified, `Bitmap Index Scan on
+<t>_tenant_id_idx`.
+
+**No policy expression may apply a cast directly to `current_setting(...)`.**
+`pnpm db:check-policies` asserts this over `pg_policies.qual` and `with_check` for every
+table in schema `public`. The two renderings differ in the catalogue —
+`(current_setting('app.tenant_id'::text, true))::uuid` against
+`(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid` — which is what
+makes the check mechanical.
 
 `<t>_privileged_erase` is `FOR DELETE` and stays `FOR DELETE`. It grants no read. The
 eraser's work list is collected by the caller in an ordinary tenant transaction; see
@@ -116,20 +146,28 @@ and **no ordinary `DELETE`**. Revised 2026-08-04 (F-005): a `FOR ALL` policy her
 any authenticated handler delete its own tenant row and cascade-destroy `click_events`
 and `audit_entries` while setting no context flag.
 
+**Migration `0000` is applied and carries the pre-`nullif` form of the three casting
+policies.** ADR-0004 is forward-only, so the repair is a `DROP POLICY` / `CREATE POLICY`
+pair per policy in migration `0001` (TASK-002), never an edit to `0000`. A reviewer seeing
+`DROP` in a generated migration is told by ADR-0004 to stop and ask for the ADR; it is
+ADR-0049.
+
 ```sql
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenants FORCE  ROW LEVEL SECURITY;
 
+-- The three casting policies carry the same `nullif` as the per-table template, for the
+-- same reason and by the same amendment (ADR-0049, 2026-08-13).
 CREATE POLICY tenants_self_select ON tenants
-  FOR SELECT USING (id = current_setting('app.tenant_id', true)::uuid);
+  FOR SELECT USING (id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
 CREATE POLICY tenants_self_update ON tenants
-  FOR UPDATE USING      (id = current_setting('app.tenant_id', true)::uuid)
-             WITH CHECK (id = current_setting('app.tenant_id', true)::uuid);
+  FOR UPDATE USING      (id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+             WITH CHECK (id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
 -- Signup creates exactly the tenant whose context it is already in (ADR-0021).
 CREATE POLICY tenants_self_insert ON tenants
-  FOR INSERT WITH CHECK (id = current_setting('app.tenant_id', true)::uuid);
+  FOR INSERT WITH CHECK (id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
 -- The only DELETE path on tenants, anywhere in the system.
 CREATE POLICY tenants_privileged_erase ON tenants
@@ -161,6 +199,7 @@ existing table.
 | `<t>_tenant_isolation` | every tenant-scoped table | `ALL` | `app.tenant_id` |
 | `<t>_privileged_erase` | every tenant-scoped table | `DELETE` | `app.privileged_erase` |
 | `<t>_redirect_read` | `domains`, `links` only | `SELECT` | `app.redirect_context` |
+| `tenant_memberships_membership_lookup` | `tenant_memberships` only | `SELECT` | `app.membership_lookup_user` (ADR-0045) |
 | `tenants_self_select` | `tenants` | `SELECT` | `app.tenant_id` |
 | `tenants_self_update` | `tenants` | `UPDATE` | `app.tenant_id` |
 | `tenants_self_insert` | `tenants` | `INSERT` | `app.tenant_id` |
@@ -189,7 +228,12 @@ code reads `user` only through `userDirectory.findByIds()`, which joins
 ## Invariants a caller may rely on
 
 1. Any `SELECT`, `INSERT`, `UPDATE` or `DELETE` on a table above, issued with no
-   context flag set, affects zero rows.
+   context flag set, affects zero rows — **and returns rather than raising, on a reused
+   pooled connection as well as a fresh one.** Amended 2026-08-13 (ADR-0049). This invariant
+   was false for every backend that had served one tenant transaction, which is every backend
+   within seconds of taking traffic; it holds under the `nullif` form above and not under the
+   direct cast this contract carried until then. **It is the invariant to re-measure against a
+   warm connection, not a cold one**, and it is the one a test can pass while it is untrue.
 2. An `INSERT` or `UPDATE` carrying a `tenant_id` other than `current_setting('app.tenant_id')`
    is rejected by `WITH CHECK` (AC-9, AC-95).
 3. `app.redirect_context` grants `SELECT` on exactly two tables and cannot write.
