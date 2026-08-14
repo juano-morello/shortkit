@@ -2032,6 +2032,12 @@
     (README, scripts/**, check-compose-stack.sh) belong to TASK-009 wave 4 and TASK-017 wave 9,
     both later than the wave that breaks. Ownership is the open question, not the shape.
   owner_slot: orchestrator
+  routing_note: >-
+    OWNER ASSIGNED 2026-08-14, NOT FIXED. Juano created TASK-019 (wave 1) to own the generation
+    step - before TASK-003's assertion in wave 2, which is the point. The card carries F-083's
+    hazard as a design constraint rather than a follow-up: the generator writes BETTER_AUTH_SECRET
+    ONLY WHEN ABSENT and never rewrites the file, because .env is also where rotated role passwords
+    live.
   status: open
   resolved_by: null
   resolved_round: null
@@ -2094,6 +2100,10 @@
     the reader to override it.
   required_change: Belongs to F-081's owner, before wave 2. Not a TASK-018 edit.
   owner_slot: orchestrator
+  routing_note: >-
+    OWNER ASSIGNED 2026-08-14, NOT FIXED. TASK-019, with F-081, on the ruling that the generation
+    step and the rotation template are one story - splitting them is how a generator reverts four
+    rotated passwords to published defaults.
   status: open
   resolved_by: null
   resolved_round: null
@@ -2115,6 +2125,10 @@
   failure_scenario: Third instance of the same defect across three fixtures. The first two were found by different auditors in different rounds.
   required_change: A card owns it and the message names all three.
   owner_slot: orchestrator
+  routing_note: >-
+    OWNER ASSIGNED 2026-08-14, NOT FIXED. TASK-002 - it already owns test fixtures this wave and
+    the spawned child needs DATABASE_AUTH_URL from wave 1. Third instance of the same two-DSN
+    defect across three fixtures, each found by a different auditor in a different round.
   status: open
   resolved_by: null
   resolved_round: null

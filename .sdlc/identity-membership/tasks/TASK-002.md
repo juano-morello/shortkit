@@ -9,7 +9,12 @@ depends_on: [TASK-018]
 # TASK-018 ADDED 2026-08-13 at the Design wave-1 gate. It creates `shortkit_auth` in wave 0;
 # this card's migration 0001 GRANTs to that role. The edge is hard — a forward-only migration
 # on a database that has already applied 0000 fails with `role "shortkit_auth" does not exist`.
-paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/schema/auth.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts", "apps/api/test/isolation/controls.ts", "docs/architecture/rls.md", "apps/api/src/db/context-flag-owners.spec.ts", "apps/api/test/tenancy/warm-connection-no-context.int-spec.ts"]
+paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/schema/auth.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts", "apps/api/test/isolation/controls.ts", "docs/architecture/rls.md", "apps/api/src/db/context-flag-owners.spec.ts", "apps/api/test/tenancy/warm-connection-no-context.int-spec.ts", "apps/api/test/security/security-headers.int-spec.ts"]
+# security-headers.int-spec.ts ADDED 2026-08-14 by Juano, F-084. It was in NO card's paths. Its
+# throw names two DSNs, and it spawns an API child with its OWN env callback rather than
+# authServerEnv() - so from THIS wave that child needs DATABASE_AUTH_URL the message never
+# mentions. THIRD instance of the same defect across three fixtures, each found by a different
+# auditor in a different round. Text and env only; do not touch its assertions.
 # paths WIDENED 2026-08-13 by Juano at the Design wave-1 gate, F-002. Six files its own design
 # requires and its original declaration did not reach. THE WAVE TABLE IS UNCHANGED: TASK-001 is
 # packages/contracts/** only, so wave 1 stays parallel-safe, and every other claimant of these

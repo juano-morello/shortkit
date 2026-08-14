@@ -8,9 +8,9 @@ graph acyclic across 22 edges, both owner slots valid.
 
 **Amended 2026-08-13 at the Design wave-1 gate (F-032, F-034, F-038).** TASK-018 is new, and
 so is wave 0 — the counts above were written on 2026-08-12 and describe the plan as approved.
-Now: **25 cards, eighteen TASKs, ten waves, 23 edges.** The AC count is unchanged at 36 and
+Now: **26 cards, nineteen TASKs, ten waves, 24 edges.** (TASK-019 added 2026-08-14.) The AC count is unchanged at 36 and
 that is the wrinkle: **TASK-018 claims none**, so "each claimed by exactly one TASK" is now a
-statement about seventeen of eighteen TASKs. The role split arrived from a measured
+statement about seventeen of NINETEEN TASKs — TASK-018 and TASK-019 both claim none, for the same reason: both descend from findings raised after the criteria were written. The role split arrived from a measured
 account-takeover (F-024) after these criteria were written, and no criterion describes it.
 Adding one amends an approved STORY, which is Juano's call and was flagged at the gate rather
 than taken. The round-4 re-review judged the gap **not load-bearing** — a skipped TASK-018
@@ -110,6 +110,8 @@ Naming any other slot fails at dispatch. `git.ai_attribution: false`, hard.
 graph TD
   TASK-001[001 auth+member contracts] --> TASK-003
   TASK-018[018 provision shortkit_auth at all three creation sites] --> TASK-002
+  TASK-018 --> TASK-019[019 generated dev secret so compose still comes up]
+  TASK-019 --> TASK-003
   TASK-002[002 auth tables, tenant_memberships, tenantIdForUser] --> TASK-003
   TASK-003[003 Better Auth instance + onUserCreated] --> TASK-004
   TASK-004[004 Express mount, body cap, IP buckets, boot assertions] --> TASK-005
@@ -154,7 +156,7 @@ including a gate already recorded. TASK count is now **18**.
 | Wave | TASKs | Parallel-safe? | Notes |
 |---|---|---|---|
 | 0 | 018 | — | Provisioning only. **Strictly before 002**: it creates `shortkit_auth`, and 002's migration `0001` GRANTs to that role — a forward-only migration fails with `role "shortkit_auth" does not exist`. Touches `docker-compose.yml` and `docker-compose.test.yml` for their `CREATE ROLE` blocks, **and `docker-compose.yml`'s `api` `environment:` block for `BETTER_AUTH_SECRET`, `DATABASE_AUTH_URL` and the new role's password** (F-034 — the boot assertions that read them are wave 2). TASK-009 owns every other `environment:` entry, four waves later. `docker-compose.test.yml` has no `api` service. |
-| 1 | 001, 002 | yes | `packages/contracts/**` versus `apps/api/src/db/**` + `drizzle/**`. Disjoint. |
+| 1 | 001, 002, **019** | yes | `packages/contracts/**` versus `apps/api/src/db/**` + `drizzle/**`. Disjoint. 019 is `scripts/`, the root `.env.example` and README — added 2026-08-14, F-081: it must precede TASK-003's secret assertion in wave 2 or a clean clone's `docker compose up` goes red. |
 | 2 | 003 | — | Writes `auth.config.ts` wholesale; nothing else may touch it. |
 | 3 | 004 | — | Sole owner of `main.ts`. GC-C is one registration in one file. |
 | 4 | 005, 007, 009 | yes | 005 takes named files under `apps/api/src/auth/`, not `auth/**`, because 003 and 004 own the rest; 007 is `apps/web/**`; 009 is compose, `.env.example`, README. |
