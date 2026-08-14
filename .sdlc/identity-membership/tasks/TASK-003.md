@@ -128,8 +128,14 @@ for `jwks.privateKey`, so one `jwks` row plus a value anyone can read from npm f
 under `isProduction`, so **the two environments that exist here are the two it does not
 cover** (F-020).
 
-`betterAuthSecret(): string` **throws** — on unset, on empty, under 32 characters, and on the
-published default itself. It must never return `''` or `undefined`, and the reason is the
+`betterAuthSecret(): string` **throws** — on unset, on empty, under 32 characters, and on
+**either** published constant. Amended 2026-08-14 (F-074): there are now **two** rejected by
+exact value — better-auth's `better-auth-secret-12345678901234567890` and the compose default
+`development-compose-better-auth-secret-not-a-real-value` that TASK-018 introduced. The
+disqualifying property is **publication, not length or shape**: the compose value is committed
+to a public repository, so it sits in a history nobody can rewrite, which is the same property
+as F-020's blocker rather than one comparable to it. A locally generated string of identical
+shape is fine. It must never return `''` or `undefined`, and the reason is the
 `||` chain above: a falsy return is not an override, it falls straight through to the
 default and restores exactly the state this is fixing (F-033).
 

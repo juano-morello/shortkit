@@ -9,7 +9,7 @@ depends_on: [TASK-004]
 paths: ["docker-compose.yml", "docker-compose.test.yml", "apps/api/.env.example", "apps/web/.env.example", "README.md"]
 # NOTE 2026-08-14, F-075. `apps/api/.env.example` does not exist ON DISK TODAY. THAT IS NOT AN
 # ERROR IN THIS PATH LIST - TASK-009 CREATES IT as a deliverable in wave 4 ("does not exist and is
-# owed by three separate ADR follow-ups. It lands here", TASK-009:37-39). An earlier version of
+# owed by three separate ADR follow-ups. It lands here", this card's Approach section). An earlier version of
 # this note called it a phantom path; that was MY inference from the file's absence without
 # reading TASK-009's prose, and it was wrong. WHAT F-075 ACTUALLY FOUND is a different file: the
 # ROOT `.env.example`, which DOES exist, is the credential-rotation template holding

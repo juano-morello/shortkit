@@ -249,17 +249,27 @@ services:
       # (wave 1) adds the GRANT ... TO shortkit_auth that fails with `role
       # "shortkit_auth" does not exist` against a database that never created it.
       #
-      # From wave 2, `api` fails against THIS DSN, but not with "role does not exist":
-      # measured over the docker network (where `api` actually connects, not over
-      # loopback, where pg_hba runs a different method), a missing role reads
-      # `FATAL: password authentication failed for user "shortkit_auth"` — scram does
-      # not disclose whether the role exists. THAT MESSAGE READS AS A WRONG PASSWORD.
-      # The two cheapest repairs from there are overriding SHORTKIT_AUTH_PASSWORD,
-      # which does nothing, or repointing DATABASE_AUTH_URL at a DSN that does
-      # authenticate — which is the change ADR-0050 names as silently restoring
-      # shortkit_app as the auth role with every gate still green. Run
-      # `docker compose down -v` before the next `up` instead; that re-runs the init
-      # script and creates the role.
+      # From wave 2, `api` fails against THIS DSN, but not with "role does not exist".
+      # `api` connects from OUTSIDE the postgres container, over the compose network —
+      # the same path as a probe from your own host against the published port — and
+      # the image's `host all all 127.0.0.1/32 trust` line only matches a connection
+      # that arrives FROM 127.0.0.1. Neither does (measured: `inet_client_addr()` on a
+      # connection from the host reads the bridge gateway, e.g. 172.18.0.1, never
+      # 127.0.0.1), so scram runs and a missing role answers `password authentication
+      # failed for user "shortkit_auth"` — no `FATAL:` prefix; that is psql's own
+      # formatting, not what `node-postgres` puts on `error.message` or what
+      # `docker compose logs api` prints through main.ts's `err_message`. Only a probe
+      # run FROM INSIDE the postgres container (its unix socket, or 127.0.0.1 from
+      # within it) hits the trust line and gets `FATAL: role "shortkit_auth" does not
+      # exist` instead — not how `api` connects, and not how you would naturally check
+      # this from your host.
+      #
+      # THAT MESSAGE READS AS A WRONG PASSWORD. The two cheapest repairs from there are
+      # overriding SHORTKIT_AUTH_PASSWORD, which does nothing, or repointing
+      # DATABASE_AUTH_URL at a DSN that does authenticate — which is the change
+      # ADR-0050 names as silently restoring shortkit_app as the auth role with every
+      # gate still green. Run `docker compose down -v` before the next `up` instead;
+      # that re-runs the init script and creates the role.
       DATABASE_AUTH_URL: postgres://shortkit_auth:${SHORTKIT_AUTH_PASSWORD:-auth}@postgres:5432/shortkit
       # ---------------------------------------------------------------------------
       # DO NOT REUSE THIS VALUE ANYWHERE A REAL DEPLOY TARGET COULD READ IT.
