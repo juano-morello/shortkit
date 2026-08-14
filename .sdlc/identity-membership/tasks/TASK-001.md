@@ -3,7 +3,7 @@ id: TASK-001
 story: STORY-001
 epic: EPIC-001
 title: Auth and tenant-membership contracts in packages/contracts
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: []
 paths: ["packages/contracts/src/auth/**", "packages/contracts/src/members/**", "packages/contracts/src/roles.ts", "packages/contracts/src/index.ts"]

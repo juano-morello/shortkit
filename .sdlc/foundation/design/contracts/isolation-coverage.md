@@ -6,6 +6,47 @@
 - **Consumed by:** every TASK adding a repository or an authenticated route.
 - **ADRs:** ADR-0020, ADR-0003, ADR-0019.
 
+> **AMENDMENT AFTER THE FREEZE. 2026-08-13 (F-047), initiative `identity-membership`, wave 1,
+> raised during the Test phase red run.** This contract froze at the Design gate on
+> 2026-08-04 and every entry below predates that freeze or was written under it. **This entry
+> postdates it.** Juano authorised the amendment explicitly, and it reopens the Design gate
+> for a scoped re-approval covering exactly what follows. Nothing else in this file changes.
+>
+> **A fourth context flag, `app.membership_lookup_user`.** ADR-0045 (`identity-membership`)
+> introduces it, and `apps/api/src/auth/membership-lookup.ts` is the one file that may set
+> it. The flag table under "The three flags and their permitted files" gains a row and A2's
+> carve-out widens with it. The A4 permitted-name table's `app.` row and the A1 timing
+> paragraph each said "three" and now say four.
+>
+> **How this was found.** F-044 was spent making ADR-0045's wave-1 control cite these clauses
+> rather than duplicate them. On its first real run that control fired on this gap and named
+> both parts: `app.membership_lookup_user <- apps/api/src/auth/membership-lookup.ts`. A
+> control that had stayed its own mechanism would have passed, and the disagreement between
+> wave 1's design and this contract would have shipped.
+>
+> **A4 needs no change to its predicate, and that was measured rather than assumed.** The
+> third branch is `app\.[^'"`]*`, a prefix match, and A1's setter capture is `(app\.[a-z_]+)`.
+> Both admit `'app.membership_lookup_user'`, tested against the literal `SELECT
+> set_config('app.membership_lookup_user', $3, true)`. Only the prose in A4's table counted
+> the setters, and only that prose moved.
+>
+> **`ISOLATION_EXCLUSIONS` is a different count, it is going to three rather than four, and
+> this amendment does not touch it.** The two enumerations are not the same list.
+> `withMembershipLookup` is the **third** exclusion; the first flag's setter,
+> `apps/api/src/tenancy/tenant-context.ts`, is the ordinary request path and was never an
+> exclusion. Three exclusions alongside four flags is the consistent state, and the design
+> stub's "EXCLUSION 3 OF EXACTLY 3" is correct about the list it names.
+>
+> **"Exclusions: exactly two" below is stale, and this file is a sixth site ADR-0045 did not
+> name.** That ADR lists five artifacts carrying "exactly two" for TASK-002 to correct
+> (`rls.ts:72`, `rls.ts:87`, `coverage.ts:490-499`,
+> `cross-tenant-isolation.int-spec.ts:1360-1368`, and `tenant-context.md`). This contract's
+> "Exclusions: exactly two" section and its `expect(ISOLATION_EXCLUSIONS).toHaveLength(2)` are
+> not among them and are equally wrong once TASK-002 lands. **Recorded here, deliberately not
+> changed.** Raising a length assertion is the one-line diff the control exists to make
+> visible, so it belongs in TASK-002's commit beside the entry that raises it, not in an
+> amendment written a wave early.
+>
 > **Second reconciliation, 2026-08-11, against TASK-006 at `6e24416` (`done`, fix-round cap
 > spent at 5 of 5). F-353, folding in F-350 and F-354.** The amendment below was written
 > against round 3. Rounds 4 and 5 landed hours later and **made four of its new sentences
@@ -455,13 +496,25 @@ unsatisfiable, because the policies that read a flag are built in
 | `apps/api/test/**` | the integration harness sets `app.tenant_id` by design (`apps/api/test/support/psql.ts`) |
 | `apps/api/drizzle/**` | migration DDL. Its flag literals are all inside `CREATE POLICY ... current_setting(...)`, which is the read side of the same distinction A1 draws. DDL applied by `shortkit_migrator` at deploy cannot set a flag on a request path |
 
-**The three flags and their permitted files.**
+~~**The three flags and their permitted files.**~~ **The four flags and their permitted
+files.** Amended 2026-08-13 (F-047), after the freeze — see the amendment banner at the top
+of this file.
 
 | Flag | The one file that may SET it | May also contain the string |
 |---|---|---|
 | `app.tenant_id` | `apps/api/src/tenancy/tenant-context.ts` | `apps/api/src/db/rls.ts` |
 | `app.redirect_context` | `apps/api/src/redirect/db/redirect-read.ts` | `apps/api/src/db/rls.ts` |
 | `app.privileged_erase` | `apps/api/src/gdpr/privileged-eraser.ts` | `apps/api/src/db/rls.ts` |
+| `app.membership_lookup_user` (ADR-0045) | `apps/api/src/auth/membership-lookup.ts` | `apps/api/src/db/rls.ts` |
+
+**The fourth row's third column is `rls.ts` for the same reason the other three are, and it
+was checked rather than copied.** The reason `rls.ts` holds the carve-out is that the
+policies which READ a flag are built there while the statement that SETS it lives elsewhere,
+which is the distinction F-118 settled this whole clause on. `membershipLookupPolicy()` is in
+`apps/api/src/db/rls.ts` and emits `CREATE POLICY tenant_memberships_membership_lookup ON
+tenant_memberships FOR SELECT TO shortkit_app USING (user_id =
+nullif(current_setting('app.membership_lookup_user', true), ''))`, a read. `rls.ts` sets
+nothing, which A3 asserts independently. Same reasoning, same answer.
 
 **A1. Set call sites.** For each flag `F`, let `setters(F)` be the files in the scan set
 containing at least one match of
@@ -480,9 +533,17 @@ Assert `mentions(F)` is a subset of `{ permitted setter for F, apps/api/src/db/r
 A copy of the literal in a repository, a service or a guard fails here even if nothing
 sets it, because it is the step before someone does.
 
+**A2's permitted-file list is per flag and it now covers four flags.** Amended 2026-08-13
+(F-047). The clause is written parametrically over `F`, so the set it ranges over is the flag
+table above and nothing else. The table gained a row, so `mentions('app.membership_lookup_user')`
+must be a subset of `{ apps/api/src/auth/membership-lookup.ts, apps/api/src/db/rls.ts }`,
+stated here rather than left to be inferred. **A carve-out covering three flags while the
+table names four is the same defect one layer down**, and it is what F-047 was filed against.
+
 **A3. `rls.ts` reads, never sets.** Assert `apps/api/src/db/rls.ts` contains no match of
 `/set_config\s*\(/`. Without A3, A2's carve-out is the hole: `rls.ts` would be a file
-permitted to contain all three strings and permitted to set them.
+permitted to contain ~~all three strings~~ **all four strings** (F-047, 2026-08-13) and
+permitted to set them.
 
 **A4. No computed flag name, and a closed list of non-`app` names.** For every match of
 `/set_config\s*\(/` in the scan set, assert the first argument is a single-quoted,
@@ -492,7 +553,7 @@ double-quoted or backtick-quoted string literal whose value is one of these thre
 |---|---|---|
 | `statement_timeout` | `withTenantTransaction` (`tenant-context.md`, "SQL issued") | 2026-08-04, F-007 |
 | `idle_in_transaction_session_timeout` | `withTenantTransaction`, in the same statement group | 2026-08-05, F-123 |
-| anything beginning `app.` | the three flag setters in the table above, further constrained by A1 and A2 | initial |
+| anything beginning `app.` | ~~the three flag setters~~ **the four flag setters** (F-047, 2026-08-13) in the table above, further constrained by A1 and A2 | initial |
 
 The predicate TASK-056 implements, over the first argument as defined below:
 
@@ -504,6 +565,15 @@ An identifier, a `${...}` interpolation, or a concatenation fails. A4 is what ma
 sound: without it, `set_config(FLAG, ...)` defeats A1 with a one-line alias. It is also
 the first enforcement of ADR-0003's no-concatenation rule, which was prose with no test
 behind it.
+
+**The predicate admits a fourth `app.` flag with no edit, confirmed by measurement**
+(2026-08-13, F-047). The `app\.[^'"`]*` branch is a prefix match, not an enumeration, so
+`'app.membership_lookup_user'` passes A4 and `set_config('app.membership_lookup_user', $3,
+true)` matches A1's capture `(app\.[a-z_]+)`. Both were run against the literal rather than
+read. **This is deliberate and it is the division of labour between the clauses**: A4 bounds
+the *shape* of a name and refuses anything computed, while A1 and A2 bound *which* names and
+*which* files, from the table above. Adding a flag is therefore a table edit, and adding a
+non-`app.` GUC is a predicate edit. The two costs are different on purpose.
 
 **The two non-`app` names are an enumeration, not a pattern, and that is deliberate.**
 A pattern loose enough to admit a legitimate GUC by shape (`/^[a-z_]+$/`, say) also
@@ -522,7 +592,8 @@ passes on all four counts, which is why it is here and `row_security` never will
 
 **Consequence for implementers: a flag name gets no named constant.** A4 rejects
 `set_config(TENANT_ID_SETTING, ...)`. The setter files write their own flag literal
-inline, and `rls.ts` writes all three inline in its policy templates.
+inline, and `rls.ts` writes ~~all three~~ **all four** (F-047, 2026-08-13) inline in its
+policy templates.
 
 **All four clauses are text scans over file contents. None of them parses TypeScript, and
 none distinguishes code from a comment.** That is intended. A commented-out
@@ -538,8 +609,10 @@ A fourth escape, a second file setting an existing flag, a stray copy of a flag 
 or a flag name passed as a variable each fail one of the four clauses and name the file.
 
 **Timing.** A1 asserts exactly-one. `redirect-read.ts` (TASK-029) and
-`privileged-eraser.ts` (TASK-054) both land before TASK-056's wave, so all three setters
-exist when the suite first runs. A1 is not runnable earlier.
+`privileged-eraser.ts` (TASK-054) both land before TASK-056's wave, so ~~all three setters~~
+**all four setters** exist when the suite first runs. A1 is not runnable earlier.
+**`membership-lookup.ts` is TASK-002's, wave 1** (F-047, 2026-08-13), so the fourth setter
+lands earliest of the four and A1's timing argument is unaffected by it.
 
 ### 2. The `pg_policies` shape assertion
 
@@ -597,7 +670,7 @@ true": TASK-053's `tenantScopedTables()`, then TASK-056's `assertOnlyApprovedPol
 | a flag literal copied into a file that does not set it | grep A2 |
 | `rls.ts` itself setting a flag | grep A3 |
 | a flag name passed to `set_config` as a variable, to defeat A1 | grep A4 |
-| a fourth flag added to a policy template in `rls.ts` | **not by grep.** A2 permits all flag strings there. The `pg_policies` shape assertion rejects it, because the policy carrying it is not on the approved list |
+| ~~a fourth flag~~ **a flag not in the table above** (F-047, 2026-08-13: the fourth is now `app.membership_lookup_user` and it IS in the table) added to a policy template in `rls.ts` | **not by grep.** A2 permits all flag strings there. The `pg_policies` shape assertion rejects it, because the policy carrying it is not on the approved list |
 | a new permissive policy on an existing table | `pg_policies` shape |
 | a widened `FOR` clause on an approved policy | `pg_policies` shape |
 | a tenant-scoped table with RLS not forced | `pg_policies` shape |

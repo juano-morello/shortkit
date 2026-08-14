@@ -142,12 +142,25 @@ barrel's namespace alongside every product table.
 1. The Drizzle property names equal the field keys in the table above, exactly. The adapter
    throws `BetterAuthError: The field "<key>" does not exist in the "<model>" Drizzle
    schema` at runtime on the first statement touching a missing one.
-2. `apps/api/src/db/schema/auth.spec.ts` runs on `pnpm test` — the unit tier, no database, no
+2. ~~`apps/api/src/db/schema/auth.spec.ts`~~ **`apps/api/src/db/auth-schema.spec.ts`**
+   (corrected 2026-08-13, F-045) runs on `pnpm test` — the unit tier, no database, no
    network — and asserts against `getSchema({ plugins: [jwt(), bearer()] })`:
    table names, field sets, `required` against `.notNull()`, `unique` against `.unique()`,
    and `references` (target model, target field, `onDelete`) against `.references()`.
    It does **not** compare SQL types; the mapping above is this repository's and is asserted
    separately by the integration tier against `information_schema`.
+
+   **This contract carried the warning and the violation at once, and that is worth saying
+   plainly.** Guarantee 4 below states that `drizzle.config.ts` globs `./src/db/schema/*.ts`
+   and evaluates every match, and forbids `auth.ts` from importing `better-auth/plugins` for
+   exactly that reason. Point 2 then put the spec inside the same directory, and the spec
+   imports `better-auth/db` and `better-auth/plugins` outright. Measured: drizzle-kit
+   `require()`s every match through its CJS transformer, so a vitest import there fails
+   `pnpm db:generate`, the command TASK-002's implementer runs first to produce migration
+   `0001`. `pnpm db:migrate` is unaffected. The rule in point 4 was right; its scope was one
+   file too narrow. `apps/api/src/db/auth-schema.spec.ts` is still under `src/**`, so
+   `vitest.config.ts`'s `include: ['src/**/*.spec.ts']` still runs it in the unit tier, and it
+   is no longer under the glob. See ADR-0043.
 3. `apps/api/src/db/schema/index.ts` gains `export * from './auth';`, alphabetically.
 4. `auth.ts` imports from `drizzle-orm/pg-core` only. It must not import
    `better-auth/plugins`: `drizzle.config.ts` globs `./src/db/schema/*.ts` and evaluates
@@ -163,7 +176,7 @@ barrel's namespace alongside every product table.
 |---|---|---|
 | A Drizzle property is missing or misspelled | `BetterAuthError`, message `The field "<key>" does not exist in the "<model>" Drizzle schema. Please update your drizzle schema or re-generate using "npx auth@latest generate".` | Runtime, on the first request touching that model. The advice in the message is not this repository's procedure — see ADR-0043 |
 | `betterAuthSchema` is missing a model key | `BetterAuthError`, message `[# Drizzle Adapter]: The model "<model>" was not found in the schema object. Please pass the schema directly to the adapter options.` | Runtime |
-| A `better-auth` upgrade adds or removes a field | `auth.spec.ts` fails | `pnpm test`, CI `quality` job |
+| A `better-auth` upgrade adds or removes a field | ~~`auth.spec.ts`~~ `apps/api/src/db/auth-schema.spec.ts` fails (F-045) | `pnpm test`, CI `quality` job |
 | `auth.config.ts` adds a schema-shaping option | `auth.config.spec.ts` fails | `pnpm test`, CI `quality` job |
 | The migration and the schema file disagree | drizzle-kit generates a second migration on the next `db:generate` | Review, and ADR-0019's cross-check |
 

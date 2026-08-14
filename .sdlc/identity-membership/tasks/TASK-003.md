@@ -12,8 +12,12 @@ paths: ["apps/api/src/auth/auth.config.ts", "apps/api/src/auth/on-user-created.t
 # wave as the config it guards. main.ts is reached only to call it. TASK-004 remains the sole
 # owner of the mount itself and is a wave later, so the two never write concurrently.
 contracts: [design/contracts/auth-tokens.md, design/contracts/tenant-context.md]
-test_files: ["apps/api/src/auth/auth.config.spec.ts (unit)", "apps/api/src/auth/on-user-created.spec.ts (unit)", "apps/api/src/auth/boot-assertions.spec.ts (unit — the secret half; TASK-004 extends this file with assertAuthRoleSeparation in wave 3)", "apps/api/test/auth/signup-creates-tenant.int-spec.ts (integration)"]
-acceptance: [AC-1, AC-3, AC-5]
+test_files: ["apps/api/src/auth/auth.config.spec.ts (unit)", "apps/api/src/auth/on-user-created.spec.ts (unit)", "apps/api/src/auth/boot-assertions.spec.ts (unit — the secret half; TASK-004 extends this file with assertAuthRoleSeparation in wave 3)", "apps/api/test/auth/signup-creates-tenant.int-spec.ts (integration)", "apps/api/test/auth/mint-refuses-without-membership.int-spec.ts (integration, NEW — AC-4's mint half; TASK-002 covers only tenantIdForUser throwing)"]
+acceptance: [AC-1, AC-3, AC-5, AC-4]
+# AC-4 ADDED 2026-08-13, Test phase. It was claimed by TASK-002 alone and half of it - the mint
+# leg - is not dischargeable there. NOTE: this breaks plan.md's "36 ACs each claimed by EXACTLY
+# one TASK" for AC-4, which is now claimed by two. That is deliberate and recorded rather than
+# resolved by re-cutting the AC, because both halves are real and they land in different waves.
 rework_count: 0
 ---
 
@@ -140,6 +144,19 @@ allowlist entirely, which defeats ADR-0028's "exactly one censoring mechanism" b
 construction rather than by defect. State a `log` hook forwarding into the shared pino
 instance, `level: 'error'`, `disableColors: true`, args deliberately dropped (ADR-0052).
 `auth.config.spec.ts` asserts the secret is not the default and the logger key is present.
+
+## AC-4's mint half is yours — added 2026-08-13, Test phase
+
+**TASK-002 cannot discharge AC-4 alone**, found by the test architect while writing wave 1's
+tests. AC-4's clause *"when a JWT is minted … no JWT is returned, and the caller receives an
+error rather than a token with an absent `tid`"* needs the mint path, and the mint path is this
+card's `definePayload`. TASK-002 covers only `tenantIdForUser` throwing — the primary stop
+ADR-0015 names — so **AC-4 is green on a partial proof until a test here asserts the mint leg.**
+
+Write it against the composed instance: a user with no `tenant_memberships` row produces an
+**error, not a token**, and no token is issued carrying an absent or empty `tid`. GC-D fixes the
+claim set and `definePayload` must return `jti`, so the failure has to be raised before a payload
+is signed rather than by omitting a claim from one.
 
 ## Out of scope for this TASK
 

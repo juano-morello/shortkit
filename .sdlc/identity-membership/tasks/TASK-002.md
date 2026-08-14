@@ -3,7 +3,7 @@ id: TASK-002
 story: STORY-001
 epic: EPIC-001
 title: Better Auth tables, tenant_memberships with its unique constraint, and tenantIdForUser
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-018]
 # TASK-018 ADDED 2026-08-13 at the Design wave-1 gate. It creates `shortkit_auth` in wave 0;
@@ -27,6 +27,11 @@ paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-members
 contracts: [design/contracts/rls-policy-template.md, design/contracts/isolation-coverage.md, design/contracts/tenant-context.md]
 test_files: ["apps/api/src/db/context-flag-owners.spec.ts (unit — ADR-0045's grep control, the ONE executing control wave 1 ships and the entire basis on which F-025 was closed)", "apps/api/test/tenancy/warm-connection-no-context.int-spec.ts (integration — ADR-0049's behavioural control)", "apps/api/src/auth/tenant-id-for-user.spec.ts (unit)", "apps/api/test/auth/tenant-memberships.int-spec.ts (integration)", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts (isolation, registration only — the assertions there are TASK-015's)"]
 acceptance: [AC-2, AC-4]
+# AC-4 IS HALF TASK-003's, found 2026-08-13 by the test architect while writing its tests. The
+# clause "when a JWT is minted ... no JWT is returned, and the caller receives an error rather than
+# a token with an absent tid" NEEDS THE MINT PATH, which is TASK-003 in wave 2. This card can only
+# cover tenantIdForUser throwing - the primary stop ADR-0015 names. AC-4 needs a second test in
+# TASK-003's wave or it goes green on a partial proof. Recorded rather than silently re-scoped.
 rework_count: 0
 ---
 
@@ -222,6 +227,31 @@ ADRs and neither had a file, a card or a `test_files` entry anywhere.
 
 **F-001 is still yours** and is unrelated to the above: `check-policies.mts`'s docblock says
 four exempt tables where the Map holds five.
+
+## Your first commit is the six design stubs — added 2026-08-13, Test phase (F-046)
+
+**Before any other work**, copy the six files under `.sdlc/identity-membership/design/stubs/` to
+their mirrored paths. The stubs README records they typecheck as-is.
+
+This is not ceremony. Four of the eight spec files written for this wave currently fail with
+`Cannot find module` rather than as assertions, because those modules do not exist. The test
+architect proved they fail *correctly* once the stubs are present — it copied them in, recorded
+the real assertion failures, and deleted them again — and Juano accepted that demonstration at
+the Test gate. **Until your first commit lands, `pnpm test` shows four load failures that look
+like breakage**, and the test strategy warns in as many words that this is the state someone
+"fixes" by deleting a test. Land the stubs and the red becomes legible.
+
+**`apps/api/src/db/auth-schema.spec.ts` does not sit beside the module it pins, deliberately**
+(F-045). `drizzle.config.ts:16` globs `./src/db/schema/*.ts` and drizzle-kit `require()`s every
+match through its CJS transformer, so a vitest import in that directory **breaks `pnpm
+db:generate`** — the command you run first to produce migration `0001`. Measured with a probe
+spec, not inferred. `db:migrate` is unaffected. Do not move it back.
+
+**`CONTEXT_FLAG_OWNERS` gains a fourth row** for `app.membership_lookup_user` ←
+`apps/api/src/auth/membership-lookup.ts`. `coverage.ts` is in your paths so the row is yours —
+but the contract's own flag table and A2's carve-out were amended for it by Juano's ruling on
+F-047, because a frozen contract enumerating three flags is not an implementer's to widen. Read
+the amended `isolation-coverage.md` before adding the row.
 
 ## Out of scope for this TASK
 

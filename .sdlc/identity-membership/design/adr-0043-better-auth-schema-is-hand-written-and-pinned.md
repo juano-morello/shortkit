@@ -46,7 +46,8 @@ against `getSchema()` on every run.**
 
 TASK-002 writes the five tables by hand from the field table in
 `design/contracts/auth-schema.md`, which is transcribed from the `getSchema()` output
-recorded there. It ships `apps/api/src/db/schema/auth.spec.ts`, a unit test (no database, no
+recorded there. It ships ~~`apps/api/src/db/schema/auth.spec.ts`~~
+**`apps/api/src/db/auth-schema.spec.ts`**, a unit test (no database, no
 network) that calls
 
 ```ts
@@ -62,6 +63,26 @@ and asserts, for every table and every field:
 | nullability | `field.required`, against Drizzle `.notNull()` |
 | uniqueness | `field.unique`, against Drizzle `.unique()` |
 | foreign key target and `onDelete` | `field.references`, against Drizzle `.references()` |
+
+**The spec lives beside the schema directory, not inside it. Corrected 2026-08-13 (F-045);
+Juano ruled the move.** The original path put the spec under `apps/api/src/db/schema/`.
+`apps/api/drizzle.config.ts:16` globs `./src/db/schema/*.ts` and drizzle-kit `require()`s
+every match through its CJS transformer, so a vitest import inside that directory breaks
+`pnpm db:generate` — the command TASK-002's implementer runs first, to produce migration
+`0001`. Measured, not read. `pnpm db:migrate` is unaffected, which is why the failure only
+shows up on generation.
+
+`apps/api/src/db/auth-schema.spec.ts` keeps everything the original path was chosen for. It
+is still under `src/**`, so `vitest.config.ts`'s `include: ['src/**/*.spec.ts']` picks it up
+and it stays in the unit tier that CI's `quality` job runs. It is no longer under
+`src/db/schema/`, so the glob does not see it. The subject it asserts against,
+`apps/api/src/db/schema/auth.ts`, does not move.
+
+**This ADR wrote down the hazard and then walked into it.** `auth-schema.md`'s guarantee 4
+already warned that `drizzle.config.ts` evaluates every match of that glob, and gave it as
+the reason `auth.ts` may not import `better-auth/plugins`. The spec was then placed inside
+the same directory and imports `better-auth/db` and `better-auth/plugins` directly. The rule
+was right and its scope was one file too narrow.
 
 The test compares names, nullability, uniqueness and references. **It does not compare SQL
 types**, because the SQL type is this repository's choice and not Better Auth's: `getSchema`

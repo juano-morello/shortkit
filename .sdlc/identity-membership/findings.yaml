@@ -1196,3 +1196,128 @@
     FLAVOUR OF MY OWN ERROR - not a claim about an unread file, but an edit layered onto my own
     text without re-reading what it now contradicted.
   resolved_round: 7
+
+# ---- Test phase red run, 2026-08-13. Both STORY architects returned. 62 tests written across
+# nine files. THE TWO CONTROLS THE DESIGN PHASE ARGUED OVER FOR THREE ROUNDS BOTH EARNED THEIR
+# PLACE ON FIRST RUN: the warm-connection control reproduced ADR-0049's row 4 exactly, and the
+# A1-subset control found F-047 below.
+
+- id: F-045
+  phase: test
+  wave: 1
+  task: TASK-002
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: correctness
+  file: apps/api/drizzle.config.ts
+  line: 16
+  summary: >-
+    THE SPEC ADR-0043 REQUIRES BREAKS THE COMMAND TASK-002'S IMPLEMENTER RUNS FIRST. drizzle.config.ts:16
+    globs './src/db/schema/*.ts' and drizzle-kit require()s every match through its CJS transformer, so a
+    vitest import inside that directory fails `pnpm db:generate`.
+  failure_scenario: >-
+    MEASURED, NOT REASONED - the architect put a throwaway probe spec in that directory and ran the
+    command: `Error: Vitest cannot be imported in a CommonJS module using require()` at
+    drizzle-kit bin.cjs:15008. `pnpm db:migrate` is UNAFFECTED (also measured; it reads the config but
+    not the schema glob), so the blast radius is exactly the command that produces migration 0001.
+    auth-schema.md point 4 ALREADY WARNS that this glob evaluates every match - and then point 2,
+    ADR-0043 and TASK-002's paths all place the spec inside it. VERIFIED: drizzle.config.ts:16 reads
+    `schema: './src/db/schema/*.ts'`.
+  required_change: >-
+    Move the spec to apps/api/src/db/auth-schema.spec.ts - still src/**, still the unit tier, no other
+    change - or narrow the glob in drizzle.config.ts, a file no card owns. Card, ADR-0043 and
+    auth-schema.md all name the current path.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Juano ruled MOVE THE SPEC. apps/api/src/db/schema/auth.spec.ts ->
+    apps/api/src/db/auth-schema.spec.ts, still src/**, still the unit tier; its header records the
+    measurement so nobody moves it back. ADR-0043 and auth-schema.md both corrected, struck in
+    place - and auth-schema.md carries a self-correction naming that its own guarantee 4 warned
+    about the glob while guarantee 2 placed the spec inside it. THE AGENT CORRECTED ME ON THE
+    SECOND SITE: I judged the Error-cases row's bare `auth.spec.ts` merely ambiguous; it is
+    LITERALLY WRONG, the file no longer has that name. VERIFIED: pnpm db:generate now exits
+    cleanly, and the verification run's stray 0001 migration was deleted and the journal restored
+    BY PATH.
+  resolved_round: 0
+
+- id: F-046
+  phase: test
+  wave: 1
+  task: TASK-002
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: process
+  file: .sdlc/identity-membership/design/stubs/README.md
+  line: 1
+  summary: >-
+    THE SIX DESIGN STUBS WERE NEVER MATERIALISED INTO THE WORKSPACE, so four of eight spec files fail
+    as LOAD ERRORS rather than assertions - which is the one thing the Test phase's own rule forbids.
+  failure_scenario: >-
+    VERIFIED: all six paths absent from the workspace. The Test phase cannot create them - the Iron Law
+    forbids production code before its test, and a stub is production code. So `pnpm test` reports four
+    suites as `Cannot find module`, and the strategy document warns in as many words that this is the
+    state someone "fixes" by deleting a test.
+    THE ARCHITECT PROVED THE RIGHT RED ANYWAY rather than asserting it: it temporarily copied the six
+    stubs to their mirrored paths, re-ran everything, recorded the real assertion failures, and deleted
+    them again. That is evidence the four suites fail correctly once the modules exist.
+  required_change: >-
+    The wave-1 implementer's FIRST commit is the six stubs verbatim, ahead of any other work; the stubs
+    README records they typecheck as-is. Written onto TASK-002's card.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    ACCEPTED at the Test gate rather than repaired. The six stubs are TASK-002's FIRST commit,
+    written onto the card with the reason stated so it reads as a sequencing requirement. The
+    demonstrated red is what made this rulable: the test architect copied the stubs to their
+    mirrored paths, re-ran everything, recorded the real assertion failures, and deleted them again
+    - evidence rather than assertion. Until that commit, 42 tests across five suites report as load
+    failures, which the test strategy warns is the state someone `fixes` by deleting a test.
+  resolved_round: 0
+
+- id: F-047
+  phase: test
+  wave: 1
+  task: TASK-002
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: contract
+  file: .sdlc/foundation/design/contracts/isolation-coverage.md
+  line: 458
+  summary: >-
+    WAVE 1'S OWN DESIGN INTRODUCES A FOURTH CONTEXT FLAG AND THE FROZEN CONTRACT ENUMERATES THREE.
+    membership-lookup.ts sets `app.membership_lookup_user`; isolation-coverage.md:458-464 is a table of
+    THREE flags and the one file that may set each. The A1-subset control fires on it on first run and
+    names both parts.
+  failure_scenario: >-
+    VERIFIED BOTH SIDES: the contract's table holds app.tenant_id, app.redirect_context and
+    app.privileged_erase; the design stub at
+    .sdlc/identity-membership/design/stubs/apps/api/src/auth/membership-lookup.ts:37 sets
+    `app.membership_lookup_user`, and its own docblock calls itself "EXCLUSION 3 OF EXACTLY 3".
+    A2's carve-out is PER FLAG, so the fourth flag has no permitted-file row and no carve-out. coverage.ts
+    is in TASK-002's paths so the CONTEXT_FLAG_OWNERS row is the implementer's to add - BUT THE CONTRACT'S
+    TABLE IS NOT, AND CONTRACTS ARE FROZEN FOR THIS INITIATIVE.
+    THIS IS THE CONTROL WORKING. F-044 was spent making this control cite the contract instead of
+    duplicating it; the first thing it did on first run was find where wave 1's design and that contract
+    disagree. A control that had been left as its own mechanism would have passed.
+  required_change: >-
+    The contract's flag table and A2's permitted-file list gain the fourth flag, or the design stops
+    introducing one. Amending a frozen contract is Juano's and reopens the Design gate.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Juano ruled AMEND THE CONTRACT and re-approved the Design gate for the scoped change.
+    isolation-coverage.md's flag table gains app.membership_lookup_user with membership-lookup.ts
+    as its one permitted setter; A2's carve-out widened parametrically; A3 and A4's prose corrected
+    from three to four. THE ARCHITECT VERIFIED BY EXECUTION rather than assumption that A4's
+    predicate needs NO edit - its app. branch is a prefix match and A1's capture admits the flag,
+    both run against the literal. IT ALSO SEPARATED TWO LISTS I HAD CONFLATED: ISOLATION_EXCLUSIONS
+    goes to THREE, not four, because tenant-context.ts is the ordinary request path and was never
+    an exclusion - so the stub's `EXCLUSION 3 OF EXACTLY 3` is correct about its own list. It found
+    a SIXTH stale `exactly two` site ADR-0045 never named, this contract's own length assertion,
+    and deliberately did NOT fix it, arguing the bump belongs in TASK-002's commit beside the entry
+    that raises it.
+  resolved_round: 0

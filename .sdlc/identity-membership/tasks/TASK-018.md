@@ -3,12 +3,12 @@ id: TASK-018
 story: STORY-003
 epic: EPIC-001
 title: Provision shortkit_auth across all three role-creation sites before any migration grants to it
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: []
 paths: [".github/scripts/provision-test-database.sql", "docker-compose.yml", "docker-compose.test.yml", "apps/api/test/support/rls-fixture.ts", "apps/api/test/support/auth-fixture.ts", "apps/api/scripts/seed.mts"]
 contracts: [design/contracts/rls-policy-template.md]
-test_files: ["apps/api/test/tenancy/auth-role-provisioning.int-spec.ts (integration, NEW — the role and its attributes, and the widened guards firing)", "apps/api/test/tenancy/tenant-context.int-spec.ts (integration, existing — runs against a three-role database; not edited here)", "pnpm db:check-policies (quality gate, TASK-002 writes the grant-matrix assertion it will run)"]
+test_files: ["apps/api/test/tenancy/auth-role-provisioning.int-spec.ts (integration, NEW — 9 tests, 8 RED as of 2026-08-13)", "apps/api/test/support/scratch-postgres.ts (NEW helper — throwaway Postgres CLUSTER; roles are cluster-wide and neither runtime role holds CREATEROLE, so a test that builds a deliberately-wrong database cannot use the shared suite database without leaking a role into every other int-spec)", "apps/api/test/tenancy/tenant-context.int-spec.ts (integration, existing — runs against a three-role database; not edited here)", "pnpm db:check-policies (quality gate, TASK-002 writes the grant-matrix assertion it will run)"]
 # test_exempt DECLINED 2026-08-13 by Juano. This card claims no AC, so test.md would have let it
 # be marked test_exempt: true as a config chore. He ruled REAL TESTS: the wave-0 role split is
 # what the F-024 ruling bought, and an exemption would leave it with nothing asserting it landed
@@ -159,6 +159,42 @@ failures that have actually happened in this repository's history rather than hy
 
 Red before green: each must fail as an **assertion** against today's two-role provisioning, not
 error out because a role or a fixture is missing.
+
+## What the red tests pinned — added 2026-08-13, after the Test phase wrote them
+
+The tests **run** every provisioning artifact rather than grepping it: the CI SQL goes into a
+scratch cluster verbatim, both Compose init scripts are rendered by `docker compose config` and
+executed, and the guards are sliced out and run against clusters built by hand to be wrong. Four
+consequences bind this card.
+
+**1. The guards are three `IF` checks inside ONE `DO $$ … END $$;` block**, lines 44-76, not two
+separate blocks. Verified directly. The third check asserts `shortkit_test` is owned by
+`shortkit_migrator`. Splitting the block while widening is fine — but any change must keep all
+three reachable, and **every constructed test cluster creates `shortkit_test OWNER
+shortkit_migrator`** or the third check raises first and a test goes green on the wrong exception.
+
+**2. The cardinality guard's exception message must name `shortkit_auth`.** The test asserts
+`/shortkit_auth/` on the thrown message. This is a requirement the test architect imposed and it
+is a good one: a two-role cluster and a bad-ownership cluster are otherwise indistinguishable
+from the same `DO` block, and a CI failure that does not name the missing role is unactionable.
+**Widening the existing wording satisfies it** ("shortkit_app and shortkit_migrator must both
+exist" → all three named); a rewrite to "all three roles must exist" does **not**.
+
+**3. `SHORTKIT_AUTH_PASSWORD` is the pinned variable name.** It is what the test feeds the dev
+init script. A different name breaks a passing test — this is F-040's variable, now nailed down.
+
+**4. New CI dependency for the `integration` job.** The spec shells out to `docker run`,
+`docker exec` and `docker compose config`. That job is `runs-on: ubuntu-latest` with `services:`,
+so Docker and Compose v2 are present and `postgres:17-alpine` is already pulled — but it is a new
+dependency and a reviewer should know it was added deliberately.
+
+**Local flow only:** the live-database tests need `docker compose -f docker-compose.test.yml down
+-v && up -d --wait` to go green, because the init script runs once against an empty data
+directory (ADR-0032). CI re-provisions per job. The remedy is written into the assertion message.
+
+**`authServerEnv()` gaining `DATABASE_AUTH_URL` has no test here, deliberately.** It is fixture
+code, and a test asserting a fixture's own return value asserts nothing about production. It is
+exercised for real from wave 2, when the spawned API child refuses to boot without it.
 
 ## Out of scope for this TASK
 
