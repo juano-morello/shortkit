@@ -26,12 +26,14 @@
 -- against a real database would commit real credentials. Provisioning the production
 -- roles is not this file's job.
 
--- NOBYPASSRLS on BOTH roles, written out although it is the default. A role that can
--- bypass row-level security turns every isolation assertion in the suite into a
+-- NOBYPASSRLS on all three roles, written out although it is the default. A role that
+-- can bypass row-level security turns every isolation assertion in the suite into a
 -- tautology, and the assertions further down are what stop this file from being the
 -- place that silently happens.
 CREATE ROLE shortkit_migrator LOGIN PASSWORD 'migrator' NOBYPASSRLS;
 CREATE ROLE shortkit_app      LOGIN PASSWORD 'app'      NOBYPASSRLS;
+-- shortkit_auth: runtime, Better Auth only. Owns nothing (ADR-0050).
+CREATE ROLE shortkit_auth     LOGIN PASSWORD 'auth'     NOBYPASSRLS;
 
 -- The migrator owns the database, so it owns schema `public` through pg_database_owner
 -- and runs DDL with no further grant. The app role owns nothing (ADR-0003).
@@ -54,7 +56,7 @@ BEGIN
   SELECT string_agg(rolname, ', ')
     INTO bad
     FROM pg_roles
-   WHERE rolname IN ('shortkit_app', 'shortkit_migrator')
+   WHERE rolname IN ('shortkit_app', 'shortkit_migrator', 'shortkit_auth')
      AND (rolbypassrls OR rolsuper OR rolcreaterole);
 
   IF bad IS NOT NULL THEN
@@ -63,9 +65,9 @@ BEGIN
       bad;
   END IF;
 
-  IF (SELECT count(*) FROM pg_roles WHERE rolname IN ('shortkit_app', 'shortkit_migrator')) <> 2 THEN
+  IF (SELECT count(*) FROM pg_roles WHERE rolname IN ('shortkit_app', 'shortkit_migrator', 'shortkit_auth')) <> 3 THEN
     RAISE EXCEPTION
-      'shortkit_app and shortkit_migrator must both exist and be distinct roles: the migrator owns the schema and the app role owns nothing (ADR-0003).';
+      'shortkit_app, shortkit_migrator and shortkit_auth must all exist and be distinct roles: the migrator owns the schema, the app role owns nothing and the auth role owns nothing (ADR-0003, ADR-0050).';
   END IF;
 
   IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'shortkit_test')
@@ -77,10 +79,13 @@ END $$;
 
 \connect shortkit_test
 
-GRANT USAGE ON SCHEMA public TO shortkit_app;
+GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
 
 -- Scoped to the identity `shortkit_migrator`: tables created by any other role grant
--- shortkit_app nothing. That fails closed, at runtime rather than here.
+-- shortkit_app nothing. That fails closed, at runtime rather than here. shortkit_auth
+-- gets no default privilege here — its DML on the five Better Auth tables is hand-written
+-- per table in migration 0001 (TASK-002, ADR-0050), because ALTER DEFAULT PRIVILEGES
+-- would also grant shortkit_app DML on every table the migrator creates, forever.
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public

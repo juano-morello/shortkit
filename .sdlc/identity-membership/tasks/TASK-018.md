@@ -3,7 +3,7 @@ id: TASK-018
 story: STORY-003
 epic: EPIC-001
 title: Provision shortkit_auth across all three role-creation sites before any migration grants to it
-status: tests-red
+status: tests-green
 owner_slot: sdlc-implementer-backend
 depends_on: []
 paths: [".github/scripts/provision-test-database.sql", "docker-compose.yml", "docker-compose.test.yml", "apps/api/test/support/rls-fixture.ts", "apps/api/test/support/auth-fixture.ts", "apps/api/scripts/seed.mts"]
@@ -79,16 +79,36 @@ has already applied `0000`. This TASK is wave 0 for that reason and for no other
 
 **Two fixtures, because the integration tier boots a real API child.**
 
-- `apps/api/test/support/rls-fixture.ts` — role-and-grant preconditions extended to the
-  third role.
+- `apps/api/test/support/rls-fixture.ts` — **NOTHING TO CHANGE. Resolved 2026-08-14 at the
+  Implement pre-flight, and this card previously said otherwise.** It said "role-and-grant
+  preconditions extended to the third role"; the scout could not map that onto the file and
+  I read it myself. The fixture's role logic is **role-agnostic**: `:140-158` asks
+  `current_user` whether it is superuser or `BYPASSRLS` and refuses if so, without naming a
+  role, and `:216-225` memoises whatever `DATABASE_URL` connects as. A third role in the
+  cluster changes none of it. **Do not invent an edit here.** If you believe one is needed,
+  say so and stop — do not guess.
 - `apps/api/test/support/auth-fixture.ts` — `authServerEnv()` gains `DATABASE_AUTH_URL`.
   From wave 2 the spawned API child refuses to boot without it. **`BETTER_AUTH_SECRET` there
   is already correct** — `:85` sets a 53-character non-default value — and must not be
   touched; ADR-0051's round-3 follow-up claiming the integration tier has no owner for that
   value was struck in round 4 as false.
 
-- `apps/api/scripts/seed.mts` — grant docblock only. The seed keeps running as
-  `shortkit_app`; it never connects as `shortkit_auth`.
+- `apps/api/scripts/seed.mts` — **grant docblock only, and here is the exact sentence.**
+  The seed keeps running as `shortkit_app` (`REQUIRED_ROLE`, `:56`) and never connects as
+  `shortkit_auth`. What goes stale is `:29-31`, which says `ALTER DEFAULT PRIVILEGES FOR ROLE
+  shortkit_migrator IN SCHEMA public` grants `shortkit_app` its DML on tables that identity
+  creates. **After TASK-002's migration `0001` that is no longer true of five of them** — the
+  auth tables are created by `shortkit_migrator` and then explicitly `REVOKE`d from
+  `shortkit_app`. The docblock needs the exception, not a rewrite.
+
+  *(The scout looked for "two roles"/"both roles" phrasing and correctly reported finding
+  none. The staleness is real but worded differently, which is the same grep-versus-`file:line`
+  trap TASK-002's card now warns about.)*
+
+  **Expect `NOT SEEDED` to grow, and do not treat it as a regression.** `report()` diffs
+  `SEED_UNITS` against a live `pg_class` read that is deliberately *not* privilege-filtered
+  (F-213), so the five auth tables and `tenant_memberships` will list as uncovered once
+  TASK-002 lands. It is a warning and the exit code stays 0 by design.
 
 ## Two `environment:` declarations — added 2026-08-13, Design round 5 (F-034)
 

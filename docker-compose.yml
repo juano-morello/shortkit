@@ -94,6 +94,7 @@ services:
       # fine; an override is a disclosure and this stack has no secret mechanism.
       SHORTKIT_MIGRATOR_PASSWORD: ${SHORTKIT_MIGRATOR_PASSWORD:-migrator}
       SHORTKIT_APP_PASSWORD: ${SHORTKIT_APP_PASSWORD:-app}
+      SHORTKIT_AUTH_PASSWORD: ${SHORTKIT_AUTH_PASSWORD:-auth}
     ports:
       # 127.0.0.1 explicitly, on every published port in this file: a stack with the
       # password `app` is not on the LAN. 55432 sits beside the test stack's 55433 and is
@@ -226,6 +227,15 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
+      # shortkit_auth, never shortkit_app: ADR-0050's second pool, reached only through
+      # betterAuthDatabase(). No fallback to DATABASE_URL — an unset value fails boot
+      # rather than silently restoring shortkit_app as the auth role.
+      DATABASE_AUTH_URL: postgres://shortkit_auth:${SHORTKIT_AUTH_PASSWORD:-auth}@postgres:5432/shortkit
+      # Declared here (TASK-018, wave 0) although betterAuth({ secret }) does not read it
+      # until TASK-003, wave 2: assertBetterAuthSecretConfigured() is unconditional from
+      # that wave and this is the earliest this file's api service exists (ADR-0051). A
+      # development-only value, 55 characters, not the library's published default.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-development-compose-better-auth-secret-not-a-real-value}
     ports:
       - '127.0.0.1:3001:3001'
     healthcheck:
@@ -308,10 +318,11 @@ configs:
       set -eu
       psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname postgres \
         -v migrator_password="$$SHORTKIT_MIGRATOR_PASSWORD" \
-        -v app_password="$$SHORTKIT_APP_PASSWORD" <<'SQL'
+        -v app_password="$$SHORTKIT_APP_PASSWORD" \
+        -v auth_password="$$SHORTKIT_AUTH_PASSWORD" <<'SQL'
       -- design/contracts/rls-policy-template.md "Roles", verbatim.
       --
-      -- NOBYPASSRLS on BOTH roles. It is the Postgres default, and it is written out
+      -- NOBYPASSRLS on all three roles. It is the Postgres default, and it is written out
       -- because a role that can bypass RLS makes every isolation claim in this system a
       -- tautology: the API's boot check would refuse, the integration suite's assertions
       -- would pass over a role exempt from every policy, and nothing else looks. The
@@ -319,6 +330,8 @@ configs:
       -- there. docker-compose.test.yml carries the same sentence for the same reason.
       CREATE ROLE shortkit_migrator LOGIN PASSWORD :'migrator_password' NOBYPASSRLS;
       CREATE ROLE shortkit_app      LOGIN PASSWORD :'app_password'      NOBYPASSRLS;
+      -- shortkit_auth: runtime, Better Auth only. Owns nothing (ADR-0050).
+      CREATE ROLE shortkit_auth     LOGIN PASSWORD :'auth_password'     NOBYPASSRLS;
 
       -- The migrator owns the database, so it owns schema `public` through
       -- pg_database_owner and can run DDL without any further grant. The app role owns
@@ -329,8 +342,10 @@ configs:
 
       -- Nothing here grants shortkit_app anything on a table directly. It receives DML
       -- only through ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator, which is what
-      -- makes the seed's connection a real grant check (ADR-0033).
-      GRANT USAGE ON SCHEMA public TO shortkit_app;
+      -- makes the seed's connection a real grant check (ADR-0033). shortkit_auth gets no
+      -- default privilege: its DML on the five Better Auth tables is hand-written per
+      -- table in migration 0001 (TASK-002, ADR-0050).
+      GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public

@@ -116,11 +116,13 @@ configs:
       -- design/contracts/rls-policy-template.md "Roles", verbatim but for the
       -- literal passwords, which psql cannot take as :'variables' here.
       --
-      -- NOBYPASSRLS on BOTH roles. It is the default, and it is written out because
+      -- NOBYPASSRLS on all three roles. It is the default, and it is written out because
       -- a role that can bypass RLS turns every isolation assertion in the suite into
       -- a tautology; test/support/rls-fixture.ts re-checks it before each run.
       CREATE ROLE shortkit_migrator LOGIN PASSWORD 'migrator' NOBYPASSRLS;
       CREATE ROLE shortkit_app      LOGIN PASSWORD 'app'      NOBYPASSRLS;
+      -- shortkit_auth: runtime, Better Auth only. Owns nothing (ADR-0050).
+      CREATE ROLE shortkit_auth     LOGIN PASSWORD 'auth'     NOBYPASSRLS;
 
       -- The migrator owns the database, so it owns schema `public` through
       -- pg_database_owner and can run DDL without any further grant. The app role
@@ -129,7 +131,9 @@ configs:
 
       \connect shortkit_test
 
-      GRANT USAGE ON SCHEMA public TO shortkit_app;
+      -- shortkit_auth gets no default privilege: its DML on the five Better Auth tables
+      -- is hand-written per table in migration 0001 (TASK-002, ADR-0050).
+      GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public

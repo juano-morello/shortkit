@@ -80,6 +80,7 @@ export function authServerEnv(baseUrl: string): Record<string, string> {
   return {
     NODE_ENV: 'test',
     DATABASE_URL: appDsnOrThrow(),
+    DATABASE_AUTH_URL: authDsnOrThrow(),
     GIT_COMMIT_SHA: '3d1f7a0c94b25e68af31c07d5b8e4a2196fd0c7b',
     BETTER_AUTH_URL: baseUrl,
     BETTER_AUTH_SECRET: 'integration-fixture-better-auth-secret-not-a-real-key',
@@ -106,6 +107,27 @@ function appDsnOrThrow(): string {
       'DATABASE_URL is not set. The integration suite needs a live Postgres: start it ' +
         'with `docker compose -f docker-compose.test.yml up -d` and export DATABASE_URL ' +
         '(shortkit_app) and DATABASE_MIGRATION_URL (shortkit_migrator).',
+    );
+  }
+
+  return value;
+}
+
+/**
+ * The auth pool's DSN (ADR-0050). Read the same way `appDsnOrThrow()` reads
+ * `DATABASE_URL`: no fallback to it, because a fallback here would spawn the API child
+ * connecting to Better Auth's tables as `shortkit_app` — exactly the role the split
+ * exists to keep off them.
+ */
+function authDsnOrThrow(): string {
+  const value = process.env.DATABASE_AUTH_URL;
+
+  if (value === undefined || value === '') {
+    throw new Error(
+      'DATABASE_AUTH_URL is not set. The integration suite needs a live Postgres: start ' +
+        'it with `docker compose -f docker-compose.test.yml up -d` and export ' +
+        'DATABASE_AUTH_URL (shortkit_auth) alongside DATABASE_URL and ' +
+        'DATABASE_MIGRATION_URL.',
     );
   }
 
