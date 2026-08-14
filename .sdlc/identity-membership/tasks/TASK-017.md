@@ -7,6 +7,14 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-009, TASK-013]
 paths: ["scripts/check-compose-stack.sh"]
+# NOTE 2026-08-14, F-075. `apps/api/.env.example` does not exist ON DISK TODAY. THAT IS NOT AN
+# ERROR IN THIS PATH LIST - TASK-009 CREATES IT as a deliverable in wave 4 ("does not exist and is
+# owed by three separate ADR follow-ups. It lands here", TASK-009:37-39). An earlier version of
+# this note called it a phantom path; that was MY inference from the file's absence without
+# reading TASK-009's prose, and it was wrong. WHAT F-075 ACTUALLY FOUND is a different file: the
+# ROOT `.env.example`, which DOES exist, is the credential-rotation template holding
+# SHORTKIT_MIGRATOR_PASSWORD and SHORTKIT_APP_PASSWORD, and was in no card's paths. TASK-018 owns
+# it from 2026-08-14 and adds the third password.
 contracts: []
 test_files: ["scripts/check-compose-stack.sh (compose tier — `pnpm test:compose`, the `compose` gating job in CI)"]
 acceptance: [AC-28]

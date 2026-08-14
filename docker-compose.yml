@@ -241,10 +241,25 @@ services:
       #
       # EXISTING VOLUME? `shortkit_auth` is created by the init script below, which runs
       # EXACTLY ONCE against an empty data directory (ADR-0032). A `shortkit-dev_pgdata`
-      # volume from before this role existed keeps a two-role database forever; `migrate`
-      # fails with `role "shortkit_auth" does not exist` and, from wave 2, so does `api`
-      # against this DSN. `docker compose down -v` before the next `up` is what re-runs
-      # the init script and creates the role.
+      # volume from before this role existed keeps a two-role database forever.
+      #
+      # `migrate` does NOT fail on it today (measured against a scratch two-role
+      # cluster: `db:migrate` and `seed.mts` both exit 0) — nothing under
+      # apps/api/drizzle/** names shortkit_auth until TASK-002's migration `0001`
+      # (wave 1) adds the GRANT ... TO shortkit_auth that fails with `role
+      # "shortkit_auth" does not exist` against a database that never created it.
+      #
+      # From wave 2, `api` fails against THIS DSN, but not with "role does not exist":
+      # measured over the docker network (where `api` actually connects, not over
+      # loopback, where pg_hba runs a different method), a missing role reads
+      # `FATAL: password authentication failed for user "shortkit_auth"` — scram does
+      # not disclose whether the role exists. THAT MESSAGE READS AS A WRONG PASSWORD.
+      # The two cheapest repairs from there are overriding SHORTKIT_AUTH_PASSWORD,
+      # which does nothing, or repointing DATABASE_AUTH_URL at a DSN that does
+      # authenticate — which is the change ADR-0050 names as silently restoring
+      # shortkit_app as the auth role with every gate still green. Run
+      # `docker compose down -v` before the next `up` instead; that re-runs the init
+      # script and creates the role.
       DATABASE_AUTH_URL: postgres://shortkit_auth:${SHORTKIT_AUTH_PASSWORD:-auth}@postgres:5432/shortkit
       # ---------------------------------------------------------------------------
       # DO NOT REUSE THIS VALUE ANYWHERE A REAL DEPLOY TARGET COULD READ IT.

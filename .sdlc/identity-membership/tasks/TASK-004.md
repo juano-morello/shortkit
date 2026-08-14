@@ -7,6 +7,14 @@ status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-003]
 paths: ["apps/api/src/main.ts", "apps/api/src/auth/auth-body-cap.ts", "apps/api/src/auth/auth-rate-limit.ts", "apps/api/src/auth/resolve-rate-limit-principal.ts", "apps/api/src/auth/ports/auth-rate-limit.port.ts", "apps/api/src/auth/boot-assertions.ts", "apps/api/src/common/net/trusted-client-address.ts"]
+# NOTE 2026-08-14, F-075. `apps/api/.env.example` does not exist ON DISK TODAY. THAT IS NOT AN
+# ERROR IN THIS PATH LIST - TASK-009 CREATES IT as a deliverable in wave 4 ("does not exist and is
+# owed by three separate ADR follow-ups. It lands here", TASK-009:37-39). An earlier version of
+# this note called it a phantom path; that was MY inference from the file's absence without
+# reading TASK-009's prose, and it was wrong. WHAT F-075 ACTUALLY FOUND is a different file: the
+# ROOT `.env.example`, which DOES exist, is the credential-rotation template holding
+# SHORTKIT_MIGRATOR_PASSWORD and SHORTKIT_APP_PASSWORD, and was in no card's paths. TASK-018 owns
+# it from 2026-08-14 and adds the third password.
 contracts: [design/contracts/auth-tokens.md, design/contracts/rate-limit.md, design/contracts/trusted-client-address.md]
 test_files: ["apps/api/src/auth/auth-body-cap.spec.ts (unit)", "apps/api/src/auth/resolve-rate-limit-principal.spec.ts (unit)", "apps/api/src/common/net/trusted-client-address.spec.ts (unit)", "apps/api/src/auth/boot-assertions.spec.ts (unit)", "apps/api/test/auth/auth-mount.int-spec.ts (integration)"]
 acceptance: [AC-6, AC-7, AC-9]

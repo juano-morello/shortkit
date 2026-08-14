@@ -110,7 +110,9 @@ function dsn(variable: 'DATABASE_URL' | 'DATABASE_MIGRATION_URL'): string {
     throw new Error(
       `${variable} is not set. The integration suite needs a live Postgres: ` +
         'start it with `docker compose -f docker-compose.test.yml up -d` and export ' +
-        'DATABASE_URL (shortkit_app) and DATABASE_MIGRATION_URL (shortkit_migrator).',
+        'DATABASE_URL (shortkit_app), DATABASE_MIGRATION_URL (shortkit_migrator) and ' +
+        "DATABASE_AUTH_URL (shortkit_auth) — see that file's header for the exact " +
+        'export lines.',
     );
   }
 

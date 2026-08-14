@@ -6,7 +6,12 @@ title: Provision shortkit_auth across all three role-creation sites before any m
 status: tests-green
 owner_slot: sdlc-implementer-backend
 depends_on: []
-paths: [".github/scripts/provision-test-database.sql", ".github/workflows/ci.yml", "docker-compose.yml", "docker-compose.test.yml", "apps/api/test/support/rls-fixture.ts", "apps/api/test/support/auth-fixture.ts", "apps/api/scripts/seed.mts"]
+paths: [".github/scripts/provision-test-database.sql", ".github/workflows/ci.yml", "docker-compose.yml", "docker-compose.test.yml", "apps/api/test/support/rls-fixture.ts", "apps/api/test/support/auth-fixture.ts", "apps/api/scripts/seed.mts", ".env.example", "docs/architecture/migrations.md"]
+# .env.example and docs/architecture/migrations.md ADDED 2026-08-14 by Juano, F-075 and F-073.
+# NEITHER WAS IN ANY CARD'S PATHS. The root .env.example is the credential-rotation template
+# and holds two of three passwords, so a developer getting off committed defaults leaves the
+# role that will hold jwks.privateKey on the published literal `auth`. migrations.md:42 was
+# made FALSE by this card's own round-1 commit, so the commit that broke it fixes it.
 # ci.yml ADDED 2026-08-14 by Juano at the TASK-018 fix round, F-065. NO CARD OF THE EIGHTEEN
 # OWNED IT - verified across all of them - and TASK-010:58 and TASK-017:92 both exclude it
 # explicitly. Its integration job sets two DSNs under a comment saying they mirror
