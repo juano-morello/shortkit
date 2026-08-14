@@ -31,15 +31,18 @@
  * migrated as any other role produces tables `shortkit_app` cannot touch, the API boots
  * fine, and nothing is wrong until a query runs in whatever feature happens to run it.
  *
- * EXCEPTION, since migration `0001` (ADR-0050): `user`, `session`, `account`,
- * `verification` and `jwks` are also created by `shortkit_migrator`, but are immediately
- * `REVOKE`d from `shortkit_app` and `GRANT`ed to `shortkit_auth` instead. This seed never
- * connects as `shortkit_auth` and writes none of those five tables, so the grant check
- * this file performs covers everything it seeds and nothing on the auth role's side.
+ * EXCEPTION, FROM TASK-002's migration `0001` (ADR-0050), not yet applied at wave 0:
+ * `user`, `session`, `account`, `verification` and `jwks` will also be created by
+ * `shortkit_migrator`, but will be immediately `REVOKE`d from `shortkit_app` and
+ * `GRANT`ed to `shortkit_auth` instead. This seed never connects as `shortkit_auth` and
+ * writes none of those five tables, so the grant check this file performs will keep
+ * covering everything it seeds and nothing on the auth role's side once that migration
+ * lands.
  *
- * Connecting as the runtime role and writing turns that into `permission denied for table
- * tenants` here, before the API starts, with the `seed` service named in the `up` output
- * (ADR-0033). Rule 6 below is what makes the check real rather than credited.
+ * Connecting as the runtime role and writing turns a bad migration identity into
+ * `permission denied for table tenants` here, before the API starts, with the `seed`
+ * service named in the `up` output (ADR-0033). Rule 6 below is what makes the check real
+ * rather than credited.
  *
  * Node runs this by stripping the types (`.mts`, no build step), so nothing here may use
  * syntax that needs emit — no enums, no namespaces, no decorators, no parameter properties.

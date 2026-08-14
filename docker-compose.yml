@@ -22,9 +22,11 @@
 # reaches for under time pressure. Half of it is meant to be copied and half must not be.
 #
 # Reusable — this is rls-policy-template.md's "Roles" section, applied:
-#   - both roles NOBYPASSRLS, both with attribute defaults otherwise;
+#   - all three roles NOBYPASSRLS, all three with attribute defaults otherwise;
 #   - shortkit_app owns nothing and receives DML only through
-#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator;
+#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator; shortkit_auth owns
+#     nothing and receives no default privilege at all — its DML is hand-written
+#     per table (ADR-0050);
 #   - USAGE on schema public and nothing more;
 #   - migrations run as shortkit_migrator and the seed runs as shortkit_app, from a
 #     stage that is not the deployed image (ADR-0033).
@@ -79,8 +81,8 @@ services:
     restart: unless-stopped
     environment:
       # The bootstrap superuser. Nothing else in the stack uses it: every statement the
-      # API, the migrator and the seed issue comes from one of the two NOBYPASSRLS roles,
-      # because a superuser is exempt from every policy.
+      # API, the migrator and the seed issue comes from one of the three NOBYPASSRLS
+      # roles, because a superuser is exempt from every policy.
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
       # `postgres`, so the entrypoint does not create `shortkit` itself. The
       # `CREATE DATABASE shortkit OWNER shortkit_migrator` in the init script is what
@@ -88,10 +90,10 @@ services:
       # pg_database_owner and run DDL with no further grant (ADR-0003).
       POSTGRES_DB: postgres
       # Read by the init script and, for the app one, by the health probe on every
-      # interval. Both survive into the running server's environment: the entrypoint's
-      # `unset "${!POSTGRES_@}"` does not match them, so `docker inspect` and
-      # /proc/1/environ hold them for the container's lifetime. Fixtures, so that is
-      # fine; an override is a disclosure and this stack has no secret mechanism.
+      # interval. All three survive into the running server's environment: the
+      # entrypoint's `unset "${!POSTGRES_@}"` does not match them, so `docker inspect`
+      # and /proc/1/environ hold them for the container's lifetime. Fixtures, so that
+      # is fine; an override is a disclosure and this stack has no secret mechanism.
       SHORTKIT_MIGRATOR_PASSWORD: ${SHORTKIT_MIGRATOR_PASSWORD:-migrator}
       SHORTKIT_APP_PASSWORD: ${SHORTKIT_APP_PASSWORD:-app}
       SHORTKIT_AUTH_PASSWORD: ${SHORTKIT_AUTH_PASSWORD:-auth}
@@ -228,13 +230,45 @@ services:
     environment:
       DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
       # shortkit_auth, never shortkit_app: ADR-0050's second pool, reached only through
-      # betterAuthDatabase(). No fallback to DATABASE_URL — an unset value fails boot
-      # rather than silently restoring shortkit_app as the auth role.
+      # betterAuthDatabase(). This DSN, as CONSTRUCTED HERE, always renders — the password
+      # falls back to the fixture ${SHORTKIT_AUTH_PASSWORD:-auth} default two block levels
+      # up, same as every other role's DSN in this file. "No fallback" is a property of
+      # the APPLICATION-level variable this DSN is bound to: DATABASE_AUTH_URL is a
+      # declared binding with no fallback to DATABASE_URL (ADR-0050) — an unset
+      # DATABASE_AUTH_URL fails boot rather than silently restoring shortkit_app as the
+      # auth role. That is a different property from BETTER_AUTH_SECRET's default below,
+      # which is not a fixture placeholder but an actual signing key value.
+      #
+      # EXISTING VOLUME? `shortkit_auth` is created by the init script below, which runs
+      # EXACTLY ONCE against an empty data directory (ADR-0032). A `shortkit-dev_pgdata`
+      # volume from before this role existed keeps a two-role database forever; `migrate`
+      # fails with `role "shortkit_auth" does not exist` and, from wave 2, so does `api`
+      # against this DSN. `docker compose down -v` before the next `up` is what re-runs
+      # the init script and creates the role.
       DATABASE_AUTH_URL: postgres://shortkit_auth:${SHORTKIT_AUTH_PASSWORD:-auth}@postgres:5432/shortkit
+      # ---------------------------------------------------------------------------
+      # DO NOT REUSE THIS VALUE ANYWHERE A REAL DEPLOY TARGET COULD READ IT.
+      # ---------------------------------------------------------------------------
       # Declared here (TASK-018, wave 0) although betterAuth({ secret }) does not read it
       # until TASK-003, wave 2: assertBetterAuthSecretConfigured() is unconditional from
-      # that wave and this is the earliest this file's api service exists (ADR-0051). A
-      # development-only value, 55 characters, not the library's published default.
+      # that wave and this is the earliest this file's api service exists (ADR-0051).
+      #
+      # NOT "development-only" in any way the running process enforces — Dockerfile:83
+      # sets NODE_ENV=production unconditionally in the image this file builds, so
+      # nothing here keys on environment (GC-B). It clears all four of
+      # assertBetterAuthSecretConfigured()'s rejections: set, non-empty, 55 characters
+      # (>= 32), and not equal to better-auth's published default
+      # 'better-auth-secret-12345678901234567890'.
+      #
+      # It IS committed, though, and is therefore permanently in this repository's git
+      # history — "a value everyone already has", the exact property that made
+      # better-auth's own published constant a blocker (F-020). Unlike the role
+      # passwords above, this value signs real tokens the moment a deploy target reads
+      # this file, so ADR-0030's "no deploy target" is the only thing standing between
+      # this default and F-020's failure mode recurring under a different string.
+      # SHORTKIT_AUTH_PASSWORD is a fixture password for a role that owns nothing;
+      # BETTER_AUTH_SECRET is a symmetric key. Override it for anything beyond a
+      # throwaway loopback stack.
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-development-compose-better-auth-secret-not-a-real-value}
     ports:
       - '127.0.0.1:3001:3001'
@@ -342,9 +376,12 @@ configs:
 
       -- Nothing here grants shortkit_app anything on a table directly. It receives DML
       -- only through ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator, which is what
-      -- makes the seed's connection a real grant check (ADR-0033). shortkit_auth gets no
-      -- default privilege: its DML on the five Better Auth tables is hand-written per
-      -- table in migration 0001 (TASK-002, ADR-0050).
+      -- makes the seed's connection a real grant check (ADR-0033). A default privilege
+      -- for shortkit_auth would grant it DML on every table the migrator creates,
+      -- including every tenant-scoped one — the split cannot be expressed as a default
+      -- privilege in either direction (rls-policy-template.md "Roles", ADR-0050).
+      -- shortkit_auth's DML on the five Better Auth tables is hand-written per table in
+      -- migration 0001 (TASK-002).
       GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;

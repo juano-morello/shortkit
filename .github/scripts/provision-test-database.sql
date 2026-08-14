@@ -47,12 +47,18 @@ DO $$
 DECLARE
   bad text;
 BEGIN
-  -- rls-policy-template.md: "shortkit_app must never hold BYPASSRLS, SUPERUSER,
-  -- CREATEROLE or table ownership." Three of the four are checked here; table ownership
-  -- is checked downstream by check-policies.mts's count of tables owned in schema public,
-  -- which runs in the same job. CREATEROLE cannot escalate to the other two on PostgreSQL
-  -- 16+ — the server closes that path — and it is listed because this block is the
-  -- contract's only mechanical reader and was two words short of matching it.
+  -- rls-policy-template.md: "Neither shortkit_app nor shortkit_auth may hold BYPASSRLS,
+  -- SUPERUSER, CREATEROLE or table ownership." Three of the four are checked here; table
+  -- ownership is checked downstream, per role, and NOT by check-policies.mts, which holds
+  -- no ownership read at all. For shortkit_app it is the boot check,
+  -- assertRuntimeRoleCannotBypassRls (apps/api/src/db/rls.ts), which reads
+  -- tables_owned_in_public for current_user. For shortkit_auth the equivalent boot check
+  -- is assertAuthRoleSeparation (ADR-0050, TASK-004, wave 3); until it lands this file's
+  -- own suite covers it at the two live-database sites
+  -- (auth-role-provisioning.int-spec.ts, "shortkit_auth owns no relation in the migrated
+  -- schema"). CREATEROLE cannot escalate to the other two on PostgreSQL 16+ — the server
+  -- closes that path — and it is listed because this block is the contract's only
+  -- mechanical reader and was two words short of matching it.
   SELECT string_agg(rolname, ', ')
     INTO bad
     FROM pg_roles
@@ -82,10 +88,14 @@ END $$;
 GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
 
 -- Scoped to the identity `shortkit_migrator`: tables created by any other role grant
--- shortkit_app nothing. That fails closed, at runtime rather than here. shortkit_auth
--- gets no default privilege here — its DML on the five Better Auth tables is hand-written
--- per table in migration 0001 (TASK-002, ADR-0050), because ALTER DEFAULT PRIVILEGES
--- would also grant shortkit_app DML on every table the migrator creates, forever.
+-- shortkit_app nothing. That fails closed, at runtime rather than here.
+--
+-- shortkit_auth gets no ALTER DEFAULT PRIVILEGES of its own, in either direction: a
+-- default privilege for shortkit_auth would grant it DML on every table the migrator
+-- creates, including every tenant-scoped one, so the split cannot be expressed as a
+-- default privilege at all (rls-policy-template.md "Roles", ADR-0050). shortkit_auth's
+-- DML on the five Better Auth tables is hand-written per table in migration 0001
+-- (TASK-002) instead.
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public

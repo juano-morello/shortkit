@@ -201,12 +201,15 @@ jobs:
       # the compose file does.
       DATABASE_URL: postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test
       DATABASE_MIGRATION_URL: postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test
+      # shortkit_auth (ADR-0050). No fallback to DATABASE_URL — see docker-compose.test.yml's
+      # header, which this block stays identical to.
+      DATABASE_AUTH_URL: postgres://shortkit_auth:auth@127.0.0.1:55433/shortkit_test
     services:
       postgres:
         image: postgres:17-alpine
         env:
           # The bootstrap superuser. Nothing below connects as it except the provisioning
-          # step: every statement the suite issues comes from one of the two NOBYPASSRLS
+          # step: every statement the suite issues comes from one of the three NOBYPASSRLS
           # roles, because a superuser is exempt from every policy and would make
           # AC-8..AC-11 vacuous.
           POSTGRES_PASSWORD: postgres
@@ -247,7 +250,7 @@ jobs:
       # matching major version, and it removes any dependency on what the runner image
       # happens to ship. PGPASSWORD is set so the `\connect` in the file reconnects
       # without prompting.
-      - name: Provision the migrator and app roles
+      - name: Provision the migrator, app and auth roles
         run: |
           docker exec -i -e PGPASSWORD=postgres "${{ job.services.postgres.id }}" \
             psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U postgres -d postgres -f - \

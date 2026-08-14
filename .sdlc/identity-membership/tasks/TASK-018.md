@@ -6,7 +6,14 @@ title: Provision shortkit_auth across all three role-creation sites before any m
 status: tests-green
 owner_slot: sdlc-implementer-backend
 depends_on: []
-paths: [".github/scripts/provision-test-database.sql", "docker-compose.yml", "docker-compose.test.yml", "apps/api/test/support/rls-fixture.ts", "apps/api/test/support/auth-fixture.ts", "apps/api/scripts/seed.mts"]
+paths: [".github/scripts/provision-test-database.sql", ".github/workflows/ci.yml", "docker-compose.yml", "docker-compose.test.yml", "apps/api/test/support/rls-fixture.ts", "apps/api/test/support/auth-fixture.ts", "apps/api/scripts/seed.mts"]
+# ci.yml ADDED 2026-08-14 by Juano at the TASK-018 fix round, F-065. NO CARD OF THE EIGHTEEN
+# OWNED IT - verified across all of them - and TASK-010:58 and TASK-017:92 both exclude it
+# explicitly. Its integration job sets two DSNs under a comment saying they mirror
+# docker-compose.test.yml's header, so the file this card is already fixing and this one are
+# the same change. Latent today (authServerEnv() has no caller); red the moment a wave-2 spec
+# spawns the API child. NOTE the gap is closed for this variable, NOT for ci.yml generally -
+# the file still has no long-term owner and the next TASK needing it will find none.
 contracts: [design/contracts/rls-policy-template.md]
 test_files: ["apps/api/test/tenancy/auth-role-provisioning.int-spec.ts (integration, NEW — 9 tests, 8 RED as of 2026-08-13)", "apps/api/test/support/scratch-postgres.ts (NEW helper — throwaway Postgres CLUSTER; roles are cluster-wide and neither runtime role holds CREATEROLE, so a test that builds a deliberately-wrong database cannot use the shared suite database without leaking a role into every other int-spec)", "apps/api/test/tenancy/tenant-context.int-spec.ts (integration, existing — runs against a three-role database; not edited here)", "pnpm db:check-policies (quality gate, TASK-002 writes the grant-matrix assertion it will run)"]
 # test_exempt DECLINED 2026-08-13 by Juano. This card claims no AC, so test.md would have let it
