@@ -2038,9 +2038,13 @@
     hazard as a design constraint rather than a follow-up: the generator writes BETTER_AUTH_SECRET
     ONLY WHEN ABSENT and never rewrites the file, because .env is also where rotated role passwords
     live.
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: superseded
+  resolved_by: >-
+    SUPERSEDED IN MECHANISM BY F-144. The generation step this ruling created cannot work -
+    check-compose-stack.sh refuses to run when a root .env exists. The underlying problem it named
+    is real and is now solved the other way: compose carries no default at all, and the harness
+    exports one value per run without writing a file. TASK-019's card rewritten against that.
+  resolved_round: 0
 
 - id: F-082
   phase: implement
@@ -2104,9 +2108,13 @@
     OWNER ASSIGNED 2026-08-14, NOT FIXED. TASK-019, with F-081, on the ruling that the generation
     step and the rotation template are one story - splitting them is how a generator reverts four
     rotated passwords to published defaults.
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: superseded
+  resolved_by: >-
+    Resolved by the F-144 reversal rather than by an edit. There is no generator and nothing writes
+    the root .env, so the hazard this finding named - a generator reverting four rotated passwords
+    to published defaults - cannot arise. .env.example's stale claim is still TASK-019's, now as
+    prose rather than as a mechanism.
+  resolved_round: 0
 
 - id: F-084
   phase: implement
