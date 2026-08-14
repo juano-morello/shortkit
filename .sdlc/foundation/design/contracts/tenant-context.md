@@ -363,11 +363,37 @@ already forbids that, and this section is the reason it matters more than it loo
 
   **TASK-056 asserts it.** Over `apps/api/src/**/*.ts`, excluding `*.spec.ts` and
   excluding `client.ts` itself, the set of files containing the string
-  `databaseTransaction` equals exactly those four paths. File-level and by grep, like
+  `databaseTransaction` equals ~~exactly those four paths~~ **the union of the consumer
+  table above and the mention carve-out below, and it is that union rather than any
+  restatement of its length**. File-level and by grep, like
   `isolation-coverage.md` clauses A1 to A3, for the same reason: what a reviewer checks a
   diff against is a list of file names. Timing matches clause A1's. `redirect-read.ts`
   (TASK-029) and `privileged-eraser.ts` (TASK-054) both land before TASK-056's wave, so
   set equality holds when the suite first runs and is not assertable earlier.
+
+  **Corrected 2026-08-14 (F-122). "Those four paths" was written when the table had four
+  rows, was not touched when F-126 made it five or when ADR-0045 made it a fifth consumer,
+  and named a number the table above it contradicted.** The sentence now derives from the
+  table instead of restating its length, so the next consumer costs one row rather than a
+  row plus a number nobody remembers to change.
+
+  **The same correction found a member no list carried, and the split below is the repair.**
+  The assertion is by grep over the *string*, so a file that names `databaseTransaction` in a
+  comment is in the scanned set whether or not it calls it.
+  `apps/api/src/auth/tenant-id-for-user.ts:11` does exactly that, in a docblock, and it is a
+  consumer of nothing. Two lists, not one:
+
+  | Mentions but does not consume | File | Why it names the string |
+  |---|---|---|
+  | `tenantIdForUser` | `apps/api/src/auth/tenant-id-for-user.ts` | Its docblock records that `withMembershipLookup` is its only database reach, which is the claim that keeps it off the consumer table. Deleting the sentence to satisfy a grep would delete the reason. |
+
+  **Admitting a row here is cheaper than admitting a consumer, and that is the point.** A row
+  on this table asserts only that the file names the string; a row on the consumer table
+  asserts the file opens a transaction, and carries the ADR-0002 toll above. A file that calls
+  `databaseTransaction` never belongs here. The scan stays over comments, because a literal in
+  a comment is one paste from a literal in a call. `isolation-coverage.md` clause A2 makes the
+  same split for context flags: A1 is who sets, A2 is who mentions, and the note added there
+  on 2026-08-14 records that this wave hit the pattern three times.
 
   **Known coupling, recorded and not fixed (F-126).** `rls.ts` was a module of policy
   strings that schema files and the frozen policy fixture import. It now imports

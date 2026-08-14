@@ -35,7 +35,19 @@ gates:
     wave_0: { status: approved, approved_at: 2026-08-14, note: "TASK-018. 9 tests, 8 red as assertions, 1 green control that proves the harness can SEE a guard fire - without it the two guard failures would look identical whether the guard is broken or the harness cannot detect a RAISE EXCEPTION. test_exempt was available under test.md and Juano declined it." }
     wave_1: { status: approved, approved_at: 2026-08-14, note: "TASK-001 and TASK-002. 62 tests total across the wave, 14 red as assertions, 42 blocked on the six design stubs (F-046, accepted - the architect PROVED the correct red by copying the stubs in, recording the failures and deleting them again), 6 green on arrival and stated as such. No regression: the 62 existing tests all pass. BOTH SUITES RUN BY THE ORCHESTRATOR, not taken from an agent report. AC-8's typecheck clause is discharged by the gate command rather than an assertion, because ADR-0005 bans node:child_process in that package." }
 
-escalations: []
+escalations:
+  - findings: [F-108]
+    raised: 2026-08-14
+    phase: implement
+    wave: 1
+    summary: >-
+      betterAuthDatabase() is an unconstrained handle on the auth pool and its only control is
+      deferred to TASK-056, which is not in this initiative. The deferral was priced when the
+      handle sat on shortkit_app; ADR-0050 moved it to the one role that can read session.token
+      and nobody re-priced it. Closing it either pulls a control in from another initiative or
+      re-prices a deferral made outside this one.
+    blocks: "Nothing today. It is the wave-2 auth surface that starts using the handle."
+    status: open
 # F-074 RAISED AND RULED 2026-08-14 (ADR-0051 rejects the compose default by value). Its own
 # unpriced cost became F-081, which is open and needs an owner by wave 2.
 # F-047 RAISED AND RESOLVED 2026-08-13/14. Out of this list rather than marked resolved in it,

@@ -6,7 +6,7 @@ title: The Better Auth instance, its plugin configuration, and tenant creation o
 status: todo
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001, TASK-002]
-paths: ["apps/api/src/auth/auth.config.ts", "apps/api/src/auth/on-user-created.ts", "apps/api/src/auth/revocation-store.ts", "apps/api/src/auth/auth.module.ts", "apps/api/src/app.module.ts", "apps/api/src/auth/boot-assertions.ts", "apps/api/src/main.ts"]
+paths: ["apps/api/src/auth/auth.config.ts", "apps/api/src/auth/on-user-created.ts", "apps/api/src/auth/revocation-store.ts", "apps/api/src/auth/auth.module.ts", "apps/api/src/app.module.ts", "apps/api/src/auth/boot-assertions.ts", "apps/api/src/main.ts", "apps/api/src/db/better-auth-database-callers.spec.ts"]
 # WIDENED 2026-08-13 at the Design wave-1 gate by Juano's ruling on F-033. boot-assertions.ts
 # is CREATED here rather than by TASK-004, because the secret guard has to land in the same
 # wave as the config it guards. main.ts is reached only to call it. TASK-004 remains the sole
@@ -163,6 +163,37 @@ Write it against the composed instance: a user with no `tenant_memberships` row 
 **error, not a token**, and no token is issued carrying an absent or empty `tid`. GC-D fixes the
 claim set and `definePayload` must return `jti`, so the failure has to be raised before a payload
 is signed rather than by omitting a claim from one.
+
+## The auth handle needs its file-list control HERE — added 2026-08-14, F-108, Juano's ruling
+
+**You are the first card that actually uses `betterAuthDatabase()`, and you ship its only control.**
+
+`client.ts:259` exports an unconstrained handle: outside any transaction, no context flag, on the
+auth pool. A security auditor **read another user's plaintext `session.token` through it from a bare
+script.** That is not a defect in `client.ts` — the handle has to exist for the adapter — it is that
+nothing bounds who may hold it.
+
+ADR-0046 specified the bound as "`betterAuthDatabase` appears in exactly two files" and **deferred it
+to TASK-056, which is not in this initiative.** Juano pulled it here. The reason the deferral stopped
+being acceptable is worth understanding rather than just complying with:
+
+**It was priced against a model that no longer holds.** When ADR-0046 accepted the deferral, this
+handle sat on the *same* pool as `databaseTransaction` — as `shortkit_app`, which the `REVOKE` in
+migration `0001` has since stripped of every privilege on the five auth tables. ADR-0050 moved it to
+`shortkit_auth`, **the one role that can read `session.token`**. The exposure changed from
+tenant-scoped rows to plaintext session tokens and password hashes, and nobody re-priced it.
+
+That is F-024's exact shape — a cost priced against one model, the model changed, the price never
+revisited — which is the thing this initiative's whole role split exists to correct.
+
+**Build it as the same shape as the A1/A4 control TASK-002 already ships**: a unit spec under
+`src/**` that greps `apps/api/src` for `betterAuthDatabase` and asserts the set of files equals the
+permitted list. It must live under `src/**` — `vitest.config.ts:10` includes `src/**/*.spec.ts` and
+nothing else, and a file under `test/` named `*.spec.ts` collects in neither tier and passes by
+never running.
+
+**The permitted list is `client.ts` and this card's `auth.config.ts`.** Anything else is a diff
+somebody has to justify, which is the whole point.
 
 ## Out of scope for this TASK
 

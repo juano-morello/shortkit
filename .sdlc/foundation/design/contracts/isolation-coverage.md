@@ -6,6 +6,15 @@
 - **Consumed by:** every TASK adding a repository or an authenticated route.
 - **ADRs:** ADR-0020, ADR-0003, ADR-0019.
 
+> **Amended 2026-08-14 (F-121, folding in F-110; and F-122), initiative `identity-membership`,
+> wave 1, TASK-002 audit.** Two changes, both inside the F-047 amendment's blast radius and
+> neither touching a source file. **The `TO shortkit_app` clause this file put on
+> `membershipLookupPolicy()` is struck**: the policy has no role clause, applies to `PUBLIC`,
+> and this file was the only artifact in the repository that said otherwise. See "The four
+> flags and their permitted files" for the ruling and the cost it accepts. **A note under A2
+> records that a text-scan control counts prose**, which this wave hit three times, and names
+> the two-list repair rather than the weaken-the-scan one.
+>
 > **AMENDMENT AFTER THE FREEZE. 2026-08-13 (F-047), initiative `identity-membership`, wave 1,
 > raised during the Test phase red run.** This contract froze at the Design gate on
 > 2026-08-04 and every entry below predates that freeze or was written under it. **This entry
@@ -519,10 +528,47 @@ of this file.
 was checked rather than copied.** The reason `rls.ts` holds the carve-out is that the
 policies which READ a flag are built there while the statement that SETS it lives elsewhere,
 which is the distinction F-118 settled this whole clause on. `membershipLookupPolicy()` is in
-`apps/api/src/db/rls.ts` and emits `CREATE POLICY tenant_memberships_membership_lookup ON
+`apps/api/src/db/rls.ts` and emits ~~`CREATE POLICY tenant_memberships_membership_lookup ON
 tenant_memberships FOR SELECT TO shortkit_app USING (user_id =
-nullif(current_setting('app.membership_lookup_user', true), ''))`, a read. `rls.ts` sets
+nullif(current_setting('app.membership_lookup_user', true), ''))`~~, a read. `rls.ts` sets
 nothing, which A3 asserts independently. Same reasoning, same answer.
+
+**Corrected 2026-08-14 (F-121, folding in F-110). The `TO shortkit_app` clause struck above is
+wrong, and this file is the only artifact in the repository that ever carried it.** The policy
+has no `TO` clause and therefore applies to `PUBLIC`. That is the shipped form, the intended
+form, and the form every other artifact states. What `membershipLookupPolicy()` emits, at
+`apps/api/src/db/rls.ts:150-159`, applied verbatim by migration `0001` at lines 106-108:
+
+```sql
+CREATE POLICY tenant_memberships_membership_lookup ON tenant_memberships
+  FOR SELECT
+  USING (user_id = nullif(current_setting('app.membership_lookup_user', true), ''));
+```
+
+Same text in ADR-0045 ("The policy"), in `tenant-membership-lookup.md` ("The policies"), and in
+`rls-policy-template.md`'s approved set, where no policy carries a role clause. The clause here
+was written into an amendment and never existed anywhere else; `sdlc-security-auditor` measured
+the installed policy as `TO PUBLIC` (F-110). No source file, no migration and no other contract
+changes.
+
+**Why `PUBLIC` is right rather than merely shipped.** The `TO` clause would decide which roles
+*evaluate* the policy. Three things already decide which roles it can *admit a row to*, and the
+role list adds nothing to any of them. Grants: `shortkit_auth` holds no privilege on
+`tenant_memberships` (migration `0001` grants it the five Better Auth tables only), so it fails
+with `permission denied for table tenant_memberships` before any policy is evaluated. The flag:
+`nullif(current_setting('app.membership_lookup_user', true), '')` reads NULL in any session that
+has not set it, and `user_id = NULL` is NULL, so the policy admits zero rows to every role
+except one that has set the flag. Clauses A1 and A2 above: `apps/api/src/auth/membership-lookup.ts`
+is the only file that may set it. `tenant_memberships` also carries `FORCE ROW LEVEL SECURITY`
+(migration `0001:88`), so the same flag gate binds `shortkit_migrator` as table owner. Adding
+`TO shortkit_app` would narrow evaluation without narrowing admission.
+
+**The cost of ruling this way.** The escape policy is evaluated for every role holding SELECT on
+`tenant_memberships`, so the guarantee rests on the grant matrix and the flag rather than on the
+policy text being self-limiting. Granting a fourth role SELECT on `tenant_memberships` puts that
+role inside the escape's evaluation for free. `check-policies.mts`'s grant matrix is what makes
+that a visible diff, and a fourth runtime role is the point at which this decision gets
+revisited.
 
 **A1. Set call sites.** For each flag `F`, let `setters(F)` be the files in the scan set
 containing at least one match of
@@ -547,6 +593,21 @@ table above and nothing else. The table gained a row, so `mentions('app.membersh
 must be a subset of `{ apps/api/src/auth/membership-lookup.ts, apps/api/src/db/rls.ts }`,
 stated here rather than left to be inferred. **A carve-out covering three flags while the
 table names four is the same defect one layer down**, and it is what F-047 was filed against.
+
+**A text-scan control counts prose, and this wave hit that three times.** Added 2026-08-14
+(F-122). A2 says "anywhere at all: code, comment, template string, JSDoc" because a literal in
+a comment is one paste from being a literal in a call. The consequence runs the other way too:
+a file that only *describes* the mechanism joins the scanned set and turns an equality
+assertion red on a file that does nothing wrong. Wave 1 of `identity-membership` produced three
+instances of the same shape. The A2 stub violation. F-121, where a policy quotation in an
+amendment disagreed with the DDL it quoted. F-122, where a docblock in
+`apps/api/src/auth/tenant-id-for-user.ts` put that file inside `tenant-context.md`'s
+`databaseTransaction` grep set while calling nothing. **The repair is never to weaken the scan
+to ignore comments**, which would delete the property A2 exists for. It is to keep two lists:
+the semantic list of files that do the thing, and the mention list the scan actually ranges
+over, with every entry on the second justified. A1 versus A2 is that split, and
+`tenant-context.md`'s consumer table versus its mention carve-out is now the same split for
+`databaseTransaction`.
 
 **A3. `rls.ts` reads, never sets.** Assert `apps/api/src/db/rls.ts` contains no match of
 `/set_config\s*\(/`. Without A3, A2's carve-out is the hole: `rls.ts` would be a file

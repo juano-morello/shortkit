@@ -2683,3 +2683,272 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+# ---- TASK-002 audit, sdlc-reviewer, ids F-120..F-124. verdict: changes-requested, NO BLOCKER AND
+# NO MAJOR. Everything the dispatch flagged as highest risk checked out: rls.ts's four edits all
+# landed and none half-landed; migration 0001 matches rls.ts and rls-policy-template.md BYTE FOR BYTE
+# on all six policy statements and all four tenants pairs; both pools carry both listeners and
+# closeDatabase ends both without one rejection stranding the other; both specified controls
+# implement what was specified.
+# TWO CONFIRMATIONS WORTH AS MUCH AS THE FINDINGS. (1) THE GC-A / F-239 WINDOW DOES NOT EXIST -
+# drizzle-orm@0.45.2 runs every statement of a pending migration inside one session.transaction, so
+# CREATE TABLE, ENABLE/FORCE, the policies and the REVOKE commit ATOMICALLY. The card's "one commit"
+# framing is satisfied more strongly than it claims. (2) The A2-class sweep came back CLEAN across
+# all four flags in apps/api/src - the stub defect has no third instance.
+
+- id: F-120
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: documentation
+  file: apps/api/scripts/check-policies.mts
+  line: 384
+  summary: >-
+    A SECOND STALE SITE IN THE SAME FILE F-001 WAS FILED AGAINST, ~200 LINES BELOW THE DOCBLOCK THE
+    CARD SENT THE IMPLEMENTER TO CORRECT. Verified: `(TASK-009, for all four today)` - both false
+    claims are the exact pair F-001 named.
+  failure_scenario: >-
+    After migration 0001 there are five exempt tables and all five exist; TASK-009 left this
+    initiative in the 2026-08-09 re-scope. The harm is the one the CORRECTED docblock states in its
+    own text - a reader counting from a comment rather than the Map adds a sixth entry or defers
+    landed work. The block is unreachable in a migrated database, so nothing exercises the sentence.
+    F-001 WAS FIXED WHERE IT WAS FILED AND NOT WHERE IT RECURRED.
+  required_change: The comment states the count and the owning TASK correctly, or states neither.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-121
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/isolation-coverage.md
+  line: 514
+  summary: >-
+    THE F-047 AMENDMENT QUOTES membershipLookupPolicy() WITH A `TO shortkit_app` CLAUSE THAT NO
+    SOURCE, ADR OR OTHER CONTRACT CARRIES. SEEN BY THREE AGENTS INDEPENDENTLY - the TASK-002 scout
+    flagged it as unconfirmed, the implementer disclosed it, the reviewer filed it.
+  failure_scenario: >-
+    ADR-0045:89-91, tenant-membership-lookup.md:53-57, rls-policy-template.md's approved set, rls.ts
+    and migration 0001 ALL carry no TO clause. A policy without TO applies to PUBLIC and one with
+    `TO shortkit_app` does not, so the texts describe DIFFERENT GRANTS of the token-mint escape. An
+    auditor reconciling pg_policies against this contract finds a mismatch on a correct policy, or
+    "corrects" the shipped policy and narrows the escape's applicability.
+  required_change: One text for this policy across the four artifacts, in whichever direction the architect rules.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    RULED `TO PUBLIC` - THE CONTRACT WAS WRONG, NOT THE CODE, so no source change, no migration and
+    no ADR-0004 conversation. isolation-coverage.md:523 was the ONLY artifact in the repository
+    that ever carried TO shortkit_app. The architect ruled on MECHANISM rather than head-count: a
+    TO clause decides which roles EVALUATE a policy, and three mechanisms already decide which
+    roles it can ADMIT A ROW TO - shortkit_auth holds no privilege on tenant_memberships so it
+    fails permission denied before RLS runs; the nullif'd flag is NULL in any session that has not
+    set it and user_id = NULL is NULL; A1/A2 make membership-lookup.ts the only file that may set
+    it, and FORCE ROW LEVEL SECURITY binds the owner too. Plus: no policy in the approved set
+    carries a role clause, so one that did would be a lone deviation with nothing behind it.
+    ACCEPTED COST RECORDED WITH ITS REVISIT TRIGGER: the guarantee rests on the grant matrix and
+    the flag rather than on the policy text limiting itself, so a FOURTH runtime role granted
+    SELECT on tenant_memberships lands inside the escape's evaluation with no edit to this policy.
+    Written into both isolation-coverage.md and ADR-0045, the latter so a fifth agent finds a
+    ruling instead of a gap.
+  resolved_round: 1
+
+- id: F-122
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/tenant-context.md
+  line: 366
+  summary: >-
+    "EQUALS EXACTLY THOSE FOUR PATHS" SITS UNDER A TABLE LISTING FIVE - AND THE ORCHESTRATOR FOUND A
+    SIXTH THE REVIEWER DID NOT: tenant-id-for-user.ts:11 mentions `databaseTransaction` IN A DOCBLOCK
+    and is in no row of that table.
+  failure_scenario: >-
+    VERIFIED. The table lists tenant-context.ts, redirect-read.ts, privileged-eraser.ts,
+    membership-lookup.ts and rls.ts. The surrounding prose was updated - "the fifth arrived and paid
+    the toll", "Admitting a sixth" - and the ASSERTION SENTENCE ALONE still says four.
+    THE ASSERTION IS EXPLICITLY BY GREP AT FILE LEVEL - "the set of files containing the STRING
+    databaseTransaction" - so a DOCBLOCK MENTION COUNTS, which makes tenant-id-for-user.ts a member
+    nobody has listed. SAME CLASS AS THE A2 STUB VIOLATION: a prose mention in a file a text-scan
+    control counts. An equality assertion written from this sentence is red the day it lands, and the
+    cheap way to green it is to drop a path from the expected list - the escape the list exists to
+    prevent.
+    TASK-002's card ruled this file "ALREADY CORRECT - do not edit" on the strength of two other
+    sites, which is what let it survive. THAT RULING WAS MINE.
+  required_change: >-
+    The sentence names every member, or derives from the table above it instead of restating its
+    length - and the table accounts for tenant-id-for-user.ts or the file stops naming the string.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: >-
+    RESOLVED WITH NEITHER OPTION I OFFERED, AND THE ANSWER IS BETTER THAN BOTH. Adding
+    tenant-id-for-user.ts to the consumer table would be FALSE - it consumes nothing, and that
+    table is load-bearing for the ADR-0002 toll and the ISOLATION_EXCLUSIONS reasoning hanging off
+    it. Stripping the docblock would delete the sentence recording WHY the file is off that table.
+    Instead the assertion now equals THE UNION OF THE CONSUMER TABLE AND A NEW MENTION CARVE-OUT,
+    deriving from the table rather than restating its length - so the next consumer costs one row,
+    not a row plus a number. The carve-out holds one entry, tenant-id-for-user.ts, with the reason
+    it names the string, and admitting a row there is explicitly cheaper than admitting a consumer
+    while a file that CALLS databaseTransaction never qualifies. THAT IS A1-VERSUS-A2 APPLIED TO
+    databaseTransaction, which is this codebase's existing answer to exactly this problem. The
+    architect verified the current grep set itself.
+  resolved_round: 1
+
+- id: F-123
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/isolation/registrations.ts
+  line: 692
+  summary: >-
+    THE F-295 CENSUS PASSES ONLY BECAUSE tenantMembershipsAccess IS REGISTERED LAST, and nothing
+    records that the order is load-bearing.
+  failure_scenario: >-
+    createRlsFixture() runs eraseFixtureTenants against `tenants`, and tenant_memberships.tenant_id
+    is ON DELETE CASCADE, so every reset of the other two subjects deletes both seeded membership
+    rows. coverage.ts:1211 resets per attempt and :1437 iterates the registry Map IN INSERTION ORDER,
+    so today the last reset happens to be createMembershipFixture. REGISTER A FOURTH SUBJECT AFTER
+    LINE 693 - the ordinary way this file grows - and the census returns four lines where six are
+    expected. Loud rather than silent, but the diagnosis is not derivable from the assertion.
+  required_change: >-
+    The coupling is stated where a future registration will be written, or the dependency is removed
+    so registration order stops deciding whether the census holds.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-124
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-reviewer
+  round: 1
+  severity: nit
+  kind: documentation
+  file: docs/architecture/rls.md
+  line: 169
+  summary: >-
+    The db:check-policies row was updated to three of its four assertions and OMITS THE
+    `EXEMPT.size !== 5` LENGTH CONTROL - which ADR-0044 and the script's own docblock call "the whole
+    of the security argument" for the RLS-exempt tables.
+  failure_scenario: >-
+    It is the one assertion that runs BEFORE the connection opens. A reader auditing what protects
+    the exemption list from a sixth entry finds nothing in this table.
+  required_change: The row names all four assertions, or names none and points at the script.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+# ---- TASK-002 audit, sdlc-security-auditor, ids F-108..F-113.
+# THE ATTACK IS CLOSED. F-024 re-run STATEMENT FOR STATEMENT against the real migrated schema on a
+# scratch DB provisioned like production: all three writes and every read return 42501, while the
+# tenant-scoped read in the same transaction still returns tenant A's row - so it is the REVOKE and
+# not an aborted transaction. Post-attack state read back as migrator: password hashes, session
+# token and both emails unchanged.
+# AND IT CAUGHT ITSELF FIRST: its first scratch build silently had no ALTER DEFAULT PRIVILEGES, so
+# every statement returned permission denied FOR THE WRONG REASON. It rebuilt and verified
+# pg_default_acl and relacl before treating any refusal as meaningful.
+# The nullif repair measured side by side on the SAME warm backend: pre-ADR-0049 predicate raised
+# 22P02, wrapped form returned 0 rows. F-021's ghost-row premise also closes.
+
+- id: F-108
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: apps/api/src/db/client.ts
+  line: 259
+  summary: >-
+    betterAuthDatabase() EXPORTS AN UNCONSTRAINED HANDLE - outside any transaction, no context flag,
+    on the auth pool, holding privileges nothing else in the process holds. THE AUDITOR READ ANOTHER
+    USER'S PLAINTEXT session.token THROUGH IT FROM A BARE SCRIPT.
+  failure_scenario: >-
+    VERIFIED: the export sits at client.ts:259 beside databaseTransaction at :287.
+    ITS ONLY CONTROL IS ADR-0046's "EXACTLY TWO FILES", DEFERRED TO TASK-056 - WHICH IS NOT IN THIS
+    INITIATIVE. The cards are 001-019.
+    AND THE DEFERRAL WAS PRICED UNDER A MODEL THAT NO LONGER HOLDS. It was accepted when this handle
+    sat on the SAME pool as databaseTransaction, i.e. as shortkit_app, which the REVOKE has since
+    stripped of every auth-table privilege. ADR-0050 moved it to shortkit_auth - the one role that
+    CAN read session.token - and nobody re-priced the deferral.
+    THIS IS F-024's EXACT PATTERN: a cost priced against one model, the model changed, the price
+    never revisited. That is what the whole role split exists to correct, reappearing one layer up.
+  required_change: >-
+    Either the "exactly two files" control lands inside this initiative, or the deferral is
+    re-priced against the auth role in writing. Juano's - it reopens a deferral made in another
+    initiative.
+  owner_slot: orchestrator
+  status: escalated
+  resolved_by: null
+  resolved_round: null
+
+- id: F-109
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: apps/api/scripts/check-policies.mts
+  line: 158
+  summary: >-
+    A MIGRATOR-OWNED VIEW OVER `session` GRANTED TO shortkit_app RETURNED THE PLAINTEXT TOKEN WHILE
+    db:check-policies PRINTED OK. `relkind IN ('r','p')` EXCLUDES VIEWS FROM ALL THREE CONTROLS AT
+    ONCE - the grant matrix, the RLS check, and the behavioural control.
+  failure_scenario: >-
+    VERIFIED: relkind in ('r','p') appears at check-policies.mts:158, :241 and :279, and at
+    warm-connection-no-context.int-spec.ts:74. A view is relkind 'v'. So the entire role split can be
+    bypassed by a relation type none of its controls enumerate, and every gate stays green.
+    Minor because creating such a view requires the migrator and would itself be a reviewed diff -
+    but the whole point of these controls is that a reviewed diff is not the only defence.
+  required_change: The controls account for views, or record in writing why a view is out of scope.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-110
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: contract
+  file: apps/api/src/db/rls.ts
+  line: 1
+  summary: >-
+    MEASURED CONFIRMATION OF F-121: membershipLookupPolicy() installs `TO PUBLIC`, and the frozen
+    contract at isolation-coverage.md:523 shows `TO shortkit_app`. FOUR AGENTS HAVE NOW SEEN THIS -
+    scout, implementer, reviewer, security auditor.
+  failure_scenario: >-
+    A policy without TO applies to PUBLIC and one with TO shortkit_app does not; the texts describe
+    different grants of the token-mint escape. The auditor measured which one shipped rather than
+    reading it. Needs a ruling on direction, not another re-read.
+  required_change: See F-121. One text across the four artifacts.
+  owner_slot: sdlc-architect
+  status: superseded
+  resolved_by: "Merged into F-121, with the measured fact - the shipped policy is TO PUBLIC - carried onto it."
+  resolved_round: 1

@@ -128,6 +128,28 @@ two policies are ORed into the same `SELECT`, so a raise in either aborts the st
 whatever the other would have returned — which is why repairing only this policy would have
 changed nothing.
 
+**No `TO` clause, deliberately. Ruled 2026-08-14 (F-121, folding in F-110), after four agents
+raised it independently.** The policy applies to `PUBLIC`. `design/contracts/isolation-coverage.md`
+quoted it with `TO shortkit_app` inside the F-047 amendment; that quotation was wrong and is
+struck there. Nothing else ever carried the clause, and the installed policy was measured as
+`TO PUBLIC`.
+
+A role list would decide which roles evaluate the policy. It would not change which roles the
+policy can admit a row to, and three mechanisms already decide that. `shortkit_auth` holds no
+privilege on `tenant_memberships`, so it fails with `permission denied for table
+tenant_memberships` before RLS runs. `nullif(current_setting('app.membership_lookup_user', true),
+'')` reads NULL in any session that has not set the flag, and `user_id = NULL` is NULL, so the
+policy admits nothing to a role that cannot set it. `isolation-coverage.md` clauses A1 and A2
+make `apps/api/src/auth/membership-lookup.ts` the only file that may set it. `tenant_memberships`
+carries `FORCE ROW LEVEL SECURITY`, so the same gate binds `shortkit_migrator` as owner.
+
+Consistency decided the rest of it. No policy in `rls-policy-template.md`'s approved set carries
+a role clause, and one policy that did would be a deviation with nothing behind it. The cost
+accepted: the guarantee rests on the grant matrix rather than on the policy text limiting itself,
+so a fourth runtime role granted SELECT on `tenant_memberships` lands inside the escape's
+evaluation without editing this policy. `check-policies.mts`'s grant matrix is the control that
+makes that visible, and a fourth role is when this gets revisited.
+
 ### The setter
 
 `apps/api/src/auth/membership-lookup.ts`, a new file, following the shape of the two

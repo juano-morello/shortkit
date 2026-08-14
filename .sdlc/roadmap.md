@@ -261,3 +261,13 @@ level of names, false at the level of signatures. The stub is gone and there is 
 point is that the human check missed it and this one does not. Filed as **F-402**, parked, and
 recorded so ADR-0039's clause-4 claim is never cited as a stronger check than it was — that sweep
 authorised ten deletions.
+
+## Carried forward from `identity-membership`, added 2026-08-14
+
+- **A fourth runtime database role must be checked against ADR-0045's accepted cost.**
+  `membershipLookupPolicy()` carries no `TO` clause, ruled deliberately at F-121: it applies to
+  `PUBLIC`, and what keeps the token-mint escape narrow is the grant matrix plus the `nullif`'d flag,
+  **not** the policy text limiting itself. So a fourth role granted `SELECT` on `tenant_memberships`
+  lands inside the escape's evaluation **with no edit to that policy**. `check-policies.mts`'s grant
+  matrix reports the grant but does not connect it to the escape, and there is no automated control
+  that does. Whoever adds the role owns the check.
