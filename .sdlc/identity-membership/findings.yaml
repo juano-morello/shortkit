@@ -3034,9 +3034,20 @@
     constraint permits it - and assert the flagged read still returns exactly A's row. The same
     fixture makes the warm-zero-rows control at :216 discriminating too.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    MEASURED SHUT, and the proof came BEFORE the fix: with the production policy replaced by a
+    flag-gated user_id-blind widening - every membership row of every tenant to anyone who sets the
+    flag - THE SHIPPED SUITE PASSED 6 OF 6, EXIT 0. After the repair that same widening fails
+    control 2 by name. A second membership row in TENANT_B makes both conjuncts real. The negative
+    control plants three canary tables differing only in their lookup policy and EXTRACTS the
+    correct predicate from membershipLookupPolicy() with a throw-at-import on an unparseable
+    rendering - the F-009 idiom, so it is the shipped predicate rather than a transcription. AND IT
+    CORRECTED THE FINDING'S OWN EXPECTATION: the second row does NOT make the warm-zero-rows
+    control discriminating, because that control is STRUCTURALLY BLIND to a flag-gated policy - no
+    flag is set, so a flag-gated policy correctly admits nothing. That division of labour is now
+    asserted rather than argued.
+  resolved_round: 2
 
 - id: F-134
   phase: implement
@@ -3058,9 +3069,16 @@
     produces, is attempted nowhere.
   required_change: Assert the count inside the refusal test after the ROLLBACK; add the same-tenant case.
   owner_slot: sdlc-test-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    Both conjuncts are one sentence in one test each, in both tenancy directions, each shown to
+    fail on a dropped constraint. PROVING IT SURFACED WHAT THE FINDING DID NOT NAME: with the
+    attempt rolled back the count could not fail either, because a rolled-back insert leaves one
+    row whatever the database did - the first mutation run showed code: undefined with the counts
+    UNCHANGED. The helper now commits, so a broken database keeps the row and the count fires. The
+    old test was retitled to the fixture premise it actually asserts and stripped of its AC-2
+    prefix, so a Ship-phase reader counting AC evidence by title does not count it twice.
+  resolved_round: 2
 
 - id: F-135
   phase: implement

@@ -37,7 +37,7 @@ acceptance: [AC-2, AC-4]
 # a token with an absent tid" NEEDS THE MINT PATH, which is TASK-003 in wave 2. This card can only
 # cover tenantIdForUser throwing - the primary stop ADR-0015 names. AC-4 needs a second test in
 # TASK-003's wave or it goes green on a partial proof. Recorded rather than silently re-scoped.
-rework_count: 0
+rework_count: 2
 ---
 
 ## Intent
