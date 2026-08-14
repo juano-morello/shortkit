@@ -1,7 +1,7 @@
 import { getSchema } from 'better-auth/db';
 import { bearer, jwt } from 'better-auth/plugins';
 import { getTableColumns, getTableName, is } from 'drizzle-orm';
-import { PgTable, getTableConfig } from 'drizzle-orm/pg-core';
+import { type PgColumn, PgTable, getTableConfig } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 
 import * as authSchema from './schema/auth';
@@ -64,10 +64,18 @@ const betterAuthTables = getSchema({ plugins: [jwt(), bearer()] });
  * states ("`getSchema()` key, against the Drizzle table's SQL name"). Derived from the
  * module's exports rather than from `betterAuthSchema`, so a sixth table declared here and
  * left out of the model map is still compared.
+ *
+ * NO `(exported): exported is PgTable` ANNOTATION ON THE FILTER, DELIBERATELY. `is()` is
+ * declared `value is InstanceType<T>` and TypeScript 5.5+ infers the predicate from it, so
+ * the annotation is redundant; worse, it does not compile — `PgTable<TableConfig>` is not
+ * assignable to the union of this module's exports, each of which is a
+ * `PgTableWithColumns<{ name: "user" }>` with a literal `name`, and a type predicate's type
+ * must be assignable to its parameter's type (TS2677). The runtime filter is the same
+ * either way; only the annotation was wrong.
  */
 const declaredTables = new Map<string, PgTable>(
   Object.values(authSchema)
-    .filter((exported): exported is PgTable => is(exported, PgTable))
+    .filter((exported) => is(exported, PgTable))
     .map((table) => [getTableName(table), table]),
 );
 
@@ -78,10 +86,17 @@ function propertyNamesOf(table: PgTable): string[] {
   return Object.keys(getTableColumns(table)).sort();
 }
 
-function columnOf(table: PgTable, property: string): Record<string, unknown> | undefined {
-  return (getTableColumns(table) as Record<string, Record<string, unknown> | undefined>)[
-    property
-  ];
+/**
+ * `undefined` when the table declares no such property — the case the three assertions
+ * below turn into a mismatch against a `getSchema()` field, rather than into a crash.
+ *
+ * Typed as `PgColumn` rather than cast to a bag of `unknown`: `notNull`, `isUnique` and
+ * `primary` are declared members of drizzle's `Column`, so a typo in one of the three
+ * reads below is a typecheck error here instead of a silent `undefined` that only fails
+ * when the field it is compared against happens to be `true`.
+ */
+function columnOf(table: PgTable, property: string): PgColumn | undefined {
+  return getTableColumns(table)[property];
 }
 
 /** `<model>.<field>` for every field `getSchema()` reports, so a failure names both. */

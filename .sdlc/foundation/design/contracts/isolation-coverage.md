@@ -456,7 +456,15 @@ expect(uncovered).toEqual([]);   // names every uncovered surface (AC-96)
 `toEqual([])` on an array of ids, not a count comparison. AC-96 requires the failure to
 **name** the uncovered route.
 
-## Exclusions: exactly two
+## Exclusions: ~~exactly two~~ exactly three
+
+> **AMENDED 2026-08-14, second post-freeze change to this file.** `withMembershipLookup`
+> (ADR-0045, TASK-002) is the third exclusion and it has landed. The count below and the
+> assertion that pins it were both written when there were two.
+>
+> **This amendment was owed by the F-047 amendment above and deliberately not made there.** That
+> round found this site, judged that a length-assertion bump belongs in the commit that raises the
+> count rather than in an amendment written a wave early, and left it. TASK-002 is that commit.
 
 ```ts
 export const ISOLATION_EXCLUSIONS = [
@@ -472,7 +480,7 @@ export const ISOLATION_EXCLUSIONS = [
   },
 ] as const;
 
-expect(ISOLATION_EXCLUSIONS).toHaveLength(2);
+expect(ISOLATION_EXCLUSIONS).toHaveLength(3);   // ~~2~~ amended 2026-08-14, TASK-002
 ```
 
 A third exclusion fails the length assertion. Raising the number is a one-line diff a
@@ -1192,7 +1200,7 @@ production run's judgement reads the value `runCrossTenantAttempts()` returned, 
    TASK-011's decorator, then TASK-056's three discovery mechanisms — is in the ledger under
    "What this contract claims that is not yet true". A caller may not rely on this invariant
    until both land.**
-5. Exactly two exclusions exist, both justified in-file and both narrowed by database
+5. ~~Exactly two~~ **Exactly three** exclusions exist (amended 2026-08-14, TASK-002), each justified in-file, and each narrowed by database
    policy.
 6. **The complete set of ways data crosses a tenant boundary is the approved policy set
    in `rls-policy-template.md`**, and a test asserts that, so the claim is enforced

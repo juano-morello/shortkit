@@ -32,11 +32,13 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
 import {
   createRlsFixture,
+  migrationDsn,
   RLS_FIXTURE_TABLE,
   TENANT_A,
   TENANT_B,
   TENANT_C_NEVER_SEEDED,
 } from '../support/rls-fixture';
+import { execSql } from '../support/psql';
 
 import type {
   CrossTenantAttemptResult,
@@ -154,6 +156,31 @@ interface TableAccessSpec {
   readonly projection: string[];
   /** A non-owner column the update attempt tries to overwrite. */
   readonly mutableColumn: string;
+  /**
+   * ==========================================================================
+   * WHAT THE TWO UPDATE SHAPES ASSIGN TO `mutableColumn`. Added for
+   * `tenant_memberships` (tenant-membership-lookup.md, TASK-002).
+   * ==========================================================================
+   *
+   * Absent, each shape keeps its own literal, and the two stay DIFFERENT for the reason
+   * `updateAll` records below: `isolation_masked_refusal_canary` carries a CHECK
+   * constraint rejecting `overwritten-by-another-tenant` specifically, and a control
+   * that refused the unqualified write with 23514 would hide the leak it exists to
+   * expose. Every table whose mutable column is free text leaves this unset.
+   *
+   * `tenant_memberships` HAS NO FREE-TEXT COLUMN. `user_id` is UNIQUE and a foreign key
+   * and `role` is an enum, so a string literal assigned to either fails with a
+   * constraint or enum error rather than a policy refusal — and the harness scores that
+   * `unverified`, which is a red run over a table with nothing wrong with it. So the
+   * registration supplies a valid `tenant_role` instead, different from the one its
+   * fixture rows carry, and BOTH shapes use it: there is no CHECK constraint on this
+   * table for the two literals to have to differ against.
+   *
+   * A value and not a fragment, for F-352's reason — everything the `sql` tag
+   * interpolates that is not a fragment is bound as `$N`, so nothing spellable here can
+   * reach an existing column and quietly disarm both unqualified writes.
+   */
+  readonly mutableValue?: string | number | boolean;
   /**
    * The owner id the insert attempt writes, and the row it writes. For a `tenant_id`
    * table this is the target tenant itself. For `tenants`, whose row identity IS its
@@ -388,7 +415,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       qualification: 'owner-qualified',
       statement: (_actor, target) =>
         sql`update ${table}
-               set ${mutable} = ${'overwritten-by-another-tenant'}
+               set ${mutable} = ${spec.mutableValue ?? 'overwritten-by-another-tenant'}
              where ${owner} = ${target.id}::uuid`,
     }),
     shape({
@@ -429,7 +456,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       reaches: 'existing-row',
       qualification: 'unqualified',
       statement: () =>
-        sql`update ${table} set ${mutable} = ${'overwritten-by-an-unqualified-write'}${alsoSets}`,
+        sql`update ${table} set ${mutable} = ${spec.mutableValue ?? 'overwritten-by-an-unqualified-write'}${alsoSets}`,
     }),
     /** F-302. `DELETE FROM <t>` — the auditor's measurement: DELETE 0 qualified, DELETE 2 not. */
     shape({
@@ -588,8 +615,105 @@ const rlsFixtureRowsAccess: TenantScopedSurfaceRegistration = {
   }),
 };
 
+/**
+ * ===========================================================================
+ * THE MIGRATED MEMBERSHIP TABLE (TASK-002, tenant-membership-lookup.md).
+ * ===========================================================================
+ *
+ * The third registered production table, and the first one carrying a THIRD policy
+ * beside the template's two: `tenant_memberships_membership_lookup`, ADR-0045's
+ * `FOR SELECT` token-mint escape. Every attempt below runs through
+ * `withTenantTransaction`, which sets `app.tenant_id` and never
+ * `app.membership_lookup_user`, so that policy reads NULL through its `nullif` and
+ * admits nothing here — which is the property this registration incidentally proves on
+ * every run. If it ever admitted something, `findAll` would return the other tenant's
+ * row and the harness would name it.
+ *
+ * ITS FIXTURE ROWS GO IN THROUGH THE MIGRATOR DSN AND SO DOES ITS `"user"` SEED, and
+ * both are structural rather than convenience. `tenant_memberships` carries FORCE ROW
+ * LEVEL SECURITY, so even the owning role's insert has to satisfy the WITH CHECK and
+ * runs under a tenant id; and migration `0001` revokes `shortkit_app` on `"user"`
+ * entirely (ADR-0050), so the runtime role cannot seed the foreign key it needs.
+ */
+const MEMBERSHIP_ROW_A = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
+const MEMBERSHIP_ROW_B = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1';
+const PLANTED_MEMBERSHIP_ROW_ID = 'f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4';
+
+/** Better Auth generates its own ids and they are not uuids (auth-schema.md). */
+const MEMBERSHIP_USER_A = 'isolationUserA01';
+const MEMBERSHIP_USER_B = 'isolationUserB01';
+
+/**
+ * A third user, for `insertOwnedBy` alone. `UNIQUE (user_id)` is one row per user, so
+ * planting under A's or B's id would be refused by 23505 BEFORE any policy was
+ * evaluated — a refusal indistinguishable from the 42501 the INSERT policy owes us,
+ * which is the same trap `tenants` needs `TENANT_C_NEVER_SEEDED` for.
+ */
+const MEMBERSHIP_USER_PLANTED = 'isolationUserP01';
+
+/** Different from the value below, so an admitted update is visible as a change. */
+const MEMBERSHIP_OVERWRITE_ROLE = 'admin';
+const MEMBERSHIP_SEEDED_ROLE = 'owner';
+
+function createMembershipFixture(): void {
+  // Tenants first: `createRlsFixture` erases and re-seeds them, and the erase cascades
+  // every membership row away. Seeding before it would seed nothing.
+  createRlsFixture();
+
+  // Deleting the `"user"` rows cascades their memberships too, which is what clears a
+  // row a previous attempt planted. `"user"` carries no row-level security (ADR-0044),
+  // so this needs no tenant context — only the migrator's grant.
+  execSql(
+    migrationDsn(),
+    `DELETE FROM "user" WHERE id IN
+       ('${MEMBERSHIP_USER_A}', '${MEMBERSHIP_USER_B}', '${MEMBERSHIP_USER_PLANTED}');
+
+     INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES
+       ('${MEMBERSHIP_USER_A}', 'Isolation A', '${MEMBERSHIP_USER_A}@example.test', false, now(), now()),
+       ('${MEMBERSHIP_USER_B}', 'Isolation B', '${MEMBERSHIP_USER_B}@example.test', false, now(), now()),
+       ('${MEMBERSHIP_USER_PLANTED}', 'Isolation P', '${MEMBERSHIP_USER_PLANTED}@example.test', false, now(), now());`,
+  );
+
+  // BOTH tenants, and that is rule 1 of this file: a table seeded for one tenant only
+  // returns zero rows to four of the five shapes because there is nothing there, not
+  // because a policy denied them, and the harness scores the surface `unverified`
+  // (F-295). One statement per tenant because the WITH CHECK admits one at a time.
+  for (const [tenant, user, row] of [
+    [TENANT_A, MEMBERSHIP_USER_A, MEMBERSHIP_ROW_A],
+    [TENANT_B, MEMBERSHIP_USER_B, MEMBERSHIP_ROW_B],
+  ]) {
+    execSql(
+      migrationDsn(),
+      `INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
+       VALUES ('${row}', '${tenant}', '${user}', '${MEMBERSHIP_SEEDED_ROLE}');`,
+      { tenantId: tenant },
+    );
+  }
+}
+
+const tenantMembershipsAccess: TenantScopedSurfaceRegistration = {
+  subject: 'TenantMembershipsTableAccess',
+  table: 'tenant_memberships',
+  ownerColumn: 'tenant_id',
+  reset: createMembershipFixture,
+  methods: tableAccess({
+    table: 'tenant_memberships',
+    ownerColumn: 'tenant_id',
+    // `user_id` rather than a label: it is the column the lookup policy keys on, so a
+    // row that crossed a boundary is named by the user it belongs to.
+    projection: ['id', 'tenant_id', 'user_id'],
+    mutableColumn: 'role',
+    mutableValue: MEMBERSHIP_OVERWRITE_ROLE,
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('tenant_memberships')} (id, tenant_id, user_id, role)
+          values (${PLANTED_MEMBERSHIP_ROW_ID}::uuid, ${ownerId}::uuid, ${MEMBERSHIP_USER_PLANTED}, ${MEMBERSHIP_SEEDED_ROLE})`,
+  }),
+};
+
 registerTenantScopedSurfaces(tenantsAccess);
 registerTenantScopedSurfaces(rlsFixtureRowsAccess);
+registerTenantScopedSurfaces(tenantMembershipsAccess);
 
 const PLANTED_CANARY_ROW_ID = 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2';
 
@@ -826,6 +950,18 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:RlsFixtureRowsTableAccess.reparentAll',
   'repo:RlsFixtureRowsTableAccess.updateAll',
   'repo:RlsFixtureRowsTableAccess.updateOwnedBy',
+  // The third registered subject (TASK-002). Eight shapes, like the other two: no table
+  // may decline one (F-342), and `tenant_memberships` answers all eight — the two
+  // unqualified updates through `mutableValue`, because its only non-owner column is an
+  // enum and the default literal is not a `tenant_role`.
+  'repo:TenantMembershipsTableAccess.deleteAll',
+  'repo:TenantMembershipsTableAccess.deleteOwnedBy',
+  'repo:TenantMembershipsTableAccess.findAll',
+  'repo:TenantMembershipsTableAccess.findOwnedBy',
+  'repo:TenantMembershipsTableAccess.insertOwnedBy',
+  'repo:TenantMembershipsTableAccess.reparentAll',
+  'repo:TenantMembershipsTableAccess.updateAll',
+  'repo:TenantMembershipsTableAccess.updateOwnedBy',
   'repo:TenantsTableAccess.deleteAll',
   'repo:TenantsTableAccess.deleteOwnedBy',
   'repo:TenantsTableAccess.findAll',

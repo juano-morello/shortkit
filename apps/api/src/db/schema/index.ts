@@ -8,4 +8,6 @@
  * A schema TASK adds both the table file and its `export * from './<table>';` line
  * here, alphabetically.
  */
+export * from './auth';
+export * from './tenant-memberships';
 export * from './tenants';

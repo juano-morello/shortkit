@@ -489,14 +489,20 @@ export interface IsolationReport {
 
 /**
  * ============================================================================
- * EXACTLY TWO. A third fails the length assertion in the suite.
+ * EXACTLY THREE. A fourth fails the length assertion in the suite.
  * Raising this number requires a written justification (ADR-0020).
  * ============================================================================
  *
- * Neither surface exists yet — `RedirectReadRepository` is TASK-029's and
- * `PrivilegedTenantEraser` is TASK-054's. The list is carried now because the LENGTH is
- * the control: a third entry has to arrive as a visible one-line diff, and it cannot do
- * that against a list that does not exist.
+ * Raised from two to three on 2026-08-14 by ADR-0045, which is that justification. The
+ * third entry is the token-mint membership lookup: `tid` must be in every token, it comes
+ * from a tenant-scoped table, and at mint time no tenant is known — so neither
+ * `withTenantTransaction` nor a plain `databaseTransaction` can produce it.
+ *
+ * Two of the three surfaces do not exist yet — `RedirectReadRepository` is TASK-029's and
+ * `PrivilegedTenantEraser` is TASK-054's. `TenantMembershipLookup` DOES exist, from this
+ * wave, at `apps/api/src/auth/tenant-id-for-user.ts`. The list is carried whether or not
+ * a surface is built, because the LENGTH is the control: a new entry has to arrive as a
+ * visible one-line diff, and it cannot do that against a list that does not exist.
  */
 export const ISOLATION_EXCLUSIONS = [
   {
@@ -508,6 +514,11 @@ export const ISOLATION_EXCLUSIONS = [
     id: 'repo:PrivilegedTenantEraser.erase' as SurfaceId,
     justification:
       'Amendment A-2: GDPR deletion is deliberately outside the tenant-facing interface. Narrowed by ADR-0003 to a FOR DELETE policy scoped to a single tenant id. Reachable only from POST /api/gdpr/delete under tenant owner plus confirmation (AC-106).',
+  },
+  {
+    id: 'repo:TenantMembershipLookup.tenantIdForUser' as SurfaceId,
+    justification:
+      'Token minting runs before a tenant is known: the claim this reads produces is what a tenant context is later opened from. Narrowed by ADR-0045 to a FOR SELECT policy admitting one user_id, inside a READ ONLY transaction, in one file. Reachable only from definePayload.',
   },
 ] as const;
 
@@ -1719,6 +1730,11 @@ export const CONTEXT_FLAG_OWNERS: ReadonlyArray<{ flag: string; file: string }> 
   { flag: 'app.tenant_id', file: 'apps/api/src/tenancy/tenant-context.ts' },
   { flag: 'app.redirect_context', file: 'apps/api/src/redirect/db/redirect-read.ts' },
   { flag: 'app.privileged_erase', file: 'apps/api/src/gdpr/privileged-eraser.ts' },
+  // The fourth flag (ADR-0045, F-047). The only row here whose file exists today, and
+  // therefore the only one `context-flag-owners.spec.ts` can match against a real
+  // `set_config` call — which is why that control asserts A1's SUBSET direction and not
+  // its exactly-one direction until TASK-029 and TASK-054 land the other two setters.
+  { flag: 'app.membership_lookup_user', file: 'apps/api/src/auth/membership-lookup.ts' },
 ];
 
 export interface PolicyShape {

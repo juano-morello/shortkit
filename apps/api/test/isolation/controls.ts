@@ -77,10 +77,12 @@
  * `db:check-policies` exists to fail on. `dropControlTables()` runs in the suite's
  * `afterAll`, and CI runs `db:check-policies` before the integration suite.
  *
- * ⚠ THE FLAG LITERAL IS DELIBERATE. These files write `app.tenant_id` into policy SQL.
- * isolation-coverage.md's scan set is `apps/api/src/**` and excludes `apps/api/test/**`
- * by name, precisely because the integration harness has to speak the same SQL the
- * policies do.
+ * ⚠ THE FLAG LITERAL IS DELIBERATE WHEREVER IT APPEARS. These files write `app.tenant_id`
+ * into policy SQL. isolation-coverage.md's scan set is `apps/api/src/**` and excludes
+ * `apps/api/test/**` by name, precisely because the integration harness has to speak the
+ * same SQL the policies do. Since 2026-08-14 the tenant-id predicate is READ OUT OF
+ * `tenantScopedPolicies()` rather than written here (F-009), so the literal reaches these
+ * canaries from `src/db/rls.ts` — which is the one file the scan set permits to hold it.
  */
 import { TENANT_ID_COLUMN_SQL, tenantScopedPolicies } from '../../src/db/rls';
 import { execSql } from '../support/psql';
@@ -127,7 +129,48 @@ const CONTROL_B_ROW_ID = 'c0b0c0b0-c0b0-4c0b-8c0b-c0b0c0b0c0b0';
 export const CONTROL_A_LABEL = 'control-row-owned-by-tenant-a';
 export const CONTROL_B_LABEL = 'control-row-owned-by-tenant-b';
 
-const TENANT_ID = `current_setting('app.tenant_id', true)::uuid`;
+/**
+ * ===========================================================================
+ * READ OUT OF `tenantScopedPolicies()`. IT IS NOT A COPY, AND UNTIL 2026-08-14 IT WAS
+ * ONE — UNDER A COMMENT SAYING IT WAS NOT (F-009).
+ * ===========================================================================
+ *
+ * This constant used to be hand-written as `current_setting('app.tenant_id', true)::uuid`
+ * with the docblock below it already claiming it came "from the same production
+ * constant". It did not. ADR-0049 then changed the production predicate to wrap every
+ * flag reference in `nullif(<flag>, '')`, and a hand-written copy DOES NOT MOVE WITH IT:
+ * every canary in this file would have gone on testing the shape the product no longer
+ * has, AND GONE GREEN, because the old predicate isolates correctly on a cold connection
+ * and cold is the only state the fixture creates. The harness built to catch exactly that
+ * class was carrying an instance of it.
+ *
+ * So it is extracted rather than transcribed. The regex is anchored on the rendering
+ * `tenantScopedPolicies()` actually emits, and a rendering it cannot read throws AT
+ * IMPORT — which is the point: a change to the production predicate must either flow
+ * through here or stop the suite, and it may not quietly do neither.
+ */
+const ISOLATION_USING = /^\s*USING\s+\(tenant_id = (.+)\)$/m;
+
+function productionTenantIdPredicate(): string {
+  const isolation = tenantScopedPolicies('probe').statements.find((statement) =>
+    statement.includes('probe_tenant_isolation'),
+  );
+  const matched = isolation === undefined ? null : ISOLATION_USING.exec(isolation);
+
+  if (matched === null) {
+    throw new Error(
+      "could not read the tenant-id predicate out of tenantScopedPolicies()'s isolation " +
+        `policy: ${isolation ?? 'no <t>_tenant_isolation statement was emitted at all'}. ` +
+        'Every canary table in this file builds its policies from that expression, so ' +
+        'a shape this cannot parse would silently leave them testing a predicate the ' +
+        'product no longer uses (F-009). Update the regex above with the new rendering.',
+    );
+  }
+
+  return matched[1];
+}
+
+const TENANT_ID = productionTenantIdPredicate();
 
 /** The same shape every tenant-scoped table has, from the same production constant. */
 function createTable(table: string, extra = ''): string {

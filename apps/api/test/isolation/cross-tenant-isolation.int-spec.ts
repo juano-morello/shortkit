@@ -10,10 +10,11 @@
  * WHAT A GREEN RUN OF THIS FILE DOES AND DOES NOT SAY
  * ---------------------------------------------------------------------------
  *
- * IT SAYS: for the two tables that exist today — `tenants` and `rls_fixture_rows` — a
- * tenant transaction belonging to either tenant cannot read, filter for, update, delete
- * or plant a row belonging to the other, or TAKE OWNERSHIP OF ONE, through any of EIGHT
- * statement shapes ON EITHER TABLE — no table is excused from one since r4 withdrew the
+ * IT SAYS: for the three tables that exist today — `tenants`, `rls_fixture_rows` and
+ * `tenant_memberships` (TASK-002) — a tenant transaction belonging to either tenant
+ * cannot read, filter for, update, delete or plant a row belonging to the other, or TAKE
+ * OWNERSHIP OF ONE, through any of EIGHT statement shapes ON EVERY ONE OF THEM — no table
+ * is excused from one since r4 withdrew the
  * decline (F-342) — IN EITHER DIRECTION; that three of those eight carry NO WHERE CLAUSE,
  * so a wide-open UPDATE or DELETE policy cannot hide behind a correctly scoped SELECT
  * policy (F-302), and that one of the three ASSIGNS THE OWNER COLUMN, so a widened USING
@@ -29,7 +30,10 @@
  *
  * IT DOES NOT SAY the system has no uncovered cross-tenant surface. Most of the system
  * is unwritten: there is no authenticated route, no repository class, and no
- * `workspaces`, `links`, `domains`, `tenant_memberships` or `click_events` table. Route
+ * `workspaces`, `links`, `domains` or `click_events` table. `tenant_memberships` is here
+ * as a TABLE, attempted directly; the ONE surface that reads it outside a tenant context
+ * — `withMembershipLookup` / `tenantIdForUser`, the token-mint escape — is not attempted
+ * here at all, and is the third entry in `ISOLATION_EXCLUSIONS` (ADR-0045). Route
  * and repository discovery — isolation-coverage.md's route and decorator enumeration,
  * the four grep clauses and the `pg_policies` shape assertion — are TASK-056's. AC-12 is
  * met against a partial table set, deliberately and by ruling, and the boundary is
@@ -365,8 +369,8 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   });
 
   it('AC-12: no registered method lets one tenant reach another tenant\'s rows', () => {
-    // The premise, stated first and read from the catalog: both tables really are
-    // protected, so a clean run below is the policies denying rather than an
+    // The premise, stated first and read from the catalog: all three registered tables
+    // really are protected, so a clean run below is the policies denying rather than an
     // unprotected table nobody looked at. Counts are hand-derived — four bespoke
     // policies on `tenants` from drizzle/0000_*.sql, two from tenantScopedPolicies().
     expect(protectionOf('tenants')).toEqual({
@@ -378,6 +382,18 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       row_security: true,
       force_row_security: true,
       policies: 2,
+    });
+    // THREE on `tenant_memberships`, and the third is the one no attempt in this file can
+    // reach: `tenantScopedPolicies()` emits the isolation policy and `<t>_privileged_erase`,
+    // and `membershipLookupPolicy()` adds a SELECT policy keyed on the token-mint flag
+    // (ADR-0045). That policy is the excluded surface's whole narrowing, so a migration
+    // that dropped it — or one that never emitted it — would leave the exclusion in
+    // `ISOLATION_EXCLUSIONS` justified by a policy the database does not have, and every
+    // attempt below would still be green. Read from the catalogue for that reason.
+    expect(protectionOf('tenant_memberships')).toEqual({
+      row_security: true,
+      force_row_security: true,
+      policies: 3,
     });
 
     expect(leakedSurfaces(judged())).toEqual([]);
@@ -395,18 +411,20 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       judged().attempts.map(() => 'pass'),
     );
 
-    // SIXTEEN surfaces, each attempted in both directions (F-293) — the same eight shapes
-    // on both tables, since r4 withdrew the one decline (F-342). Reads and writes are both
-    // exercised: AC-94 covers the reads and AC-95 the writes, and a battery that had lost
-    // all of one kind would still satisfy the count above.
-    expect(judged().attempts).toHaveLength(32);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(8);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(24);
+    // TWENTY-FOUR surfaces, each attempted in both directions (F-293) — the same eight
+    // shapes on all THREE tables, since r4 withdrew the one decline (F-342) and TASK-002
+    // registered `tenant_memberships`. Reads and writes are both exercised: AC-94 covers
+    // the reads and AC-95 the writes, and a battery that had lost all of one kind would
+    // still satisfy the count above.
+    expect(judged().attempts).toHaveLength(48);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(12);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(36);
 
-    // F-302, F-330, F-342. Twelve of those twenty-four writes carry NO WHERE CLAUSE.
-    // Hand-derived, because a battery that silently lost them is a battery that cannot
-    // see a wide-open UPDATE policy, and the counts above would not move if `updateAll`
-    // were quietly replaced by a second owner-qualified statement.
+    // F-302, F-330, F-342. Eighteen of those thirty-six writes carry NO WHERE CLAUSE —
+    // three shapes, on each of three tables, in each of two directions. Hand-derived,
+    // because a battery that silently lost them is a battery that cannot see a wide-open
+    // UPDATE policy, and the counts above would not move if `updateAll` were quietly
+    // replaced by a second owner-qualified statement.
     expect(
       labelled(
         judged().attempts.filter(
@@ -416,14 +434,20 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     ).toEqual([
       'A->B deleteAll',
       'A->B deleteAll',
+      'A->B deleteAll',
+      'A->B reparentAll',
       'A->B reparentAll',
       'A->B reparentAll',
       'A->B updateAll',
       'A->B updateAll',
+      'A->B updateAll',
+      'B->A deleteAll',
       'B->A deleteAll',
       'B->A deleteAll',
       'B->A reparentAll',
       'B->A reparentAll',
+      'B->A reparentAll',
+      'B->A updateAll',
       'B->A updateAll',
       'B->A updateAll',
     ]);
@@ -469,8 +493,10 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   it('F-293: every registered surface is attempted in both directions, not only as tenant A', () => {
     // The blocker r1 found: `attempt()` had one call site and it read
     // `method.attempt(fixtures.tenantA, fixtures.tenantB)`, so the actor was always A
-    // and a policy that leaks only to B was never attempted. Both lists are the same
-    // ten ids, which is what "both directions" means.
+    // and a policy that leaks only to B was never attempted. Both lists are the whole of
+    // `EXPECTED_SURFACE_IDS`, which is what "both directions" means — stated against that
+    // roster rather than as a count, so it does not go stale the next time a table is
+    // registered.
     const forward = judged().attempts.filter((outcome) => outcome.direction === 'A->B');
     const reverse = judged().attempts.filter((outcome) => outcome.direction === 'B->A');
 
@@ -483,16 +509,23 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   });
 
   it('F-295: each tenant sees exactly its own row in every registered table before anything is attempted', async () => {
-    // The positive control. Four lines, hand-derived from the fixture: two tables, two
+    // The positive control. Six lines, hand-derived from the fixture: three tables, two
     // tenants, one row each, and each tenant seeing only its own. If `app.tenant_id`
     // were never set, set under a mistyped name, or set to a value no row matches, this
     // is empty and every cross-tenant attempt in the file would be passing on nothing.
     const { id: a } = fixtures.tenantA;
     const { id: b } = fixtures.tenantB;
 
+    // The two `tenant_memberships` row ids are written out rather than imported, because
+    // `registrations.ts` does not export them and because the LITERAL is the point: the
+    // planted row this suite's attempts try to insert is
+    // `f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4`, so a census line naming any id but the two
+    // seeded ones is a row that survived an attempt. A count would not say that.
     expect(await tenantOwnershipCensus(registeredSubjects(), fixtures)).toEqual([
       `${RLS_FIXTURE_TABLE} seen-by=${a} id=${TENANT_A_ROW_ID} owner=${a}`,
       `${RLS_FIXTURE_TABLE} seen-by=${b} id=${TENANT_B_ROW_ID} owner=${b}`,
+      `tenant_memberships seen-by=${a} id=a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1 owner=${a}`,
+      `tenant_memberships seen-by=${b} id=b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1 owner=${b}`,
       `tenants seen-by=${a} id=${a} owner=${a}`,
       `tenants seen-by=${b} id=${b} owner=${b}`,
     ]);
@@ -535,9 +568,18 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // cannot slip in unnoticed. Extending it is the correct response to adding a
     // registration; extending it WITHOUT understanding why the new entry is refused is
     // the mistake, and the invariant above is what catches that.
+    //
+    // Three per direction since TASK-002, not two: `tenant_memberships`' `insertOwnedBy`
+    // is refused by the isolation policy's WITH CHECK — the same clause, on a policy
+    // emitted by the same `tenantScopedPolicies()` builder, as the other two. The
+    // invariant above is what says so rather than this roster: all six carry
+    // `qualification: 'owner-qualified'`, `refusalKind: 'row-level-security'` and a
+    // message matching `violates row-level security policy`.
     expect(labelled(refused)).toEqual([
       'A->B insertOwnedBy',
       'A->B insertOwnedBy',
+      'A->B insertOwnedBy',
+      'B->A insertOwnedBy',
       'B->A insertOwnedBy',
       'B->A insertOwnedBy',
     ]);
@@ -1195,7 +1237,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
     // ...and it is not an empty marker: the attempts are this run's and were judged, so a
     // process killed here strands the evidence without stranding a verdict.
-    expect(inFlight.attempts).toHaveLength(32);
+    expect(inFlight.attempts).toHaveLength(48);
     expect(inFlight.attemptVerdict).toBe('pass');
     expect(inFlight.incompleteBecause).toContain('had not finished');
 
@@ -1234,7 +1276,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // and recorded in the round's report.
     const afterTheAttempts = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
 
-    expect(afterTheAttempts.attempts).toHaveLength(32);
+    expect(afterTheAttempts.attempts).toHaveLength(48);
     expect(afterTheAttempts.runAt).not.toBe(marker.runAt);
   });
 

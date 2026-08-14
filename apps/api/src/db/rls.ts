@@ -7,12 +7,17 @@
  * built from here, and the producing TASK appends it to the generated migration BY HAND
  * in the same commit. `pnpm db:check-policies` asserts the result against pg_policies.
  *
- * THIS FILE READS ALL THREE CONTEXT FLAGS AND SETS NONE (F-118). It is the one file
+ * THIS FILE READS ALL FOUR CONTEXT FLAGS AND SETS NONE (F-118). It is the one file
  * besides each flag's setter that may contain the strings `app.tenant_id`,
- * `app.redirect_context` and `app.privileged_erase`, because the policies that read them
- * are built here. The isolation suite asserts this file contains no set_config call at
- * all, which is what keeps that carve-out from being the hole
- * (design/contracts/isolation-coverage.md, clause A3).
+ * `app.redirect_context`, `app.privileged_erase` and `app.membership_lookup_user`,
+ * because the policies that read them are built here. The isolation suite asserts this
+ * file contains no set_config call at all, which is what keeps that carve-out from being
+ * the hole (design/contracts/isolation-coverage.md, clause A3).
+ *
+ * FOUR, NOT THREE, SINCE 2026-08-13 (ADR-0045, F-007). `membershipLookupPolicy()` below
+ * put `app.membership_lookup_user` in this file, so an enumeration that stopped at three
+ * would have been false in the commit that added it. isolation-coverage.md's flag table
+ * was amended for the same row (F-047); this list and that one are the same list.
  *
  * Write each flag name inline in the policy SQL. No exported constant: clause A4 forbids
  * passing an identifier to set_config, so a constant would be inlined at the only call
@@ -53,6 +58,23 @@ function assertTableName(table: string): string {
  * `current_setting(name, true)` — the second argument is load-bearing. Without it an
  * unset flag raises rather than returning NULL, and the AC-10 read outside any tenant
  * context would fail with an error instead of returning zero rows.
+ *
+ * `nullif(<flag>, '')` IS THE OTHER HALF, AND ON A POOLED BACKEND IT IS THE COMMON CASE
+ * (ADR-0049, F-003). The `true` argument answers the UNSET case. It does not answer the
+ * RESET one: a transaction-local `set_config` leaves a session placeholder behind whose
+ * reset value is the empty string, not NULL, and `pg.Pool` returns the backend with no
+ * reset query. So from the first committed tenant transaction onward every later checkout
+ * of that physical connection reads `''`, `''::uuid` is evaluated, and the statement
+ * raises `22P02 invalid input syntax for type uuid: ""` — the out-of-context read failing
+ * on the only connection state the application actually runs in.
+ *
+ * `nullif` collapses unset and reset to NULL alike, so the predicate is NULL, the policy
+ * treats it as false, and the read returns zero rows on a cold backend and a warm one.
+ * An `AND` guard is NOT a substitute and was measured raising anyway: PostgreSQL does not
+ * guarantee left-to-right evaluation of `AND` operands inside a policy predicate. Every
+ * reference to a context flag in this file is wrapped, cast or not — `''` is dangerous
+ * because of the comparison and not because of the cast (F-021), and a rule with
+ * exceptions cannot be checked mechanically. `db:check-policies` counts the wrappers.
  */
 export function tenantScopedPolicies(table: string): PolicySet {
   const t = assertTableName(table);
@@ -67,13 +89,18 @@ export function tenantScopedPolicies(table: string): PolicySet {
       // succeeds, which is exactly what AC-9 asserts it does not.
       `CREATE POLICY ${t}_tenant_isolation ON ${t}\n` +
         `  FOR ALL\n` +
-        `  USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)\n` +
-        `  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);`,
-      // Exclusion 2 of exactly 2. FOR DELETE and it stays FOR DELETE: it grants no
+        `  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)\n` +
+        `  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);`,
+      // Exclusion 2 of exactly 3. FOR DELETE and it stays FOR DELETE: it grants no
       // read, and it names one tenant, so even the eraser cannot cross a boundary.
+      //
+      // Wrapped for the rule rather than for the bug (ADR-0049, F-029): this one compares
+      // as text and `''` matches no tenant id, so it never raised. The counting control
+      // reads the catalogue and counts wrappers mechanically, so an unwrapped-but-safe
+      // policy is still a policy it rejects.
       `CREATE POLICY ${t}_privileged_erase ON ${t}\n` +
         `  FOR DELETE\n` +
-        `  USING (tenant_id::text = current_setting('app.privileged_erase', true));`,
+        `  USING (tenant_id::text = nullif(current_setting('app.privileged_erase', true), ''));`,
       `CREATE INDEX ${t}_tenant_id_idx ON ${t} (tenant_id);`,
     ],
   };
@@ -84,7 +111,11 @@ export function tenantScopedPolicies(table: string): PolicySet {
  * FOR SELECT only. Set only by withRedirectRead, which additionally issues
  * SET TRANSACTION READ ONLY.
  *
- * Exclusion 1 of exactly 2 recorded by the SC-1 suite.
+ * Exclusion 1 of exactly 3 recorded by the SC-1 suite.
+ *
+ * `domains` and `links` do not exist yet (TASK-023), so this policy has no applied
+ * instance and migration `0001` carries no statement for it: the ADR-0049 repair is to
+ * this function alone and every table that later applies it inherits the wrapped form.
  */
 export function redirectReadPolicy(table: 'domains' | 'links'): PolicySet {
   const t = assertTableName(table);
@@ -94,7 +125,35 @@ export function redirectReadPolicy(table: 'domains' | 'links'): PolicySet {
     statements: [
       `CREATE POLICY ${t}_redirect_read ON ${t}\n` +
         `  FOR SELECT\n` +
-        `  USING (current_setting('app.redirect_context', true) = 'on');`,
+        `  USING (nullif(current_setting('app.redirect_context', true), '') = 'on');`,
+    ],
+  };
+}
+
+/**
+ * The token-mint lookup escape. Applied to `tenant_memberships` ONLY.
+ * FOR SELECT only. Set only by withMembershipLookup, which additionally issues
+ * SET TRANSACTION READ ONLY.
+ *
+ * Exclusion 3 of exactly 3 (ADR-0045).
+ *
+ * The table name is a literal rather than a parameter. This policy applies to one table
+ * by design and a parameter would invite a second.
+ *
+ * THE `nullif` IS REQUIRED EVEN THOUGH THIS POLICY NEVER CASTS (F-021). The earlier form
+ * compared the flag raw and rested on "no `"user"` row has id `''`" — a data property
+ * stated as if it were a constraint, where `user.id` is `text PRIMARY KEY` with no CHECK.
+ * With such a row present, measured on a warm backend: a no-flag read returned it, and
+ * tenant A's ordinary transaction returned tenant B's full membership row through the
+ * permissive OR.
+ */
+export function membershipLookupPolicy(): PolicySet {
+  return {
+    table: 'tenant_memberships',
+    statements: [
+      `CREATE POLICY tenant_memberships_membership_lookup ON tenant_memberships\n` +
+        `  FOR SELECT\n` +
+        `  USING (user_id = nullif(current_setting('app.membership_lookup_user', true), ''));`,
     ],
   };
 }

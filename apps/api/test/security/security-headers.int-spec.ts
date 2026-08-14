@@ -65,6 +65,24 @@ const BUILD_COMMIT_SHA = '3d1f7a0c94b25e68af31c07d5b8e4a2196fd0c7b';
 const DATABASE_URL = 'DATABASE_URL';
 
 /**
+ * ===========================================================================
+ * THE SECOND DSN THE SPAWNED CHILD NEEDS, FROM WAVE 1 (F-084, ADR-0050).
+ * ===========================================================================
+ *
+ * This file spawns an API child with its OWN `env` callback rather than through
+ * `authServerEnv()`, so nothing else supplies this name to it. `startApiServer` spreads
+ * `process.env` into the child, so an exported value reaches it — but a value that is
+ * unset in this shell reaches it as unset, and the guard below is what says so in a
+ * sentence rather than as a boot failure four frames down.
+ *
+ * `shortkit_auth` is the only role holding privileges on Better Auth's five tables after
+ * migration `0001` revokes `shortkit_app` on all five. NO FALLBACK TO `DATABASE_URL`: a
+ * fallback here would spawn a child reading those tables as exactly the role the split
+ * exists to keep off them (`auth-fixture.ts:96-103`, same rule, same reason).
+ */
+const DATABASE_AUTH_URL = 'DATABASE_AUTH_URL';
+
+/**
  * The header table, hand-copied from `logging-and-headers.md` § "Security headers". Values
  * are read off the CONTRACT, not off helmet's documentation: helmet's `frameguard` default is
  * `SAMEORIGIN`, and the contract says `DENY`, so an implementer who registers bare `helmet()`
@@ -124,20 +142,39 @@ let server: ApiServer;
 let probes: readonly Probe[];
 
 beforeAll(() => {
-  if ((process.env[DATABASE_URL] ?? '') === '') {
+  const unset = [DATABASE_URL, DATABASE_AUTH_URL].filter(
+    (variable) => (process.env[variable] ?? '') === '',
+  );
+
+  // ALL THREE DSNs, NOT TWO (F-084). The message named DATABASE_URL and
+  // DATABASE_MIGRATION_URL while the child this file spawns also needs
+  // DATABASE_AUTH_URL from wave 1, and a remedy that is short by one variable is a
+  // remedy someone follows and still gets a red run.
+  if (unset.length > 0) {
     throw new Error(
-      `${DATABASE_URL} is not set, and \`main.ts\` refuses to boot without a reachable ` +
-        'database (F-116, F-245). Run `docker compose -f docker-compose.test.yml up -d ' +
-        "--wait`, export DATABASE_URL='postgres://shortkit_app:app@127.0.0.1:55433/" +
-        "shortkit_test' and DATABASE_MIGRATION_URL='postgres://shortkit_migrator:migrator" +
-        "@127.0.0.1:55433/shortkit_test', then `pnpm --filter @shortkit/api db:migrate`.",
+      `${unset.join(' and ')} not set, and \`main.ts\` refuses to boot without a ` +
+        'reachable database (F-116, F-245). Run `docker compose -f ' +
+        'docker-compose.test.yml up -d --wait`, export ' +
+        "DATABASE_URL='postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test', " +
+        "DATABASE_MIGRATION_URL='postgres://shortkit_migrator:migrator@127.0.0.1:55433/" +
+        "shortkit_test' and DATABASE_AUTH_URL='postgres://shortkit_auth:auth@127.0.0.1:" +
+        "55433/shortkit_test', then `pnpm --filter @shortkit/api db:migrate`.",
     );
   }
 
   // Kicked off without awaiting, and awaited again in `beforeEach`. `api-server.ts`'s own
   // docblock explains why: a rejection awaited only in `beforeAll` makes Vitest 3.2.7 report
   // every test in the file SKIPPED beside a summary that still says "N passed".
-  serverBoot = startApiServer({ env: () => ({ GIT_COMMIT_SHA: BUILD_COMMIT_SHA }) });
+  //
+  // Both DSNs are passed EXPLICITLY rather than left to the `process.env` spread, so this
+  // callback says what the child needs instead of inheriting it by accident.
+  serverBoot = startApiServer({
+    env: () => ({
+      GIT_COMMIT_SHA: BUILD_COMMIT_SHA,
+      [DATABASE_URL]: process.env[DATABASE_URL] ?? '',
+      [DATABASE_AUTH_URL]: process.env[DATABASE_AUTH_URL] ?? '',
+    }),
+  });
   serverBoot.catch(() => undefined);
 });
 

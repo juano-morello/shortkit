@@ -110,12 +110,12 @@ ALTER TABLE <t> FORCE  ROW LEVEL SECURITY;
 
 CREATE POLICY <t>_tenant_isolation ON <t>
   FOR ALL
-  USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
 CREATE POLICY <t>_privileged_erase ON <t>
   FOR DELETE
-  USING (tenant_id::text = current_setting('app.privileged_erase', true));
+  USING (tenant_id::text = nullif(current_setting('app.privileged_erase', true), ''));
 
 CREATE INDEX <t>_tenant_id_idx ON <t> (tenant_id);
 ```
@@ -124,7 +124,7 @@ Do not type it. `tenantScopedPolicies('<t>')` in `apps/api/src/db/rls.ts` emits 
 these statements, and the integration fixture builds its own protected table from the
 same function, so what the tests exercise is what your migration applies.
 
-Four details in there are load-bearing:
+Five details in there are load-bearing:
 
 - **`FORCE`**, because the migrator owns the table and would otherwise bypass the
   policies it just created — including when it runs a later migration.
@@ -134,6 +134,14 @@ Four details in there are load-bearing:
 - **The second argument to `current_setting`.** With `true` an unset flag returns NULL
   instead of raising, so a query with no context returns zero rows rather than an error.
   `NULL = uuid` is NULL, which the policy treats as false.
+- **`nullif(<flag>, '')`**, which answers the case the second argument does not
+  (ADR-0049). A transaction-local `set_config` leaves a session placeholder behind whose
+  reset value is the empty string rather than NULL, and `pg.Pool` never resets a backend
+  — so from the first committed tenant transaction onward the flag reads `''`, `''::uuid`
+  is evaluated, and the query raises `22P02` instead of returning zero rows. `nullif`
+  collapses unset and reset alike, and the index on `tenant_id` is still used. An `AND`
+  guard is not a substitute: PostgreSQL does not guarantee left-to-right evaluation of
+  `AND` operands inside a policy predicate, and it was measured raising anyway.
 - **`tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`**, which is how
   erasure reaches the table at all.
 
@@ -158,7 +166,7 @@ Step 3 against an **already applied** migration does nothing at all. See
 | Check | Catches | When |
 | --- | --- | --- |
 | `assertRuntimeRoleCannotBypassRls()` | a `DATABASE_URL` whose role is superuser, holds `BYPASSRLS`, or owns tables in `public` | boot, before traffic |
-| `pnpm db:check-policies` | a table in `public` missing `ENABLE` or `FORCE` | after `db:migrate`, and in CI's integration job |
+| `pnpm db:check-policies` | a table in `public` missing `ENABLE` or `FORCE`; a policy referencing a context flag outside `nullif(<flag>, '')`; a table on the wrong side of the `shortkit_app` / `shortkit_auth` grant matrix | after `db:migrate`, and in CI's integration job |
 | the integration suite | the policies themselves: cross-tenant read, write, re-parenting, and a read with no context | `pnpm test:integration` |
 
 The boot check reads three properties, and ownership is the one that gets missed. It
