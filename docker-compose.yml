@@ -236,8 +236,8 @@ services:
       # the APPLICATION-level variable this DSN is bound to: DATABASE_AUTH_URL is a
       # declared binding with no fallback to DATABASE_URL (ADR-0050) — an unset
       # DATABASE_AUTH_URL fails boot rather than silently restoring shortkit_app as the
-      # auth role. That is a different property from BETTER_AUTH_SECRET's default below,
-      # which is not a fixture placeholder but an actual signing key value.
+      # auth role. BETTER_AUTH_SECRET below is the same shape of binding: no fallback
+      # here either, because it is not a fixture placeholder but an actual signing key.
       #
       # EXISTING VOLUME? `shortkit_auth` is created by the init script below, which runs
       # EXACTLY ONCE against an empty data directory (ADR-0032). A `shortkit-dev_pgdata`
@@ -272,29 +272,21 @@ services:
       # that re-runs the init script and creates the role.
       DATABASE_AUTH_URL: postgres://shortkit_auth:${SHORTKIT_AUTH_PASSWORD:-auth}@postgres:5432/shortkit
       # ---------------------------------------------------------------------------
-      # DO NOT REUSE THIS VALUE ANYWHERE A REAL DEPLOY TARGET COULD READ IT.
+      # NO VALUE IS COMMITTED HERE. THIS IS THE ONLY VARIABLE IN THIS FILE WITHOUT ONE.
       # ---------------------------------------------------------------------------
-      # Declared here (TASK-018, wave 0) although betterAuth({ secret }) does not read it
-      # until TASK-003, wave 2: assertBetterAuthSecretConfigured() is unconditional from
-      # that wave and this is the earliest this file's api service exists (ADR-0051).
+      # ADR-0051 (amended, F-144): a committed default is a value everyone already has
+      # the moment this repository is cloned, and from TASK-003 (wave 2) that value signs
+      # every JWT betterAuth({ secret }) mints — the same failure mode as better-auth's
+      # own published constant (F-020), just under a different string. ${VAR:?...} fails
+      # at Compose PARSE time instead, before any container, network, volume or image
+      # layer is created, and Compose's own error names the variable.
       #
-      # NOT "development-only" in any way the running process enforces — Dockerfile:83
-      # sets NODE_ENV=production unconditionally in the image this file builds, so
-      # nothing here keys on environment (GC-B). It clears all four of
-      # assertBetterAuthSecretConfigured()'s rejections: set, non-empty, 55 characters
-      # (>= 32), and not equal to better-auth's published default
-      # 'better-auth-secret-12345678901234567890'.
-      #
-      # It IS committed, though, and is therefore permanently in this repository's git
-      # history — "a value everyone already has", the exact property that made
-      # better-auth's own published constant a blocker (F-020). Unlike the role
-      # passwords above, this value signs real tokens the moment a deploy target reads
-      # this file, so ADR-0030's "no deploy target" is the only thing standing between
-      # this default and F-020's failure mode recurring under a different string.
-      # SHORTKIT_AUTH_PASSWORD is a fixture password for a role that owns nothing;
-      # BETTER_AUTH_SECRET is a symmetric key. Override it for anything beyond a
-      # throwaway loopback stack.
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-development-compose-better-auth-secret-not-a-real-value}
+      # scripts/check-compose-stack.sh generates and exports one value per run, before
+      # its trap cleanup EXIT (ADR-0051). Everyone else: export BETTER_AUTH_SECRET
+      # yourself, or set it in a project-root .env (see .env.example) — at least 32
+      # characters, and not better-auth's published default. 32 random bytes from
+      # node:crypto, base64url-encoded, is the shape this repository's own tooling uses.
+      BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?generate at least 32 characters and export it, or put it in .env at the repository root. No value is committed here because this one signs JWTs. See .env.example and ADR-0051.}'
     ports:
       - '127.0.0.1:3001:3001'
     healthcheck:

@@ -87,11 +87,17 @@ source file yet is not drift — most of them name a producer that has not been 
 
 ## Running the whole stack
 
-With Docker and this clone, and nothing else installed:
+With Docker, this clone, and one exported variable — `BETTER_AUTH_SECRET`, the JWT
+signing key, which nothing in the repository commits a value for (ADR-0051):
 
 ```
+export BETTER_AUTH_SECRET="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
 docker compose up
 ```
+
+Without it, `docker compose up` fails at parse time and names the variable; nothing is
+built or started. `export` supplies it for the current shell only — set it in a
+project-root `.env` instead (see `.env.example`) if you want it to persist.
 
 Postgres comes up with its two roles, the migrations are applied, the seed inserts one
 demo tenant, and the API and the web app start.
@@ -109,8 +115,10 @@ LAN. Docker Compose v2 or newer: the startup ordering uses
 The whole file is **local development only**. There is no production database, and no
 deploy target is chosen for the API (ADR-0030).
 
-`pnpm test:compose` is the same thing measured. It tears any existing stack down to
-nothing, brings it up, and reports fifteen clauses — every service healthy,
+`pnpm test:compose` measures the same stack, one step earlier: it generates and exports
+its own `BETTER_AUTH_SECRET` for the duration of the run, so it needs nothing exported
+first. It tears any existing stack down to nothing, brings it up, and reports fifteen
+clauses — every service healthy,
 `shortkit_app` authenticating over TCP with the fixture password and refused with a wrong
 one, every migration recorded as applied, the demo tenant readable by that same role,
 `/health` answering 200 with `status` of `"ok"`, and the data surviving a second `up` and

@@ -128,6 +128,21 @@ function provisioningGuards(): string {
 }
 
 /**
+ * A value for `BETTER_AUTH_SECRET` that exists only so `docker compose config` below can
+ * finish interpolating (F-147).
+ *
+ * `docker-compose.yml` declares the variable as `${BETTER_AUTH_SECRET:?...}` — required,
+ * no default (ADR-0051) — on its `api` service, and `config` interpolates the whole
+ * document, so a required variable anywhere in the file is required to render any part of
+ * it. This test renders the file only to read the `shortkit_roles_sh` init script out of
+ * it; it never starts `api`, nothing here signs or verifies anything, and no assertion
+ * reads this value back. It is not a secret and is not kept in step with any real one.
+ * Deleting it makes these tests fail wherever the variable is unset, which is how CI runs
+ * the integration job.
+ */
+const COMPOSE_RENDER_ONLY_BETTER_AUTH_SECRET = 'not-a-secret-only-here-so-compose-config-can-render';
+
+/**
  * The init script a Compose file mounts into `/docker-entrypoint-initdb.d`, rendered the
  * way Compose renders it.
  *
@@ -146,6 +161,13 @@ function composeInitScript(composeFile: string, configName: string): string {
     rendered = execFileSync('docker', ['compose', '-f', composeFile, 'config', '--format', 'json'], {
       cwd: fileURLToPath(REPOSITORY_ROOT),
       encoding: 'utf8',
+      /**
+       * Scoped to this subprocess: `process.env` is not touched, so no other spec in this
+       * run sees the variable, and the value below overrides any real one a developer has
+       * exported so the render is the same everywhere (F-147). The rest of the environment
+       * is inherited because `docker` needs `PATH`, `HOME` and `DOCKER_HOST` to run at all.
+       */
+      env: { ...process.env, BETTER_AUTH_SECRET: COMPOSE_RENDER_ONLY_BETTER_AUTH_SECRET },
     });
   } catch (error) {
     throw new Error(

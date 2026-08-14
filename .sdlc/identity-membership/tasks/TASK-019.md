@@ -3,7 +3,7 @@ id: TASK-019
 story: STORY-003
 epic: EPIC-001
 title: A generated development secret, so the compose stack still comes up once the published default is rejected
-status: todo
+status: in-progress
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-018]
 paths: ["docker-compose.yml", "scripts/check-compose-stack.sh", ".env.example", "README.md"]

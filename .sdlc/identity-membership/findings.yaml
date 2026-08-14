@@ -2907,9 +2907,17 @@
     re-priced against the auth role in writing. Juano's - it reopens a deferral made in another
     initiative.
   owner_slot: orchestrator
-  status: escalated
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    Juano ruled PULL THE CONTROL INTO THIS INITIATIVE. TASK-003 owns it from 2026-08-14 - a unit
+    spec asserting the set of files naming betterAuthDatabase equals {client.ts, auth.config.ts},
+    in the same shape as the A1/A4 control, under src/** because vitest.config.ts:10 collects
+    nothing else. The card carries WHY the deferral stopped being acceptable rather than just the
+    instruction: it was priced when the handle sat on shortkit_app, and ADR-0050 moved it to the
+    one role that can read session.token. CLOSED LATE - the card was written at the time of the
+    ruling and this status lagged it, which check-ledger cannot see because the ledger stayed
+    self-consistent while drifting from the card.
+  resolved_round: 0
 
 - id: F-109
   phase: implement
@@ -3235,6 +3243,81 @@
     If it recurs, capture the FULL output before anything else. Longer term this belongs to TASK-015,
     which owns test/isolation/**: a beforeAll failure should fail the run loudly rather than resolve
     to a skip count that reads as a pass.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-147
+  phase: implement
+  wave: 1
+  task: TASK-018
+  source: sdlc-implementer-backend
+  round: 0
+  severity: major
+  kind: behavior
+  file: .github/workflows/ci.yml
+  line: 202
+  summary: >-
+    THE FIFTH FAILURE MODE ON THIS VARIABLE, AND THE IMPLEMENTER REFUSED TO WORK AROUND IT.
+    ADR-0051's "CI needs no change" is true for the `compose` job and FALSE for the `integration`
+    job: auth-role-provisioning.int-spec.ts shells out to `docker compose -f docker-compose.yml
+    config`, which now requires BETTER_AUTH_SECRET - even though that test never starts the api
+    service.
+  failure_scenario: >-
+    VERIFIED INDEPENDENTLY. The spec renders the dev compose file at :146 via `docker compose ... config
+    --format json` to read its inline init script. With the variable unset that now exits 1:
+    "required variable BETTER_AUTH_SECRET is missing a value". CI's integration job (ci.yml:202-206)
+    sets only the three DATABASE_* vars. The implementer confirmed the regression BY STASHING - exit 0
+    pre-change, exit 1 post-change - and confirmed all 82 integration tests pass when the variable is
+    exported.
+    FIFTH MECHANISM, FIFTH THING NOBODY CHECKED. F-034 was a binding declared later than its consumer.
+    F-074 was a published default. F-081 was a boot assertion nobody had priced. F-144 was a compose
+    gate that refuses a .env. This is a TEST that parses the dev compose file for an unrelated reason.
+    Each was found one layer further out than the last, and every one by an agent reading a file
+    rather than by the design that preceded it.
+  required_change: >-
+    Either ci.yml's integration job supplies the variable - TASK-018 owns that file since F-065 - or
+    the spec supplies it when it shells out, which is narrower but makes it the test architect's.
+    Juano's call on which.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Juano ruled THE SPEC SUPPLIES IT, not ci.yml: the test is what invokes `docker compose config`,
+    so the test provides what that parse needs, and CI's env: block keeps meaning what the suite
+    connects to rather than what one spec's subprocess parses. A module-level constant named
+    COMPOSE_RENDER_ONLY_BETTER_AUTH_SECRET, passed on that execFileSync alone with process.env
+    spread first so docker keeps PATH and DOCKER_HOST and the override wins. VERIFIED BY ME the way
+    CI runs it - env -u BETTER_AUTH_SECRET, no root .env, 82/82 across six files. The standalone
+    `docker compose config` still exits 1, which is the point: the declaration is untouched.
+  resolved_round: 1
+
+- id: F-148
+  phase: implement
+  wave: 1
+  task: TASK-017
+  source: sdlc-test-architect
+  round: 0
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/tenancy/auth-role-provisioning.int-spec.ts
+  line: 146
+  summary: >-
+    F-147's FIX IS PER-VARIABLE, AND THE NEXT REQUIRED VARIABLE BREAKS THE SAME PARSE AGAIN - as a
+    mystifying test failure rather than a compose error. BETTER_AUTH_SECRET is the only `:?`
+    reference in either compose file today, so that is the whole blast radius right now.
+  failure_scenario: >-
+    The spec renders docker-compose.yml to read its init script, so it inherits every required
+    variable the whole document declares - including ones added later for reasons unrelated to this
+    test. The person who adds the next one sees an integration test fail, not a compose error naming
+    their variable, and the connection is not obvious from either end.
+    Flagged by the test architect as worth knowing rather than acting on, and it declined to fix it
+    because the durable repair is in the compose file or a shared render helper, both outside its
+    write surface.
+  required_change: >-
+    If closed permanently: a shared render helper that supplies every required variable, or the
+    render targets a file with none. TASK-017 owns the compose-tier assertions in wave 9 and is the
+    natural home; nothing is broken today.
   owner_slot: sdlc-test-architect
   status: open
   resolved_by: null

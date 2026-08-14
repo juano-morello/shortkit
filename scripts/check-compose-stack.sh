@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# AC-115, measured. STORY-002 Amendment A-8, TASK-059.
+# AC-115, measured. STORY-002 Amendment A-8, TASK-059. Text narrowed 2026-08-14
+# (identity-membership F-145, ADR-0051) to name the one variable this harness now supplies.
 #
-#   AC-115: Given a machine with only Docker and a clone of this repository, when
-#   `docker compose up` is run at the repository root, then Postgres, the API and the
-#   web app all reach a healthy state, the migrations have been applied, the seed has
-#   run, and `GET /health` on the composed API returns 200 with `status` equal to "ok".
+#   AC-115: Given a machine with only Docker and a clone of this repository, and
+#   `BETTER_AUTH_SECRET` supplied in the environment, when `docker compose up` is run at
+#   the repository root, then Postgres, the API and the web app all reach a healthy
+#   state, the migrations have been applied, the seed has run, and `GET /health` on the
+#   composed API returns 200 with `status` equal to "ok".
 #
 # ADR: adr-0030 .. adr-0037. Contract: design/contracts/rls-policy-template.md.
 #
@@ -280,6 +282,22 @@ if [ -n "${COMPOSE_FILE:-}" ]; then
     "$COMPOSE_FILE" >&2
   unset COMPOSE_FILE
 fi
+
+# ADR-0051: `docker-compose.yml:297` carries no default for BETTER_AUTH_SECRET any more,
+# so this harness generates one and exports it for the duration of this run. It must land
+# before `trap cleanup EXIT` below, not merely before the first `docker compose config` --
+# `cleanup()` itself runs `docker compose down -v`, which parses the file. One value for
+# the whole run: DOD-1's second `up` and DOD-3's `restart` share the volume, and a second
+# value mid-run would fail to decrypt the previous run's `jwks.privateKey`. It overrides
+# anything inherited, the same idiom as APP_PASSWORD below, so a developer's own export
+# cannot turn AC-115.3 red for their shell. Never written to disk, never printed (F-379):
+# only the name may appear in a message here, never the value.
+BETTER_AUTH_SECRET="$(node -e '
+  console.log(require("node:crypto").randomBytes(32).toString("base64url"));
+')" || refuse 'could not generate a BETTER_AUTH_SECRET value.' \
+     'node -e failed generating 32 random bytes as base64url; see the error above.'
+[ -n "$BETTER_AUTH_SECRET" ] || refuse 'node produced an empty BETTER_AUTH_SECRET value.'
+export BETTER_AUTH_SECRET
 
 TMPDIR_CHECK="$(mktemp -d)"
 STACK_OWNED=0
