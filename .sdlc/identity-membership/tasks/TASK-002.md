@@ -253,6 +253,47 @@ but the contract's own flag table and A2's carve-out were amended for it by Juan
 F-047, because a frozen contract enumerating three flags is not an implementer's to widen. Read
 the amended `isolation-coverage.md` before adding the row.
 
+## The exclusion count goes from two to three — SIX sites, added 2026-08-14, Implement pre-flight
+
+`membershipLookupPolicy()` makes `withMembershipLookup` the **third** isolation exclusion.
+"Exactly two" is then wrong in six places, and this card previously named none of them —
+the implementer works from the card, so a site not listed here is a site that stays stale.
+
+| # | Site | What changes |
+|---|---|---|
+| 1 | `apps/api/src/db/rls.ts:72` | the count |
+| 2 | `apps/api/src/db/rls.ts:87` | the count |
+| 3 | `apps/api/src/db/rls.ts:10-19` | **more than a number** — the header enumerates the three permitted flag strings by name and calls itself exhaustive. `membershipLookupPolicy()` puts a fourth string in this file, so the header is false in the same commit unless it moves |
+| 4 | `apps/api/test/isolation/coverage.ts:490-499` | the count |
+| 5 | `.sdlc/foundation/design/contracts/tenant-context.md` | "Deliberate exclusions" table **and** its "`ISOLATION_EXCLUSIONS` stays at two" sentence |
+| 6 | `.sdlc/foundation/design/contracts/isolation-coverage.md` | its "Exclusions: exactly two" section and `expect(ISOLATION_EXCLUSIONS).toHaveLength(2)`. **ADR-0045 does not list this one** — it was found on 2026-08-14 by the architect amending that contract for F-047, which deliberately left the bump for this commit rather than making it a wave early |
+
+| 7 | `.sdlc/foundation/design/contracts/isolation-coverage.md:1195` | "Invariants a caller may rely on" item 5: *"Exactly two exclusions exist, both justified in-file and both narrowed by database policy."* **Found 2026-08-14 by the test architect**, after site 6 was already on this card. Site 6 named only the "Exclusions: exactly two" section and its length assertion — this is a different line in the same file |
+
+**DO NOT FIND THESE BY GREPPING `exactly two`. It misses two of the seven.** Verified:
+`rls.ts:72` reads `Exclusion 2 of exactly 2`, `rls.ts:87` reads `Exclusion 1 of exactly 2`
+(digit, not word), and `coverage.ts:492` reads `EXACTLY TWO.` (upper case). A search for the
+literal lower-case phrase returns the two contracts and neither source file. **Work from the
+`file:line` table above, not from a search.** `coverage.ts:496` additionally carries "Neither
+surface exists yet", prose that stops being true once a third exclusion exists — that is the
+same class as site 3's exhaustive-flag header and it moves with the count.
+
+**The AC-12 test at `cross-tenant-isolation.int-spec.ts:1360-1377` is ALREADY DONE and is NOT
+yours.** It is a
+seventh site and `sdlc-test-architect` moves it **before** you run, by Juano's ruling at the
+Implement pre-flight: test files route to the test architect, and a feature implementer
+editing a test is the pattern the phase treats as a red flag. It now reads
+`toHaveLength(3)`, is titled "exactly three", and its `toEqual` list expects your third id
+**`'repo:TenantMembershipLookup.tenantIdForUser'` in third position**. It fails today with
+`expected [ … ] to have a length of 3 but got 2`, and it goes green only when you add that
+exact id in that position. **Do not edit any file under
+`apps/api/test/isolation/*.int-spec.ts`.** Your isolation work is the `registrations.ts` entry
+and the `coverage.ts` count, nothing else.
+
+Two of these are more than a number, and that is ADR-0045's own point: a green test whose
+*name* says "exactly two" is what a future reader greps for, and an exhaustive-flag header
+that is silently no longer exhaustive is the F-009 class. Move the words with the count.
+
 ## Out of scope for this TASK
 
 The Better Auth instance and its plugin configuration (TASK-003) — this TASK writes no

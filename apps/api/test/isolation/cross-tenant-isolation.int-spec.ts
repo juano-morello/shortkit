@@ -1357,14 +1357,23 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     await expect(assertNoTenantIdAltered()).resolves.toBeUndefined();
   }, 180_000);
 
-  it('AC-12: exactly two isolation exclusions are declared', () => {
-    // isolation-coverage.md, "Exclusions: exactly two", and invariant 5. Neither surface
-    // exists yet; the LENGTH is the control, so that a third exclusion has to arrive as
-    // a one-line diff a reviewer sees, with the written justification ADR-0020 requires.
-    expect(ISOLATION_EXCLUSIONS).toHaveLength(2);
+  it('AC-12: exactly three isolation exclusions are declared', () => {
+    // isolation-coverage.md's `ISOLATION_EXCLUSIONS` section and invariant 5, plus
+    // ADR-0045's "The exclusion". Cited by content rather than by heading: that section
+    // is still headed "exactly two" and is site 6 on TASK-002's card, so a citation by
+    // title goes stale the moment TASK-002 lands.
+    //
+    // The LENGTH is the control, so that a fourth exclusion has to arrive as a one-line
+    // diff a reviewer sees, with the written justification ADR-0020 requires. The first
+    // two surfaces do not exist yet (TASK-029, TASK-054). The third is `withMembershipLookup`,
+    // the token-mint escape: it and this assertion land in TASK-002's commit together,
+    // because an escape in wave 1 with its entry in wave 9 is eight waves of a green
+    // suite over an unlisted escape. Red until then, deliberately.
+    expect(ISOLATION_EXCLUSIONS).toHaveLength(3);
     expect(ISOLATION_EXCLUSIONS.map((exclusion) => exclusion.id)).toEqual([
       'repo:RedirectReadRepository.resolveByHostAndSlug',
       'repo:PrivilegedTenantEraser.erase',
+      'repo:TenantMembershipLookup.tenantIdForUser',
     ]);
   });
 });
