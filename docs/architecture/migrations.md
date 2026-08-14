@@ -39,9 +39,10 @@ assert.
 
 There are two local databases and they are different databases. For work against the
 integration suite's container, `DATABASE_URL` and `DATABASE_MIGRATION_URL` point at
-`docker-compose.test.yml` on port 55433; the header of that file has the two exports. The
+`docker-compose.test.yml` on port 55433; the header of that file has the export lines —
+three since TASK-018 (`DATABASE_AUTH_URL` alongside the two these commands read). The
 development stack (`docker-compose.yml`, port 55432, database `shortkit`) applies its own
-migrations as part of `docker compose up` and needs neither export.
+migrations as part of `docker compose up` and needs none of the three exported.
 
 `db:seed` reads `DATABASE_URL` and **refuses any database that is not named `shortkit`**,
 which is what keeps the demo tenant out of `shortkit_test` when it is run from a shell
