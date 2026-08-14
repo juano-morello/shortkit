@@ -29,9 +29,15 @@
  *
  * FOUR POLICIES, NOT THREE. `tenantScopedPolicies` emits the isolation policy and the
  * privileged-erase policy; `membershipLookupPolicy()` adds a third, `FOR SELECT`, admitting
- * the single row whose `user_id` equals `app.membership_lookup_user` (ADR-0045). That third
+ * the single row whose `user_id` equals the token-mint lookup flag (ADR-0045). That third
  * policy is the reason `ISOLATION_EXCLUSIONS` goes from two entries to three in the same
  * commit as this file.
+ *
+ * CORRECTED 2026-08-14 (F-103), AFTER THE DESIGN GATE FROZE THIS STUB. It carried another
+ * flag's literal in prose, which clause A2 of `isolation-coverage.md` forbids -- A2 is a text
+ * scan that deliberately does not distinguish code from a comment, because a commented-out
+ * setter is one uncomment from being real. The flag is now named by description. Found by
+ * TASK-002's implementer, on no list, and it would have stood until TASK-056 arms A2.
  */
 import { pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { TENANT_ROLES } from '@shortkit/contracts';

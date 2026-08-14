@@ -80,6 +80,39 @@ attempts while the published artifact carried the false reason as a fact. A tabl
 express a shape as written **changes the statement**; a table that genuinely cannot answer
 goes `unverified` and red.
 
+## The counts stay literal — ruled 2026-08-14, and do not "fix" them
+
+**If you find hand-written counts in `cross-tenant-isolation.int-spec.ts` and think they should be
+derived, that has been considered and declined.** Juano ruled it at TASK-002's fix round, on the
+test architect's argument, and the argument is this file's own history:
+
+`suiteOutcomeOf()` **was** a derivation. It silently stopped seeing nested tests and published
+`verdict: pass` over a red file — F-343. The remedy that round was not a better derivation, it was
+to **add a hardcoded count**, `TESTS_IN_THIS_FILE`, whose stated justification is exactly what a
+derivation trades away: a test that stops being counted has to arrive as a visible diff. F-296 and
+F-342 are the same accounting failure.
+
+**A wrong literal fails loudly with both numbers printed. A wrong derivation agrees with itself and
+goes quiet.** In a harness whose entire history is mechanisms that stopped measuring without saying
+so, the staleness is the cheaper failure — it cost eight site edits in wave 1 and every one of them
+was visible.
+
+The cost accepted: registering a table means editing those eight sites by hand, and they will go
+stale again. That is the trade, not an oversight.
+
+## The unqualified-write roster cannot name its table — F-107, yours
+
+`labelled()` renders `direction + method`, so the 18-entry roster shows each shape three times and
+**cannot distinguish `tenant_memberships.updateAll` from a third `tenants.updateAll`**. A missing
+surface and a duplicated one look identical in the one assertion whose job is naming what was
+attempted.
+
+This **predates TASK-002** — it existed at two tables — and widens with every table. The test
+architect found it while correcting the counts and did not fix it, because the fix is either a
+change to `labelled()`, which every control in this file uses, or a local `${direction} ${id}`
+assertion in that one roster. Juano routed it here: a shared-helper change belongs to the card that
+owns the harness, not to a wave-1 fix round.
+
 ## Out of scope for this TASK
 
 The HTTP attempt mechanism itself (TASK-014). The `tenant_memberships` and `workspaces`

@@ -39,6 +39,12 @@
  * READ ONLY IS NOT REDUNDANT WITH THE `FOR SELECT` POLICY. The handle also reaches the
  * five RLS-exempt Better Auth tables (ADR-0044), where a write would be unconstrained.
  * Read-only closes the transaction rather than one table.
+ *
+ * CORRECTED 2026-08-14 (F-103), AFTER THE DESIGN GATE FROZE THIS STUB. It carried another
+ * flag's literal in prose, which clause A2 of `isolation-coverage.md` forbids -- A2 is a text
+ * scan that deliberately does not distinguish code from a comment, because a commented-out
+ * setter is one uncomment from being real. The flag is now named by description. Found by
+ * TASK-002's implementer, on no list, and it would have stood until TASK-056 arms A2.
  */
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 
@@ -49,7 +55,7 @@ declare const membershipLookupBrand: unique symbol;
 /**
  * A handle inside an open membership-lookup transaction. Deliberately NOT assignable to
  * `TenantDb`: a repository written against tenant context cannot be handed one by
- * mistake, and this handle has no `app.tenant_id` set.
+ * mistake, and this handle has no tenant-context flag set.
  *
  * The `any` query-result and table-relation type params match `TenantDb`'s, which are
  * supplied by drizzle-orm's own generics rather than by this module.

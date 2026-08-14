@@ -2385,9 +2385,12 @@
     AC-8 stays unchecked in STORY-001 until TASK-002 lands, the root command runs, and its exit code
     is recorded. No edit inside TASK-001's paths resolves it.
   owner_slot: orchestrator
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    AC-8 CLAUSE 2 IS NOW TRUE. `pnpm typecheck` exits 0 at the root - verified by me, exit code
+    read rather than output eyeballed. The four errors blocking it were auth-schema.spec.ts's own
+    type defects, closed as F-105.
+  resolved_round: 1
 
 - id: F-098
   phase: implement
@@ -2512,3 +2515,171 @@
   status: deferred-minor
   resolved_by: "No change wanted. Disclosed before it was found, verified accurate by both auditors, and it corrects residue rather than introducing a claim."
   resolved_round: 1
+
+# ---- TASK-002 implementation, 2026-08-14. DONE_WITH_CONCERNS. Production surface green: 236 unit
+# tests, lint, build, db:check-policies. The implementer proved each new control fires by installing
+# its measured attack shape - raw predicate, wrong nullif sentinel, column-level grant - and
+# reverting. Integration 75 passing, up from 72.
+
+- id: F-103
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-implementer-backend
+  round: 0
+  severity: major
+  kind: contract
+  file: .sdlc/identity-membership/design/stubs/apps/api/src/db/schema/tenant-memberships.ts
+  line: 32
+  summary: >-
+    TWO DESIGN STUBS, FROZEN AT THE DESIGN GATE AND REVIEWED BY THE FULL PANEL, VIOLATE CLAUSE A2 OF
+    THE CONTRACT THEY WERE WRITTEN UNDER. Each carried another flag's literal:
+    tenant-memberships.ts:32 held `app.membership_lookup_user`, membership-lookup.ts:52 held
+    `app.tenant_id`. FOUND BY THE IMPLEMENTER, ON NO LIST, WHILE BUILDING SOMETHING ELSE.
+  failure_scenario: >-
+    VERIFIED BY THE ORCHESTRATOR against the frozen files. A2 asserts mentions(F) is a subset of
+    {permitted setter for F, rls.ts}, and both occurrences are in DOCBLOCK PROSE - which is exactly
+    what A2 catches, because the contract states at :527-532 that none of the four clauses
+    distinguishes code from a comment, deliberately, since a commented-out setter is one uncomment
+    from real.
+    NOTHING WOULD HAVE CAUGHT IT. The wave-1 control implements clauses A1 and A4 ONLY; A2 arms at
+    TASK-056, deferred out of this initiative. So two normative artifacts would have sat in
+    violation of a frozen contract for an unbounded number of waves, while being the reference other
+    TASKs copy from - and TASK-010's whole job is comparing implementations against these stubs.
+  required_change: The stubs name the flag by description rather than by literal, as the shipped code now does.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Both stubs corrected by Juano's ruling, each carrying a dated banner recording that it was
+    changed after the freeze, what it violated, and that a text scan does not spare a comment. The
+    shipped files were already fixed by the implementer. Verified: no cross-flag literal remains in
+    either stub; membership-lookup.ts keeps its own flag three times, which A2 permits.
+  resolved_round: 0
+
+- id: F-104
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-implementer-backend
+  round: 0
+  severity: minor
+  kind: process
+  file: .sdlc/identity-membership/tasks/TASK-002.md
+  line: 1
+  summary: >-
+    THREE CLAIMS IN MY OWN DISPATCH WERE WRONG, ALL THREE CAUGHT BY THE IMPLEMENTER READING FILES.
+  failure_scenario: >-
+    (1) I said the remaining typecheck errors were in files its stub commit creates. They are in
+    auth-schema.spec.ts, which PREDATES the stubs - the stub commit only made them reachable.
+    (2) I told it to write the two new controls. BOTH ALREADY EXISTED, shipped by the test architect
+    during the Test phase; I carried the card's Design-phase framing into an Implement dispatch
+    without reconciling it against what Test had delivered.
+    (3) Two of the six exclusion sites are in isolation-coverage.md, which my own Rules forbade it to
+    edit. It reported them rather than editing, which is the behaviour I asked for.
+    THE PATTERN IS THE SAME AS THE FIVE CAUGHT AT TASK-018: a claim about a file's state written
+    without opening the file at the moment of writing.
+  required_change: None available retrospectively. Recorded for the retro.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    The card's site table was corrected to six before dispatch; the contract sites were amended by
+    the orchestrator per Juano's ruling; the controls-already-exist and typecheck claims are
+    recorded here rather than repaired, since both were dispatch text rather than artifacts.
+  resolved_round: 0
+
+- id: F-105
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-implementer-backend
+  round: 0
+  severity: major
+  kind: correctness
+  file: apps/api/src/db/auth-schema.spec.ts
+  line: 69
+  summary: >-
+    FOUR TYPECHECK ERRORS IN A TEST FILE, AND THEY ARE THE ONLY THING BLOCKING AC-8's SECOND CLAUSE.
+    Verified: pnpm typecheck fails with exactly four errors, all in this file, at :69 :70 :71 :82.
+  failure_scenario: >-
+    Two independent type defects. The implementer PROBED THAT NO CHANGE TO schema/auth.ts CAN FIX
+    EITHER, which is what establishes they are the spec's own rather than a consequence of what
+    TASK-002 built. AC-8 clause 2 is "pnpm typecheck exits 0", discharged by the gate command rather
+    than an assertion, and F-097 is open against STORY-001 until the root command actually exits 0.
+  required_change: The spec's own type defects are corrected. Test file - sdlc-test-architect's under rule 0.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: >-
+    The test architect took the implementer's :70 fix and REFUSED its :82 one. Dropping the
+    `(exported): exported is PgTable` annotation is correct and not a weakening - TS 5.9 infers the
+    predicate from drizzle's own `value is InstanceType<T>` declaration, so the narrowing survives,
+    and the annotation was WRONG rather than redundant (TS2677). For :82 it declined `as unknown
+    as`, because that double cast leaves the value a bag of unknown - which is what let .notNull,
+    .isUnique and .primary be UNCHECKED STRINGS, where a typo yields undefined and only fails when
+    the compared field happens to be true. It wrote a typed columnOf() helper with NO CAST AT ALL,
+    making those three reads typechecked. STRICTLY STRONGER THAN EITHER THE ORIGINAL OR THE
+    SUGGESTION. Mutation-checked four ways against schema/auth.ts and restored it byte-for-byte.
+  resolved_round: 1
+
+- id: F-106
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-implementer-backend
+  round: 0
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/cross-tenant-isolation.int-spec.ts
+  line: 1
+  summary: >-
+    FIVE FAILURES, ALL HAND-DERIVED COUNTS AND ROSTERS WRITTEN WHEN THE REGISTRY HAD TWO SUBJECTS.
+    TASK-002 registered a third. THE ISOLATION PROPERTY ITSELF PASSES - "AC-12: no registered method
+    lets one tenant reach another tenant's rows" is green.
+  failure_scenario: >-
+    32->48, 8->12, 24->36, plus the census and the roster. These are enumerations, not boundary
+    crossings. THE IMPLEMENTER MEASURED THAT SKIPPING THE REGISTRATION IS NOT AN ESCAPE: without it,
+    F-296 fails with inDatabaseNotRegistered: ["tenant_memberships"], so the registry-versus-database
+    cross-check does its job. A harness whose expectations are hardcoded rather than derived goes
+    stale on every new table, which is the question routed with the fix.
+  required_change: The counts match a three-subject registry, or are derived rather than written.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: >-
+    All eight sites corrected, plus four pieces of prose that had become false and one pre-existing
+    stale 'the same ten ids'. IT VERIFIED THE IMPLEMENTER'S NUMBERS RATHER THAN TRUSTING THEM - ran
+    the file red first and read the values out of report.json, not out of the report; every number
+    correct, no discrepancy. AND IT ADDED ONE ASSERTION NO FAILURE REQUIRED: the AC-12 premise now
+    covers tenant_memberships at 3 policies, verified against the catalogue. That third policy is
+    membershipLookupPolicy()'s, which is THE ENTIRE NARROWING justifying the new exclusion -
+    without the premise, a migration that never emitted it leaves all 48 attempts green and the
+    exclusion justified by a policy the database does not have.
+  resolved_round: 1
+
+- id: F-107
+  phase: implement
+  wave: 1
+  task: TASK-015
+  source: sdlc-test-architect
+  round: 0
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/isolation/cross-tenant-isolation.int-spec.ts
+  line: 1
+  summary: >-
+    THE UNQUALIFIED-WRITE ROSTER CANNOT TELL WHICH TABLE A SHAPE CAME FROM. labelled() renders
+    direction + method, so 18 entries with each shape appearing three times cannot distinguish
+    tenant_memberships.updateAll from a third tenants.updateAll.
+  failure_scenario: >-
+    PREDATES TASK-002 - it existed at two tables and widens with every table added. A roster whose
+    whole job is naming what was attempted names it ambiguously, so a missing surface and a
+    duplicated one look identical. Found by the test architect while correcting the counts, and
+    flagged rather than fixed because it is a design change to labelled(), which every control in
+    the file uses, and the file's scar tissue is exactly that kind of change going wrong.
+  required_change: >-
+    Either labelled() carries the table identity for every control, or that one roster asserts
+    ${direction} ${id} locally. TASK-015 owns test/isolation/** in wave 9 and is where the isolation
+    assertions live - a shared-helper change belongs to the card that owns the harness, not to a
+    wave-1 fix round.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
