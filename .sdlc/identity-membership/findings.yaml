@@ -2455,9 +2455,15 @@
     implementer error - the same class as counting my own ledger edit inside a fix diff at TASK-018.
   required_change: Orchestrator ledger edits are staged separately from an implementer's code commit.
   owner_slot: orchestrator
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    FIXED BY DOING IT, not by recording it. TASK-001's close is two commits: 98dd575 carries only
+    packages/contracts and eslint.config.mjs, and 75970ea carries only .sdlc/. An implementer's
+    commit now contains what its report claims and nothing else, which the reviewer noted matters
+    because the report is what the Ship gate reads. Same class as counting my own ledger edit
+    inside a fix diff at TASK-018 - both were mine, both were about mixing orchestrator bookkeeping
+    into an agent's work.
+  resolved_round: 1
 
 - id: F-101
   phase: implement
