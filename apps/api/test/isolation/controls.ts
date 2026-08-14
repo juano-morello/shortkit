@@ -84,7 +84,7 @@
  * `tenantScopedPolicies()` rather than written here (F-009), so the literal reaches these
  * canaries from `src/db/rls.ts` — which is the one file the scan set permits to hold it.
  */
-import { TENANT_ID_COLUMN_SQL, tenantScopedPolicies } from '../../src/db/rls';
+import { TENANT_ID_COLUMN_SQL, membershipLookupPolicy, tenantScopedPolicies } from '../../src/db/rls';
 import { execSql } from '../support/psql';
 import { appRoleName, migrationDsn, TENANT_A, TENANT_B } from '../support/rls-fixture';
 
@@ -98,6 +98,16 @@ export const OWNER_THEFT_CANARY_TABLE = 'isolation_owner_theft_canary';
 export const PK_OWNER_CANARY_TABLE = 'isolation_pk_owner_canary';
 export const GUARDED_CHECK_CANARY_TABLE = 'isolation_guarded_check_canary';
 export const GUARDED_LEAK_CANARY_TABLE = 'isolation_guarded_leak_canary';
+
+/**
+ * F-133. THREE TABLES SHAPED LIKE `tenant_memberships`, DIFFERING ONLY IN THEIR LOOKUP
+ * POLICY. `createMembershipLookupCanaries()` below says what each one is for.
+ */
+export const MEMBERSHIP_LOOKUP_CANARY_TABLE = 'isolation_membership_lookup_canary';
+export const MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE =
+  'isolation_membership_lookup_wide_open_canary';
+export const MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE =
+  'isolation_membership_lookup_flag_gated_canary';
 
 /**
  * F-296's probe. A tenant-scoped table that NOBODY REGISTERS — the wave-3 table the
@@ -640,6 +650,110 @@ export function createGuardedLeakCanary(): void {
 }
 
 /**
+ * =========================================================================
+ * F-133. THE TOKEN-MINT ESCAPE'S POLICY, IN THREE SHAPES — AND THE ONLY CONTROL IN THIS
+ * FILE FOR A POLICY THE CROSS-TENANT BATTERY CANNOT REACH AT ALL.
+ * =========================================================================
+ *
+ * `tenant_memberships_membership_lookup` (ADR-0045) is the one policy in the system that
+ * reads a tenant-scoped table with NO tenant context. Every attempt in this harness runs
+ * through `withTenantTransaction`, which sets `app.tenant_id` and never
+ * `app.membership_lookup_user`, so the battery cannot see that policy widen — and
+ * `db:check-policies` counts `nullif` wrappers and cannot see WHICH COLUMN a predicate
+ * compares against, as its own docblock says. The only control over it is control 2 in
+ * `test/auth/tenant-memberships.int-spec.ts`, and until 2026-08-14 that control ran
+ * against a fixture holding ONE membership row, so "returns that user AND NOT TENANT B's"
+ * had no other tenant's row to exclude.
+ *
+ * MEASURED that day, on the migrated production table, with the lookup policy replaced by
+ *
+ *   USING (nullif(current_setting('app.membership_lookup_user', true), '') IS NOT NULL)
+ *
+ * — every membership row of every tenant, to anybody who sets the flag — that whole file
+ * reported **6 passed, exit 0**. `USING (true)` was caught, by the no-flag control and by
+ * the AC-2 counts; the flag-gated shape above was caught by nothing at all.
+ *
+ * THE THREE TABLES. Identical but for the lookup policy, each seeded with one membership
+ * row for tenant A and one for tenant B:
+ *
+ *   isolation_membership_lookup_canary             the production predicate, READ OUT OF
+ *                                                  `membershipLookupPolicy()`. The control
+ *                                                  must come back GREEN over this one.
+ *   isolation_membership_lookup_wide_open_canary   `USING (true)`.
+ *   isolation_membership_lookup_flag_gated_canary  gated on the flag and blind to
+ *                                                  `user_id` — the shape nothing saw.
+ *
+ * The two widened predicates are HAND-WRITTEN, because a defect must not track the
+ * production builder; the correct one is EXTRACTED, for the reason `TENANT_ID` above is,
+ * so a change to the shipped predicate flows through here or stops the suite. A stale flag
+ * name in the hand-written pair is loud rather than silent: the flag-gated table would
+ * then admit nothing and the control's expected two rows would fail.
+ *
+ * GRANT SELECT AND NOTHING ELSE, because the escape is `FOR SELECT` and stays `FOR SELECT`
+ * (ADR-0045, invariant 2). Rows are seeded BEFORE the policies are applied, so the seed
+ * never depends on the clause under test — `rls-fixture.ts`'s rule 2.
+ */
+const LOOKUP_USING = /^\s*USING \((.+)\);$/m;
+
+function productionMembershipLookupPredicate(): string {
+  const [statement] = membershipLookupPolicy().statements;
+  const matched = statement === undefined ? null : LOOKUP_USING.exec(statement);
+
+  if (matched === null) {
+    throw new Error(
+      'could not read the lookup predicate out of membershipLookupPolicy(): ' +
+        `${statement ?? 'it emitted no statement at all'}. The F-133 control builds its ` +
+        'correct twin from that expression, so a shape this cannot parse would leave the ' +
+        'control asserting over a predicate the product no longer uses. Update the regex.',
+    );
+  }
+
+  return matched[1];
+}
+
+/** Better Auth generates its own ids and they are not uuids (auth-schema.md). */
+export const MEMBERSHIP_LOOKUP_CANARY_USER_A = 'lookupCanaryUserA';
+export const MEMBERSHIP_LOOKUP_CANARY_USER_B = 'lookupCanaryUserB';
+
+function membershipLookupCanary(table: string, lookupUsing: string): string {
+  return `DROP TABLE IF EXISTS ${table};
+
+     CREATE TABLE ${table} (
+       id      uuid PRIMARY KEY,
+       ${TENANT_ID_COLUMN_SQL},
+       user_id text NOT NULL,
+       CONSTRAINT ${table}_user_unique UNIQUE (user_id)
+     );
+
+     GRANT SELECT ON ${table} TO :"app_role";
+
+     INSERT INTO ${table} (id, tenant_id, user_id) VALUES
+       ('${CONTROL_A_ROW_ID}', '${TENANT_A}', '${MEMBERSHIP_LOOKUP_CANARY_USER_A}'),
+       ('${CONTROL_B_ROW_ID}', '${TENANT_B}', '${MEMBERSHIP_LOOKUP_CANARY_USER_B}');
+
+     ${tenantScopedPolicies(table).statements.join('\n     ')}
+
+     CREATE POLICY ${table}_membership_lookup ON ${table}
+       FOR SELECT USING (${lookupUsing});`;
+}
+
+export function createMembershipLookupCanaries(): void {
+  run(
+    [
+      membershipLookupCanary(
+        MEMBERSHIP_LOOKUP_CANARY_TABLE,
+        productionMembershipLookupPredicate(),
+      ),
+      membershipLookupCanary(MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE, 'true'),
+      membershipLookupCanary(
+        MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
+        "nullif(current_setting('app.membership_lookup_user', true), '') IS NOT NULL",
+      ),
+    ].join('\n\n     '),
+  );
+}
+
+/**
  * F-296. A tenant-scoped table added by a later wave whose author forgot the one
  * `registerTenantScopedSurfaces()` call. It is correct in every way `db:check-policies`
  * can see — `tenant_id`, ENABLE, FORCE, a policy — and the isolation suite must still
@@ -759,6 +873,9 @@ export function dropControlTables(): void {
       PK_OWNER_CANARY_TABLE,
       GUARDED_CHECK_CANARY_TABLE,
       GUARDED_LEAK_CANARY_TABLE,
+      MEMBERSHIP_LOOKUP_CANARY_TABLE,
+      MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE,
+      MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
       UNREGISTERED_TABLE_PROBE,
       ...OWNER_COLUMN_PROBE_PROTECTIONS.map(ownerColumnProbeTable),
     ]

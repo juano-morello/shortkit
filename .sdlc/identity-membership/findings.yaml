@@ -3180,3 +3180,36 @@
     repository is a published signing key, which is the property that made F-020 a blocker. THE
     CRITERION STAYS MET against the narrowed sentence, and the ledger row says so.
   resolved_round: 0
+
+- id: F-146
+  phase: implement
+  wave: 1
+  task: TASK-015
+  source: sdlc-test-architect
+  round: 2
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/isolation/cross-tenant-isolation.int-spec.ts
+  line: 1
+  summary: >-
+    AN UNREPRODUCED RUN LEFT 30 ISOLATION TESTS SKIPPED AND THE ERROR TEXT WAS LOST. The isolation
+    file's beforeAll threw; the run reported "Test Files 1 failed | 5 passed, Tests 52 passed | 30
+    skipped". FILED BECAUSE IT IS THIS HARNESS'S WORST FAILURE MODE BY ITS OWN DOCUMENTATION, not
+    because it is diagnosed.
+  failure_scenario: >-
+    THIRTY TESTS SKIPPED IS F-343's CLASS - a mechanism that stops seeing tests while the summary
+    still reads mostly green. The agent grepped that run for pass/fail lines only and lost the error,
+    and REPORTED THAT PLAINLY rather than omitting it. Two runs after it were green, the
+    isolation-only run before it was green, and I RAN THE FULL SUITE TWICE MYSELF: 82/82 both times.
+    Candidate causes, none established: the change itself, a transient `docker run ... psql` spawn
+    failure under the fourth heavy run back-to-back, or something else.
+    TESTS_IN_THIS_FILE exists precisely so a test that stops being counted arrives as a visible diff -
+    but it cannot fire when beforeAll throws and every test is skipped rather than removed.
+  required_change: >-
+    If it recurs, capture the FULL output before anything else. Longer term this belongs to TASK-015,
+    which owns test/isolation/**: a beforeAll failure should fail the run loudly rather than resolve
+    to a skip count that reads as a pass.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null

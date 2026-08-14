@@ -106,11 +106,21 @@
  * ...plus four probes for tables nobody registered: `wave3_workspaces_probe` (F-296) and
  * `wave3_audit_events_probe_{norls,noforce,forced}` (F-303, F-333), which the drift check
  * has to name whether or not they are protected.
+ *
+ * ...and, since 2026-08-14, a TWELFTH control that is not about this battery at all
+ * (F-133). `isolation_membership_lookup_{,wide_open_,flag_gated_}canary` carry the
+ * token-mint escape's `FOR SELECT` policy in three shapes — the shipped predicate and two
+ * widenings of it. NOTHING ABOVE CAN REACH THAT POLICY: every attempt here runs through
+ * `withTenantTransaction`, which never sets `app.membership_lookup_user`. The control it
+ * proves lives in `test/auth/tenant-memberships.int-spec.ts`, and the measured defect was
+ * that a lookup policy admitting every membership row of every tenant left that file
+ * reporting 6 passed, exit 0.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { sql } from 'drizzle-orm';
+import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
@@ -135,12 +145,18 @@ import type {
   TenantFixtures,
 } from './coverage';
 import {
+  createMembershipLookupCanaries,
   createUnregisteredOwnerColumnProbe,
   createUnregisteredTableProbe,
   dropControlTables,
   dropUnregisteredOwnerColumnProbes,
   dropUnregisteredTableProbe,
   ownerColumnProbeTable,
+  MEMBERSHIP_LOOKUP_CANARY_TABLE,
+  MEMBERSHIP_LOOKUP_CANARY_USER_A,
+  MEMBERSHIP_LOOKUP_CANARY_USER_B,
+  MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
+  MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE,
   OWNER_COLUMN_PROBE_PROTECTIONS,
   UNREGISTERED_TABLE_PROBE,
 } from './controls';
@@ -162,13 +178,22 @@ import {
   qualificationOfStatement,
   unqualifiedWriteCanaryAccess,
 } from './registrations';
+import {
+  assertLookupAdmitsOnly,
+  countMembershipsWithNoLookupFlag,
+  readMembershipsUnderLookupFlag,
+  warmMembershipLookupFlags,
+} from '../support/membership-lookup-probe';
 import { querySql } from '../support/psql';
 import {
+  appDsn,
   assertAppRoleCannotBypassRls,
   dropRlsFixture,
   migrationDsn,
   RLS_FIXTURE_TABLE,
+  TENANT_A,
   TENANT_A_ROW_ID,
+  TENANT_B,
   TENANT_B_ROW_ID,
 } from '../support/rls-fixture';
 
@@ -182,7 +207,7 @@ const REPORT_PATH = fileURLToPath(new URL('report.json', import.meta.url));
  * moving both have to arrive as a visible diff. It reaches `report.json` as
  * `observedTests`, so a reader of the artifact can check it too.
  */
-const TESTS_IN_THIS_FILE = 29;
+const TESTS_IN_THIS_FILE = 30;
 
 /**
  * ===========================================================================
@@ -1218,6 +1243,141 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       }
 
       expect(control.verdict).toBe('fail');
+    }, 180_000);
+
+    it('F-133: a widened membership-lookup policy is caught by the control that reads under the flag', async () => {
+      // ===========================================================================
+      // THE ONE CONTROL HERE FOR A POLICY THIS BATTERY CANNOT ATTEMPT AT ALL.
+      // ===========================================================================
+      //
+      // `tenant_memberships_membership_lookup` is the token-mint escape (ADR-0045): the
+      // only policy in the system that reads a tenant-scoped table with NO tenant context.
+      // Nothing above can see it widen — every attempt runs through
+      // `withTenantTransaction`, which never sets `app.membership_lookup_user`, and
+      // `registrations.ts` treats the narrowing as proven elsewhere. `db:check-policies`
+      // counts `nullif` wrappers and cannot see which column a predicate compares against.
+      // ELSEWHERE is control 2 of `test/auth/tenant-memberships.int-spec.ts`, and this is
+      // the test that says control 2 can fail.
+      //
+      // MEASURED on 2026-08-14, on the migrated production table, with the shipped lookup
+      // policy replaced by the flag-gated predicate this control's third table carries:
+      // that file reported 6 passed, exit 0. Its fixture held one membership row, so
+      // "returns that user and no other tenant" had no other tenant's row to exclude.
+      //
+      // The functions below are THE ONES CONTROL 2 CALLS, from
+      // `test/support/membership-lookup-probe.ts`. A copy of the read written here would
+      // prove that PostgreSQL behaves as PostgreSQL does; running the shipped mechanism
+      // over a correct policy and two widened ones is what proves the control discriminates.
+      createMembershipLookupCanaries();
+
+      const runtime = new pg.Client({ connectionString: appDsn() });
+
+      await runtime.connect();
+
+      try {
+        // The warm state ADR-0049 exists for, and the state control 2 runs in: every
+        // declared flag left at `''` by a committed transaction-local `set_config`. One
+        // warm serves every read below, because each read sets the flag inside its own
+        // transaction and leaves the session placeholder at `''` again.
+        await warmMembershipLookupFlags(runtime, {
+          tenantId: TENANT_A,
+          userId: MEMBERSHIP_LOOKUP_CANARY_USER_A,
+        });
+
+        const probe = { userId: MEMBERSHIP_LOOKUP_CANARY_USER_A };
+
+        const underProductionPredicate = await readMembershipsUnderLookupFlag(runtime, {
+          ...probe,
+          table: MEMBERSHIP_LOOKUP_CANARY_TABLE,
+        });
+        const underWideOpen = await readMembershipsUnderLookupFlag(runtime, {
+          ...probe,
+          table: MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE,
+        });
+        const underFlagGated = await readMembershipsUnderLookupFlag(runtime, {
+          ...probe,
+          table: MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
+        });
+
+        // Hand-derived from the seed, which is one membership per tenant. The correct
+        // twin's predicate is read out of `membershipLookupPolicy()` itself, so this line
+        // is a statement about the shipped policy and not about a transcription of it.
+        expect(underProductionPredicate).toEqual([
+          { user_id: MEMBERSHIP_LOOKUP_CANARY_USER_A, tenant_id: TENANT_A },
+        ]);
+
+        // ...and both widenings hand tenant B's membership to a caller who asked about
+        // tenant A's user. `USING (true)` is the obvious one; the flag-gated predicate is
+        // the one an author writes while believing they have scoped the escape.
+        const bothTenants = [
+          { user_id: MEMBERSHIP_LOOKUP_CANARY_USER_A, tenant_id: TENANT_A },
+          { user_id: MEMBERSHIP_LOOKUP_CANARY_USER_B, tenant_id: TENANT_B },
+        ];
+
+        expect(underWideOpen).toEqual(bothTenants);
+        expect(underFlagGated).toEqual(bothTenants);
+
+        // ---------------------------------------------------------------------------
+        // AND THE CONTROL ITSELF DISCRIMINATES, WHICH IS THE POINT OF THIS TEST.
+        // ---------------------------------------------------------------------------
+        //
+        // `assertLookupAdmitsOnly` is control 2's whole expectation. Green over the
+        // production predicate, red over both widenings — a control that cannot be shown
+        // to fail is not a control, and this one demonstrably could not before the second
+        // membership row was seeded.
+        // `AssertionError` rather than a bare "it threw": a broken helper throws too, and a
+        // `TypeError` here would be the control reporting a defect it cannot see for a
+        // reason that has nothing to do with the policy.
+        const control2 = (rows: readonly { user_id: string; tenant_id: string }[]): string => {
+          try {
+            assertLookupAdmitsOnly(rows, {
+              user_id: MEMBERSHIP_LOOKUP_CANARY_USER_A,
+              tenant_id: TENANT_A,
+            });
+
+            return 'admitted only that user';
+          } catch (error) {
+            return (error as Error).name;
+          }
+        };
+
+        expect({
+          productionPredicate: control2(underProductionPredicate),
+          wideOpen: control2(underWideOpen),
+          flagGated: control2(underFlagGated),
+        }).toEqual({
+          productionPredicate: 'admitted only that user',
+          wideOpen: 'AssertionError',
+          flagGated: 'AssertionError',
+        });
+
+        // ---------------------------------------------------------------------------
+        // WHY CONTROL 3 IS NOT ENOUGH, MEASURED RATHER THAN ARGUED.
+        // ---------------------------------------------------------------------------
+        //
+        // Control 3 reads with NO flag set. It sees `USING (true)` — two rows where zero
+        // are owed — and it is STRUCTURALLY BLIND to the flag-gated shape, which with no
+        // flag set correctly admits nothing. That is the division of labour: control 3
+        // catches an ungated policy, control 2 catches a gated one that compares the wrong
+        // column, and only control 2 needed the second seeded row to do it.
+        expect(
+          await countMembershipsWithNoLookupFlag(runtime, MEMBERSHIP_LOOKUP_CANARY_TABLE),
+        ).toEqual({ rows: 0 });
+        expect(
+          await countMembershipsWithNoLookupFlag(
+            runtime,
+            MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE,
+          ),
+        ).toEqual({ rows: 2 });
+        expect(
+          await countMembershipsWithNoLookupFlag(
+            runtime,
+            MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
+          ),
+        ).toEqual({ rows: 0 });
+      } finally {
+        await runtime.end();
+      }
     }, 180_000);
   });
 

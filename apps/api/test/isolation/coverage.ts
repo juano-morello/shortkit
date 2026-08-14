@@ -686,6 +686,14 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
   'isolation_guarded_check_canary',
   // F-352. Its leaky twin: the same stricter WITH CHECK, over a wide-open USING.
   'isolation_guarded_leak_canary',
+  // F-133. The token-mint escape's policy in three shapes — the production predicate and
+  // two widenings of it. They carry `tenant_id` and a foreign key to `tenants`, so the
+  // drift check names them like any other tenant-scoped table, and the F-346 rule applies:
+  // a control table missing from this list turns every later control's verdict assertion
+  // into a tripwire for the list rather than for the policies.
+  'isolation_membership_lookup_canary',
+  'isolation_membership_lookup_wide_open_canary',
+  'isolation_membership_lookup_flag_gated_canary',
 ];
 
 /**
