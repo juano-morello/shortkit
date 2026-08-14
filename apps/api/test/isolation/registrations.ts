@@ -580,7 +580,10 @@ const tenantsAccess: TenantScopedSurfaceRegistration = {
   subject: 'TenantsTableAccess',
   table: 'tenants',
   ownerColumn: 'id',
-  reset: createRlsFixture,
+  // `resetTenantFixtures`, not `createRlsFixture` — see its docblock (F-123). It calls
+  // `createRlsFixture()` first and then re-seeds what that erases by cascade, so this
+  // subject's reset no longer leaves another subject's table empty.
+  reset: resetTenantFixtures,
   methods: tableAccess({
     table: 'tenants',
     ownerColumn: 'id',
@@ -602,7 +605,8 @@ const rlsFixtureRowsAccess: TenantScopedSurfaceRegistration = {
   subject: 'RlsFixtureRowsTableAccess',
   table: RLS_FIXTURE_TABLE,
   ownerColumn: 'tenant_id',
-  reset: createRlsFixture,
+  /** F-123, same as above: one reset, and it leaves every subject's fixture complete. */
+  reset: resetTenantFixtures,
   methods: tableAccess({
     table: RLS_FIXTURE_TABLE,
     ownerColumn: 'tenant_id',
@@ -630,10 +634,10 @@ const rlsFixtureRowsAccess: TenantScopedSurfaceRegistration = {
  * row and the harness would name it.
  *
  * ITS FIXTURE ROWS GO IN THROUGH THE MIGRATOR DSN AND SO DOES ITS `"user"` SEED, and
- * both are structural rather than convenience. `tenant_memberships` carries FORCE ROW
- * LEVEL SECURITY, so even the owning role's insert has to satisfy the WITH CHECK and
- * runs under a tenant id; and migration `0001` revokes `shortkit_app` on `"user"`
- * entirely (ADR-0050), so the runtime role cannot seed the foreign key it needs.
+ * both are structural rather than convenience: migration `0001` revokes `shortkit_app`
+ * on `"user"` entirely (ADR-0050), so the runtime role cannot seed the foreign key it
+ * needs. `resetTenantFixtures()` above does it — and does it for every subject, not only
+ * this one, so no registration's position in this file decides whether it is seeded.
  */
 const MEMBERSHIP_ROW_A = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
 const MEMBERSHIP_ROW_B = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1';
@@ -655,47 +659,91 @@ const MEMBERSHIP_USER_PLANTED = 'isolationUserP01';
 const MEMBERSHIP_OVERWRITE_ROLE = 'admin';
 const MEMBERSHIP_SEEDED_ROLE = 'owner';
 
-function createMembershipFixture(): void {
+/**
+ * ===========================================================================
+ * THE RESET EVERY REGISTRATION IN THIS FILE USES. IT REBUILDS THE WHOLE FIXTURE,
+ * NOT ONE SUBJECT'S SHARE OF IT — AND THAT IS F-123.
+ * ===========================================================================
+ *
+ * `createRlsFixture()` erases the fixture tenants, and `tenant_memberships.tenant_id` is
+ * `ON DELETE CASCADE`, so ANY subject whose reset is `createRlsFixture` deletes both
+ * seeded membership rows as a side effect. `coverage.ts` resets per attempt and iterates
+ * the registry in insertion order, so the state the F-295 census reads is whatever the
+ * LAST reset left behind.
+ *
+ * The first version of this file registered `tenantMembershipsAccess` third and gave the
+ * other two `reset: createRlsFixture`, so the census passed **because of registration
+ * order** — and registering a fourth subject after it, the ordinary way this file grows,
+ * would have returned four census lines where six were expected. Loud, but the diagnosis
+ * is nowhere near the failure.
+ *
+ * So the dependency is removed rather than documented: there is ONE reset, it leaves the
+ * fixture complete for every registered subject, and whichever subject happens to run
+ * last is no longer a fact anyone has to know. **A new registration uses this function.**
+ * If a later subject needs its own seed, add it here rather than beside the registration,
+ * for the reason this paragraph exists.
+ */
+function resetTenantFixtures(): void {
   // Tenants first: `createRlsFixture` erases and re-seeds them, and the erase cascades
   // every membership row away. Seeding before it would seed nothing.
   createRlsFixture();
 
-  // Deleting the `"user"` rows cascades their memberships too, which is what clears a
-  // row a previous attempt planted. `"user"` carries no row-level security (ADR-0044),
-  // so this needs no tenant context — only the migrator's grant.
+  // ONE psql spawn for all of it. Every registration's reset now pays for this, once per
+  // attempt, so the three round trips it replaced were worth collapsing — the tenant flag
+  // is set inline per statement instead of through `execSql`'s session-level option.
+  //
+  // Deleting the `"user"` rows cascades their memberships too, which is what clears a row
+  // a previous attempt planted. `"user"` carries no row-level security (ADR-0044), so
+  // that half needs no tenant context — only the migrator's grant. The membership inserts
+  // do: `tenant_memberships` carries FORCE ROW LEVEL SECURITY, so even the owning role's
+  // insert has to satisfy the WITH CHECK, and it admits one tenant at a time.
+  //
+  // BOTH tenants, and that is rule 1 of this file: a table seeded for one tenant only
+  // returns zero rows to four of the five shapes because there is nothing there rather
+  // than because a policy denied them, and the harness scores that `unverified` (F-295).
+  //
+  // Every value reaches the script through a psql variable — `:'name'` quotes it as a
+  // literal — so nothing is concatenated in, the same property `execSql`'s own `tenantId`
+  // option has.
   execSql(
     migrationDsn(),
-    `DELETE FROM "user" WHERE id IN
-       ('${MEMBERSHIP_USER_A}', '${MEMBERSHIP_USER_B}', '${MEMBERSHIP_USER_PLANTED}');
+    `DELETE FROM "user" WHERE id IN (:'user_a', :'user_b', :'user_planted');
 
      INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES
-       ('${MEMBERSHIP_USER_A}', 'Isolation A', '${MEMBERSHIP_USER_A}@example.test', false, now(), now()),
-       ('${MEMBERSHIP_USER_B}', 'Isolation B', '${MEMBERSHIP_USER_B}@example.test', false, now(), now()),
-       ('${MEMBERSHIP_USER_PLANTED}', 'Isolation P', '${MEMBERSHIP_USER_PLANTED}@example.test', false, now(), now());`,
-  );
+       (:'user_a',       'Isolation A', :'email_a', false, now(), now()),
+       (:'user_b',       'Isolation B', :'email_b', false, now(), now()),
+       (:'user_planted', 'Isolation P', :'email_p', false, now(), now());
 
-  // BOTH tenants, and that is rule 1 of this file: a table seeded for one tenant only
-  // returns zero rows to four of the five shapes because there is nothing there, not
-  // because a policy denied them, and the harness scores the surface `unverified`
-  // (F-295). One statement per tenant because the WITH CHECK admits one at a time.
-  for (const [tenant, user, row] of [
-    [TENANT_A, MEMBERSHIP_USER_A, MEMBERSHIP_ROW_A],
-    [TENANT_B, MEMBERSHIP_USER_B, MEMBERSHIP_ROW_B],
-  ]) {
-    execSql(
-      migrationDsn(),
-      `INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
-       VALUES ('${row}', '${tenant}', '${user}', '${MEMBERSHIP_SEEDED_ROLE}');`,
-      { tenantId: tenant },
-    );
-  }
+     SELECT set_config('app.tenant_id', :'tenant_a', false) \\g /dev/null
+     INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
+       VALUES (:'row_a', :'tenant_a', :'user_a', :'seeded_role');
+
+     SELECT set_config('app.tenant_id', :'tenant_b', false) \\g /dev/null
+     INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
+       VALUES (:'row_b', :'tenant_b', :'user_b', :'seeded_role');`,
+    {
+      variables: {
+        tenant_a: TENANT_A,
+        tenant_b: TENANT_B,
+        row_a: MEMBERSHIP_ROW_A,
+        row_b: MEMBERSHIP_ROW_B,
+        user_a: MEMBERSHIP_USER_A,
+        user_b: MEMBERSHIP_USER_B,
+        user_planted: MEMBERSHIP_USER_PLANTED,
+        email_a: `${MEMBERSHIP_USER_A}@example.test`,
+        email_b: `${MEMBERSHIP_USER_B}@example.test`,
+        email_p: `${MEMBERSHIP_USER_PLANTED}@example.test`,
+        seeded_role: MEMBERSHIP_SEEDED_ROLE,
+      },
+    },
+  );
 }
 
 const tenantMembershipsAccess: TenantScopedSurfaceRegistration = {
   subject: 'TenantMembershipsTableAccess',
   table: 'tenant_memberships',
   ownerColumn: 'tenant_id',
-  reset: createMembershipFixture,
+  reset: resetTenantFixtures,
   methods: tableAccess({
     table: 'tenant_memberships',
     ownerColumn: 'tenant_id',

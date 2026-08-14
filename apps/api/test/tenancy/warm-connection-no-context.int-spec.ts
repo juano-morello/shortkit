@@ -37,6 +37,29 @@
  * `has_any_column_privilege` accepts only the three column-grantable privileges and raises
  * `unrecognized privilege type: "DELETE"`. Do not widen the `'SELECT'` argument.
  *
+ * ============================================================================
+ * VIEWS AND MATERIALISED VIEWS ARE IN THE SET, AND THEY WERE NOT (F-109).
+ * ============================================================================
+ *
+ * `relkind IN ('r','p')` here was the same filter the catalogue controls carried, so the
+ * same bypass was invisible to all three at once. MEASURED against the migrated schema:
+ * a migrator-owned `CREATE VIEW auth_peek AS SELECT id, user_id, token FROM "session"`
+ * granted to `shortkit_app` returned the plaintext session token, because a view executes
+ * with its OWNER's privileges unless it is declared `security_invoker`. `'v'` is a view
+ * and `'m'` a materialised one.
+ *
+ * This control is the half that CANNOT BE EVADED BY RENDERING, and a view is exactly a
+ * rendering trick, so it is the more appropriate of the two places — `check-policies.mts`
+ * reads the catalogue and answers "who may reach it"; this one issues the statement and
+ * answers "what comes back". The bypass returns rows here and the run goes red naming it.
+ *
+ * No view exists today, so the computed set is unchanged and this is armed rather than
+ * exercised. ONE EDGE, STATED RATHER THAN DISCOVERED: a `security_invoker` view over one
+ * of the five exempt tables would sit in this set — the grant is real — and answer `42501`
+ * rather than zero rows, so it lands as a `raised` outcome and fails. That is the right
+ * answer for a grant that cannot work, but it is a refusal rather than a leak, and the
+ * diff will name the SQLSTATE rather than a boundary crossing.
+ *
  * A `pg.Client` rather than `test/support/psql.ts`: every `psql` call there is a process
  * spawn, so each statement lands on a NEW backend and the warm state cannot be built. One
  * client is one session for the whole file.
@@ -71,7 +94,7 @@ const READABLE_TABLES = `
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public'
-     AND c.relkind IN ('r', 'p')
+     AND c.relkind IN ('r', 'p', 'v', 'm')
      AND (has_table_privilege(current_user, c.oid, 'SELECT')
           OR has_any_column_privilege(current_user, c.oid, 'SELECT'))
    ORDER BY c.relname`;

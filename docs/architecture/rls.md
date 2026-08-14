@@ -166,8 +166,22 @@ Step 3 against an **already applied** migration does nothing at all. See
 | Check | Catches | When |
 | --- | --- | --- |
 | `assertRuntimeRoleCannotBypassRls()` | a `DATABASE_URL` whose role is superuser, holds `BYPASSRLS`, or owns tables in `public` | boot, before traffic |
-| `pnpm db:check-policies` | a table in `public` missing `ENABLE` or `FORCE`; a policy referencing a context flag outside `nullif(<flag>, '')`; a table on the wrong side of the `shortkit_app` / `shortkit_auth` grant matrix | after `db:migrate`, and in CI's integration job |
+| `pnpm db:check-policies` | five things: an exemption list that is no longer exactly five entries long; a table in `public` missing `ENABLE` or `FORCE`; a policy referencing a context flag outside `nullif(<flag>, '')`; a table on the wrong side of the `shortkit_app` / `shortkit_auth` grant matrix; a view or materialised view either runtime role can reach past that matrix | after `db:migrate`, and in CI's integration job |
 | the integration suite | the policies themselves: cross-tenant read, write, re-parenting, and a read with no context | `pnpm test:integration` |
+
+Two of those five are worth knowing about before you need them. **The exemption list's
+length is the control**, not its contents: the tables that legitimately carry no
+row-level security are the five Better Auth ones, and ADR-0044 calls that list "the whole
+of the security argument" for them — so a sixth entry has to arrive as a one-line diff a
+reviewer sees, with an ADR beside it. It is also the only assertion that runs before the
+connection opens, because a wrong list makes every verdict after it meaningless.
+
+**And a view is not covered by any of the others.** A view executes with its owner's
+privileges unless it is declared `WITH (security_invoker = true)`, so a migrator-owned
+view over `session` granted to `shortkit_app` returns the plaintext session token that
+migration `0001` revoked. Measured. A materialised view is worse: its rows are computed
+by its owner and stored, and it has no `security_invoker` option at all, so no runtime
+role may reach one.
 
 The boot check reads three properties, and ownership is the one that gets missed. It
 throws rather than calling `process.exit`, so the caller can close what it opened; the
