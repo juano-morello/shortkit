@@ -9,7 +9,7 @@ depends_on: [TASK-018]
 # TASK-018 ADDED 2026-08-13 at the Design wave-1 gate. It creates `shortkit_auth` in wave 0;
 # this card's migration 0001 GRANTs to that role. The edge is hard — a forward-only migration
 # on a database that has already applied 0000 fails with `role "shortkit_auth" does not exist`.
-paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/schema/auth.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts", "apps/api/test/isolation/controls.ts", "docs/architecture/rls.md", "apps/api/src/db/context-flag-owners.spec.ts", "apps/api/test/tenancy/warm-connection-no-context.int-spec.ts", "apps/api/test/security/security-headers.int-spec.ts"]
+paths: ["apps/api/src/db/schema/auth.ts", "apps/api/src/db/schema/tenant-memberships.ts", "apps/api/src/db/schema/index.ts", "apps/api/src/db/auth-schema.spec.ts", "apps/api/drizzle/**", "apps/api/src/auth/tenant-id-for-user.ts", "apps/api/src/auth/membership-lookup.ts", "apps/api/src/db/rls.ts", "apps/api/src/db/client.ts", "apps/api/scripts/check-policies.mts", "apps/api/test/isolation/registrations.ts", "apps/api/test/isolation/coverage.ts", "apps/api/test/isolation/cross-tenant-isolation.int-spec.ts", "apps/api/test/isolation/controls.ts", "docs/architecture/rls.md", "apps/api/src/db/context-flag-owners.spec.ts", "apps/api/test/tenancy/warm-connection-no-context.int-spec.ts", "apps/api/test/security/security-headers.int-spec.ts"]
 # security-headers.int-spec.ts ADDED 2026-08-14 by Juano, F-084. It was in NO card's paths. Its
 # throw names two DSNs, and it spawns an API child with its OWN env callback rather than
 # authServerEnv() - so from THIS wave that child needs DATABASE_AUTH_URL the message never
@@ -282,6 +282,15 @@ literal lower-case phrase returns the two contracts and neither source file. **W
 `file:line` table above, not from a search.** `coverage.ts:496` additionally carries "Neither
 surface exists yet", prose that stops being true once a third exclusion exists — that is the
 same class as site 3's exhaustive-flag header and it moves with the count.
+
+**Eight hunks in `cross-tenant-isolation.int-spec.ts` were edited during this card, by
+`sdlc-test-architect` and NOT by this card's implementer.** Recorded 2026-08-14 for F-135, because
+git shows one author across the whole range and this card forbids its implementer to touch that
+file. The implementer declined the edits correctly; the orchestrator routed them under routing rule
+0, which gives test files to the test architect. They are four counts, three rosters and the census,
+all forced by F-296's registry-versus-database cross-check once a third subject registered.
+**TASK-015's declared scope now partially exists on disk**, and that card should be re-scoped
+against what is there rather than against what it was written to expect.
 
 **The AC-12 test at `cross-tenant-isolation.int-spec.ts:1360-1377` is ALREADY DONE and is NOT
 yours.** It is a

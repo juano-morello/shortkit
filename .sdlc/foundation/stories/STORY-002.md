@@ -16,7 +16,23 @@ As Juano, I need both deployables reachable on the internet and a CI pipeline th
 - [ ] AC-5: Given a pushed branch, when the CI workflow runs, then it executes lint, typecheck, test and build in a job named `quality`, **and runs `pnpm test:integration` against a `postgres:17-alpine` service container in a job named `integration`**, and the workflow concludes `failure` if any one of them exits non-zero.
 - [ ] AC-6: Given the API running from the production image built by the repository's `Dockerfile`, when `GET /health` is requested, then it returns 200 with a JSON body containing a `status` field equal to `"ok"` and a `commit` field matching the git SHA the image was built from. **Narrowed by ADR-0037 (accepted 2026-08-11, F-368):** an image that cannot reach traffic may report the git null SHA. The local compose stack builds this same production image and reports forty zeros on a bare `docker compose up`; that is the narrowing, not a failure of this AC. An image that *can* reach traffic may not.
 - [ ] AC-7: Given the web app deployed to Vercel, when its root URL is requested, then it returns 200 and HTML.
-- [ ] AC-115: Given a machine with only Docker and a clone of this repository, when `docker compose up` is run at the repository root, then Postgres, the API and the web app all reach a healthy state, the migrations have been applied, the seed has run, and `GET /health` on the composed API returns 200 with `status` equal to `"ok"`.
+- [ ] AC-115: Given a machine with only Docker and a clone of this repository, **and `BETTER_AUTH_SECRET` supplied in the environment**, when `docker compose up` is run at the repository root, then Postgres, the API and the web app all reach a healthy state, the migrations have been applied, the seed has run, and `GET /health` on the composed API returns 200 with `status` equal to `"ok"`.
+
+  > **AMENDED 2026-08-14 BY A LATER INITIATIVE, AFTER THIS STORY SHIPPED.** The original text read
+  > "Given a machine with only Docker and a clone of this repository, when `docker compose up` is
+  > run…" with no variable named, and **foundation genuinely met it as written** — fifteen clauses,
+  > exit 0, verified independently by the orchestrator and the integrator.
+  >
+  > `identity-membership` made it false, and no ruling inside that initiative could make it true
+  > again. From wave 1, `docker-compose.yml` declares `BETTER_AUTH_SECRET` as a **required**
+  > reference (`${BETTER_AUTH_SECRET:?…}`) rather than carrying a default, because a default in a
+  > public repository is a published signing key for `jwks.privateKey` — the property that made
+  > F-020 a blocker. The alternatives were a committed secret, or a stack that cannot come up. See
+  > F-144 and F-145, and ADR-0051 in that initiative.
+  >
+  > Juano ruled the amendment 2026-08-14. **The criterion stays met**, against the narrowed text.
+  > `scripts/check-compose-stack.sh` generates and exports one value per run, so the harness
+  > measures the narrowed sentence rather than the original one.
 - [ ] AC-116: Given the API source tree, when every module that emits a log line is enumerated, then each one emits through the pino instance registered at the composition root — no module constructs `Logger` from `@nestjs/common` or any other logger — and a lint rule fails the build if one does.
 - [ ] AC-113: Given a production build of `apps/web`, when the built client bundle under `.next/static/**` is searched for the values of the server-only variables `BFF_PROXY_SECRET` and `API_BASE_URL`, then neither value appears, and the check fails the CI workflow if either does.
 - [ ] AC-114: Given the CI `integration` job, when `pnpm test:integration` completes, then the job asserts the run collected at least one test file and at least one test, and concludes `failure` if it collected none.
@@ -150,7 +166,7 @@ criterion, with what is *not* proven stated beside what is.
 | **AC-7** | **met** | Live curl 2026-08-06, 200 `text/html`. |
 | **AC-113** | **met** | Re-measured 2026-08-11 by image inspection with `apps/web/.env.local` present: no `.env*` outside `node_modules`, no canary under `.next`, neither secret value in the bundle. |
 | **AC-114** | met in definition, **never observed on a runner** | Same caveat as AC-5. |
-| **AC-115** | **met** | Fifteen clauses, exit 0, verified independently by the orchestrator and the integrator. |
+| **AC-115** | **met** | Fifteen clauses, exit 0, verified independently by the orchestrator and the integrator. **Text amended 2026-08-14 by `identity-membership` (F-145) to name `BETTER_AUTH_SECRET`; still met, against the narrowed sentence.** |
 | **AC-116** | **met** | All three clauses; the enumeration derives its set rather than listing paths, and the lint rule fires at an arbitrary new path and at both formerly exempted files. |
 
 **DoD.** All ACs green as automated tests: **partly** — AC-5, AC-7, AC-113 and AC-114 are CI- and

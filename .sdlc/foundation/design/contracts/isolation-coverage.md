@@ -489,7 +489,10 @@ export const ISOLATION_EXCLUSIONS = [
   },
 ] as const;
 
-expect(ISOLATION_EXCLUSIONS).toHaveLength(3);   // ~~2~~ amended 2026-08-14, TASK-002
+expect(ISOLATION_EXCLUSIONS).toHaveLength(3);
+// Sample array elided rather than enumerated (F-137, 2026-08-14): a literal list beside a
+// length assertion is a second place for the count to disagree, which is what this amendment
+// was correcting in the first place.   // ~~2~~ amended 2026-08-14, TASK-002
 ```
 
 A third exclusion fails the length assertion. Raising the number is a one-line diff a

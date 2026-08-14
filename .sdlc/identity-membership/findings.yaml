@@ -2952,3 +2952,231 @@
   status: superseded
   resolved_by: "Merged into F-121, with the measured fact - the shipped policy is TO PUBLIC - carried onto it."
   resolved_round: 1
+
+- id: F-144
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-scout
+  round: 0
+  severity: major
+  kind: plan
+  file: scripts/check-compose-stack.sh
+  line: 191
+  summary: >-
+    THE F-081 RULING AND THE COMPOSE GATE'S OWN PREMISE CANNOT BOTH HOLD. The ruling is that a
+    generation step writes a secret to the root .env before compose starts, and that
+    check-compose-stack.sh runs the same step. THAT SCRIPT REFUSES TO RUN AT ALL IF A ROOT .env
+    EXISTS.
+  failure_scenario: >-
+    VERIFIED at :191-196. The refusal's stated reason is that .env "masks the same defect an
+    exported variable masks, and it does not exist on a fresh clone" - the same principle as the
+    F-315/F-316 contaminant guard beside it. So a generation step in that script's setup makes the
+    script refuse itself.
+    THE COLLISION IS A SYMPTOM. The real contradiction is between AC-115's premise and ADR-0051's
+    assertion: the compose gate exists to prove the stack comes up ON A FRESH CLONE WITH NOTHING
+    SUPPLIED, and from wave 2 the stack CANNOT come up without a secret that is not the published
+    default. A generation step does not resolve that - it only moves where the contradiction
+    surfaces, from the api container to the gate's own precondition.
+    This is F-034's shape a third time on the same variable: a binding whose consumer is earlier
+    than its declaration, discovered one layer further out each time.
+  required_change: >-
+    Juano's. Either the gate's fresh-clone premise narrows, or the secret reaches the stack by a
+    route that is not a root .env, or compose carries no default and the gate supplies one - the
+    option declined at F-074.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    RULED: compose carries no default, the gate supplies one. The architect VERIFIED THE RULING CAN
+    WORK before designing to it, checking the three ways the previous three mechanisms failed -
+    BETTER_AUTH_SECRET is not in check-compose-stack.sh:180-189's contaminant refusal, not in
+    NOISY_NAMES at :235, and the harness writes no file so the .env refusal at :191-196 never sees
+    anything. It also priced three things the card could not have inferred: the export must precede
+    `trap cleanup EXIT` at :298 rather than the first compose call, because cleanup runs `down -v`;
+    ONE value for the whole run, because DOD-1's second `up` and DOD-3's `restart` share the volume
+    and a second value gives `Failed to decrypt private key`; and TASK-017 must NEVER add this
+    variable to the contaminant guard, which would be F-144 a second time.
+  resolved_round: 0
+
+# ---- TASK-002 acceptance audit, sdlc-product-auditor, ids F-132..F-137.
+# AC-2 MET with real assertions and the constraint NAMED rather than inferred from a bare 23505.
+# AC-4 PARTIAL and deliberately so. It also judged the fix round's change of control shape CORRECT,
+# and confirmed the mechanical widening would have been worse: the grant matrix rule is
+# "EXEMPT name <=> auth-only, else app-only", so a view lands in the else branch that REQUIRES
+# app_dml = true - the grant that makes it a bypass is the grant that satisfies the check.
+
+- id: F-133
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-product-auditor
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/auth/tenant-memberships.int-spec.ts
+  line: 197
+  summary: >-
+    THE ONE POLICY THAT READS A TENANT-SCOPED TABLE WITH NO TENANT CONTEXT HAS A VACUOUS CONTROL.
+    Control 2 asserts a flagged read "returns that user AND NO OTHER TENANT" against a table holding
+    exactly one row. `USING (true)` passes it.
+  failure_scenario: >-
+    VERIFIED: the fixture is literally named seedUsersAndOneMembership (:51) and createRlsFixture in
+    beforeEach cascades away anything another suite left. The contract states the control as
+    "returns exactly A's row AND NOT TENANT B's" (tenant-membership-lookup.md:268-269) - THE SECOND
+    HALF IS VACUOUS AS SHIPPED, and the test's own title claims it.
+    AND NOTHING ELSE COVERS IT. The isolation harness never sets that flag (registrations.ts:615-628
+    treats the narrowing as proven elsewhere), and db:check-policies only counts nullif wrappers and
+    CANNOT SEE WHICH COLUMN A PREDICATE COMPARES AGAINST, as its own docblock states. SO A WIDENED
+    LOOKUP POLICY IS INVISIBLE TO EVERY CONTROL IN THIS INITIATIVE - on the one escape that reads a
+    tenant-scoped table outside tenant context.
+  required_change: >-
+    Seed a second membership row for a different user in TENANT_B - the UNIQUE is on user_id, so the
+    constraint permits it - and assert the flagged read still returns exactly A's row. The same
+    fixture makes the warm-zero-rows control at :216 discriminating too.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-134
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/auth/tenant-memberships.int-spec.ts
+  line: 157
+  summary: >-
+    AC-2's TWO CONJUNCTS ARE SPLIT ACROSS TWO `it`s WITH A beforeEach RE-SEED BETWEEN THEM, so the
+    "still holds exactly one row" assertion never observes the post-rejection table.
+  failure_scenario: >-
+    The count test passes identically if the refusal test does not exist. Harmless today - the INSERT
+    is rolled back and a 23505 aborts the transaction anyway - but THE SENTENCE AC-2 STATES IS NOT
+    THE SENTENCE ASSERTED. Separately the same-tenant duplicate, the shape a buggy signup retry
+    produces, is attempted nowhere.
+  required_change: Assert the count inside the refusal test after the ROLLBACK; add the same-tenant case.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-135
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: process
+  file: apps/api/test/isolation/cross-tenant-isolation.int-spec.ts
+  line: 402
+  summary: >-
+    86c6b2b CHANGES ASSERTIONS IN A FILE TASK-002's CARD FORBIDS IT TO EDIT and whose assertions
+    test_files assigns to TASK-015 - eight hunks. The edits are correct and unweakened; the
+    ATTRIBUTION is not verifiable from the diff, one author across the range.
+  failure_scenario: >-
+    THE ORCHESTRATOR MADE THIS HAPPEN AND SHOULD RECORD IT: the implementer declined the edits
+    correctly, I routed them to sdlc-test-architect under rule 0, and both landed inside one commit.
+    So TASK-015's declared scope now partially exists with no card recording it, and a reader
+    reconstructing who edited a forbidden file from git alone cannot.
+  required_change: The ruling and the actual author are recorded on the card; TASK-015 is re-scoped against what now exists.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Recorded on TASK-002's card: the eight hunks in cross-tenant-isolation.int-spec.ts were made by
+    sdlc-test-architect under routing rule 0, not by the implementer, which git cannot show because
+    both landed in one commit. The card also notes TASK-015's declared scope now partially exists
+    on disk and should be re-scoped against what is there.
+  resolved_round: 1
+
+- id: F-136
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: plan
+  file: .sdlc/identity-membership/tasks/TASK-002.md
+  line: 12
+  summary: >-
+    THE CARD'S paths DECLARES THE EXACT LOCATION F-045 FORBIDS - apps/api/src/db/schema/auth.spec.ts -
+    WHILE THE FILE ACTUALLY EDITED, auth-schema.spec.ts, IS IN NO CARD'S paths IN THE INITIATIVE.
+  failure_scenario: >-
+    86c6b2b edits the undeclared file - the two type defects whose removal makes AC-8's second clause
+    true. FOURTH INSTANCE OF THIS CLASS after F-002, F-010, F-032 and F-084, and this one is mine: I
+    ruled the move at F-045 and never updated the paths entry that named the old location. The
+    parallel-safety argument paths exists to support is unverifiable for a file nobody declared.
+  required_change: Replace the entry with apps/api/src/db/auth-schema.spec.ts and confirm no other card claims it.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    The paths entry now names apps/api/src/db/auth-schema.spec.ts, with a note recording that it
+    previously named THE EXACT LOCATION F-045 FORBIDS while the file actually edited was in no
+    card's paths - and that I ruled that move and never updated the entry. Fourth instance of this
+    class after F-002, F-010, F-032 and F-084.
+  resolved_round: 1
+
+- id: F-137
+  phase: implement
+  wave: 1
+  task: TASK-002
+  source: sdlc-product-auditor
+  round: 1
+  severity: nit
+  kind: documentation
+  file: .sdlc/foundation/design/contracts/isolation-coverage.md
+  line: 480
+  summary: The amended block bumps the assertion to toHaveLength(3) while its sample array still shows two entries - a snippet that cannot be true of itself.
+  failure_scenario: My amendment. The count moved and the illustration did not.
+  required_change: Add the third entry to the sample, or elide the array body.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    The sample array is elided rather than enumerated, with the reason: a literal list beside a
+    length assertion is a second place for the count to disagree, which is what the amendment was
+    correcting.
+  resolved_round: 1
+
+- id: F-145
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-architect
+  round: 0
+  severity: major
+  kind: plan
+  file: .sdlc/foundation/stories/STORY-002.md
+  line: 19
+  summary: >-
+    THIS INITIATIVE MAKES AN APPROVED, SHIPPED, `met` ACCEPTANCE CRITERION IN A CLOSED INITIATIVE
+    FALSE. AC-115 reads "Given a machine with only Docker and a clone of this repository, when
+    `docker compose up` is run... then Postgres, the API and the web app all reach a healthy state."
+    From wave 1 that requires BETTER_AUTH_SECRET exported.
+  failure_scenario: >-
+    VERIFIED: the text is at STORY-002:19 and it is recorded `met` at :153 - "Fifteen clauses, exit
+    0, verified independently by the orchestrator and the integrator."
+    The F-144 ruling is sound and the architect proved it works - it checked the three ways the last
+    three mechanisms failed and none fires. But the ruling's cost is that AC-115's sentence stops
+    being true, and NO RULING ABOUT THIS INITIATIVE CAN MAKE IT TRUE AGAIN: either the stack comes
+    up with nothing supplied, which requires a committed signing key, or it does not.
+    THE ARCHITECT PUT THE PROPOSED NARROWING IN THE ADR MARKED OFFERED-NOT-APPLIED and wrote plainly
+    that the ADR is wrong if Juano declines it. Three files quote the old premise and change with the
+    ruling, all TASK-019's: check-compose-stack.sh:4-9, .env.example:6-7, README.md:90.
+  required_change: >-
+    Juano's, and it amends an approved artifact in a CLOSED initiative rather than this one. Either
+    AC-115's text narrows to name the one variable the harness supplies, or the criterion is recorded
+    as no longer met, or this initiative gives up the by-value rejection and restores a committed
+    default.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Juano ruled NARROW THE TEXT. AC-115 in foundation's STORY-002 now names BETTER_AUTH_SECRET,
+    carries a dated amendment block recording that a LATER INITIATIVE changed it after that story
+    shipped, states that foundation genuinely met the original as written, and explains why no
+    ruling inside identity-membership could make the original true again - a default in a public
+    repository is a published signing key, which is the property that made F-020 a blocker. THE
+    CRITERION STAYS MET against the narrowed sentence, and the ledger row says so.
+  resolved_round: 0
