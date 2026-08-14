@@ -8,10 +8,11 @@
  * TWO TYPES PER SHAPE. THE WIRE TYPE IS UNBRANDED; THE DOMAIN TYPE IS BRANDED.
  * ============================================================================
  *
- * `roles.ts:150-156` states the rule: every zod enum sources from an unbranded array,
- * and branding happens AFTER parsing, via `asTenantRole`. A brand is a compile-time
- * claim that a value was validated somewhere; a value arriving in a request body has
- * been nowhere. ADR-0048 is where that rule became a shape.
+ * `roles.ts`'s RULE comment, on `INVITABLE_WORKSPACE_ROLES`, states the rule: every zod
+ * enum sources from an unbranded array, and branding happens AFTER parsing, via
+ * `asTenantRole`. A brand is a compile-time claim that a value was validated somewhere; a
+ * value arriving in a request body has been nowhere. ADR-0048 is where that rule became a
+ * shape.
  *
  * Any contract in this package whose `z.infer` carries a role brand is a defect.
  * `workspaces/` (TASK-012) and invitations (item 1b) follow this same split.

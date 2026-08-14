@@ -123,15 +123,19 @@ export function roleRank(_role: WorkspaceRole): number {
   throw new Error('not implemented');
 }
 
-/** Throws on an unknown key rather than returning undefined. */
+/**
+ * Throws on an unknown key rather than returning undefined. Guards with `TENANT_ROLES`
+ * membership rather than an `undefined` check on the lookup: an object literal indexed by
+ * an arbitrary string returns an inherited property (`toString`, `__proto__`, ...) instead
+ * of `undefined`, so that check alone lets those keys through with a typeof-mismatched
+ * value rather than a throw. Same guard `asTenantRole` uses, for the same reason.
+ */
 export function tenantRoleRank(_role: TenantRole): number {
-  const rank = TENANT_ROLE_RANK[_role as unknown as TenantRoleValue];
-
-  if (rank === undefined) {
+  if (!(TENANT_ROLES as readonly string[]).includes(_role)) {
     throw new Error(`not a tenant role: ${_role}`);
   }
 
-  return rank;
+  return TENANT_ROLE_RANK[_role as unknown as TenantRoleValue];
 }
 
 export function meetsWorkspaceRole(actual: WorkspaceRole, minimum: WorkspaceRole): boolean {

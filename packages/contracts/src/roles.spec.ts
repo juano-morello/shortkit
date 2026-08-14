@@ -21,8 +21,14 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { TenantRole } from './roles';
-import { TENANT_ROLE, asTenantRole, meetsTenantRole, tenantRoleRank } from './roles';
+import type { TenantRole, WorkspaceRole } from './roles';
+import {
+  TENANT_ROLE,
+  WORKSPACE_ROLE,
+  asTenantRole,
+  meetsTenantRole,
+  tenantRoleRank,
+} from './roles';
 
 /** The marker a table row carries where the call is required to throw. */
 const THROWS = 'throws';
@@ -69,6 +75,62 @@ describe('asTenantRole', () => {
       THROWS,
       THROWS,
     ]);
+  });
+
+  /**
+   * ==========================================================================
+   * F-090. THESE TWO ARE GREEN ON ARRIVAL, DELIBERATELY. DO NOT DELETE THEM.
+   * ==========================================================================
+   *
+   * `asTenantRole` already refuses already-branded input today — `Unbranded<T>` resolves
+   * to `never` for a branded argument, so all three of the reviewer's probes fail TS2345.
+   * The defect F-090 records is that NOTHING ASSERTED IT. Every other test in this file
+   * and in `members.spec.ts` passes plain strings, and `members.spec.ts:91,138` pin the
+   * WIRE type rather than this parameter guard. So a later TASK that hits a brand mismatch
+   * could "fix" it by widening the signature to `<T extends string>(_value: T)` and leave
+   * the suite green, `pnpm typecheck` green, and every existing directive still used —
+   * while `asTenantRole(ctx.workspaceRole)` starts compiling. That is precisely the
+   * laundering `roles.ts:81-85` claims is a compile error.
+   *
+   * These have no failing history because they are pinning shipped behaviour, not driving
+   * new behaviour. That makes them look redundant and they are not: measured in a copy of
+   * this package, widening the parameter to `T` takes `pnpm typecheck` from two errors to
+   * ZERO with these directives removed, and to two "Unused '@ts-expect-error' directive"
+   * errors with them present. They are the only thing that fails.
+   *
+   * THE DIRECTIVE IS THE ASSERTION, and it runs under `pnpm typecheck`, not `pnpm test` —
+   * vitest transpiles with swc and never typechecks. An unused `@ts-expect-error` is
+   * itself a typecheck error, which is what makes this a live assertion rather than a
+   * comment. Same mechanism as `members.spec.ts:91,138`.
+   *
+   * The reviewer's third probe, `asTenantRole(TENANT_ROLE.owner)`, is deliberately absent:
+   * it fails and passes in lockstep with the first one under every mutation tried, and the
+   * one break it could have caught alone — the `TENANT_ROLE` constants losing their brand —
+   * is already caught by the annotated local below and by `roles.ts:155,158`.
+   */
+  it('AC-8 (ADR-0023, F-090): it refuses an already-branded TenantRole, so a brand cannot be re-applied', () => {
+    const alreadyBranded: TenantRole = TENANT_ROLE.admin;
+
+    // @ts-expect-error Unbranded<T> is `never` for a branded argument (TS2345). Widening
+    // the parameter to `T` makes this line legal and this directive unused.
+    const rebranded = asTenantRole(alreadyBranded);
+
+    expect(rebranded).toBe('admin');
+  });
+
+  it('AC-8 (ADR-0023, F-090): it refuses a branded WorkspaceRole, which is the laundering the brands exist to stop', () => {
+    const workspaceRole: WorkspaceRole = WORKSPACE_ROLE.member;
+
+    // @ts-expect-error Unbranded<T> is `never` for a branded argument (TS2345). This is
+    // the `assert(wsId, asWorkspaceRole(ctx.tenantRole))` shape roles.ts:81-85 refuses,
+    // in the direction this initiative actually has a caller for.
+    const laundered = asTenantRole(workspaceRole);
+
+    // AND THE RUNTIME GUARD DOES NOT CATCH IT. `member` is a value in BOTH enums, so
+    // `TENANT_ROLES.includes` passes and a workspace-scoped role comes back branded
+    // `tenant` — the Form B hole in roles.ts:19-23. The parameter type is the only thing
+    // standing between `ctx.workspaceRole` and a tenant-role check.
+    expect(laundered).toBe('member');
   });
 });
 
