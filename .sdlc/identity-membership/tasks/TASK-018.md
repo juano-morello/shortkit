@@ -3,7 +3,7 @@ id: TASK-018
 story: STORY-003
 epic: EPIC-001
 title: Provision shortkit_auth across all three role-creation sites before any migration grants to it
-status: tests-green
+status: done
 owner_slot: sdlc-implementer-backend
 depends_on: []
 paths: [".github/scripts/provision-test-database.sql", ".github/workflows/ci.yml", "docker-compose.yml", "docker-compose.test.yml", "apps/api/test/support/rls-fixture.ts", "apps/api/test/support/auth-fixture.ts", "apps/api/scripts/seed.mts", ".env.example", "docs/architecture/migrations.md"]
@@ -26,7 +26,7 @@ test_files: ["apps/api/test/tenancy/auth-role-provisioning.int-spec.ts (integrat
 # what the F-024 ruling bought, and an exemption would leave it with nothing asserting it landed
 # until TASK-002 s grant matrix runs a wave later.
 acceptance: []
-rework_count: 0
+rework_count: 4
 ---
 
 <!--

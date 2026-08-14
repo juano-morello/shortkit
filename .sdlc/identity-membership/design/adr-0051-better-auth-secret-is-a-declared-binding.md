@@ -65,19 +65,45 @@ library's environment lookup.**
 
 | Variable | Values | Unset binds to | Assertion |
 |---|---|---|---|
-| `BETTER_AUTH_SECRET` | any string of at least 32 characters that is not the library default | **nothing — boot fails** | unconditional, every environment |
+| `BETTER_AUTH_SECRET` | ~~any string of at least 32 characters that is not the library default~~ **any string of at least 32 characters that is neither published constant** (F-074, 2026-08-14) | **nothing — boot fails** | unconditional, every environment |
 
 There is no enumerated value set, so GC-B's obligation is its other half: state what an unset
 value binds and make it fail everywhere. It binds to nothing. The assertion runs in
 development, in test and under compose, identically, because the environment where this is
 most likely to be unset is the one the library's own check skips.
 
-Two rejections encoded in the assertion:
+~~Two rejections~~ **Three rejections** encoded in the assertion (**third added 2026-08-14 by
+Juano's ruling on F-074**):
 
 - **the library default `better-auth-secret-12345678901234567890` is rejected by value.**
   Not by length, not by entropy — by exact comparison. It is 39 characters and passes both
   heuristics.
 - **shorter than 32 characters is rejected**, promoting the library's warning to a failure.
+- **this repository's own compose default
+  `development-compose-better-auth-secret-not-a-real-value` is rejected by value**, by the
+  same exact comparison and in the same predicate.
+
+### Why the compose default is a rejected constant
+
+**Added 2026-08-14 (F-074), Juano's ruling.** TASK-018 had to declare `BETTER_AUTH_SECRET` on
+the compose `api` service in wave 0 (see the follow-up split below). The card stated four
+constraints and this ADR pinned no value, so the implementer wrote one, and it now sits at
+`docker-compose.yml:287` as `${BETTER_AUTH_SECRET:-development-compose-better-auth-secret-not-a-real-value}`.
+It satisfies every rule above: set, non-empty, 55 characters, not equal to better-auth's
+constant. The assertion as originally specified accepts it.
+
+**What disqualifies it is not its length and not its shape. It is committed.** This repository
+is public, so the value is in a history nobody can rewrite, and from wave 2 it is the
+symmetric key for `jwks.privateKey` on any stack started without an override. That is the same
+property as F-020's blocker, not a comparable one. better-auth's constant is not weak because
+a library chose it; it is weak because everybody has it. A locally generated 55-character
+string of exactly this shape is a fine secret. This particular 55-character string is not, and
+picking a different literal to commit next time would not help, because publication is the
+disqualifying event.
+
+So the assertion rejects two named constants and will reject any further committed default the
+same way. Length and entropy are not the test being applied here, and a value that fails this
+rule can be perfectly strong everywhere it is not published.
 
 ### Where it is asserted
 
@@ -124,6 +150,12 @@ and the absent case is the one that matters.
 export declare function betterAuthSecret(): string;
 ```
 
+**Docblock amended 2026-08-14 (F-074).** The block above is kept as written in wave 1. The
+implemented docblock names a fourth rejection: `betterAuthSecret()` also throws on
+`development-compose-better-auth-secret-not-a-real-value`, this repository's committed compose
+default, for the reason in the section above. Both published constants are rejected by exact
+comparison, in one shared predicate.
+
 Measured against the pinned `better-auth@1.6.26`, one process per row, `BETTER_AUTH_SECRET`
 and `AUTH_SECRET` unset:
 
@@ -141,7 +173,10 @@ The mechanism works, and it works only for a non-empty return. Rows four and fiv
 accessor throws rather than returning a default, a sentinel or `undefined`.
 
 **Two checks, one rule.** `betterAuthSecret()` and `assertBetterAuthSecretConfigured()` apply
-the same three rejections (unset-or-empty, shorter than 32, equal to the published default).
+~~the same three rejections (unset-or-empty, shorter than 32, equal to the published default)~~
+**the same four rejections: unset-or-empty, shorter than 32, equal to
+`better-auth-secret-12345678901234567890`, equal to
+`development-compose-better-auth-secret-not-a-real-value`** (F-074, 2026-08-14).
 The accessor throws at the point of use so no falsy value can reach the `||` chain; the boot
 assertion throws before the process serves, so a misconfiguration is a refusal to boot rather
 than a failure on the first sign-in. Both live in wave 2, and the duplication is deliberate:
@@ -166,6 +201,7 @@ unlike the user id in ADR-0045, where a prefix is useful and the value is not a 
 | Assert only under compose, where the secret matters | Smaller surface; local development stays frictionless | This is a behavioural choice keyed on the environment, which is what GC-B forbids, and it would be keyed on `NODE_ENV` because that is the only signal compose provides. It also leaves `pnpm dev` — the live exposure — uncovered | GC-B, exactly |
 | Generate a random secret at boot when unset | No configuration; nothing to forget | Every restart invalidates every `jwks` row, because the private keys were encrypted with the previous secret and `symmetricDecrypt` throws `Failed to decrypt private key`. Multi-instance deployment mints tokens no other instance can verify | Silently breaks the thing it is protecting |
 | Use `BETTER_AUTH_SECRETS` (the array form) with rotation | The library supports it and it is where rotation lives | Rotation is a capability nothing in this initiative needs and `validateSecretsArray` is a second validation path to reason about. It is the right shape for a system with a deploy target | Speculative; ADR-0030 says there is no deploy target |
+| **F-074, 2026-08-14:** carry no compose default at all — `BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set this to a locally generated value}` | Nothing is published, so there is no constant to reject and no list to keep current. Compose fails fast, before any container starts, with a message naming the variable | `docker compose up` on a fresh clone stops working with no `.env`, which is what AC-115 measures and what the compose gate is built around (`.github/workflows/ci.yml` runs `pnpm test:compose` with no `env:` block, deliberately). It also makes the compose stack the one surface with a different setup contract from every other credential in the file, all of which carry fixture defaults | **Juano's ruling, 2026-08-14.** The out-of-the-box `up` is the property being protected. Rejecting the literal by value keeps the file's shape and moves the failure to the assertion, where the message can say why |
 
 ## Consequences
 
@@ -187,6 +223,32 @@ unlike the user id in ADR-0045, where a prefix is useful and the value is not a 
   constant in a later release, the assertion silently stops matching it and the check reverts
   to a length test. The pin (ADR-0018) is what bounds this, and the upgrade procedure has to
   re-read `create-context.mjs`. That is a manual step with no gate behind it.
+- **A rejected-by-value list is now a list, and lists go stale quietly.** Added 2026-08-14
+  (F-074). One constant was a special case; two are a policy, and the policy is "every value
+  this repository commits as a `BETTER_AUTH_SECRET` default has to be added here". Nothing
+  enumerates the list. A developer who changes the compose default to a different literal, or
+  adds a second compose file with its own default, gets a green check over a published signing
+  key and no signal at all. The repair that would close it is a test that reads the default out
+  of `docker-compose.yml` and asserts the predicate rejects it, so the list cannot diverge from
+  the file it is about. That test is not scheduled here.
+- **The compose default is now a value the boot assertion refuses, and both land in this
+  initiative.** Added 2026-08-14 (F-074). From wave 2, `docker compose up` on a clone with no
+  `BETTER_AUTH_SECRET` in the shell or in the project-root `.env` starts an `api` container
+  that exits on the assertion, and `scripts/check-compose-stack.sh:476` fails `AC-115.3` for
+  the `api` service. The compose job runs with no `env:` block on purpose (F-315, F-316), so CI
+  is not exempt and neither is a fresh clone. **This is the cost of the declined alternative
+  arriving anyway, one wave later and with a worse first symptom**: compose interpolation would
+  have failed before any container started, with a message naming the variable, where the
+  assertion fails after `up` reports the stack created. What buys the property back is a
+  per-clone value that is not committed. The only file that reaches this variable is the
+  project-root `.env`: Compose interpolates `${BETTER_AUTH_SECRET:-…}` from there and reads no
+  file under `apps/`. **Nothing schedules that today, and it is the open obligation this
+  ruling creates rather than a detail of it.** See the follow-ups below.
+- **The two published constants are rejected; a third-party fixture value is not.** The rule
+  covers what this repository and this library publish. Any other committed secret, in a
+  downstream fork or a copied compose file, passes. The check is a floor against two known
+  values, not a test for publication, because a test for publication is not something a boot
+  assertion can perform.
 - **32 characters and "not the default" is a weak definition of a good secret.** It admits
   `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`. The library's entropy heuristic is not adopted, because
   a heuristic that warns rather than fails is a rule nobody obeys, and one that fails on a
@@ -210,6 +272,22 @@ unlike the user id in ADR-0045, where a prefix is useful and the value is not a 
 ### Follow-ups this creates
 
 - TASK-003 passes `secret` explicitly and asserts it in `auth.config.spec.ts`.
+- **TASK-003 implements the second rejected constant** (F-074, 2026-08-14, Juano's ruling).
+  `betterAuthSecret()` and `assertBetterAuthSecretConfigured()` reject
+  `development-compose-better-auth-secret-not-a-real-value` by exact comparison, in the shared
+  predicate, alongside `better-auth-secret-12345678901234567890`. The card's own text
+  (`TASK-003:131`) still describes three rejections and needs the fourth; that is a card edit,
+  not an ADR one. Unit coverage: one case per rejected constant, asserting the throw rather
+  than a return.
+- **Whoever supplies the compose stack a non-committed value owns this, and no card does yet**
+  (F-074, 2026-08-14). From wave 2 the compose default is a value the assertion refuses, so
+  `AC-115.3` needs a `BETTER_AUTH_SECRET` that is not in the repository, reaching Compose
+  through the project-root `.env` or the invoking shell. Sequencing is the same trap F-034
+  already sprang once on this variable: the assertion is wave 2, so the answer cannot be wave 4.
+  This ADR does not choose between the available shapes (a generation step in the documented
+  `up` procedure, a first-run script that writes the root `.env`, or accepting that the stack
+  needs one exported variable and saying so where the failure sends the reader). It records
+  that the choice is now required and that wave 2 is its deadline.
 - ~~TASK-004 owns `assertBetterAuthSecretConfigured()` in `apps/api/src/auth/boot-assertions.ts`
   and its call in `main.ts`, alongside `assertBffProxySecretConfigured()`.~~
   **Moved to TASK-003, wave 2, by Juano's ruling 2026-08-13 (F-033).** TASK-003 owns

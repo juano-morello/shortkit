@@ -1321,3 +1321,826 @@
     and deliberately did NOT fix it, arguing the bump belongs in TASK-002's commit beside the entry
     that raises it.
   resolved_round: 0
+
+# ---- TASK-018 audit, 2026-08-14. sdlc-product-auditor, ids F-064..F-071. Report at
+# audits/TASK-018-sdlc-product-auditor-r1.md. All four "What the tests must pin" items MET -
+# it verified the two guard tests BUILD the databases the guards must refuse rather than
+# asserting a correct one passes, which is the tautology this could have drifted into.
+
+- id: F-064
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 1
+  severity: blocker
+  kind: correctness
+  file: docker-compose.test.yml
+  line: 7
+  summary: >-
+    THE HEADER EXPORT LINES WERE NAMED TWICE ON THE CARD AND DID NOT SHIP. docker-compose.test.yml:7-11
+    documents the integration tier's DSNs and still lists only two; DATABASE_AUTH_URL is absent.
+  failure_scenario: >-
+    VERIFIED: the header carries DATABASE_URL and DATABASE_MIGRATION_URL only. It is THE ONLY PLACE
+    IN THE REPOSITORY documenting how to run the integration tier - the README carries no export
+    block and ci.yml:195 explicitly defers to it. AND THIS SAME COMMIT ADDS A THROW in auth-fixture.ts
+    whose remedy tells the developer to start that stack and export DATABASE_AUTH_URL, pointing at a
+    file that never mentions the variable. One line.
+  required_change: The header gains the DATABASE_AUTH_URL export line.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1. The header gains the DATABASE_AUTH_URL export line in the same shape and position as
+    the two beside it. The security re-review verdicted it as FORECLOSING the dangerous repair
+    rather than merely adding a line: it EXECUTED the header's export from a throwaway client
+    container over the real scram path, and dsnOrThrow() now ends 'see that file's header for the
+    exact export lines. This call needed DATABASE_AUTH_URL (shortkit_auth)', so the message routes
+    to the answer and names the role - which is what makes DATABASE_AUTH_URL="$DATABASE_URL"
+    visibly wrong. No fallback exists at any of the four sites. THREE AUDITORS FOUND THIS
+    INDEPENDENTLY.
+  resolved_round: 1
+
+- id: F-065
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 1
+  severity: major
+  kind: plan
+  file: .github/workflows/ci.yml
+  line: 202
+  summary: >-
+    ci.yml SETS TWO DSNs, authServerEnv() NOW HARD-FAILS WITHOUT A THIRD, AND NO CARD OWNS ci.yml.
+    VERIFIED ACROSS ALL EIGHTEEN CARDS: not one declares .github/workflows/ci.yml in its paths.
+  failure_scenario: >-
+    ci.yml:202-203 sets DATABASE_URL and DATABASE_MIGRATION_URL, under a comment saying they are
+    "the same DSNs docker-compose.test.yml documents in its header" - so the two are explicitly
+    coupled and only one half was changed. LATENT TODAY: nothing calls authServerEnv() yet and
+    security-headers.int-spec.ts:140 passes its own env. RED THE MOMENT A WAVE-2 SPEC BOOTS THE API
+    CHILD. TASK-010:58 and TASK-017:92 both EXCLUDE ci.yml explicitly; TASK-002 never mentions it.
+    Same class as F-032's docker-compose.test.yml, which was also in no card's paths - except this
+    one has no owner even after that repair.
+  required_change: >-
+    A card owns .github/workflows/ci.yml and adds DATABASE_AUTH_URL to the integration job.
+    config.yaml routes .github/** to sdlc-implementer-backend, so the SLOT is unambiguous; the
+    missing thing is a TASK.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Round 1. ci.yml:206 gains the DSN, character-identical to the compose header - the product
+    auditor diffed the strings. The card records that the gap is closed FOR THIS VARIABLE and not
+    for ci.yml generally, and the re-review verdicted that framing HONEST rather than letting
+    TASK-018 become the file's owner by implication.
+  resolved_round: 1
+
+- id: F-066
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: documentation
+  file: docker-compose.test.yml
+  line: 33
+  summary: Two-role prose left standing at docker-compose.test.yml:33,:56 and docker-compose.yml:25,:82, in files this commit edited.
+  failure_scenario: The count is now three. Same class as TASK-002's seven-site table, in files already open.
+  required_change: The prose matches the three-role model.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1. Fixed at all four named sites. Slightly wider than asked - the copy-me bullet also
+    gained the grant asymmetry, which the product auditor judged the same correction rather than a
+    new claim.
+  resolved_round: 1
+
+- id: F-067
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/tenancy/auth-role-provisioning.int-spec.ts
+  line: 1
+  summary: >-
+    THE COMPOSE SITES GET EXISTENCE-ONLY ASSERTIONS, so a BYPASSRLS regression in either compose
+    init script passes all nine tests. Only the CI site asserts attributes.
+  failure_scenario: >-
+    PIN-2 is met as written and the coverage is narrower than the implementation - the attribute
+    assertion runs against provision-test-database.sql and the live database, not against the two
+    compose scripts. A role created with BYPASSRLS in docker-compose.yml is invisible to this suite.
+  required_change: The attribute assertions run against all three provisioning sites, or the narrowness is recorded.
+  owner_slot: sdlc-test-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-068
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: docker-compose.yml
+  line: 1
+  summary: >-
+    THE INVENTED BETTER_AUTH_SECRET DEFAULT IS NOT A GAP IN THE DELIVERABLE - it clears all four of
+    ADR-0051's rejections, MEASURED at 55 characters, always set via ${VAR:-...} which covers
+    exported-but-empty, and not the published constant. The residual is that nothing mechanical
+    holds it until wave 2.
+  failure_scenario: >-
+    The card stated four constraints and deliberately pinned no value, so inventing one was in scope.
+    A bad value fails loudly at the compose gate in wave 2 rather than silently. The inline comment
+    states two of the four rejections, not four.
+  required_change: TASK-003's test asserts the rendered compose default; the inline comment states all four rejections.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1. All four rejections now in the comment. The product auditor RE-MEASURED rather than
+    trusting: len() = 55, so both '55 characters' and '>= 32' hold, and Dockerfile:83 does read ENV
+    NODE_ENV=production. The TASK-003 test half is correctly deferred - boot-assertions.ts does not
+    exist until wave 2.
+  resolved_round: 1
+
+- id: F-069
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: documentation
+  file: docker-compose.yml
+  line: 1
+  summary: No note telling a developer with an existing dev volume that new roles need `down -v` (ADR-0032).
+  failure_scenario: Init scripts run once against an empty data directory. An existing volume silently keeps two roles.
+  required_change: A note where the developer will read it.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1 added the note; ROUND 2 CORRECTED IT. The note as first written reintroduced F-071's
+    class and misnamed the error - see F-072, which subsumes F-078.
+  resolved_round: 2
+
+- id: F-070
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: contract
+  file: .sdlc/foundation/design/contracts/rls-policy-template.md
+  line: 15
+  summary: rls-policy-template.md:15 still describes the provisioning guards as two-role.
+  failure_scenario: A contract describing a guard the repository no longer has. Contracts are frozen; this is an orchestrator/Juano matter, not an implementer's.
+  required_change: The contract's guard description matches the three-role model.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-071
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: documentation
+  file: apps/api/scripts/seed.mts
+  line: 29
+  summary: The seed.mts paragraph states a wave-1 fact in the present tense - the REVOKE has not happened yet.
+  failure_scenario: Accurate after TASK-002, wrong today. The card asked for the exception to be recorded; tense was not specified.
+  required_change: The tense matches when the fact becomes true.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1, better than the minimum: it names the owning TASK and the wave and moves every verb,
+    rather than qualifying a present-tense claim.
+  resolved_round: 1
+
+# ---- TASK-018 audit, sdlc-reviewer, ids F-048..F-052. Report at
+# audits/TASK-018-sdlc-reviewer-r1.md. TWO AUDITORS INDEPENDENTLY FOUND THE HEADER GAP -
+# F-048 and F-064 are ONE defect, recorded as a duplicate rather than fixed twice.
+
+- id: F-048
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: contract
+  file: docker-compose.test.yml
+  line: 7
+  summary: >-
+    DUPLICATE OF F-064, found independently by the reviewer and the product auditor in the same
+    round. The header's documented local flow exports two DSNs; ADR-0050 assigns "the role block
+    and the export lines in its header comment" to this card and only the role block landed.
+  failure_scenario: >-
+    A developer follows :7-11 verbatim and from wave 2 authDsnOrThrow() throws before any assertion.
+    The reviewer adds the detail the product auditor did not: THE ROLE AND CREDENTIAL ALREADY EXIST
+    at :125 and :136 - only the documentation line is missing.
+  required_change: See F-064. Fixed once, verified once.
+  owner_slot: sdlc-implementer-backend
+  status: superseded
+  resolved_by: "Merged into F-064. One defect, one fix, one re-review."
+  resolved_round: 1
+
+- id: F-049
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: documentation
+  file: docker-compose.yml
+  line: 25
+  summary: >-
+    WIDER THAN F-066. "NOBYPASSRLS on BOTH roles" was updated inside both configs blocks and left
+    stale in FOUR other places across the same two files PLUS ONE IN THE CI SQL -
+    provision-test-database.sql:50-51 quotes a contract sentence that now reads "Neither shortkit_app
+    nor shortkit_auth...".
+  failure_scenario: >-
+    docker-compose.yml:25, :82, :90-94 and docker-compose.test.yml:33, :56 describe a two-role model
+    the same files no longer create, under banners claiming to BE rls-policy-template.md's "Roles"
+    section applied. :82 IS FALSE FROM WAVE 2, when the API issues statements as shortkit_auth.
+  required_change: The remaining two-role sentences in all three provisioning artifacts describe three roles.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1. Fixed at both sites the product auditor missed, including
+    provision-test-database.sql:50-51 which QUOTES a contract sentence. The re-review checked that
+    one specifically: the new text is a VERBATIM match to rls-policy-template.md:63-64 including
+    role order, because a paraphrase there would have been F-050's defect inside F-049's fix.
+  resolved_round: 1
+
+- id: F-050
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: correctness
+  file: .github/scripts/provision-test-database.sql
+  line: 51
+  summary: >-
+    THE GUARD COMMENT CREDITS check-policies.mts WITH AN OWNERSHIP CHECK IT DOES NOT HAVE, and the
+    widened WHERE now implies that non-existent coverage for shortkit_auth too.
+  failure_scenario: >-
+    VERIFIED INDEPENDENTLY by the orchestrator: grep for relowner|pg_get_userbyid|datdba in
+    check-policies.mts returns ZERO. Ownership counts live only at rls.ts:148 (boot, connected role),
+    tenant-context.int-spec.ts:983 and the new auth-role-provisioning.int-spec.ts:281. Pre-existing
+    text, reported because this commit widened the guard it describes - which is the right call:
+    F-009's class, a comment asserting a provenance it does not have.
+  required_change: The comment names where the fourth property is actually asserted per role, or drops the claim. No SQL change.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1. The comment no longer credits check-policies.mts with an ownership check it does not
+    have. The security re-review checked every claim in the REPLACEMENT comment against the code it
+    names - the failure mode for a fix of this class is a new confident wrong claim.
+  resolved_round: 1
+
+- id: F-051
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: behavior
+  file: scripts/check-compose-stack.sh
+  line: 180
+  summary: >-
+    DUPLICATE OF F-037, found independently. A third host-interpolated $$ variable was added without
+    widening the contaminant guard written to stop an exported value masking a missing $$.
+  failure_scenario: >-
+    With SHORTKIT_AUTH_PASSWORD exported, a later single-$ edit produces no config warning, no
+    refusal, a green check locally - and a PASSWORDLESS shortkit_auth on a clean machine or CI runner.
+    F-315/F-316 on the new variable. Outside TASK-018's paths; ADR-0050 assigns the file to TASK-017.
+  required_change: Every variable read as $$NAME inside configs.*.content, healthcheck.test or command appears in the contaminant list. Already on TASK-017's card via F-037.
+  owner_slot: sdlc-implementer-backend
+  status: superseded
+  resolved_by: "Merged into F-037, already written onto TASK-017's card. The independent rediscovery is evidence the card note was worth writing."
+  resolved_round: 1
+
+- id: F-052
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: correctness
+  file: apps/api/test/support/auth-fixture.ts
+  line: 122
+  summary: >-
+    THIRD COPY OF THE SAME READ-ENV-OR-THROW HELPER, AND THE DRIFT IS ALREADY PRESENT IN THIS COMMIT.
+    authDsnOrThrow() is byte-identical to appDsnOrThrow() apart from name and message, itself a copy
+    of rls-fixture.ts's dsn()/appDsn() - from which this file ALREADY IMPORTS migrationDsn.
+  failure_scenario: >-
+    VERIFIED INDEPENDENTLY: :107-109 tells the developer to export "DATABASE_URL and
+    DATABASE_MIGRATION_URL" while :127-131 tells them to export three. TWO MESSAGES IN ONE FILE
+    DISAGREEING ON WHAT THE SUITE NEEDS, both added or touched by this commit.
+  required_change: One parameterised reader, or the two messages agree on how many DSNs the suite requires.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1. auth-fixture.ts's two messages unified; the file is a NET DELETION of 19 lines. NOTE:
+    the fix was scoped to the file the finding named, and rls-fixture.ts's third copy still said
+    two DSNs - that became F-080. A lesson about scoping a finding to a file when the defect is a
+    class.
+  resolved_round: 1
+
+# ---- TASK-018 audit, sdlc-security-auditor, ids F-056..F-059. Report at
+# audits/TASK-018-sdlc-security-auditor-r1.md. IT VERIFIED THE FIX RATHER THAN ASSUMING IT:
+# shortkit_auth reaches NOTHING today (pg_default_acl holds only the two -> shortkit_app rows,
+# public grants USAGE not CREATE, both has_table_privilege and has_any_column_privilege on
+# tenants are false), and BOTH WIDENED GUARDS NOW REFUSE what it measured them passing in the
+# design round. THREE AUDITORS INDEPENDENTLY FOUND THE HEADER GAP; THREE FOUND THE CONTAMINANT
+# GUARD. It also declined to file three things after measuring them.
+
+- id: F-056
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: docker-compose.yml
+  line: 238
+  summary: >-
+    THE INVENTED BETTER_AUTH_SECRET DEFAULT IS COMMITTED AND THEREFORE PERMANENTLY IN GIT HISTORY -
+    "a value everyone already has", WHICH IS THE EXACT PROPERTY THAT MADE F-020 A BLOCKER. And
+    assertBetterAuthSecretConfigured() rejects better-auth's constant BY EXACT VALUE, so it will
+    accept this one.
+  failure_scenario: >-
+    MEASURED: `docker compose config` on a clean environment renders exactly that string. TEN LINES
+    ABOVE, DATABASE_AUTH_URL IS DELIBERATELY GIVEN NO FALLBACK FOR THE IDENTICAL ARGUMENT - the
+    higher-value credential in the same block got one, and the asymmetry is unstated. Not a blocker:
+    loopback port, no consumer until wave 2, no deploy target. This is the finding the implementer
+    flagged against itself, sharpened - it asked whether the value was pinned; the auditor asked
+    what it means that it is published.
+  required_change: >-
+    The value becomes artifact-owned rather than invented, carrying the fixture banner the
+    provisioning SQL already uses, and the asymmetry with DATABASE_AUTH_URL is stated or removed.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1, as far as this card's paths reach. Banner, a corrected false 'development-only' claim,
+    the asymmetry with DATABASE_AUTH_URL stated, and all four ADR-0051 rejections in the comment.
+    The security re-review verdicted the comment work COMPLETE AND CORRECT and said plainly that a
+    comment cannot change what the check accepts - the value residual became F-074 and is Juano's.
+  resolved_round: 1
+
+- id: F-057
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: contract
+  file: docker-compose.test.yml
+  line: 9
+  summary: >-
+    THIRD INDEPENDENT DISCOVERY OF THE HEADER GAP (F-064, F-048). The security angle is the one the
+    other two did not name: from wave 2, THE CHEAPEST REPAIR FROM THE HEADER'S SILENCE IS
+    `DATABASE_AUTH_URL="$DATABASE_URL"` - the change ADR-0050 names by name as the one that silently
+    restores shortkit_app as the auth role with every gate still green.
+  failure_scenario: See F-064. Three auditors, three routes to the same missing line.
+  required_change: See F-064.
+  owner_slot: sdlc-implementer-backend
+  status: superseded
+  resolved_by: "Merged into F-064, with its wave-2 repair-pressure argument carried onto the fix dispatch."
+  resolved_round: 1
+
+- id: F-058
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: behavior
+  file: scripts/check-compose-stack.sh
+  line: 180
+  summary: >-
+    THIRD INDEPENDENT DISCOVERY OF THE CONTAMINANT-GUARD GAP (F-037, F-051). Verified FAIL-CLOSED
+    rather than disclosure: a NULL-password role cannot authenticate from the docker network under
+    the stock scram-sha-256 line.
+  failure_scenario: See F-037. Outside TASK-018's paths; already on TASK-017's card.
+  required_change: See F-037.
+  owner_slot: sdlc-implementer-backend
+  status: superseded
+  resolved_by: "Merged into F-037. Three independent rediscoveries in one audit round is the evidence that card note needed to exist."
+  resolved_round: 1
+
+- id: F-059
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: documentation
+  file: .github/scripts/provision-test-database.sql
+  line: 87
+  summary: >-
+    THE ALTER DEFAULT PRIVILEGES COMMENT EXPLAINS THE WRONG HALF AND NAMES THE WRONG ROLE. It says
+    why shortkit_app needs a hand-written REVOKE, not why shortkit_auth may not have a default
+    privilege. The contract states it correctly - "in either direction" - and the transcription
+    dropped that half.
+  failure_scenario: >-
+    Caught downstream by two later controls, hence minor. But this is the comment I praised in the
+    commit message as getting F-239's shape right; it gets the shape right and the roles wrong.
+  required_change: The comment explains the shortkit_auth direction, matching the contract's "in either direction".
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 1. Corrected at all three provisioning sites and matched against
+    rls-policy-template.md:40-42's 'in either direction'.
+  resolved_round: 1
+
+# ---- TASK-018 fix round 1, product re-review, ids F-078..F-080. verdict: CLEAR - all seven
+# ADDRESSED. It traced ALL TWENTY HUNKS and found NO SCOPE CREEP: seventeen map to a named
+# finding, three were disclosed by the implementer before it looked, all inside paths, all
+# correcting text that is or becomes false. auth-fixture.ts is a NET DELETION of 19 lines.
+# IT ALSO CAUGHT AN ERROR IN MY DISPATCH: I said eight files, the commit has SEVEN. The eighth
+# was findings.yaml - MY OWN LEDGER EDIT, counted as part of the implementer's fix diff.
+
+- id: F-078
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 2
+  severity: minor
+  kind: behavior
+  file: docker-compose.yml
+  line: 244
+  summary: >-
+    THE F-069 FIX REINTRODUCED F-071's EXACT CLASS - a wave-1 fact in the present tense - inside the
+    round that fixed F-071.
+  failure_scenario: >-
+    The new note says `migrate` fails with `role "shortkit_auth" does not exist` and, from wave 2, so
+    does `api`. THE API HALF CARRIES ITS QUALIFIER AND THE MIGRATE HALF DOES NOT, and the migrate
+    half is false today - verified, the only migration on disk is 0000 and grep for shortkit_auth
+    across apps/api SQL returns nothing. A stale-volume developer today gets a fully green `up`, so
+    the note tells them to expect a loud failure that will not arrive for a wave - WHICH IS A REASON
+    TO READ A SILENT STACK AS A CORRECT ONE.
+  required_change: Qualify the migrate clause the way the api clause beside it already is.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    NOT DEFERRED AFTER ALL. Subsumed by F-072, which found the same present-tense defect PLUS a
+    second wrong claim in the same sentence - the api-side error message. Fixed in round 2 rather
+    than rolled up, because once the sentence had to be rewritten for F-072 the tense came with it
+    at no extra cost. The original deferral is left visible above rather than deleted.
+  resolved_round: 2
+
+- id: F-079
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 2
+  severity: minor
+  kind: documentation
+  file: docker-compose.test.yml
+  line: 14
+  summary: >-
+    THIS ROUND EDITED BOTH ENDS OF A DOCUMENTED COUPLING AND LEFT THE SENTENCE BETWEEN THEM POINTING
+    AT A THIRD CARD. The header still says the CI equivalent "belongs to TASK-002 (F-039), not here",
+    three lines under the export this round added - while ci.yml:204-205, also this round, cites that
+    header as what it stays identical to.
+  failure_scenario: >-
+    Each pointer lands on the other, and the header attributes to TASK-002 future work TASK-018 has
+    just done. Pre-existing text; this round made it self-contradicting.
+  required_change: The header reflects that the CI block exists and was set by TASK-018.
+  owner_slot: sdlc-implementer-backend
+  status: deferred-minor
+  resolved_by: "Deferred. Documentation-only and self-correcting once TASK-002 lands; recorded in the roll-up."
+  resolved_round: 2
+
+- id: F-080
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-product-auditor
+  round: 2
+  severity: minor
+  kind: correctness
+  file: apps/api/test/support/rls-fixture.ts
+  line: 113
+  summary: >-
+    F-052's FIX UNIFIED THE TWO MESSAGES INSIDE auth-fixture.ts; THE THIRD COPY STILL SAYS TWO DSNs,
+    AND IT IS THE ONE THE ISOLATION SUITE THROWS FROM. F-064's defect, one file over.
+  failure_scenario: >-
+    VERIFIED: rls-fixture.ts:110-113 names two variables, auth-fixture.ts:109-114 now names three. A
+    COLD START HITS THE TWO-VARIABLE MESSAGE FIRST, exports what it says, and from wave 2 hits the
+    three-variable one. F-052 remains ADDRESSED as written - its failure_scenario named "two messages
+    in one file" and that file is consistent now, which is a lesson about scoping a finding to a file
+    rather than to a class.
+  required_change: rls-fixture.ts names all three or defers to the compose header.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 2. rls-fixture.ts's dsn() throw names all three DSNs and defers to the compose header,
+    matching auth-fixture.ts's shape from round 1. Text only - the card's 'nothing to change'
+    ruling on that file was scoped to its role-agnostic logic and said nothing about remedy text.
+  resolved_round: 2
+
+# ---- TASK-018 fix round 1, security re-review, ids F-072..F-075. All six prior findings
+# ADDRESSED. F-064 was verdicted as FORECLOSING the dangerous repair rather than merely adding a
+# line - the header export was EXECUTED from a throwaway client container over the real scram
+# path, and dsnOrThrow() now routes the reader to it by name.
+
+- id: F-072
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: correctness
+  file: docker-compose.yml
+  line: 244
+  summary: >-
+    A NOTE WRITTEN TO PREVENT CONFUSION STEERS TOWARD ADR-0050's NAMED FAILURE. Both failure claims
+    in the new EXISTING VOLUME? comment are wrong. SUBSUMES F-078.
+  failure_scenario: >-
+    The premise holds - a second container on the same named volume with a three-role init script
+    leaves the database at two roles, silently, container healthy (ADR-0032). The two claims built
+    on it do not.
+    (1) `migrate` does NOT fail at wave 0. On a scratch two-role cluster db:migrate exits 0 and
+    seed.mts exits 0; nothing under apps/api/drizzle/** names shortkit_auth until TASK-002's
+    migration 0001. A wave-1 fact in the present tense, in the same commit that fixed F-071 for
+    exactly that.
+    (2) THE api HALF IS WRONG EVEN AT WAVE 2. VERIFIED INDEPENDENTLY BY THE ORCHESTRATOR from the
+    docker network: a missing role returns `FATAL: password authentication failed for user
+    "ghost_role"`, NOT `role does not exist`. My first check used loopback inside the container and
+    got the opposite answer, because pg_hba runs a different method there - the auditor measured the
+    path the api container actually takes. THAT MESSAGE READS AS A WRONG PASSWORD, and its cheapest
+    repairs are overriding SHORTKIT_AUTH_PASSWORD (useless) or REPOINTING DATABASE_AUTH_URL AT THE
+    DSN THAT DOES AUTHENTICATE - which is the change ADR-0050 names as silently restoring
+    shortkit_app as the auth role with every gate green.
+  required_change: >-
+    The migrate clause is qualified like the api clause beside it, and the api clause names the
+    error a reader will actually see.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 2. The implementer REPRODUCED BOTH ERRORS ITSELF before touching code - grep over
+    apps/api/drizzle for shortkit_auth returns nothing, and the network psql probe returns
+    'password authentication failed'. The migrate clause is now qualified as a wave-1 fact and the
+    api clause names the error a reader will actually see, with the danger stated: misread as a
+    wrong password, it invites repointing DATABASE_AUTH_URL at the DSN that authenticates.
+  resolved_round: 2
+
+- id: F-073
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: documentation
+  file: docs/architecture/migrations.md
+  line: 42
+  summary: >-
+    THIS DIFF MADE docs/architecture/migrations.md:42 FALSE - it still says the compose header carries
+    "the two exports" - AND NO CARD IN THIS INITIATIVE OWNS THAT FILE. VERIFIED both halves.
+  failure_scenario: F-065's shape again, in a third file. docs/architecture/rls.md:12's "The two roles" is stale too but IS owned, by TASK-002.
+  required_change: A card owns the file, or the sentence moves to an owned one.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Round 3. migrations.md:42 now names the export lines WITHOUT COUNTING THEM, so the next
+    addition does not falsify it again. The implementer also swept the rest of the file for the
+    same class - 5 role-count phrases and 11 DSN references checked, none stale.
+  resolved_round: 3
+
+- id: F-074
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: security
+  file: docker-compose.yml
+  line: 272
+  summary: >-
+    THE BETTER_AUTH_SECRET RESIDUAL NEEDS AN ARTIFACT OWNER AND CANNOT BE CLOSED IN THIS CARD. The
+    comment work is complete and correct; A COMMENT CANNOT CHANGE WHAT THE CHECK ACCEPTS.
+  failure_scenario: >-
+    The literal appears in exactly ONE non-audit file - docker-compose.yml:272 - with no ADR, no
+    contract and no test naming it. From wave 2 assertBetterAuthSecretConfigured() rejects
+    better-auth's constant BY EXACT VALUE while accepting this one, two waves after it entered a
+    public repository's history. F-056 is ADDRESSED as far as this card's paths reach; this is what
+    is left.
+    FOUND WHILE PLACING THAT OBLIGATION: ADR-0051:236 ROUTES THE DOCUMENTATION HALF TO
+    `apps/api/.env.example`, WHICH DOES NOT EXIST. Verified - the root `.env.example` is the real
+    file, and TASK-004, TASK-009 and TASK-017 all name the phantom path.
+  required_change: >-
+    Either ADR-0051 names this literal as a second rejected-by-value constant and TASK-003
+    implements it, or compose carries no default at all (${BETTER_AUTH_SECRET:?...}). Juano's -
+    the first reopens an ADR, the second changes what `docker compose up` does with no override.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Juano ruled ADR-0051 NAMES THE LITERAL as a second constant rejected by exact value, and
+    TASK-003 implements it; he declined removing the compose default. The architect implemented
+    that and then reported a cost the ruling did not price - see F-081 - rather than absorbing it.
+    ADR-0051 now carries both constants in one shared predicate, argues that THE DISQUALIFYING
+    PROPERTY IS PUBLICATION rather than length or shape (a locally generated string of identical
+    shape is fine), and lists the declined option as a real alternatives row with the compose-gate
+    reason it lost. TASK-003's card carries the fourth rejection. IT ALSO SETTLED THE .env.example
+    QUESTION BETTER THAN I ASKED IT: the ADR's pointer is RIGHT - apps/api/.env.example is
+    TASK-009's wave-4 deliverable and .gitignore:47-48 exists to un-ignore it - but compose
+    interpolates from the project root only, so that file CANNOT document the compose override. A
+    duty is unassigned, not a path wrong.
+  resolved_round: 3
+
+- id: F-075
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: security
+  file: .env.example
+  line: 26
+  summary: >-
+    THE ROOT .env.example IS THE CREDENTIAL-ROTATION TEMPLATE, DOCUMENTS TWO ROLES, AND IS IN NO
+    CARD'S PATHS. SHORTKIT_AUTH_PASSWORD is absent.
+  failure_scenario: >-
+    VERIFIED: the file exists and holds SHORTKIT_MIGRATOR_PASSWORD and SHORTKIT_APP_PASSWORD only.
+    A developer getting off committed defaults rotates two of three AND LEAVES THE ROLE THAT WILL
+    HOLD jwks.privateKey ON THE PUBLISHED LITERAL `auth`. Three cards name a non-existent
+    apps/api/.env.example; none names the real one.
+  required_change: A card owns the root .env.example and it gains the third password.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Round 3. SHORTKIT_AUTH_PASSWORD added to the root .env.example in the shape and position the
+    other two use, with its own comment naming why it matters most - the role that will hold
+    jwks.privateKey once TASK-002 lands. EVERY SURROUNDING COUNT MOVED WITH IT: four passwords,
+    three NOBYPASSRLS roles, 'largest of three', and the URL-safety rule now names all three DSNs
+    it constrains. A count in prose beside a value is what goes stale silently.
+  resolved_round: 3
+
+- id: F-081
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-architect
+  round: 3
+  severity: major
+  kind: plan
+  file: .sdlc/identity-membership/design/adr-0051-better-auth-secret-is-a-declared-binding.md
+  line: 1
+  summary: >-
+    JUANO'S F-074 RULING LOSES THE OUT-OF-THE-BOX `docker compose up` TOO - ONE WAVE LATER THAN THE
+    OPTION IT DECLINED, AND WITH A WORSE FIRST SYMPTOM. Found by the architect while implementing
+    the ruling, and flagged rather than absorbed.
+  failure_scenario: >-
+    VERIFIED INDEPENDENTLY: check-compose-stack.sh:476 asserts the `api` container is healthy
+    (AC-115.3); the `compose` CI job carries NO env: block, deliberately, per F-315/F-316; and
+    docker-compose.yml:287 interpolates ${BETTER_AUTH_SECRET:-...} from the project root only. So
+    from wave 2, when assertBetterAuthSecretConfigured() rejects the compose default BY VALUE, a
+    clean clone's `docker compose up` starts an api that exits on the assertion and the required
+    compose job goes red. THE DECLINED ${BETTER_AUTH_SECRET:?...} OPTION LOST THE SAME THING at
+    compose-parse time with a message naming the variable. THIS IS F-034's WAVE-ORDERING TRAP ON
+    THE SAME VARIABLE, for the second time.
+  required_change: >-
+    RULED BY JUANO 2026-08-14: a generation step in the documented `up` writes a random secret to
+    the root .env before compose starts, so the published default is never the value in play.
+    NEEDS AN OWNER BY WAVE 2 - the assertion lands in TASK-003 and the natural homes for the step
+    (README, scripts/**, check-compose-stack.sh) belong to TASK-009 wave 4 and TASK-017 wave 9,
+    both later than the wave that breaks. Ownership is the open question, not the shape.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-082
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: correctness
+  file: docker-compose.yml
+  line: 254
+  summary: >-
+    THE F-072 REWRITE INTRODUCED A NEW WRONG CLAIM, AND ITS WORDING CAME FROM ME. "not over
+    loopback, where pg_hba runs a different method" is false as a reader applies it.
+  failure_scenario: >-
+    MEASURED by the auditor and re-measured by the implementer: from the HOST to the published port,
+    via node-postgres (the driver api uses), a missing role returns `password authentication failed`
+    and inet_client_addr() reads the bridge gateway 172.18.0.1 - the image's `host all all
+    127.0.0.1/32 trust` line NEVER MATCHES A PUBLISHED-PORT CONNECTION. Only from INSIDE the
+    container does `role does not exist` appear. So the developer checking a stale volume tests the
+    way they naturally would, gets the message the note says they will not get, and is pushed back
+    toward the two repairs the paragraph exists to prevent.
+    SECOND DEFECT: `FATAL:` is psql's prefix. node-postgres puts none on error.message and main.ts
+    logs it as err_message, so the promised string never appears in `docker compose logs api`.
+    I TOLD THE IMPLEMENTER I HAD TESTED "over loopback inside the container"; it compressed that to
+    "over loopback", and dropping three words is what made it wrong.
+  required_change: >-
+    Name the probe (inside the container vs from your host) rather than the transport, and
+    attribute the `FATAL:` prefix to psql.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    Round 4. The implementer RAN BOTH PROBES ITSELF before writing - host via node-postgres
+    (`password authentication failed`, no prefix, inet_client_addr 172.18.0.1) and inside the
+    container (`FATAL: role "ghost_role" does not exist`) - and reported both outputs. The paragraph
+    now splits on inside-the-container versus everywhere-else, WHICH IS SIMPLER THAN WHAT IT
+    REPLACED rather than more complicated, and attributes FATAL: to psql.
+  resolved_round: 4
+
+- id: F-083
+  phase: implement
+  wave: 0
+  task: TASK-018
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: plan
+  file: .env.example
+  line: 6
+  summary: >-
+    F-081's GENERATION STEP WILL WRITE THE SAME .env THIS FILE TELLS DEVELOPERS TO HAND-COPY. A
+    generator that overwrites reverts four rotated passwords to the published defaults - F-075's
+    hazard, mechanised.
+  failure_scenario: >-
+    From wave 2 the file's "works with no .env at all - that is AC-115" becomes false. And
+    BETTER_AUTH_SECRET is still absent from the rotation template while docker-compose.yml:283 tells
+    the reader to override it.
+  required_change: Belongs to F-081's owner, before wave 2. Not a TASK-018 edit.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-084
+  phase: implement
+  wave: 0
+  task: null
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: correctness
+  file: apps/api/test/security/security-headers.int-spec.ts
+  line: 130
+  summary: >-
+    F-080's CLASS IN THE LAST FIXTURE THAT STILL NAMES TWO DSNs - and it spawns an API child with
+    its OWN env callback rather than authServerEnv(), so from wave 1 that child needs
+    DATABASE_AUTH_URL the message never mentions. OUTSIDE EVERY CARD'S PATHS.
+  failure_scenario: Third instance of the same defect across three fixtures. The first two were found by different auditors in different rounds.
+  required_change: A card owns it and the message names all three.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-085
+  phase: implement
+  wave: 0
+  task: null
+  source: sdlc-security-auditor
+  round: 3
+  severity: nit
+  kind: documentation
+  file: .sdlc/identity-membership/tasks/TASK-004.md
+  line: 10
+  summary: >-
+    MY F-075 NOTE WAS PASTED INTO THREE CARDS AND TWO OF THEM HAVE NO SUCH PATH ENTRY TO DEFEND. Its
+    "TASK-009:37-39" citation was also pushed out of date by the note's own insertion.
+  failure_scenario: >-
+    VERIFIED: only TASK-009's paths contain apps/api/.env.example; TASK-004 and TASK-017 reference it
+    in prose only. A correction that is wrong about its own subject is the class this initiative
+    keeps filing, arriving in a note written to fix an instance of it.
+  required_change: Each card's note says what is true of that card.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    TASK-004 and TASK-017 now say they reference the path in PROSE and do not declare it; TASK-009
+    keeps the deliverable note with the line citation replaced by a section reference, so the next
+    insertion cannot stale it again.
+  resolved_round: 4
