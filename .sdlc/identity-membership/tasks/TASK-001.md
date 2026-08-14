@@ -3,14 +3,19 @@ id: TASK-001
 story: STORY-001
 epic: EPIC-001
 title: Auth and tenant-membership contracts in packages/contracts
-status: tests-green
+status: done
 owner_slot: sdlc-implementer-backend
 depends_on: []
 paths: ["packages/contracts/src/auth/**", "packages/contracts/src/members/**", "packages/contracts/src/roles.ts", "packages/contracts/src/index.ts"]
+# eslint.config.mjs ADDED 2026-08-14 by Juano, F-086. The "may import zod and nothing else" rule
+# is asserted by this card AND by ADR-0005 and implemented NOWHERE - the only no-restricted-imports
+# block is scoped files: ['apps/api/src/**/*.ts']. The code complies today (reviewer verified every
+# import), so the rule lands green. eslint.config.mjs is repo-root config in no card's paths; this
+# card owns it because this is the package the rule scopes.
 contracts: [design/contracts/auth-tokens.md, design/contracts/error-envelope.md]
 test_files: ["packages/contracts/src/auth/auth.spec.ts (unit)", "packages/contracts/src/members/members.spec.ts (unit)", "packages/contracts/src/roles.spec.ts (unit)"]
 acceptance: [AC-8]
-rework_count: 0
+rework_count: 1
 ---
 
 ## Intent
@@ -65,7 +70,7 @@ append-only and already carries every code this initiative's auth surface needs
 
 ## Corrections found at the Implement pre-flight — added 2026-08-14
 
-**`brandTenantMembership` is required and this card's Produces omitted it** (F-088). Verified:
+**Three exports were missing from Produces, not one** (F-088, then F-101). `brandTenantMembership`, `PASSWORD_MIN_LENGTH`/`PASSWORD_MAX_LENGTH`, and `authUserContract`/`AuthUser` are all in the frozen stubs and required by the specs. All three shipped because the stubs and tests carried them; the gap was in this card. I fixed the one the scout named without checking whether it was the only one, which is the same shape as the finding I was fixing. Verified:
 three occurrences in `members.spec.ts`, one in the design stub, none here. Ship it.
 
 **The two design stubs are the reference implementation, and they are not equal.**

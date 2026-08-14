@@ -2185,9 +2185,18 @@
     in this initiative.
   required_change: The rule exists and is scoped to packages/contracts, or both artifacts stop claiming it.
   owner_slot: orchestrator
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: >-
+    THE RULE DID NOT EXIST AND NOW DOES, AND THE IMPLEMENTER'S APPROACH IS BETTER THAN MY BRIEF.
+    Confirmed absent before: `git show ea1b48e:eslint.config.mjs` holds ZERO occurrences of
+    packages/contracts. I briefed a block scoped to that glob; the implementer found the obvious
+    `group: ['**', '!zod']` form DOES NOT WORK - it proved against the installed ignore@7.0.6 that
+    gitignore-style negation of relative paths ALSO UN-BANS EVERY BARE PACKAGE NAME - and used a
+    regex pattern instead, excluding specs and vitest.config.ts. I PROVED IT FIRES MYSELF with a
+    node:fs probe: one error, the ADR-0005 message. That matters because the failure it avoided is
+    the one eslint.config.mjs:74-77 documents - a no-restricted-imports block that reads as
+    enforced and is not - which would have been a third instance, inside the fix for the second.
+  resolved_round: 1
 
 - id: F-087
   phase: implement
@@ -2241,3 +2250,259 @@
     Written onto TASK-001's card before dispatch, with the stub named as the reference
     implementation and the note that the stub's two throwing functions are what this TASK fills in.
   resolved_round: 0
+
+# ---- TASK-001 audit, 2026-08-14. BOTH AUDITORS RETURNED `clear`. Both independently diffed the
+# shipped code against the frozen stubs BY HAND, because assert-stub-drift.mjs cannot see them
+# (F-087): auth/index.ts is BYTE-IDENTICAL to its stub, members/index.ts differs only in the two
+# function bodies this TASK owns plus one import. That comparison exists nowhere but in two audit
+# files. Both also found the tenantRoleRank prototype-key defect independently - F-089 and F-098.
+
+- id: F-089
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: correctness
+  file: packages/contracts/src/roles.ts
+  line: 128
+  summary: >-
+    tenantRoleRank GUARDS AN UNKNOWN KEY WITH A BARE LOOKUP ON AN OBJECT LITERAL, so any
+    Object.prototype key returns a function instead of throwing. FOUND INDEPENDENTLY BY BOTH
+    AUDITORS - see F-098.
+  failure_scenario: >-
+    VERIFIED BY EXECUTION, mine and both auditors': tenantRoleRank('toString') returns typeof
+    FUNCTION, '__proto__' returns typeof OBJECT, 'nonsense' correctly throws. `rank === undefined` is
+    false for an inherited key, so it returns a Function typed as number. Fails closed downstream -
+    meetsTenantRole coerces to NaN and yields false - so no escalation. BUT THE DOCUMENTED INVARIANT
+    "Throws on an unknown key" (roles.ts:126, auth-contracts.md:195-196) IS FALSE, and the sibling
+    function written in the same commit, asTenantRole, guards correctly with TENANT_ROLES.includes.
+  required_change: >-
+    Both functions in this commit use the same membership test, so every key outside TENANT_ROLES
+    throws; roles.spec.ts gains a prototype-key row.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    tenantRoleRank now guards with TENANT_ROLES.includes before the lookup, the same test
+    asTenantRole uses, instead of an undefined check inherited properties defeat. The implementer
+    verified against the auditors' exact repro in a throwaway spec: all three keys throw. Found
+    independently by both auditors as F-089 and F-098.
+  resolved_round: 1
+
+- id: F-090
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: packages/contracts/src/roles.ts
+  line: 95
+  summary: >-
+    NOTHING PINS THAT asTenantRole REJECTS ALREADY-BRANDED INPUT, so the `as unknown as TenantRole`
+    cast can be made unsound BY A ONE-LINE SIGNATURE CHANGE with tests and typecheck both green.
+  failure_scenario: >-
+    roles.spec.ts passes only plain strings; members.spec.ts's two @ts-expect-error directives pin
+    the WIRE TYPE, not the parameter guard. A later TASK hitting a brand mismatch "fixes" it by
+    widening the signature to <T extends string>. ALL 30 TESTS STAY GREEN, TYPECHECK STAYS GREEN, NO
+    DIRECTIVE GOES UNUSED - and asTenantRole(ctx.workspaceRole) now compiles, which is the exact
+    laundering roles.ts:81-85 claims is a compile error. The reviewer verified the guard works TODAY
+    with three TS2345 probes AND that nothing would notice if it stopped. This is the double cast I
+    asked it to judge: right shape, sitting after the runtime check, pinned by nothing.
+  required_change: >-
+    A compile-time assertion in roles.spec.ts, in the @ts-expect-error form members.spec.ts already
+    uses, that a branded value is not an acceptable argument to asTenantRole.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: >-
+    A compile-time assertion in the @ts-expect-error form members.spec.ts uses, covering a branded
+    TenantRole and a WorkspaceRole. PROVED NON-VACUOUS BY MUTATION IN A SANDBOX COPY, never the
+    working tree, because the implementer was editing roles.ts concurrently: widening asTenantRole
+    to <T extends string> produces TS2578 on both directives, and THE CONTROL - same mutation with
+    the two assertions removed - gives typecheck exit 0 and every test green, which is the finding
+    reproduced. The reviewer's third probe was deliberately omitted with measured reasoning:
+    unbranding the constants produced 10 errors, none at that line.
+  resolved_round: 1
+
+- id: F-091
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: documentation
+  file: packages/contracts/src/members/index.ts
+  line: 11
+  summary: >-
+    THE NEW FILE CITES roles.ts:150-156 FOR THE RULE IT QUOTES, AND THIS SAME COMMIT MOVED THAT RULE
+    TEN LINES DOWN.
+  failure_scenario: >-
+    Implementing the two functions added 10 lines to roles.ts. Before ea1b48e those lines were the
+    "UNBRANDED, deliberately ... every zod enum sources from an unbranded array" paragraph; after it
+    they are two unrelated constants, and the rule sits at 160-168. A reader following the pointer
+    from the file that ESTABLISHES the split every later contract copies lands on the wrong thing.
+    Same citation-staleness class this initiative has filed twice, with an agreed fix pattern.
+  required_change: >-
+    Reference the rule by name or by the symbol it annotates, never by line number. The same citation
+    appears in members.spec.ts:14, ADR-0048 and auth-contracts.md, all outside this TASK's paths.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    The citation is now a symbol reference - roles.ts's RULE comment on INVITABLE_WORKSPACE_ROLES -
+    rather than a line range, so it is immune to the drift the implementer's own roles.ts edit
+    caused.
+  resolved_round: 1
+
+# ---- TASK-001 audit, sdlc-product-auditor, ids F-097..F-102. verdict: clear.
+
+- id: F-097
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-product-auditor
+  round: 1
+  severity: major
+  kind: behavior
+  file: .sdlc/identity-membership/stories/STORY-001.md
+  line: 1
+  summary: >-
+    AC-8's SECOND CLAUSE IS FALSE TODAY AND NOTHING IN TASK-001 CAN MAKE IT TRUE. The clause is
+    "`pnpm typecheck` exits 0"; the root command exits 2 on apps/api specs awaiting TASK-002.
+  failure_scenario: >-
+    VERIFIED BY THE AUDITOR AND BY ME: packages/contracts exits 0, apps/api exits 2 with seven
+    errors, all in files TASK-002 creates. AC-8 IS THE ONLY CRITERION THIS CARD CLAIMS, so the
+    temptation at the Ship gate is to read "TASK-001 done" as "AC-8 met". It is met in clause 1 and
+    UNPROVEN in clause 2 until the root command actually exits 0. The Test gate already recorded
+    that clause 2 is discharged by the gate command rather than an assertion, because ADR-0005 bans
+    node:child_process there - so nothing will ever fail if this is marked green early.
+    IT ALSO PINS ADR-0048: the two @ts-expect-error directives at members.spec.ts:91,138 are LIVE
+    assertions only while the package typechecks clean, and they are what proves the inferred type
+    carries no brand.
+  required_change: >-
+    AC-8 stays unchecked in STORY-001 until TASK-002 lands, the root command runs, and its exit code
+    is recorded. No edit inside TASK-001's paths resolves it.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-098
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: correctness
+  file: packages/contracts/src/roles.ts
+  line: 127
+  summary: DUPLICATE OF F-089, found independently in the same round by the other auditor.
+  failure_scenario: >-
+    Same defect, same evidence. The product auditor noted additionally that it is the exact class
+    errors.ts:139-166 already carries a 25-line comment about, one file over, in a package whose
+    whole job is parsing untrusted input.
+  required_change: See F-089. Fixed once, verified once.
+  owner_slot: sdlc-implementer-backend
+  status: superseded
+  resolved_by: "Merged into F-089. Two auditors, one defect."
+  resolved_round: 1
+
+- id: F-099
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: packages/contracts/src/index.ts
+  line: 1
+  summary: >-
+    THE TWO BARREL RE-EXPORT LINES THIS TASK EXISTS TO LAND ARE ASSERTED BY NOTHING. Deleting either
+    leaves the whole suite green.
+  failure_scenario: >-
+    The specs import from the modules directly, never through the barrel, so the barrel is the one
+    deliverable with no coverage - and ADR-0005 makes the barrel what both deployables read.
+  required_change: One assertion that imports through the package entry point.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: >-
+    A new packages/contracts/src/index.spec.ts asserting both barrel lines by identity. Proved
+    non-vacuous: deleting either export line fails it AS AN ASSERTION naming the missing module,
+    not a load error, and the control shows every other spec still passing with the line deleted.
+  resolved_round: 1
+
+- id: F-100
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: process
+  file: .sdlc/identity-membership/work/TASK-001-report.md
+  line: 1
+  summary: >-
+    THE IMPLEMENTER'S REPORT SAYS IT CHANGED NO .sdlc FILES AND THE COMMIT CARRIES THREE. Both
+    auditors raised it. All three are MINE, staged by me into the implementer's commit.
+  failure_scenario: >-
+    The report is accurate about the implementer; the commit is not attributable from its contents
+    alone. A reader auditing who edited a card later finds it in a commit whose report disclaims it,
+    and the reviewer notes the report is what the Ship gate reads. MY COMMIT HYGIENE, not an
+    implementer error - the same class as counting my own ledger edit inside a fix diff at TASK-018.
+  required_change: Orchestrator ledger edits are staged separately from an implementer's code commit.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-101
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: plan
+  file: .sdlc/identity-membership/tasks/TASK-001.md
+  line: 1
+  summary: >-
+    F-088 FIXED ONE Produces OMISSION AND LEFT THREE. brandTenantMembership was written in;
+    PASSWORD_MIN/MAX_LENGTH and authUserContract/AuthUser are in the frozen stub, required by the
+    specs, and still absent from the card.
+  failure_scenario: >-
+    All three shipped, because the stub and the tests carried them - the gap is in the card, not the
+    code. But I fixed the one the scout named and did not check whether it was the only one, WHICH IS
+    THE SAME SHAPE AS THE FINDING I WAS FIXING.
+  required_change: The Produces list matches the stubs and the specs.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    The card's Produces list now matches the stubs and the specs. I had fixed the one omission the
+    scout named without checking whether it was the only one - which was the same shape as the
+    finding I was fixing.
+  resolved_round: 1
+
+- id: F-102
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-product-auditor
+  round: 1
+  severity: minor
+  kind: scope
+  file: packages/contracts/src/index.ts
+  line: 1
+  summary: Two task-id trailing comments rewritten in the barrel; not asked for, disclosed by the implementer, verified accurate by both auditors.
+  failure_scenario: >-
+    Both checked the new text: TASK-009 is the compose stack and TASK-018 is the shortkit_auth role,
+    neither owns a barrel line, and the old ids are residue from the deferred 2026-08-03 numbering
+    that COLLIDE with this initiative's own TASK-009 and TASK-018.
+  required_change: None. Recorded.
+  owner_slot: orchestrator
+  status: deferred-minor
+  resolved_by: "No change wanted. Disclosed before it was found, verified accurate by both auditors, and it corrects residue rather than introducing a claim."
+  resolved_round: 1

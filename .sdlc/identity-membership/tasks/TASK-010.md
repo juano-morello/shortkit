@@ -51,6 +51,26 @@ day one — which is one of the costs ADR-0039's alternative 1 lost on.
 loop, so de-gating is one line — deleting the step — and needs no wiring kept in step across
 three places. That property is the reason it is a step and not a fourth job.
 
+## The gate cannot see this initiative's stubs — added 2026-08-14, F-087
+
+**This card's premise is that the gate defends something, and for this initiative's stubs it
+defends nothing.** Verified: `assert-stub-drift.mjs:74` hardcodes `STUB_ROOT` to
+`.sdlc/foundation/design/stubs` and `:99` sets `ENFORCED_PREFIXES` to `['apps/web/']`. Neither
+reaches `.sdlc/identity-membership/design/stubs/**`.
+
+Six stubs were frozen at this initiative's Design gate and land as TASK-002's first commit. **In
+wave 1 both auditors had to diff the shipped code against those stubs by hand**, and found
+`auth/index.ts` byte-identical and `members/index.ts` differing only in the two owned function
+bodies. That comparison exists only in two audit files; CI never ran it and would not have
+noticed drift.
+
+Juano ruled at the wave-1 fix round: **`STUB_ROOT` covers the active initiative**, and this card
+owns the change since it already owns the file. Note the cost he accepted — this is **wave 5**, so
+waves 1 through 4 ship stubs no gate compares, and the hand-diffing continues until then.
+
+Widening `STUB_ROOT` is **not** the same as widening `ENFORCED_PREFIXES`, which stays
+`['apps/web/']` for the reasons already on this card — F-404's really-drifted logger stub is why.
+
 ## Out of scope for this TASK
 
 Widening `ENFORCED_PREFIXES`. Retiring or editing any stub under `.sdlc/foundation/design/stubs/**`.
