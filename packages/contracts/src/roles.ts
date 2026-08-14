@@ -88,7 +88,11 @@ export const WORKSPACE_ROLE = {
 export type Unbranded<T> = T extends { readonly [roleBrand]: unknown } ? never : T;
 
 export function asTenantRole<T extends string>(_value: Unbranded<T>): TenantRole {
-  throw new Error('not implemented');
+  if (!(TENANT_ROLES as readonly string[]).includes(_value)) {
+    throw new Error(`not a tenant role: ${_value}`);
+  }
+
+  return _value as unknown as TenantRole;
 }
 
 export function asWorkspaceRole<T extends string>(_value: Unbranded<T>): WorkspaceRole {
@@ -121,7 +125,13 @@ export function roleRank(_role: WorkspaceRole): number {
 
 /** Throws on an unknown key rather than returning undefined. */
 export function tenantRoleRank(_role: TenantRole): number {
-  throw new Error('not implemented');
+  const rank = TENANT_ROLE_RANK[_role as unknown as TenantRoleValue];
+
+  if (rank === undefined) {
+    throw new Error(`not a tenant role: ${_role}`);
+  }
+
+  return rank;
 }
 
 export function meetsWorkspaceRole(actual: WorkspaceRole, minimum: WorkspaceRole): boolean {

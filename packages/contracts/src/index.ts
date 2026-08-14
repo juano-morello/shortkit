@@ -21,10 +21,10 @@ export * from './domains/reserved-hostnames';
 // Feature contracts are added here by their producing TASK, one line each,
 // alphabetically. Keep this file re-exports only, so a wave conflict is one line.
 // export * from './audit';        // TASK-049
-// export * from './auth';         // TASK-009
+export * from './auth';         // TASK-001
 // export * from './domains';      // TASK-040
 // export * from './gdpr';         // TASK-053
 // export * from './invitations';  // TASK-021
 // export * from './links';        // TASK-025
-// export * from './members';      // TASK-018
+export * from './members';      // TASK-001
 // export * from './workspaces';   // TASK-014, TASK-045

@@ -2158,3 +2158,86 @@
     keeps the deliverable note with the line citation replaced by a section reference, so the next
     insertion cannot stale it again.
   resolved_round: 4
+
+# ---- TASK-001 pre-flight, 2026-08-14. Three things the scout FLAGGED AS UNCONFIRMED rather than
+# inferring. All three verified by the orchestrator; all three real.
+
+- id: F-086
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-scout
+  round: 0
+  severity: major
+  kind: correctness
+  file: eslint.config.mjs
+  line: 98
+  summary: >-
+    TASK-001's CARD AND ADR-0005 BOTH DESCRIBE A LINT BAN - "this package may import zod and nothing
+    else" - THAT DOES NOT EXIST. Verified: no .eslintrc under packages/contracts, and the root
+    config's only no-restricted-imports block is scoped `files: ['apps/api/src/**/*.ts']`. Nothing
+    in eslint.config.mjs mentions packages/contracts at all.
+  failure_scenario: >-
+    A constraint two artifacts state as enforced, which nothing enforces. The implementer reads the
+    card, believes a gate will catch a stray import, and no gate will. THE SAME FILE ALREADY CARRIES
+    A COMMENT ABOUT THIS EXACT CLASS at eslint.config.mjs:74-77 - "dead configuration that read as
+    though it were in force" - written after a previous instance. F-025's class, third appearance
+    in this initiative.
+  required_change: The rule exists and is scoped to packages/contracts, or both artifacts stop claiming it.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-087
+  phase: implement
+  wave: 1
+  task: TASK-010
+  source: sdlc-scout
+  round: 0
+  severity: major
+  kind: test-coverage
+  file: .github/scripts/assert-stub-drift.mjs
+  line: 74
+  summary: >-
+    THE STUB-DRIFT GATE CANNOT SEE THIS INITIATIVE'S STUBS AT ALL. STUB_ROOT is hardcoded to
+    `.sdlc/foundation/design/stubs` (:74) and ENFORCED_PREFIXES to ['apps/web/'] (:99). Verified
+    both. Neither reaches .sdlc/identity-membership/design/stubs/**.
+  failure_scenario: >-
+    Six stubs were written in Design, frozen at the gate, and are TASK-002's first commit. NOTHING
+    IN CI VERIFIES THE IMPLEMENTATION MATCHES THEM. And TASK-010, wave 5, exists to "prove the
+    stub-drift gate is no longer vacuous" - its premise is that the gate defends something, and for
+    this initiative's stubs it defends nothing. The card was written before these stubs existed.
+  required_change: >-
+    STUB_ROOT covers the active initiative, or TASK-010's card records that the gate is scoped to
+    foundation and says why that is acceptable. TASK-010 owns the file in wave 5, five waves after
+    the stubs land.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-088
+  phase: implement
+  wave: 1
+  task: TASK-001
+  source: sdlc-scout
+  round: 0
+  severity: minor
+  kind: plan
+  file: .sdlc/identity-membership/tasks/TASK-001.md
+  line: 1
+  summary: >-
+    brandTenantMembership IS REQUIRED BY THE TESTS AND THE DESIGN STUB AND ABSENT FROM THE CARD'S
+    Produces LIST. Verified by count: 3 occurrences in members.spec.ts, 1 in the stub, ZERO in the
+    card.
+  failure_scenario: >-
+    An implementer working from Produces ships without it and three tests stay red. The card is what
+    the implementer builds from - the same gap class as F-032, one card over.
+  required_change: The card's Produces names it.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Written onto TASK-001's card before dispatch, with the stub named as the reference
+    implementation and the note that the stub's two throwing functions are what this TASK fills in.
+  resolved_round: 0

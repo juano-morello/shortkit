@@ -3,7 +3,7 @@ id: TASK-001
 story: STORY-001
 epic: EPIC-001
 title: Auth and tenant-membership contracts in packages/contracts
-status: tests-red
+status: tests-green
 owner_slot: sdlc-implementer-backend
 depends_on: []
 paths: ["packages/contracts/src/auth/**", "packages/contracts/src/members/**", "packages/contracts/src/roles.ts", "packages/contracts/src/index.ts"]
@@ -62,6 +62,31 @@ Validation failures flow through the existing `isZodError` / `toValidationDetail
 `packages/contracts/src/errors.ts:102-196`. No new error code is added: `ERROR_CODES` is
 append-only and already carries every code this initiative's auth surface needs
 (`unauthenticated`, `token_expired`, `email_not_verified`, `rate_limited`).
+
+## Corrections found at the Implement pre-flight — added 2026-08-14
+
+**`brandTenantMembership` is required and this card's Produces omitted it** (F-088). Verified:
+three occurrences in `members.spec.ts`, one in the design stub, none here. Ship it.
+
+**The two design stubs are the reference implementation, and they are not equal.**
+`.sdlc/identity-membership/design/stubs/packages/contracts/src/auth/index.ts` is **fully real —
+no throws anywhere** — so that half is largely transcription. The `members/index.ts` stub has
+real schemas but **two throwing functions**, `parseTenantMembership` and `brandTenantMembership`,
+which are yours to implement, alongside `roles.ts`'s `asTenantRole` and `tenantRoleRank`.
+
+**`toValidationDetails` already exists** at `packages/contracts/src/errors.ts:168-196`, complete.
+Consume it; do not write one.
+
+**The lint ban this card describes does not exist** (F-086). The card and ADR-0005 both say the
+package may import `zod` and nothing else, as though a rule enforced it. There is no `.eslintrc`
+under `packages/contracts`, and the root config's only `no-restricted-imports` block is scoped
+`files: ['apps/api/src/**/*.ts']`. **Follow the rule anyway** — it is a real design constraint and
+ADR-0005 rests on it — but know that nothing will catch you, so it is on you rather than on CI.
+
+**Nothing in CI checks your output against the stubs** (F-087). `assert-stub-drift.mjs` hardcodes
+its stub root to `.sdlc/foundation/design/stubs` and its enforced prefix to `apps/web/`, so this
+initiative's stubs are invisible to it. The stubs are still normative — they were frozen at the
+Design gate — but the only thing verifying you match them is the test suite and the review panel.
 
 ## Out of scope for this TASK
 
