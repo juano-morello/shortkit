@@ -155,26 +155,50 @@ table-level call, measured — and note `has_any_column_privilege` rejects `DELE
 round 5, after the round-4 re-review found F-032 only four-sixths done: both were cited by
 ADRs and neither had a file, a card or a `test_files` entry anywhere.
 
-- `apps/api/src/db/context-flag-owners.spec.ts` (unit) — greps `set_config(` first arguments
-  across `apps/api/src`, **keeps only those with the `app.` prefix**, and asserts every
-  surviving **`{ flag, file }` pair** appears in `CONTEXT_FLAG_OWNERS`, which it imports from
+- `apps/api/src/db/context-flag-owners.spec.ts` (unit) — runs clauses **A1 and A4** of
+  `isolation-coverage.md` over the wave-1 scan set: every `set_config(` first argument in
+  `apps/api/src` is checked against **A4's permitted list**, and every one naming a flag
+  asserts its **`{ flag, file }` pair** appears in `CONTEXT_FLAG_OWNERS`, imported from
   `../../test/isolation/coverage`.
 
-  **The `app.` filter is not tidiness — without it the control is red on arrival.**
-  `apps/api/src/tenancy/tenant-context.ts:217-219` sets `statement_timeout` and
-  `idle_in_transaction_session_timeout` through `set_config`, and neither is a registry row.
-  Verified: exactly three distinct first arguments exist in `apps/api/src` today and two of
-  them are these. **Match on the pair, not the flag alone** — a second file setting an
-  already-registered flag is the case clause A1 exists to catch, and a flag-only match sails
-  straight past it.
+  *(Corrected 2026-08-13, F-044. This sentence previously said "keeps only those with the
+  `app.` prefix" — the round-6 wording — while the sub-bullet below forbade exactly that.
+  The architect caught the card contradicting itself in nine lines. An implementer reading
+  top-down would have written the filter the ruling deleted.)*
+
+  **This is the wave-1-runnable half of clauses A1 and A4, not a new mechanism** (F-044,
+  ruled 2026-08-13). `design/contracts/isolation-coverage.md:487-537` — a **frozen contract,
+  already in this card's `contracts:` list** — specifies four text-scan clauses over exactly
+  this subject. Read them before writing the test; this control cites them and does not
+  restate them.
+
+  - **Inherit A4's permitted list. Do not write an `app.` prefix filter.** A4 already names
+    `statement_timeout` and `idle_in_transaction_session_timeout` as legitimate non-`app`
+    GUCs, with the four-part test a candidate must pass to join them. An independent filter
+    here is a second permitted list that drifts from the contract's silently.
+  - **Match on the `{ flag, file }` pair, not the flag alone** — a second file setting an
+    already-registered flag is the case A1 exists to catch, and a flag-only match sails past
+    it.
+  - **Subset now, exactly-one later.** A1's exactly-one direction needs `redirect-read.ts`
+    (TASK-029) and `privileged-eraser.ts` (TASK-054), both deferred out of this initiative;
+    the contract says in as many words that "A1 is not runnable earlier". TASK-056 flips this
+    control to A1's full form rather than replacing it.
+  - **Text scan, not an AST parse, and that is deliberate.** The contract states it: none of
+    the four clauses parses TypeScript or distinguishes code from a comment, because a
+    commented-out setter is one uncomment from being real and A2 is built to fire on it.
+    `apps/api/src/observability/logging-opt-out.spec.ts` uses the TypeScript compiler for a
+    different assertion with different needs — **do not take it as the pattern here.**
 
   **A subset, not an equality** (F-039, corrected 2026-08-13 round 6). `coverage.ts:1718-1722`
   holds three rows and two name files that do not exist yet — `redirect-read.ts` (TASK-029)
   and `privileged-eraser.ts` (TASK-054), both deferred out of this initiative. An equality
   assertion would be **red on the day it lands**, and the cheap way to make a red build green
   is to delete the control — which re-opens F-025. The subset direction carries the entire
-  security claim: it is what catches a new, unregistered flag setter. The equality direction
-  is deferred to whichever TASK lands the second setter.
+  security claim: it is what catches a new, unregistered flag setter. **The equality
+  direction is TASK-056's**, gated on TASK-029 and TASK-054 landing the other two setters —
+  corrected 2026-08-13 (F-044); this line previously said "whichever TASK lands the second
+  setter", which names the enabling condition rather than the owner, and disagreed with the
+  sub-bullet above.
 
   **It must live under `src/**`**: `vitest.config.ts:10`
   includes `src/**/*.spec.ts` and nothing else, so the same file under `test/` would collect

@@ -1140,3 +1140,59 @@
   status: fixed
   resolved_by: TASK-018 gains the two-conventions paragraph citing F-315/F-316 and the contaminant guard.
   resolved_round: 5
+
+# ---- Test phase, wave 0-1. Found by the orchestrator while grounding the test dispatch, from the
+# scout's report. THIS TOUCHES A FROZEN CONTRACT and is Juano's under design.md's freeze rule.
+
+- id: F-044
+  phase: test
+  wave: 1
+  task: TASK-002
+  source: orchestrator
+  round: 0
+  severity: major
+  kind: contract
+  file: .sdlc/foundation/design/contracts/isolation-coverage.md
+  line: 487
+  summary: >-
+    ADR-0045's NEW WAVE-1 CONTROL RE-SOLVES A PROBLEM THE FROZEN CONTRACT ALREADY SOLVES, WITH A
+    DIFFERENT RULE. isolation-coverage.md specifies clauses A1..A4 over exactly the same subject -
+    every set_config( match in the scan set, its first argument, and which file may set which flag -
+    and A4 carries a closed permitted list. ADR-0045 specifies an independent subset assertion of
+    set_config( first arguments against CONTEXT_FLAG_OWNERS.
+  failure_scenario: >-
+    TWO CONTROLS SCANNING THE SAME TEXT UNDER TWO RULES DRIFT, and the drift is silent because each
+    passes on its own terms. Concretely, A4's permitted list already names statement_timeout and
+    idle_in_transaction_session_timeout as legitimate non-`app` GUCs; round 6 rediscovered that
+    same problem from scratch and solved it with an `app.` prefix filter. Same hazard, two
+    mechanisms, neither aware of the other - and A4's is the one a reviewer will find first,
+    because it is in the contract.
+    THE OVERLAP IS NOT TOTAL, WHICH IS WHY THIS IS A DECISION RATHER THAN A DELETION. A1 asserts
+    EXACTLY-ONE setter per flag and the contract states it "is not runnable earlier" because
+    redirect-read.ts (TASK-029) and privileged-eraser.ts (TASK-054) do not exist. ADR-0045's subset
+    direction IS runnable in wave 1. So the new control is the runnable half of a clause the
+    contract already owns, described as if it were a new mechanism.
+    A4 also settles the grep-versus-AST question the test scout raised: the contract mandates text
+    scanning DELIBERATELY, with a stated reason - a commented-out setter is one uncomment from real,
+    so A2 is designed to fire on it. logging-opt-out.spec.ts's TypeScript-AST approach is a
+    different assertion, not the house style for this family. NO CHANGE IS NEEDED THERE.
+  required_change: >-
+    Either ADR-0045's control is restated as the wave-1-runnable subset of clauses A1/A4 and cites
+    them, inheriting A4's permitted list instead of its own `app.` filter - or the contract is
+    amended to carry the new control alongside them. Both amend or reinterpret a FROZEN contract,
+    so this is Juano's call and it may reopen the Design gate.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    Juano ruled RESTATE rather than amend the contract or ship both, so the Design gate does not
+    reopen. ADR-0045's control is now clauses A1 and A4 of isolation-coverage.md run over the
+    wave-1 scan set, citing :487-501, :534-535, :540-542 and :527-532; the `app.` prefix filter is
+    STRUCK IN PLACE AND DELETED; TASK-056 is named as the flip to exactly-one, gated on TASK-029
+    and TASK-054. VERIFIED ON DISK - 10 citations of the contract, the filter struck, the follow-up
+    carrying the obligation. AND THE ARCHITECT CAUGHT TWO CONTRADICTIONS IN MY CARD, BOTH REAL:
+    TASK-002's lead sentence still instructed the `app.` filter its own sub-bullet forbade nine
+    lines later, and line 192 named the equality flip's owner as `whichever TASK lands the second
+    setter`, which is the enabling condition and not the owner. Both fixed with dated notes. A NEW
+    FLAVOUR OF MY OWN ERROR - not a claim about an unread file, but an edit layered onto my own
+    text without re-reading what it now contradicted.
+  resolved_round: 7

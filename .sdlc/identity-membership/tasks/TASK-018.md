@@ -8,7 +8,11 @@ owner_slot: sdlc-implementer-backend
 depends_on: []
 paths: [".github/scripts/provision-test-database.sql", "docker-compose.yml", "docker-compose.test.yml", "apps/api/test/support/rls-fixture.ts", "apps/api/test/support/auth-fixture.ts", "apps/api/scripts/seed.mts"]
 contracts: [design/contracts/rls-policy-template.md]
-test_files: ["apps/api/test/tenancy/tenant-context.int-spec.ts (integration, existing — runs against a three-role database; not edited here)", "pnpm db:check-policies (quality gate, TASK-002 writes the grant-matrix assertion it will run)"]
+test_files: ["apps/api/test/tenancy/auth-role-provisioning.int-spec.ts (integration, NEW — the role and its attributes, and the widened guards firing)", "apps/api/test/tenancy/tenant-context.int-spec.ts (integration, existing — runs against a three-role database; not edited here)", "pnpm db:check-policies (quality gate, TASK-002 writes the grant-matrix assertion it will run)"]
+# test_exempt DECLINED 2026-08-13 by Juano. This card claims no AC, so test.md would have let it
+# be marked test_exempt: true as a config chore. He ruled REAL TESTS: the wave-0 role split is
+# what the F-024 ruling bought, and an exemption would leave it with nothing asserting it landed
+# until TASK-002 s grant matrix runs a wave later.
 acceptance: []
 rework_count: 0
 ---
@@ -138,6 +142,23 @@ at parse time, so it requires `$$` escaping — F-315 and F-316 are what happens
 `$` gets through, and `check-compose-stack.sh:180`'s contaminant guard exists because of
 them. The `environment:` block is ordinary `${VAR:-default}` interpolation. This card edits
 both blocks in the same file; do not carry a convention across.
+
+## What the tests must pin — added 2026-08-13, Juano's ruling against a test_exempt marker
+
+**This card has no AC and is still not exempt.** Four things are testable here and all four are
+failures that have actually happened in this repository's history rather than hypotheticals:
+
+1. **Three roles come up**, at every site that provisions one.
+2. **`shortkit_auth`'s attributes**: `LOGIN`, `NOBYPASSRLS`, not superuser, owns nothing. A role
+   with `BYPASSRLS` makes every isolation claim in the system a tautology — which is why the
+   guard being widened below exists at all.
+3. **The widened BYPASSRLS guard fires** on a `shortkit_auth` provisioned with `BYPASSRLS`.
+   Left at its current two-role form (`:57`) it never inspects the new role, so this assertion
+   is the difference between a guard and a guard-shaped comment.
+4. **The widened cardinality guard fires** on a two-role database (`:66`, `count(*) <> 2`).
+
+Red before green: each must fail as an **assertion** against today's two-role provisioning, not
+error out because a role or a fixture is missing.
 
 ## Out of scope for this TASK
 

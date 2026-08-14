@@ -261,32 +261,71 @@ subset direction.** Two of the three rows already in `CONTEXT_FLAG_OWNERS`
 earlier. An equality assertion in wave 1 fails on first run, and the cheap way to get the
 build green is to delete the control or weaken it to nothing, which re-opens F-025.
 
-The wave 1 control is therefore:
+~~The wave 1 control is therefore:~~
 
-> Grep `apps/api/src/**/*.ts`, excluding `*.spec.ts`, for `set_config(` calls whose first
+> ~~Grep `apps/api/src/**/*.ts`, excluding `*.spec.ts`, for `set_config(` calls whose first
 > argument is a string literal beginning `app.`. Every `{ flag, file }` pair found must
 > appear in `CONTEXT_FLAG_OWNERS`. Rows in `CONTEXT_FLAG_OWNERS` with no occurrence in the
-> scan set are not a failure.
+> scan set are not a failure.~~
 
-Two details the equality wording got wrong and this one has to state. The scan set also
+~~Two details the equality wording got wrong and this one has to state. The scan set also
 contains `statement_timeout` and `idle_in_transaction_session_timeout`
 (`tenant-context.ts:217-219`), which are PostgreSQL's own GUCs and are not registry rows, so
-the first argument is filtered on the `app.` prefix rather than taken whole. And the match is
+the first argument is filtered on the `app.` prefix rather than taken whole.~~ And the match is
 on the pair, not the flag alone: a second file setting `app.tenant_id` is exactly the escape
 clause A1 exists to catch, and a flag-only subset would pass it.
+
+**Corrected 2026-08-13 (F-044), round 7. This is not a new mechanism, and the round-6 wording
+described it as one.** `design/contracts/isolation-coverage.md:487-542`, frozen, already
+specifies four text-scan clauses over exactly this subject: every `set_config(` match in the
+scan set, its first argument, and which file may set which flag. Round 6 hit A4's problem
+from scratch, that `statement_timeout` and `idle_in_transaction_session_timeout`
+(`tenant-context.ts:217-219`) are PostgreSQL's own GUCs and not registry rows, and answered
+it with an `app.` prefix filter. **A4 already answers it, with a closed permitted list naming
+both and a four-part test for admitting a third name.** Two permitted lists over one scan
+drift silently, because each passes on its own terms, and A4's is the one a reviewer finds
+first. **The `app.` prefix filter is deleted. The control cites the contract's clauses and
+inherits their list rather than restating either.**
+
+The wave 1 control is therefore:
+
+> Clauses **A1** and **A4** of `isolation-coverage.md`, run over the wave-1 scan set:
+> `apps/api/src/**/*.ts`, excluding `*.spec.ts`.
+>
+> For every match of `/set_config\s*\(/` in the scan set, take the first argument as A4
+> defines it (`isolation-coverage.md:534-535`: the text between `set_config(` and the first
+> following comma, trimmed) and apply **A4's predicate and A4's permitted table verbatim**
+> (`isolation-coverage.md:487-501`). A first argument A4 permits as a non-`app` GUC is not a
+> registry row, and the control moves on. Every other first argument yields a
+> `{ flag, file }` pair, and every such pair must appear in `CONTEXT_FLAG_OWNERS`.
+>
+> This is **A1's subset direction only**. Rows in `CONTEXT_FLAG_OWNERS` with no occurrence in
+> the scan set are not a failure.
 
 The subset direction carries the security claim on its own. What it catches is a new,
 unregistered flag setter appearing in `apps/api/src`, which is the only way an escape enters
 without a reviewer seeing the registry change. What it does not catch is a registry row that
 has gone stale, and a stale row grants nothing.
 
-**The equality direction is deferred, and TASK-054 re-enables it.** Equality becomes green
-only once both deferred setters exist, so it belongs to whichever of TASK-029 and TASK-054
-lands second; on the foundation plan's ordering that is TASK-054. That card flips the
-assertion to equality and deletes the "rows with no occurrence are not a failure" clause.
-Until then the control is half-armed by design rather than by accident. **Without it, this ADR's narrowness argument rests on four
+**Subset now, exactly-one later, and TASK-056 flips it.** A1's exactly-one direction needs
+both deferred setters to exist, `redirect-read.ts` (TASK-029) and `privileged-eraser.ts`
+(TASK-054), and `isolation-coverage.md:540-542` states in as many words that "A1 is not
+runnable earlier." **TASK-056 owns A4's predicate and the full grep tier in the contract, so
+TASK-056 is the card that raises this control to A1's full form**: it drops the "rows with no
+occurrence are not a failure" clause and asserts exactly-one. It extends this control rather
+than replacing it, and the file does not move. Until then the control is half-armed by design
+rather than by accident. **Without it, this ADR's narrowness argument rests on four
 declarations and nothing else** — the pattern foundation's retro named as decisions whose
 validity conditions nothing enforces.
+
+**Text scan, not an AST parse, and that is the contract's choice rather than a shortcut.**
+`isolation-coverage.md:527-532`: all four clauses are text scans over file contents, none
+parses TypeScript, and none distinguishes code from a comment. A commented-out
+`set_config('app.privileged_erase', ...)` is one uncomment from being real, and A2 is built
+to fail on it. `apps/api/src/observability/logging-opt-out.spec.ts` runs the TypeScript
+compiler for a different assertion with different needs; **it is not the pattern here.**
+Rewriting this control onto an AST would break A2's intent quietly, which is why the reason
+is recorded rather than left to be rediscovered.
 
 **Where that control lives. Added 2026-08-13 (F-032).** Round 3 decided the control and gave
 it no file, so no card owned it and nobody would have written it. That is F-025 again, inside
@@ -448,6 +487,12 @@ The four controls, with what actually runs marked:
   denial.
 - TASK-056 (deferred): clause A1's flag table gains a third row; the
   `databaseTransaction` file list gains a fifth path; control 4 above becomes an assertion.
+  **Added 2026-08-13 (F-044), round 7:** and `apps/api/src/db/context-flag-owners.spec.ts`
+  goes from A1's subset direction to A1's full exactly-one form, once `redirect-read.ts`
+  (TASK-029) and `privileged-eraser.ts` (TASK-054) exist. TASK-056 extends that file rather
+  than replacing it, and drops the "rows with no occurrence are not a failure" clause. This
+  bullet is the only place that obligation is recorded, because TASK-056 is deferred out of
+  this initiative and has no card here.
 - `design/contracts/tenant-context.md` is amended in this initiative — the fifth consumer,
   the third exclusion, and the four-versus-three caller-count note at `client.ts:21-22`
   that was already stale.
