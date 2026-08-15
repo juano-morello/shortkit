@@ -286,6 +286,12 @@ services:
       # yourself, or set it in a project-root .env (see .env.example) — at least 32
       # characters, and not better-auth's published default. 32 random bytes from
       # node:crypto, base64url-encoded, is the shape this repository's own tooling uses.
+      #
+      # UNLIKE THE FIXTURE PASSWORDS ABOVE, `docker compose config` and `docker inspect`
+      # printing this variable is a disclosure, not a fixture (the note at :94-96 and :177
+      # does not cover it): whatever value is bound here is real, not a committed
+      # placeholder. Do not paste either command's output into an issue, a report or a
+      # shared scrollback while it carries a live BETTER_AUTH_SECRET.
       BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?generate at least 32 characters and export it, or put it in .env at the repository root. No value is committed here because this one signs JWTs. See .env.example and ADR-0051.}'
     ports:
       - '127.0.0.1:3001:3001'

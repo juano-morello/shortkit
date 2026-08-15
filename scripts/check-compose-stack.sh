@@ -65,7 +65,14 @@ set -euo pipefail
 #   security defect.
 #
 # ENVIRONMENT KNOBS:
-#   SHORTKIT_CHECK_KEEP_STACK=1    leave the stack up after the run (default: tear down)
+#   SHORTKIT_CHECK_KEEP_STACK=1    leave the stack up after the run (default: tear down).
+#                                  The generated BETTER_AUTH_SECRET dies with this process
+#                                  and is never printed (F-379), so it cannot be recovered.
+#                                  Any further `docker compose` command against the kept
+#                                  stack needs one exported: any value unblocks `ps`/`logs`,
+#                                  but a DIFFERENT value plus `up` cannot decrypt the
+#                                  existing jwks rows — run `docker compose down -v` first
+#                                  if you need the stack running again.
 #   SHORTKIT_CHECK_UP_TIMEOUT=900  seconds allowed for each `up` (a cold first build)
 #   SHORTKIT_CHECK_HEALTH_URL      default http://127.0.0.1:3001/health (ADR-0031)
 
@@ -283,7 +290,7 @@ if [ -n "${COMPOSE_FILE:-}" ]; then
   unset COMPOSE_FILE
 fi
 
-# ADR-0051: `docker-compose.yml:297` carries no default for BETTER_AUTH_SECRET any more,
+# ADR-0051: `docker-compose.yml:289` carries no default for BETTER_AUTH_SECRET any more,
 # so this harness generates one and exports it for the duration of this run. It must land
 # before `trap cleanup EXIT` below, not merely before the first `docker compose config` --
 # `cleanup()` itself runs `docker compose down -v`, which parses the file. One value for
@@ -297,6 +304,10 @@ BETTER_AUTH_SECRET="$(node -e '
 ')" || refuse 'could not generate a BETTER_AUTH_SECRET value.' \
      'node -e failed generating 32 random bytes as base64url; see the error above.'
 [ -n "$BETTER_AUTH_SECRET" ] || refuse 'node produced an empty BETTER_AUTH_SECRET value.'
+[ "${#BETTER_AUTH_SECRET}" -ge 32 ] || refuse \
+  'the generated BETTER_AUTH_SECRET is shorter than the 32 characters ADR-0051 requires.' \
+  '43 characters is what 32 base64url-encoded bytes should produce; something upstream' \
+  'of this check changed shape. Name only, never the value (F-379).'
 export BETTER_AUTH_SECRET
 
 TMPDIR_CHECK="$(mktemp -d)"

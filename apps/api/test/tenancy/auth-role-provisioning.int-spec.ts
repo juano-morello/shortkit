@@ -139,8 +139,15 @@ function provisioningGuards(): string {
  * reads this value back. It is not a secret and is not kept in step with any real one.
  * Deleting it makes these tests fail wherever the variable is unset, which is how CI runs
  * the integration job.
+ *
+ * **Deliberately shorter than 32 characters (F-149.)** `:?` is a presence check — Compose
+ * accepts any non-empty string and never looks at the value — so nothing about this render
+ * needs length. Keeping it under ADR-0051's floor means the constant cannot satisfy the
+ * predicate that rejects unset, empty, too-short and published values, so a reader grepping
+ * for committed values that would pass that check does not find this one. Lengthening it
+ * would make it look like a candidate secret without making it work any better.
  */
-const COMPOSE_RENDER_ONLY_BETTER_AUTH_SECRET = 'not-a-secret-only-here-so-compose-config-can-render';
+const COMPOSE_RENDER_ONLY_BETTER_AUTH_SECRET = 'render-only-not-a-secret';
 
 /**
  * The init script a Compose file mounts into `/docker-entrypoint-initdb.d`, rendered the

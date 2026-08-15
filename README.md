@@ -91,16 +91,25 @@ With Docker, this clone, and one exported variable — `BETTER_AUTH_SECRET`, the
 signing key, which nothing in the repository commits a value for (ADR-0051):
 
 ```
-export BETTER_AUTH_SECRET="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+export BETTER_AUTH_SECRET="$(docker run --rm node:24-alpine node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
 docker compose up
 ```
 
-Without it, `docker compose up` fails at parse time and names the variable; nothing is
-built or started. `export` supplies it for the current shell only — set it in a
-project-root `.env` instead (see `.env.example`) if you want it to persist.
+The generation command runs `node` inside a throwaway container rather than on the host,
+so it needs only Docker — the machine AC-115 describes, and nothing else. A command that
+instead assumed a host `node` would, on such a machine, print `node: command not found`
+to stderr while `export` itself still exits 0 and binds the empty string; `docker compose
+up` would then fail with the same "missing a value" error this section's own remedy is
+supposed to prevent, having silently not run.
 
-Postgres comes up with its two roles, the migrations are applied, the seed inserts one
-demo tenant, and the API and the web app start.
+Without it, `docker compose up` fails at parse time and names the variable; nothing is
+built or started. `export` supplies it for the current shell only. Setting it in a
+project-root `.env` instead (see `.env.example`) makes it persist, at one cost: while that
+file exists, `pnpm test:compose` refuses to run at all (`cannot run the AC-115 check:
+there is a .env at the repository root`, exit 2, nothing measured) — move it aside first.
+
+Postgres comes up with its roles provisioned, the migrations are applied, the seed
+inserts one demo tenant, and the API and the web app start.
 
 | Address | What answers |
 | --- | --- |
