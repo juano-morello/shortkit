@@ -11,7 +11,7 @@ summary and returns non-zero on the inconsistencies that used to reach one.
 | Initiative | Slug | Track | Phase | Gate | TASKs | Updated |
 |---|---|---|---|---|---|---|
 | Foundation and tenancy substrate | foundation | full | **done** | merged `aa9c288`, retro applied and its residue repaired | 10 — all done | 2026-08-12 |
-| Identity, tenancy and membership | identity-membership | full | design | **waves 0-1 approved** `6fd953d`; waves 2-9 undesigned | 18 — all todo | 2026-08-13 |
+| Identity, tenancy and membership | identity-membership | full | implement | **waves 0-1 implemented and approved**; wave 2 awaits a full Design re-entry | 19 — 4 done, 15 todo | 2026-08-14 |
 | Publish the shortkit engineering posts | tech-writing | — | refine | not started; deferred | 0 | 2026-08-10 |
 
 ## foundation — closed 2026-08-12
@@ -34,6 +34,32 @@ layer — the next initiative builds the first request path rather than extendin
 **SC-1 is `untestable`, not partly met.** It quantifies over "every repository method and every
 authenticated endpoint" and both sets are empty, so a verbatim reading is vacuously true — the
 shape the harness's own F-295 rule refuses.
+
+## identity-membership — waves 0 and 1, 2026-08-14
+
+Four TASKs done. 236 unit tests, 82 integration across six suites, AC-115 green on every clause,
+typecheck/lint/build clean. Every gate run rather than read from a report.
+
+**What shipped.** Better Auth's five tables and `tenant_memberships` under one migration system, the
+`shortkit_auth` role split with its `REVOKE`/`GRANT` and a two-directional grant matrix, a second
+connection pool, `nullif` on every context-flag cast, the token-mint membership lookup and its
+policy, the auth and member contracts with branding as a separate step, and a compose stack that no
+longer carries a signing key.
+
+**The cross-tenant account takeover is measured shut.** The auditor that reproduced it in Design
+re-ran it statement for statement against the real migrated schema: `42501` on every write, while
+the tenant-scoped read in the same transaction still returned the acting tenant's row.
+
+**Read F-133 first.** The token-mint escape's only behavioural control passed a policy admitting
+every membership row of every tenant — proved by installing that policy and watching the shipped
+suite pass 6 of 6. Two other controls were equally blind: views bypassed the grant matrix, the RLS
+check and the behavioural control at once, and AC-2's count assertion never observed the table it
+counted. **None of the three was found by a test failing.** Each came from someone asking whether a
+passing test *could* fail.
+
+**And F-034/F-074/F-081/F-144/F-147 are one story.** Five mechanisms on a single variable, each
+ruled after the last broke, each broken by something nobody had checked — ending in an approved,
+shipped, `met` criterion in the closed `foundation` initiative being amended from both sides.
 
 ## Roadmap
 

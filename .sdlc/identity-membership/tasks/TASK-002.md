@@ -3,7 +3,7 @@ id: TASK-002
 story: STORY-001
 epic: EPIC-001
 title: Better Auth tables, tenant_memberships with its unique constraint, and tenantIdForUser
-status: tests-red
+status: done
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-018]
 # TASK-018 ADDED 2026-08-13 at the Design wave-1 gate. It creates `shortkit_auth` in wave 0;
@@ -38,6 +38,13 @@ acceptance: [AC-2, AC-4]
 # cover tenantIdForUser throwing - the primary stop ADR-0015 names. AC-4 needs a second test in
 # TASK-003's wave or it goes green on a partial proof. Recorded rather than silently re-scoped.
 rework_count: 2
+# STATUS CORRECTED 2026-08-14, after the implement gate was approved. This card sat at
+# `tests-red` while it was verified green, audited by three slots, fix-rounded twice and cited
+# as done in the gate note. A status-flip script keyed on `tests-green` matched nothing here
+# because the card never passed through that state, AND A REPLACE THAT MATCHES NOTHING IS SILENT.
+# check-ledger did not catch it: it cross-checks findings against escalations, not card status
+# against what a gate note claims. Found by an assertion I added to a later script for a
+# different reason.
 ---
 
 ## Intent
