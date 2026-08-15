@@ -3,10 +3,14 @@ id: TASK-019
 story: STORY-003
 epic: EPIC-001
 title: A generated development secret, so the compose stack still comes up once the published default is rejected
-status: in-progress
+status: done
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-018]
-paths: ["docker-compose.yml", "scripts/check-compose-stack.sh", ".env.example", "README.md"]
+paths: ["docker-compose.yml", "scripts/check-compose-stack.sh", ".env.example", "README.md", "docs/architecture/migrations.md"]
+# migrations.md ADDED 2026-08-14, F-163. A FOURTH file quotes the premise this card changed, and
+# ADR-0051 enumerated three. It documents `docker compose down -v` as the ONLY repair for an edited
+# applied migration, and that command is now a parse error in a fresh shell - so the documented only
+# repair silently does not run. The commit that made a sentence false fixes it.
 # REWRITTEN 2026-08-14 after F-144 and F-145. The card originally owned
 # scripts/generate-dev-secret.mjs and wrote the root .env. IT NO LONGER NEEDS EITHER - the ADR-0051
 # reversal means nothing writes a file, so there is no generator and no .env. docker-compose.yml
@@ -14,7 +18,7 @@ paths: ["docker-compose.yml", "scripts/check-compose-stack.sh", ".env.example", 
 contracts: []
 test_files: ["scripts/check-compose-stack.sh (compose tier — this card adds the generation step it runs; TASK-017 extends the script's assertions in wave 9)"]
 acceptance: []
-rework_count: 0
+rework_count: 1
 ---
 
 <!--

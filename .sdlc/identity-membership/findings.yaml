@@ -3322,3 +3322,336 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+# ---- TASK-019 audit, sdlc-reviewer, ids F-159..F-165. It extracted the :? message
+# PROGRAMMATICALLY rather than reading it, to check ADR-0051's three mechanical rules; confirmed all
+# four required orderings of the harness export; confirmed the contaminant guard and the .env refusal
+# are BYTE-IDENTICAL; and confirmed composeInitScript is the only site outside the harness that
+# parses docker-compose.yml.
+# ONE REVIEWER ERROR, NOT FILED AS A FINDING: it reported check-ledger.mjs does not exist, having
+# looked in ~/.claude/scripts/. It is at ~/.claude/skills/juano-sdlc/scripts/check-ledger.mjs and has
+# run clean after every ledger edit this session.
+
+- id: F-159
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: behavior
+  file: README.md
+  line: 99
+  summary: >-
+    THE README OFFERS A ROOT .env AS THE PERSISTENT ROUTE AND NEVER SAYS IT MAKES `pnpm test:compose`
+    REFUSE - the one cost TASK-019's card and ADR-0051 both require stated. .env.example points the
+    other way, saying the harness "needs nothing from you".
+  failure_scenario: >-
+    VERIFIED: README:99-100 reads "set it in a project-root `.env` instead if you want it to persist"
+    with no cost named. A developer does that, `docker compose up` works, and later `pnpm test:compose`
+    - which README:62 itself documents, and which CI's compose job runs - hits the .env refusal, EXIT
+    2, NOTHING MEASURED. The refusal exists because a root .env masks the same defect an exported
+    variable masks; the README recommends creating one.
+  required_change: Both places that offer .env state the exit-2 cost before the reader acts, and .env.example's "needs nothing from you" is scoped to the no-.env case.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    README now names the exit-2 cost with its exact error before the reader acts, and
+    .env.example's 'needs nothing from you' is scoped to the no-.env case. Found independently by
+    both auditors; the security framing - the consequence is a GATE THAT STOPS RUNNING - is what
+    made it major.
+  resolved_round: 1
+
+- id: F-160
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-reviewer
+  round: 1
+  severity: major
+  kind: behavior
+  file: README.md
+  line: 94
+  summary: >-
+    THE DOCUMENTED REMEDY LOOPS ON THE MACHINE AC-115 DESCRIBES. The generation command needs `node`
+    on the host; the premise sentence dropped "nothing else installed" without naming the replacement
+    dependency; and A MISSING BINARY BINDS THE EMPTY STRING RATHER THAN FAILING.
+  failure_scenario: >-
+    VERIFIED BY EXECUTION: `export VAR="$(missing-binary ...)"` EXITS 0 WITH AN EMPTY VALUE. So on a
+    machine with only Docker - AC-115's own premise - README:94 prints `node: command not found`,
+    exits 0, and binds nothing. README:95's `docker compose up` then fails with THE EXACT ERROR
+    README:98 SAYS APPEARS "WITHOUT IT", and the printed remedy is the command that just silently
+    failed. check-compose-stack.sh:167-170 refuses loudly for this case; the README cannot.
+  required_change: The section names every dependency its commands have, or uses a Docker-only form, or fails visibly rather than exporting empty.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    RULED A DOCKER-ONLY FORM, so the command works on exactly the machine AC-115 describes rather
+    than narrowing that premise a second time. VERIFIED BY ME VERBATIM: the README's own command
+    exits 0 at 43 characters and `docker compose config` then parses. AND THE FIX IS BIGGER THAN
+    THE COMMAND - the paragraph now explains why a host-node form fails silently, which is what
+    stops someone simplifying it back into the loop.
+  resolved_round: 1
+
+- id: F-161
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: documentation
+  file: .env.example
+  line: 19
+  summary: ":6-7 says every variable below has a default; :9 says one variable is NOT below; :19 puts that variable below both."
+  failure_scenario: >-
+    `# BETTER_AUTH_SECRET=` at :19 has the same shape as entries that genuinely do have defaults. A
+    reader who copies the file to .env and leaves :19 commented gets a parse-time failure from a file
+    they just configured.
+  required_change: ":6-7's scope excludes :19, and :9 stops contradicting the line after it."
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    .env.example's scope sentence excludes the one variable with no default, and the line that said
+    it was not below stops contradicting the line after it.
+  resolved_round: 1
+
+- id: F-162
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: documentation
+  file: scripts/check-compose-stack.sh
+  line: 286
+  summary: The comment cites docker-compose.yml:297; the `:?` reference is at :289, and :297 lands inside an unrelated escaping comment. The implementer's report says :292 - three numbers, one line.
+  failure_scenario: Line-citation staleness, the class this initiative has filed four times, arriving in the commit that fixes a premise.
+  required_change: The pointer resolves to the `:?` line, or carries no line number.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    The pointer resolves to the `:?` line. Both auditors caught it and the three numbers for one
+    line - :286's citation, the report's :292, the actual :289 - are the line-citation class this
+    initiative has filed five times.
+  resolved_round: 1
+
+- id: F-163
+  phase: implement
+  wave: 1
+  task: TASK-017
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: documentation
+  file: docs/architecture/migrations.md
+  line: 45
+  summary: >-
+    A FOURTH FILE QUOTES THE OLD PREMISE - ADR-0051 enumerated three - and it documents `docker
+    compose down -v` as the ONLY repair for an edited applied migration.
+  failure_scenario: >-
+    :45 reads as "nothing to export" for the dev stack, while :89 and :200 prescribe `docker compose
+    down -v`, which in a fresh shell is now a parse error - so the volume is not destroyed and the
+    documented only repair silently does not run. Outside TASK-019's paths.
+  required_change: The dev-stack rows state the variable is needed for every compose subcommand, not only `up`.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    migrations.md's dev-stack rows state the variable is needed for every compose subcommand. It
+    was a FOURTH file quoting a premise the ADR enumerated three sites for, and it documented
+    `docker compose down -v` as the ONLY repair for an edited applied migration - a parse error in
+    a fresh shell, so the documented only repair silently did not run.
+  resolved_round: 1
+
+- id: F-165
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: process
+  file: apps/api/test/tenancy/auth-role-provisioning.int-spec.ts
+  line: 130
+  summary: >-
+    THE TASK-019 COMMIT MODIFIES A FILE OUTSIDE TASK-019's paths AND THE REPORT SAYS THAT FILE WAS
+    "NOT MODIFIED". 22 of 173 lines arrive with no report covering them. The code itself is correct
+    and the reviewer found no defect in it.
+  failure_scenario: >-
+    MINE. The F-147 fix went to sdlc-test-architect under rule 0 - correctly - and I committed it in
+    the TASK-019 commit, so the implementer's report is accurate about the implementer and wrong
+    about the commit. SECOND INSTANCE THIS WAVE after F-135, and I fixed F-100 by splitting commits
+    for exactly this reason five cards ago.
+  required_change: The card's paths or the round's report accounts for the edit.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: >-
+    MINE, AND THE SECOND INSTANCE THIS WAVE AFTER F-135. I routed the F-147 fix to the test
+    architect under rule 0 - correctly - and committed it alongside the implementer's work, so its
+    report is accurate about itself and wrong about the commit. I FIXED F-100 BY SPLITTING COMMITS
+    FOR EXACTLY THIS REASON FIVE CARDS AGO and did not apply it here. Recorded rather than
+    rewritten: the code is correct, the reviewer found no defect in it, and rewriting history to
+    tidy attribution would cost more than the confusion it saves. The pattern is the finding.
+  resolved_round: 1
+
+# ---- TASK-019 audit, sdlc-security-auditor, ids F-149..F-154. NO SIXTH MECHANISM FOUND - it looked
+# specifically, walked all three docker spawn sites, all three CI jobs and dependencies.yml.
+# IT ALSO DISPROVED ITS OWN HYPOTHESIS BY MEASUREMENT: it expected the parse failure to blind the
+# F-315/F-316 escape diagnostic, tested against a scratch copy with the $$ escape deliberately
+# broken, found Compose emits BOTH the unset warnings and the required-variable error, and dropped
+# it. And it walked every string the harness emits: THE VALUE HAS NO PRINT PATH, so F-379 survives.
+# The committed literal is genuinely gone - outside .git the only hits are .sdlc prose - so
+# ADR-0051's condition for retiring its second rejected constant is met.
+
+- id: F-149
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: apps/api/test/tenancy/auth-role-provisioning.int-spec.ts
+  line: 143
+  summary: >-
+    THE CARD THAT DELETES A COMMITTED SECRET COMMITS ANOTHER. The F-147 fix adds
+    COMPOSE_RENDER_ONLY_BETTER_AUTH_SECRET - VERIFIED 51 CHARACTERS, which clears every rejection
+    ADR-0051's wave-2 predicate applies.
+  failure_scenario: >-
+    It is clearly labelled, used only for a render, and has no security consequence today. The point
+    is the shape: this initiative spent four rulings establishing that a committed value is
+    disqualified BY PUBLICATION, and the closing card commits a value that would pass the check
+    written to enforce that.
+  required_change: >-
+    Shorten below 32 characters - `:?` accepts any non-empty string, measured - or ADR-0051 records
+    it beside auth-fixture.ts:86 as a second knowingly-accepted committed value.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: >-
+    SHORTENED TO 24 CHARACTERS - `render-only-not-a-secret` - VERIFIED BY ME. It is now UNDER
+    ADR-0051's 32-character floor, so it CANNOT satisfy the wave-2 predicate rather than being
+    labelled as harmless: a later reader grepping for values that pass the check finds nothing in a
+    test. The auditor's measurement is what made this the right fix - `:?` is a presence check, not
+    a value check, so a short value renders fine. Confirmed both ways: `docker compose config` exit
+    0 with it, still exit 1 unset. Full integration with BETTER_AUTH_SECRET unset: 82/82.
+  resolved_round: 1
+
+- id: F-150
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: docker-compose.yml
+  line: 289
+  summary: >-
+    `docker compose config` AND `docker inspect` NOW PRINT A LIVE SIGNING KEY where the file's own
+    guidance at :94-96 and :177 says everything those printers show is a fixture. The new banner does
+    not correct it.
+  failure_scenario: >-
+    This repository's convention is pasting tool output verbatim into committed reports - which is
+    how the value would reach a file. The guidance that made that safe is now false for one variable.
+  required_change: The banner or the guidance says which printers now show a live value.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    The banner says which printers now show a live value, correcting guidance that was true of
+    every variable in the file until this card.
+  resolved_round: 1
+
+- id: F-151
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: scripts/check-compose-stack.sh
+  line: 299
+  summary: >-
+    THE HARNESS CHECKS THE GENERATED SECRET IS NON-EMPTY AND NOTHING ELSE. ADR-0051's 32-character
+    floor is unchecked on THE ONE VALUE THIS REPOSITORY GENERATES.
+  failure_scenario: >-
+    VERIFIED: the generation line has `|| refuse` for a failed spawn and an empty check, and no length
+    assertion. A generator that silently produced something short would satisfy the gate and fail the
+    wave-2 boot assertion instead - the failure moved rather than caught.
+  required_change: The harness asserts the floor it generates against.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    The harness asserts the 32-character floor it generates against. It previously checked
+    non-empty only, so a short value would have satisfied the gate and failed the wave-2 boot
+    assertion instead - the failure moved rather than caught.
+  resolved_round: 1
+
+- id: F-152
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: documentation
+  file: README.md
+  line: 99
+  summary: DUPLICATE OF F-159, found independently. Compose's own error message, README:99-100 and .env.example:14 all offer a project-root .env and none says the harness then refuses to run.
+  failure_scenario: See F-159. The security angle it adds - the consequence is a GATE THAT STOPS RUNNING, which is why ADR-0051 names it as a required sentence rather than a nicety.
+  required_change: See F-159.
+  owner_slot: sdlc-implementer-backend
+  status: superseded
+  resolved_by: "Merged into F-159, carrying its gate-stops-running framing onto the fix."
+  resolved_round: 1
+
+- id: F-154
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: behavior
+  file: scripts/check-compose-stack.sh
+  line: 309
+  summary: SHORTKIT_CHECK_KEEP_STACK=1 leaves a stack whose secret died with the script, so every follow-up compose subcommand fails at parse.
+  failure_scenario: Behaviour rather than security. The escape hatch for debugging a kept stack now needs the variable re-exported, and nothing says so.
+  required_change: The flag's documentation says what to re-export.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    The KEEP_STACK flag's documentation says what to re-export, since the kept stack's secret dies
+    with the script.
+  resolved_round: 1
+
+- id: F-166
+  phase: implement
+  wave: 1
+  task: TASK-019
+  source: orchestrator
+  round: 1
+  severity: minor
+  kind: documentation
+  file: README.md
+  line: 111
+  summary: >-
+    README:111 SAYS "Postgres comes up with its two roles" AND THE DEV STACK HAS PROVISIONED THREE
+    SINCE WAVE 0. Found by the orchestrator while verifying the README's generation command, not by
+    any audit.
+  failure_scenario: >-
+    TASK-018 added shortkit_auth to docker-compose.yml's init script in wave 0 and did not own README;
+    TASK-019 owns README and was looking at a different sentence. So the count sat wrong for the whole
+    wave in the file a new developer reads first.
+    THIS IS THE EXCLUSION-COUNT CLASS AGAIN - the eighth site of a number in prose that the code moved
+    past, after the seven TASK-002 enumerated. And it is the one that a card boundary hid: neither
+    card was wrong about its own scope.
+  required_change: The sentence says three, or names the roles, or stops counting.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: >-
+    IT STOPPED COUNTING: 'Postgres comes up with its roles provisioned'. Ruled deliberately over
+    incrementing the digit, because this is the eighth site of that class in one wave and a number
+    in prose is what goes stale. VERIFIED - no bare role count remains in the README.
+  resolved_round: 1
