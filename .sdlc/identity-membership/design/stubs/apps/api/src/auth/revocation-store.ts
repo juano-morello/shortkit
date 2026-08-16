@@ -91,6 +91,22 @@ export interface RevocationStore {
 }
 
 /**
+ * A source of the current time in epoch milliseconds. `Date.now` satisfies it.
+ *
+ * ADDED 2026-08-16 by Juano's ruling at the wave-2 Test phase, amending this contract after it
+ * froze at the Design gate the same day. Invariants 4 and 5 are statements about ELAPSED TIME
+ * and cannot be observed without either waiting 300 seconds or controlling the clock. This
+ * repository has no fake-timer usage anywhere, so the first time-dependent test sets the
+ * convention: an injected clock is ordinary production code, synchronous, and local to one
+ * class, where `vi.useFakeTimers` is a global change to a test environment whose integration
+ * tier spawns real processes.
+ *
+ * THE PORT IS UNCHANGED. This belongs to the in-memory implementation, not to `RevocationStore`
+ * — a Redis-backed store (TASK-030) keys expiry off the server's clock and ignores it.
+ */
+export type Clock = () => number;
+
+/**
  * The process-local implementation. A Map of session id to expiry, swept lazily.
  *
  * No timers: one `setTimeout` per revocation keeps the event loop alive unless every one of
@@ -98,6 +114,17 @@ export interface RevocationStore {
  * lazy sweep costs a walk of the map on write and nothing on read.
  */
 export class InMemoryRevocationStore implements RevocationStore {
+  /**
+   * Production never passes `now` and gets `Date.now`. Tests pass their own and advance it.
+   *
+   * **Store it as `private readonly now` when you implement this.** It is a plain parameter
+   * here, not a parameter property, for one stub-only reason: every body below throws, so a
+   * stored property is never read and `noUnusedLocals` (`tsconfig.base.json:9`) rejects the
+   * file — and TypeScript's underscore exemption covers unused *parameters*, not unused
+   * private *properties*. Verified by compiling it both ways.
+   */
+  constructor(_now: Clock = Date.now) {}
+
   /**
    * DELETE THE KEY BEFORE SETTING IT. `Map.set` on an existing key keeps the ORIGINAL
    * insertion position, and `revoke` is idempotent with a refreshed TTL, so without the

@@ -3,7 +3,7 @@ id: TASK-003
 story: STORY-001
 epic: EPIC-001
 title: The Better Auth instance, its plugin configuration, and tenant creation on signup
-status: todo
+status: tests-red
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001, TASK-002]
 paths: ["apps/api/src/auth/auth.config.ts", "apps/api/src/auth/on-user-created.ts", "apps/api/src/auth/revocation-store.ts", "apps/api/src/auth/auth.module.ts", "apps/api/src/app.module.ts", "apps/api/src/auth/boot-assertions.ts", "apps/api/src/main.ts", "apps/api/src/db/better-auth-database-callers.spec.ts", "packages/contracts/src/auth/index.ts", "docker-compose.yml", "apps/api/.env.example"]
@@ -398,6 +398,26 @@ is refused**, with the refusal naming the rule.
 > Two residuals, both deliberate and both stated in ADR-0059: it is a **string** test and not a
 > resolution test, so a hostname resolving to `127.0.0.1` is still refused under `http:`; and it
 > refuses a TLS-terminating proxy speaking `http` to a non-loopback backend, on purpose.
+
+## YOUR INTEGRATION TESTS STAY RED, AND THAT IS THE PLAN — 2026-08-16, Juano's ruling
+
+**Twelve integration tests will still fail after you have implemented this card perfectly. Do
+not try to make them pass. Do not conclude the tests are broken.**
+
+`POST /api/auth/sign-up/email` and `GET /api/auth/token` return **404 today and will still
+return 404 when you are done**, because the Express mount is TASK-004's in wave 3 — this card's
+own *Out of scope* says so and ADR-0013 fixes the mount as one registration in `main.ts`. So
+`signup-creates-tenant.int-spec.ts` and `mint-refuses-without-membership.int-spec.ts` cannot go
+green in this wave no matter what you write.
+
+**What you can turn green is the unit tier.** AC-5 is yours to satisfy here. AC-1, AC-3 and
+AC-4's mint leg are verified at **wave 3's** implement gate, once TASK-004 mounts the handler.
+Juano ruled the wave boundary stays where the plan drew it rather than merging waves 2 and 3.
+
+**The pre-committed byte-identity decision also waits for wave 3.** `test-strategy-wave2.md`
+commits both outcomes — pass makes it the standing guard, fail means the existence disclosure is
+real and ADR-0061 is superseded. The first run that can answer it is wave 3's, and nobody may
+read wave 2's red as evidence either way.
 
 ## Out of scope for this TASK
 

@@ -4559,3 +4559,144 @@
   status: fixed
   resolved_by: orchestrator
   resolved_round: 0
+
+- id: F-194
+  phase: test
+  wave: 2
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: contract
+  file: .sdlc/identity-membership/stories/STORY-001.md
+  line: 17
+  summary: >-
+    AC-1's "exactly one `tenants` row exists" IS NOT MEASURABLE FROM ANY TIER. tenants is FORCE
+    ROW LEVEL SECURITY with a self-select policy, so one context sees at most its own row, and
+    all three DSNs the integration suite is given are NOBYPASSRLS by an explicit decision.
+  failure_scenario: >-
+    docker-compose.test.yml:58-60 states the reason for having no superuser DSN: "a superuser is
+    exempt from every policy and would make AC-8..AC-11 vacuous". So no reader in the suite can
+    issue SELECT count(*) FROM tenants. THE CRITERION'S LITERAL READING IS UNVERIFIABLE - the
+    shape foundation ruled SC-1 `untestable` for, reappearing in a criterion nobody suspected.
+  required_change: >-
+    RULED BY JUANO 2026-08-16: reword. The membership clause carries the weight - exactly one
+    membership for that user ACROSS ALL TENANTS, read through app.membership_lookup_user so a
+    second membership under a second tenant would show, plus the named tenant exists. RESIDUAL
+    RECORDED: an orphaned tenants row with no membership pointing at it is invisible to the
+    suite. The declined alternative was a fourth BYPASSRLS DSN for counting.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 0
+
+- id: F-195
+  phase: test
+  wave: 2
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 0
+  severity: major
+  kind: process
+  file: .sdlc/identity-membership/plan.md
+  line: 158
+  summary: >-
+    THREE OF TASK-003's FOUR ACs CANNOT GO GREEN IN ITS OWN WAVE. The Express mount is TASK-004's
+    in wave 3, so both auth routes 404 today and will still 404 after a perfect TASK-003. All 12
+    integration tests stay red through wave 2; only AC-5, the unit one, is satisfiable here.
+  failure_scenario: >-
+    An implementer handed "make your tests pass" concludes the tests are broken and either
+    rewrites them or reports blocked. Worse, the wave-2 Implement gate cannot assert AC coverage
+    for three of four criteria and a gate note written from test counts alone would read as
+    failure. NOT A DEFECT IN THE TESTS - it is the wave plan, and it needed to be visible BEFORE
+    the Implement gate rather than discovered inside it.
+    It also defers the pre-committed byte-identity decision: test-strategy-wave2.md commits both
+    outcomes and the first run that can answer is wave 3's.
+  required_change: >-
+    RULED BY JUANO 2026-08-16: carry them. The wave boundary stays where the plan drew it; the 12
+    red integration tests ride through wave 2 and AC-1, AC-3 and AC-4 are verified at wave 3's
+    implement gate. Written onto TASK-003's card as its own section so an implementer reads it
+    before the test output. Merging waves 2 and 3, and reassigning the ACs to TASK-004, were both
+    considered and declined.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 0
+
+- id: F-196
+  phase: test
+  wave: 2
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 0
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/design/stubs/apps/api/src/auth/
+  line: 1
+  summary: >-
+    THE WAVE-2 STUB SET IS INCOMPLETE - there is no on-user-created.ts, so on-user-created.spec.ts
+    could only ever fail on module resolution, which is the wrong red and proves nothing.
+  failure_scenario: >-
+    My dispatch said "the six stubs compile and their bodies throw"; the directory holds five
+    files, two of them TASK-002's shipped work. I counted without opening the directory - the
+    same claim-about-a-file class this initiative has now recorded a dozen times. The architect
+    created a throwing file at the real path for the red run, DISCLOSED IT EXPLICITLY as one step
+    beyond its brief, and deleted it. Tree verified restored.
+  required_change: >-
+    The design owes the real stub, or TASK-003's implementer creates the module first. Recorded
+    rather than fixed now: the Design gate is closed and a stub is a design artifact.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-197
+  phase: test
+  wave: 2
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 0
+  severity: minor
+  kind: contract
+  file: .sdlc/identity-membership/design/contracts/auth-config-surface.md
+  line: 186
+  summary: >-
+    THE COOKIE TABLE HAS A WRONG ROW AND IS MISSING TWO COOKIES. It gives better-auth.session_data
+    Max-Age 604800; measured 300. Two further cookies the composed instance sets appear in no
+    artifact at all.
+  failure_scenario: >-
+    A contract frozen this morning, wrong on the first measurement taken against it. The cookie
+    table was ADDED IN ROUND 1 to close the finding where a session cookie shipped without Secure
+    - so the table written to fix a cookie defect carries a cookie defect. Nothing downstream
+    reads the 604800 today, which is why it is minor rather than major.
+  required_change: >-
+    Correct the row to 300, add the two undocumented cookies, or state why they are out of scope.
+    A frozen contract, so it is an amendment and Juano's to rule.
+  owner_slot: sdlc-architect
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-198
+  phase: test
+  wave: 2
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 0
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/tasks/TASK-003.md
+  line: 1
+  summary: >-
+    tenants.name IS NOT NULL AND NOTHING SAYS WHAT SIGNUP WRITES THERE, while
+    createTenantForNewUser takes an `email` parameter for no stated purpose.
+  failure_scenario: >-
+    The implementer must write something into a NOT NULL column and no artifact says what - the
+    email local part, the user's name, a literal, all defensible and all different. The unused
+    `email` parameter in the signature is the shape of an answer nobody wrote down. It will be
+    decided by whoever implements it and discovered by whoever reviews it.
+  required_change: The card or ADR-0054 states what `name` receives, and why the signature takes an email.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null

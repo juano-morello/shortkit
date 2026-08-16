@@ -14,7 +14,25 @@ and a password, so that I have a tenant of my own to put client workspaces in.
 
 ## Acceptance criteria
 
-- [ ] AC-1: Given a running API whose `user`, `tenants` and `tenant_memberships` tables are empty, when `POST /api/auth/sign-up/email` is sent a well-formed email, password and name, then the response status is 200, exactly one `user` row exists, exactly one `tenants` row exists, exactly one `tenant_memberships` row exists, that membership's `user_id` is the new user's id, its `tenant_id` is the new tenant's id, and its `role` is `owner`.
+- [ ] AC-1: Given a running API whose `user`, `tenants` and `tenant_memberships` tables are empty, when `POST /api/auth/sign-up/email` is sent a well-formed email, password and name, then the response status is 200, exactly one `user` row exists, exactly one `tenant_memberships` row exists for that user **across all tenants**, the `tenants` row it names exists, that membership's `user_id` is the new user's id, its `tenant_id` is that tenant's id, and its `role` is `owner`.
+
+  > **CLAUSE AMENDED 2026-08-16 at the wave-2 Test phase, Juano's ruling.** It read "exactly
+  > one `tenants` row exists". **No tier can measure that.** `tenants` is `FORCE ROW LEVEL
+  > SECURITY` and `tenants_self_select` is `USING (id = nullif(current_setting('app.tenant_id',
+  > true), '')::uuid)`, so one context sees at most its own row — and all three DSNs the
+  > integration suite is given are `NOBYPASSRLS` by an explicit decision
+  > (`docker-compose.test.yml:58-60`: a superuser "is exempt from every policy and would make
+  > AC-8..AC-11 vacuous"). `SELECT count(*) FROM tenants` cannot be issued by any reader in
+  > the suite.
+  >
+  > The membership clause now carries the weight: **one membership for that user across every
+  > tenant**, read through `app.membership_lookup_user`, so a second membership under a second
+  > tenant would show. **The residual is an orphaned `tenants` row with no membership pointing
+  > at it, and nothing in the suite can see it.** The declined alternative was a fourth
+  > `BYPASSRLS` DSN for counting, which contradicts the test stack's own stated reason for not
+  > having one — a policy-exempt connection inside the suite that exists to prove policies work.
+  >
+  > Found by the test architect while writing the test, which is where test.md says it is free.
 - [ ] AC-2: Given a user who already holds a `tenant_memberships` row, when a second `tenant_memberships` row naming that same `user_id` is inserted under any tenant, then Postgres rejects the statement with a unique violation on the `tenant_memberships_user_unique` constraint and the table still holds exactly one row for that user.
 - [ ] AC-3: Given a session created by a successful sign-in, when a JWT is minted for it, then the decoded claim set carries `sub` equal to the user's id, `tid` equal to that user's `tenant_memberships.tenant_id`, `email` equal to the signup address, `ev` equal to the user's `emailVerified` value, `jti` equal to the Better Auth session id, and `exp` minus `iat` equal to 300 seconds.
 

@@ -61,6 +61,48 @@ export interface SqlOptions {
    * `:"name"` as a quoted identifier, both of which psql escapes for us.
    */
   readonly variables?: Readonly<Record<string, string>>;
+  /**
+   * Any other `app.*` context flag, set for the session before the statement runs.
+   *
+   * `tenantId` above is the same mechanism with one flag name baked in, and it stays
+   * because every existing caller uses it. This exists for the other two flags the
+   * migrated policies read — `app.membership_lookup_user` (ADR-0045) and
+   * `app.privileged_erase` (F-005) — which wave 2 is the first fixture to need.
+   *
+   * ⚠ THE VALUE IS INTERPOLATED BY psql, THE NAME IS NOT. `:'flag_<n>'` quotes the value
+   * as a literal, the same route `tenantId` takes; the flag name is concatenated into the
+   * statement, so it is checked against `app.<lower_snake>` before it gets there. Every
+   * caller today passes a constant from this directory, and the check is what keeps that
+   * true if one ever passes a variable.
+   */
+  readonly flags?: Readonly<Record<string, string>>;
+}
+
+/** `set_config` lines for `flags`, one per entry, before the caller's statement. */
+const CONTEXT_FLAG_NAME = /^app\.[a-z_]+$/;
+
+function setFlagStatements(flags: Readonly<Record<string, string>> | undefined): {
+  readonly script: string;
+  readonly variables: Record<string, string>;
+} {
+  const entries = Object.entries(flags ?? {});
+  const variables: Record<string, string> = {};
+  let script = '';
+
+  entries.forEach(([name, value], index) => {
+    if (!CONTEXT_FLAG_NAME.test(name)) {
+      throw new Error(
+        `'${name}' is not a context flag this fixture will set. Flag names are ` +
+          'concatenated into the statement and must match /^app\\.[a-z_]+$/.',
+      );
+    }
+
+    const variable = `flag_${String(index)}`;
+    variables[variable] = value;
+    script += `SELECT set_config('${name}', :'${variable}', false) \\g /dev/null\n`;
+  });
+
+  return { script, variables };
 }
 
 function send(dsn: string, script: string, options: SqlOptions): string {
@@ -101,9 +143,21 @@ function send(dsn: string, script: string, options: SqlOptions): string {
 
 const SET_TENANT_ID = "SELECT set_config('app.tenant_id', :'tenant_id', false) \\g /dev/null\n";
 
+/** Every `set_config` line a call's options ask for, and the psql variables they read. */
+function prelude(options: SqlOptions): { readonly script: string; readonly sent: SqlOptions } {
+  const flags = setFlagStatements(options.flags);
+
+  return {
+    script: (options.tenantId === undefined ? '' : SET_TENANT_ID) + flags.script,
+    sent: { ...options, variables: { ...options.variables, ...flags.variables } },
+  };
+}
+
 /** Runs statements for their effect. Any error aborts the script and throws. */
 export function execSql(dsn: string, script: string, options: SqlOptions = {}): void {
-  send(dsn, (options.tenantId === undefined ? '' : SET_TENANT_ID) + script, options);
+  const { script: before, sent } = prelude(options);
+
+  send(dsn, before + script, sent);
 }
 
 /**
@@ -115,9 +169,9 @@ export function querySql<T = Record<string, unknown>>(
   select: string,
   options: SqlOptions = {},
 ): T[] {
-  const script =
-    (options.tenantId === undefined ? '' : SET_TENANT_ID) +
-    `SELECT coalesce(json_agg(q), '[]'::json) FROM (\n${select}\n) q;\n`;
+  const { script: before, sent } = prelude(options);
 
-  return JSON.parse(send(dsn, script, options).trim()) as T[];
+  const script = `${before}SELECT coalesce(json_agg(q), '[]'::json) FROM (\n${select}\n) q;\n`;
+
+  return JSON.parse(send(dsn, script, sent).trim()) as T[];
 }
