@@ -71,6 +71,17 @@ reason is unchanged and now applies three times: from wave 3 `main.ts` imports
 assertion runs. `main.ts` maps `AuthBindingError.binding` onto `boot_precondition` so the log
 line is identical whichever path raised it.
 
+> **CORRECTED 2026-08-16 (F-210). THE LINE IS NOT IDENTICAL, AND THIS PARAGRAPH CLAIMED IT WAS.**
+> Measured by the implement-phase security audit: a refusal raised at **module scope** during
+> import bypasses `bootstrap().catch` entirely, so the handler that turns a binding refusal into
+> a clean exit with a named `boot_precondition` never runs. What an operator sees is an
+> unhandled rejection, not the designed message.
+>
+> ADR-0058 carried the same claim and `main.ts` now states the real behaviour alone. **Three
+> artifacts asserted a property none of them had checked** — which is why nobody would have
+> looked when it failed. TASK-004 owns the mount and inherits the dynamic-import shape `main.ts`
+> now documents.
+
 TASK-004 adds `assertTrustedClientIpHeaderConfigured(env)`,
 `assertBffProxySecretConfigured(env)` and `assertAuthRoleSeparation()` to this file in wave 3.
 It does not create the file and does not touch the six functions above.
@@ -145,6 +156,7 @@ implementer works from while the amendments are still being applied.
 | `baseURL` | `betterAuthUrl()` | ADR-0059 | **yes** |
 | `trustedOrigins` | `webAppOrigins()`. Extends the API's own origin, never replaces it | ADR-0059, `auth-tokens.md` | **yes** |
 | `advanced.useSecureCookies` | `betterAuthUrl().startsWith('https://')`. **Never `NODE_ENV`** | ADR-0059 | **yes** |
+| `advanced.disableOriginCheck` | **`false`, explicitly.** Absent, `create-context.mjs:210` derives it from `isTest()` — see below | F-206 | **yes** |
 | `session.expiresIn` | `SESSION_LIFETIME_SECONDS = 604800`. The library's default, stated | ADR-0059 | |
 | `logger` | `{ level: 'warn', disableColors: true, log }` | ADR-0052, **level amended by ADR-0060** | **yes** |
 | `rateLimit` | `{ enabled: false }` | ADR-0013 | **yes** |
@@ -259,6 +271,23 @@ additions to the eight rows in `auth-tokens.md`'s table and are escalated there.
    short-circuits on a throw.
 4. **A `hooks.before` entry that refuses throws an `APIError` and nothing else.** Anything
    else aborts the request with a body-less 500 and skips every later hook.
+
+   > **AND ITS MESSAGE ESCAPES THE FIELD ALLOWLIST — 2026-08-16, F-216.** ADR-0052's "exactly
+   > one censoring mechanism" does not hold for the `onError` path. `api/index.mjs:199` is
+   > `const log = optLogLevel === "error" || optLogLevel === "warn" || optLogLevel === "debug"
+   > ? logger : void 0`, and that `logger` is better-auth's **package-level singleton**, not the
+   > bound `log` hook — then `log?.error(e.message)`. No hook, no `disableColors`, straight to
+   > `console.error`, past the pino allowlist. Verified at the source.
+   >
+   > **The level is not the cause**: `error`, `warn` and `debug` are all enabling values, so
+   > this was equally true before F-175 moved the level to `'warn'`. Nothing leaks today because
+   > every message on this path is a fixed string.
+   >
+   > **Item 1b makes it live.** The invitation-validation hook this initiative ships the empty
+   > registry for is mandated to refuse with an `APIError`, and an invitation refusal is exactly
+   > the message that would carry a token and an email. **Whoever writes that hook owns the
+   > decision about what its message may contain**, and this invariant is where they will meet
+   > it.
 5. **A hook that does not apply to `ctx.path` returns immediately.** `ctx.body` is
    **unvalidated** at this point: probes against 1.6.26 delivered `ctx.body.email` as an
    object, as a number, and `ctx.body` as `undefined` (ADR-0013, F-228).
@@ -312,6 +341,32 @@ additions to the eight rows in `auth-tokens.md`'s table and are escalated there.
 - **`baseURL` and `jwt.issuer`/`jwt.audience` are all three set**, from the same accessor.
   Setting only `baseURL` leaves the claims on a derivation; setting only the claims leaves the
   cookie flag and the trusted-origin list on the request-derived origin (ADR-0059).
+- **`advanced.disableOriginCheck` is `false` and is stated, because absent it is not.**
+  ADDED 2026-08-16 (F-206), found by the implement-phase security audit and verified at the
+  source and by measurement. `create-context.mjs:210` reads
+  `skipOriginCheck: options.advanced?.disableOriginCheck !== undefined ? … : isTest() ? true :
+  false`, and `isTest()` is `nodeENV === 'test' || toBoolean(env.TEST)` where
+  `toBoolean(v) = v ? v !== 'false' : false`.
+
+  Two consequences, both measured. **`TEST=0` in production disables CSRF origin checking** —
+  the string is truthy and is not the literal `'false'`, and a cross-origin `POST /sign-out`
+  returned 200. And **the test tier runs at `NODE_ENV=test`**, so from wave 3 every request a
+  test issues would bypass the check entirely: the whole `trustedOrigins` apparatus this
+  contract specifies would never be consulted where it is measured.
+
+  That makes it **the fourth finding on this one predicate** — F-170 no owner, F-181 admitting
+  the platform wildcard, F-203 the wildcard branch validating less than the plain branch, and
+  this — and it subsumes the other three, because a control that never runs cannot be tested
+  into correctness. **Assert the resolved `$context.skipOriginCheck`, never the option**: this
+  tier runs at `NODE_ENV=test`, so an unpinned key reads `true` in the assertion itself.
+
+- **`get-session` returns the plaintext session token in its response body**, so `HttpOnly`
+  protects it from nothing that already runs script on a trusted origin, and `bearer()` accepts
+  that value as a complete credential. Recorded 2026-08-16 (F-208) as an **accepted cost with
+  no owner in this initiative** rather than a defect: reaching it requires same-origin script
+  execution, which is a different compromise from the one the cookie flag defends. The next
+  initiative that ships a browser surface owns the decision to suppress the field.
+
 - **`advanced.useSecureCookies` is derived from `BETTER_AUTH_URL`'s scheme and from nothing
   else.** Reading `NODE_ENV` here is the defect GC-B forbids and is what the library already
   does when the key is absent.

@@ -168,10 +168,14 @@ const WILDCARD_METACHARACTERS = /[*?]/;
 
 /**
  * The shape a wildcard entry has to have before its host labels are worth checking (F-203).
- * Lower-case scheme, host characters plus the two metacharacters, optional numeric port,
- * and nothing after it.
+ * An `http:`/`https:` scheme, host characters plus the two metacharacters, an optional
+ * numeric port, and nothing after it.
+ *
+ * CASE-INSENSITIVE, AND THE CASE RULE IS SEPARATE (F-214). One regex covering both meant a
+ * refusal that printed four structural clauses at an entry which satisfied all four and
+ * broke only the unprinted fifth.
  */
-const WILDCARD_ORIGIN_SHAPE = /^https?:\/\/[a-z0-9*?._-]+(?::\d+)?$/;
+const WILDCARD_ORIGIN_SHAPE = /^https?:\/\/[a-z0-9*?._-]+(?::\d+)?$/i;
 
 /** Rule 2's window: the registrable domain, approximated as the final two labels. */
 const REGISTRABLE_LABEL_COUNT = 2;
@@ -393,9 +397,22 @@ function assertWildcardHostIsBounded(entry: string): void {
 }
 
 /**
- * A wildcard entry is an ORIGIN with a wildcard inside its host, and nothing else: a
- * lower-case `http:`/`https:` scheme, a host of host characters and metacharacters, an
- * optional numeric port, and no userinfo, path, query, fragment or trailing slash.
+ * A wildcard entry is an ORIGIN with a wildcard inside its host, and nothing else: an
+ * `http:`/`https:` scheme, a host of host characters and metacharacters, an optional
+ * numeric port, and no userinfo, path, query, fragment or trailing slash. It must also be
+ * lower case.
+ *
+ * ============================================================================
+ * TWO RULES AND TWO MESSAGES, BECAUSE A REFUSAL HAS TO NAME THE RULE IT BROKE (F-214).
+ * ============================================================================
+ *
+ * The structural check is case-INSENSITIVE and the case check is its own. One combined
+ * rule refused `https://Shortkit-*.vercel.app` with a message listing a scheme, a host, a
+ * port and the absence of a path — every one of which that entry satisfies — while saying
+ * nothing about the only clause it broke. An operator reads four satisfied rules and
+ * concludes the assertion is broken, and the cheapest way past an assertion you believe is
+ * broken is a wildcard broad enough to stop failing, which is the pressure F-181 and F-203
+ * both exist to keep off this value.
  *
  * Lower case is required rather than normalised, because `matchesOriginPattern` compares
  * the pattern against `getOrigin(url)`, which is lower-cased — an upper-case pattern is an
@@ -408,11 +425,24 @@ function assertWildcardOriginShape(entry: string): void {
     throw new AuthBindingError(
       'web_app_origins',
       `WEB_APP_ORIGINS entry ${JSON.stringify(entry)} is not an absolute origin with a ` +
-        'wildcard inside its host. Write a lower-case http:// or https:// scheme, a host, ' +
-        'and at most a numeric port — no path, query, fragment or trailing slash, because ' +
+        'wildcard inside its host. Write an http:// or https:// scheme, a host, and at ' +
+        'most a numeric port — no path, query, fragment or trailing slash, because ' +
         'better-auth matches the pattern against an origin that never carries one, so such ' +
         'an entry boots green and then matches nothing. As in ' +
         'https://shortkit-*.vercel.app. See ADR-0059.',
+    );
+  }
+
+  if (entry !== entry.toLowerCase()) {
+    throw new AuthBindingError(
+      'web_app_origins',
+      `WEB_APP_ORIGINS entry ${JSON.stringify(entry)} is not lower case. Everything else ` +
+        'about it is accepted; write it as ' +
+        `${JSON.stringify(entry.toLowerCase())}. better-auth matches a wildcard pattern ` +
+        'against the origin as the browser sends it, which is lower-cased, so an entry ' +
+        'with a capital in it can never match anything and would boot green and then be ' +
+        'silently inert. It is refused rather than lower-cased for you, so the value in ' +
+        'force is the value you wrote. See ADR-0059.',
     );
   }
 }

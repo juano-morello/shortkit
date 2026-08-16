@@ -3721,9 +3721,11 @@
   routing_note: >-
     Card text, which config.yaml routes to `orchestrator`. Costs no fix round. Filed at the
     wave-2 Design phase by the orchestrator, not by an auditor.
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 2
+  ruling: >-
+    TASK-003's contracts field gained auth-contracts.md, revocation-store.md and auth-config-surface.md at the wave-2 Design gate. The other four consumer cards named at auth-contracts.md:9-11 get theirs at the Design re-entry that covers their waves.
 
 - id: F-168
   phase: design
@@ -3751,9 +3753,11 @@
     constant stays a number because REVOCATION_TTL_SECONDS derives from it. auth-contracts.md's
     instruction line, this docblock and the card all get corrected.
   owner_slot: orchestrator
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    Call site writes the template string, the shipped docblock is corrected, and frozen auth-contracts.md:136-138 is amended. The implementation is committed in b214221. NO GREEN PROOF UNTIL WAVE 3 - which is F-213, filed for exactly that.
 
 - id: F-169
   phase: design
@@ -3778,9 +3782,11 @@
     RULED BY JUANO 2026-08-15: auth-tokens.md wins on its probe evidence and its existing
     assertion. auth.config.ts sets NEITHER key. Amend auth-contracts.md:65-67.
   owner_slot: orchestrator
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    auth-contracts.md:65-67 amended: auth.config.ts sets NEITHER password-length key and inherits the library's 8 and 128. The reviewer verified the implementation matches.
 
 - id: F-170
   phase: design
@@ -3807,9 +3813,11 @@
     RULED BY JUANO 2026-08-15: TASK-003 takes it this wave - the binding, an env-file entry, and a
     unit test asserting BOTH directions, including that no entry is `*` or a bare-wildcard host.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    Designed in ADR-0059, implemented, and hardened twice since - F-181's platform wildcard and F-203's unvalidated wildcard branch. Verdicted ADDRESSED by the design r2 re-review and again by the implement r2 reviewer, which tried three cases nobody had filed.
 
 - id: F-171
   phase: design
@@ -3834,9 +3842,11 @@
     cites ADR-0015 as superseded-in-part ON THE DESCRIPTION ONLY; foundation's ADR gets a one-line
     pointer. No closed gate reopens.
   owner_slot: orchestrator
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    ADR-0054 carries the corrected residue; foundation's ADR-0015 carries the pointer, written by me under Juano's ruling. No closed gate reopened.
 
 - id: F-172
   phase: design
@@ -3902,9 +3912,11 @@
     load-bearing key with an owner, an env entry and a boot assertion beside the secret one; assert
     a minted token's iss/aud do not move with the Host header.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    ADDRESSED, verdicted by the design r2 re-review BY RE-EXECUTION: Host: evil.test now mints iss=aud=https://api.example.com with exp-iat=300.
 
 - id: F-174
   phase: design
@@ -3931,9 +3943,11 @@
     Fix the cookie attributes explicitly in the config-surface table rather than deriving them, and
     assert them off $context.authCookies.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    ADDRESSED, verdicted by the design r2 re-review by re-execution: __Secure- prefix, secure true, httpOnly, lax, 604800.
 
 - id: F-175
   phase: design
@@ -3961,9 +3975,11 @@
     level: 'warn' in the config-surface table and in ADR-0052, with the audited basis stated. Keep
     the spec's assertion, at the new value.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    ADDRESSED in the decision, verdicted by design r2 - 'warn' receives the base-URL warning that 'error' swallowed. Its residual in the card and ADR-0052 was F-183, fixed. NOTE F-216: the level was never the whole story, because the onError path bypasses the hook at every enabling level.
 
 - id: F-176
   phase: design
@@ -3995,9 +4011,11 @@
     on five unprotected tables; qualify ADR-0057's two-factor sentence to name the adversary it
     holds against.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    ADDRESSED. ADR-0056 carries the widened capability statement and the pg.Pool bypass; the scans that grew out of it were then hardened three more times - F-180, F-182, F-207.
 
 - id: F-177
   phase: design
@@ -4026,9 +4044,11 @@
     before `set` in revoke so insertion order tracks current expiry, and assert a re-revoked entry
     is not evicted first.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    ADDRESSED and propagated to the ADR, the contract and the stub. The delete-before-set rule reached the shipped implementation and the reviewer verified it.
 
 - id: F-178
   phase: design
@@ -4056,9 +4076,11 @@
     Correct the table to 7 days, add the Set-Cookie-on-500 fact, put session.expiresIn in the
     config surface as a decided value, and reconcile it with sk_rt's max-age.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    ADDRESSED - the residue table corrected to 7 days with the Set-Cookie fact, then superseded again by autoSignIn: false, which removed the session row entirely. The auditor confirmed the final state by forcing the failure.
 
 - id: F-179
   phase: design
@@ -4085,9 +4107,11 @@
     emailAndPassword.autoSignIn and requireEmailVerification to the config surface as deliberate
     values.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 1
+  ruling: >-
+    ADDRESSED by ADR-0061, which Juano then took as a decision rather than an accepted cost. The oracle it named was measured CLOSED against the real adapter - see F-188, withdrawn.
 
 - id: F-180
   phase: design
@@ -4110,9 +4134,11 @@
     isolation harness's positive control already ships for.
   required_change: The scan distinguishes a connection string from a message that names one.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 3
+  ruling: >-
+    ADDRESSED in the scoped round 3: scan 2 became a subset with the direction stated per scan, and the design r4 re-review verified all four scans green against the tree.
 
 - id: F-181
   phase: design
@@ -4137,9 +4163,11 @@
   required_change: >-
     The predicate rejects every wildcard host form auth-tokens.md:158-162 names, and `?` with it.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 3
+  ruling: >-
+    ADDRESSED in round 3 and verified by execution in design r4: every refusal warranted, https://shortkit-*.vercel.app passes without over-matching. Its residual is F-189, parked.
 
 - id: F-182
   phase: design
@@ -4162,9 +4190,11 @@
     bypass list suggests, and the ADR should say which.
   required_change: Say what each equality is worth, or drop the two that are not load-bearing.
   owner_slot: sdlc-architect
-  status: routed
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 3
+  ruling: >-
+    ADDRESSED - the scan now matches module specifiers, and ADR-0056 states which scan is load-bearing and which is a tripwire. Design r4 confirmed nothing still describes the tripwire as coverage.
 
 - id: F-183
   phase: design
@@ -4220,9 +4250,11 @@
     this way by agents; this is one of theirs caught by me, and the check cost one grep.
   required_change: The flow change is written onto TASK-008 and TASK-013. TASK-012 gets nothing.
   owner_slot: orchestrator
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    The flow change was written onto TASK-008 and TASK-013, the cards that actually hold the assumption. TASK-012 got nothing, as ruled.
 
 - id: F-185
   phase: design
@@ -4759,3 +4791,690 @@
   status: open
   resolved_by: null
   resolved_round: null
+
+- id: F-200
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-implementer-backend
+  round: 1
+  severity: major
+  kind: test-coverage
+  file: apps/api/test/security/security-headers.int-spec.ts
+  line: 171
+  summary: >-
+    TASK-003 BREAKS EIGHT PREVIOUSLY-GREEN INTEGRATION TESTS, AND THE ASSERTION DOING IT IS
+    WORKING CORRECTLY. The spec spawns an API passing only GIT_COMMIT_SHA and the two DSNs, so
+    the new boot assertion refuses the child: boot_precondition "better_auth_secret", before the
+    database precondition.
+  failure_scenario: >-
+    MEASURED BY ME, not taken from the report: integration went from 13 failed / 82 passed to
+    21 FAILED / 74 PASSED. Eight security-header tests that passed this morning now fail.
+    THIS IS NOT A DEFECT IN THE ASSERTION. The spec under-specifies its child and the guard
+    refuses an auth surface configured without a secret, which is exactly its job - the same
+    guard whose absence F-020 filed as a blocker. The spec's env callback is EXPLICIT and does
+    not spread process.env, which the file's own comment states as deliberate: "this callback
+    says what the child needs instead of inheriting it by accident". That design is why the
+    break is loud rather than silent.
+    THE IMPLEMENTER'S CI CLAIM IS TRUE AND DOES NOT BITE: ci.yml carries neither binding, but
+    the callback never reads process.env for them, so no CI change is needed. Verified by
+    reading the callback.
+  required_change: >-
+    Two entries in that env callback: a BETTER_AUTH_SECRET of at least 32 characters that is not
+    the published constant, and a loopback `http` BETTER_AUTH_URL. The loopback rule is a STRING
+    test, so a literal 127.0.0.1 origin satisfies it without knowing the child's port.
+  owner_slot: sdlc-test-architect
+  routing_note: >-
+    Test file. Routing rule 0 sends it to sdlc-test-architect, never the implementer - and the
+    implementer correctly refused to edit it and reported instead.
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+  ruling: >-
+    FIXED AND VERIFIED BY ME: integration is back to 13 failed / 82 passed, exactly the
+    pre-regression state, with only security-headers.int-spec.ts changed. The eight tests pass in
+    about a second.
+    THE ARCHITECT DECLINED MY SUGGESTED FIX AND WAS RIGHT. I proposed a literal loopback origin
+    on the grounds that the loopback rule is a string test. It used the real `baseUrl` the
+    callback already receives, arguing that a hardcoded value tells a future reader the origin is
+    arbitrary WHEN THE SAME BINDING DECIDES iss, aud AND THE COOKIE'S Secure FLAG ONE FILE OVER -
+    a child claiming an origin it does not answer on is a fixture someone would copy. I had
+    invited it to say so if my form read as misleading, and it did.
+    It also checked the thing I actually worried about: none of the eight assertions is newly
+    vacuous. They probe /health and a branded 404 for helmet headers, neither binding reaches
+    either response, and the file's own vacuity guard still fires.
+
+- id: F-201
+  phase: implement
+  wave: 2
+  task: TASK-004
+  source: sdlc-implementer-backend
+  round: 1
+  severity: minor
+  kind: design
+  file: apps/api/src/auth/auth.config.ts
+  line: 113
+  summary: >-
+    THE COMPOSED INSTANCE LOSES ITS PLUGIN-INFERRED `auth.api` TYPES, and TASK-004 mounts it.
+    `export const auth: Auth = betterAuth({...})` does not compile - Auth<Options> is invariant
+    through $context.adapter - so the implementer wrote betterAuth<BetterAuthOptions>({...}).
+  failure_scenario: >-
+    NOT A CONTRACT BREACH, and I checked before classifying it as one. auth-config-surface.md:34
+    specifies `export const auth: Auth` and that is exactly what is exported; the deviation is in
+    how the value is constructed. I VERIFIED THE NECESSITY BY COMPILING IT BOTH WAYS: the plain
+    form fails TS2322 at auth.config.ts:113, the type-parameter form exits 0.
+    The cost is real and lands one wave out: `auth.api`'s plugin-inferred member types are gone,
+    so TASK-004 writing the Express mount gets a weaker type than it would expect from reading
+    the contract. Nothing reads them today.
+  required_change: >-
+    TASK-004's card records what it inherits before it writes the mount. Whether to recover the
+    inference is its decision with the code in front of it.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-202
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-product-auditor
+  round: 1
+  severity: nit
+  kind: simplification
+  file: apps/api/src/auth/on-user-created.ts
+  line: 74
+  summary: >-
+    AN UNREQUESTED AND UNREACHABLE DEFENSIVE BRANCH: createTenantForNewUser throws on an empty
+    RETURNING from the membership insert. The implementer flagged it in its own report for a
+    reviewer to keep or cut.
+  failure_scenario: >-
+    Not a defect - it is dead code with a cost. An INSERT ... RETURNING that commits cannot
+    return zero rows, so the branch cannot execute, and a throw that cannot fire reads to the
+    next author as a real failure mode that has been handled. This wave has spent four rounds on
+    controls that could not fail; a branch that cannot run is the same shape in the other
+    direction.
+    Filed as a nit rather than a minor because it is inert either way, and because the
+    implementer disclosing it unprompted is the behaviour worth reinforcing.
+  required_change: Keep it with a comment saying why it is unreachable, or cut it. A reviewer's call.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    KEPT WITH A COMMENT SAYING WHY IT CANNOT FIRE, which was the reviewer's call to make and the
+    implementer's to offer. It disclosed the branch unprompted in its own report before any
+    auditor saw it.
+
+- id: F-203
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: correctness
+  file: apps/api/src/auth/boot-assertions.ts
+  line: 297
+  summary: >-
+    THE WILDCARD BRANCH SKIPS THE ORIGIN-SHAPE VALIDATION THE PLAIN BRANCH APPLIES and returns
+    the entry verbatim. `https://shortkit-*.vercel.app/` - the documented preview form, with a
+    trailing slash - boots green and can NEVER match, because better-auth compares the pattern
+    against getOrigin(url), which has no trailing slash.
+  failure_scenario: >-
+    Every preview-deployment POST gets 403 INVALID_ORIGIN with no diagnostic anywhere: the
+    assertion passed, the value is in the env, and the only symptom is a CSRF refusal on a
+    correctly-configured deployment. AND THE CHEAPEST REMEDY IS THE DANGEROUS ONE - an operator
+    debugging a 403 they cannot explain reaches for a broader wildcard, which is the exact
+    pressure F-181 was filed about and this assertion was written to resist.
+    THE ORIGINS PREDICATE HAS NOW PRODUCED THREE FINDINGS ACROSS DESIGN AND IMPLEMENT - F-170 no
+    owner, F-181 admitting the platform wildcard, and now a wildcard that validates less than a
+    plain entry. Each fix narrowed one branch and left the other alone.
+  required_change: >-
+    Normalise a wildcard entry the same way a plain one is normalised - at minimum strip a
+    trailing slash - or refuse it with a message naming the difference.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    FIXED IN ROUND 1. Wildcard entries now pass the same origin-shape check as plain ones: all
+    three cases in the finding refused, both of the auditor's "too small to file" observations
+    closed for free, the documented preview form still accepted bare and with a port, 21/21 boot
+    tests green. One judgement beyond the letter, flagged as reversible: an upper-case wildcard
+    entry is REFUSED rather than lower-cased. I am letting that stand - refusing an ambiguous
+    value beats silently rewriting one, in a predicate whose failure mode is a 403 nobody can
+    explain.
+
+    RE-REVIEWED AND ADDRESSED, round 2. The reviewer re-ran it: all three cases plus both free
+    ones refused, and three more it tried - `*://example.com`, `https://:*`,
+    `https://evil.com#*.vercel.app`. Preview form still passes bare and with a port. It named
+    what makes the fix safe rather than just confirming it: ordering, shape before host rules,
+    is what lets wildcardHost stay simple.
+    MY UPPER-CASE JUDGEMENT WAS UPHELD AND THEN QUALIFIED - refusing beats silently lower-casing,
+    but the refusal message names four rules the value satisfies. Filed F-214.
+
+- id: F-204
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: doc
+  file: apps/api/.env.example
+  line: 3
+  summary: >-
+    THE NEW FILE'S REMEDY DOES NOT WORK, ON BOTH COUNTS. It says "Copy to `apps/api/.env` ...
+    before `pnpm dev`". NOTHING READS apps/api/.env - no dotenv, no --env-file - and THERE IS NO
+    `dev` SCRIPT FOR THE API IN ANY MANIFEST.
+  failure_scenario: >-
+    VERIFIED BOTH MYSELF: every workspace manifest's `dev` script is empty except apps/web's
+    `next dev`, and apps/api exposes start, build, typecheck, test, test:integration and the db
+    scripts. So a developer who hits the boot refusal, reads the file, copies it to
+    apps/api/.env and runs the command gets THE IDENTICAL REFUSAL - and now believes the
+    variables are set.
+    F-390's class and TASK-019 fixed exactly this shape on this branch two days ago: a
+    documented remedy that does not resolve the state it describes. A remedy that leaves the
+    error unchanged is worse than no remedy, because it moves the reader from "I need to set
+    this" to "this is broken".
+  required_change: >-
+    Say what actually works - export the variables, or use the compose stack, which already
+    carries defaults for both - and name a command that exists.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    FIXED IN ROUND 1, and the remedy was checked by running it: `node --env-file=...` works on
+    24.19. ADR-0059:285-286 carried the same dead instruction and was NOT the implementer's to
+    fix; I corrected it in the same step as this entry.
+
+    RE-REVIEWED AND ADDRESSED, round 2. The reviewer checked the PREMISE rather than the prose,
+    and the one thing that could break it silently: apps/api/src has no cwd, __dirname or
+    readFileSync, so the root-relative --env-file command works from where it is documented.
+
+- id: F-205
+  phase: implement
+  wave: 2
+  task: TASK-017
+  source: sdlc-reviewer
+  round: 1
+  severity: minor
+  kind: test-coverage
+  file: scripts/check-compose-stack.sh
+  line: 188
+  summary: >-
+    THE TWO NEW HOST-INTERPOLATED COMPOSE VARIABLES ARE ON NEITHER THE CONTAMINANT LIST NOR THE
+    NOISY LIST, so an exported BETTER_AUTH_URL silently changes what `test:compose` measures.
+  failure_scenario: >-
+    The guard exists to stop a developer's shell leaking into what the compose gate asserts.
+    Two variables were added to docker-compose.yml this wave and neither list learned about
+    them, so the gate measures a stack the CI runner would not produce and reports green.
+    F-037's class - the contaminant guard's fourth variable - which was itself found by three
+    auditors in wave 0.
+    OUTSIDE THIS CARD'S PATHS. scripts/check-compose-stack.sh is TASK-017's, wave 9.
+  required_change: Both variables join the appropriate list, in TASK-017.
+  owner_slot: sdlc-implementer-backend
+  status: open
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    DEFERRAL UPHELD AT RE-REVIEW, WITH A CONDITION. The reviewer verified CI's runner carries
+    neither variable, so the CI signal is clean today, and that TASK-017 is downstream of
+    TASK-009 INSIDE this initiative (plan.md:134) rather than deferred out of it. Its condition:
+    do not close this wontfix at a gate. Recorded as exactly that.
+
+- id: F-206
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: apps/api/src/auth/auth.config.ts
+  line: 159
+  summary: >-
+    THE ORIGIN CHECK IS OFF IN EVERY TEST AND CAN BE TURNED OFF IN PRODUCTION BY AN ENVIRONMENT
+    VARIABLE. advanced.disableOriginCheck is unset, so create-context.mjs:210 derives
+    skipOriginCheck from isTest(), and isTest() is `nodeENV === "test" || toBoolean(env.TEST)`
+    where toBoolean is `val ? val !== "false" : false`.
+  failure_scenario: >-
+    VERIFIED AT THE SOURCE BY ME, after the auditor measured it: `NODE_ENV=production TEST=0`
+    gives skipOriginCheck = true and a cross-origin POST /sign-out returns 200. `TEST=0` is
+    truthy and is not the literal "false", so ANY value but that one disables CSRF origin
+    checking in production.
+    AND THE TEST-SIDE HALF IS WORSE FOR THIS WAVE. The fixture spawns the API at NODE_ENV=test,
+    so from wave 3 THE ENTIRE trustedOrigins APPARATUS THIS CARD SHIPS IS NEVER CONSULTED BY ANY
+    TEST THAT ISSUES A REQUEST. Every origins assertion would pass against a check that never
+    runs.
+    THAT MAKES IT THE FOURTH FINDING ON THIS ONE PREDICATE - F-170 no owner, F-181 admitting the
+    platform wildcard, F-203 the wildcard branch validating less than the plain branch, and now
+    the check itself skipped - AND IT SUBSUMES THE OTHER THREE, because a control that never runs
+    cannot be tested into correctness. It is this wave's signature defect in its purest form:
+    four rounds of work on a mechanism, and the mechanism is switched off where it is measured.
+  required_change: >-
+    Set `advanced.disableOriginCheck: false` explicitly. The auditor verified the remedy: it
+    restores the 403 and leaves both legitimate origins at 200. Add it to the config-surface
+    table as a decided value with the derivation named, and assert it in auth.config.spec.ts -
+    it is exactly the silent-in-production class that AC-5 exists for.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    FIXED IN ROUND 1 AND VERIFIED BY ME TWICE OVER. `advanced.disableOriginCheck: false` is set
+    explicitly. I read the derivation at the source - create-context.mjs:210 and
+    `isTest() = nodeENV === "test" || toBoolean(env.TEST)` with `toBoolean = v ? v !== "false" :
+    false` - then measured the RESOLVED $context.skipOriginCheck: false under
+    NODE_ENV=production with TEST truthy.
+    AND I PROVED THE MEASUREMENT COULD FAIL, which is the whole lesson of this wave: with the
+    line commented out the same probe reads true. A fix verified by a check that cannot fail is
+    the fifth mechanism this wave found in that state.
+    The ASSERTION is not in yet - it needs auth.config.spec.ts and is routed to
+    sdlc-test-architect, to be written off the resolved value and never the option.
+
+- id: F-207
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: security
+  file: apps/api/src/db/better-auth-database-callers.spec.ts
+  line: 1
+  summary: >-
+    THE EXPORTED `auth` IS ITSELF A SECOND HANDLE ON shortkit_auth, REACHABLE THROUGH
+    auth.$context.adapter, AND ALL FOUR CALLER-LIST SCANS ARE GREEN WHILE IT IS.
+  failure_scenario: >-
+    Measured through auth.$context.adapter: plaintext session tokens, password hashes, the
+    encrypted jwks key, and a FORGED SESSION ROW FOR ANOTHER USER. The auditor planted five
+    bypass files in a mirrored tree and ran the shipped spec against them - three caught, one is
+    the residual ADR-0056 already states, and THIS ONE IS NAMED NOWHERE.
+    F-176's family one level further out, and the pattern is exact: F-176 established that the
+    control bounds an identifier rather than the role, and the fix added scans for the DSN and
+    the pool. The object this card EXPORTS carries the same capability and names neither.
+    Two rounds of design went into bounding a handle, and the card ships a second one in the
+    open.
+  required_change: >-
+    Bound `auth.$context` the way betterAuthDatabase is bounded, or state in ADR-0056 why the
+    composed instance is exempt and what does bound it. Do not add a scan that reads as coverage
+    without measuring it against the planted bypass - the auditor's five-file method is the
+    check.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 1
+  ruling: >-
+    CLOSED BY A FIFTH SCAN, AND THE ROUTE TO IT IS WORTH MORE THAN THE SCAN. The implementer
+    named the gap in the auditor's own terms, then escalated a MEASURED proposal rather than a
+    described one - a mirrored tree, seven planted import spellings, all caught - and proposed it
+    as a SUBSET rather than the equality I asked for, citing F-186's trap by name. That is a
+    lesson from one finding applied to a different one, unprompted.
+    THE TEST ARCHITECT THEN CAUGHT THE PART THAT WAS STILL WRONG. It re-measured with twelve
+    must-match spellings and five must-not, found one the seven missed (`import
+    './auth.config';`, not a bypass - it binds no name), and DISPROVED THE NON-VACUITY ARGUMENT:
+    main.ts matches only through a COMMENT quoting the import TASK-004 must write, and no file
+    under apps/api/src imports auth.config.ts at all today. On a subset assertion, rewording that
+    comment would leave scan 5 matching nothing and passing silently.
+    So it shipped a positive control on the pattern itself over planted text, mutation-checked
+    with a planted importer. THE SIXTH CONTROL THIS WAVE THAT WOULD NOT HAVE BEEN ABLE TO FAIL,
+    and the first caught before it landed rather than after.
+    Its judgement on the describe was taken: keep the block name, take the scan, move the
+    six-item residual into the docblock, and add the side-effect-import line to ADR-0056's own
+    gap list - which I wrote.
+
+- id: F-208
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: apps/api/src/auth/auth.config.ts
+  line: 1
+  summary: >-
+    get-session RETURNS THE PLAINTEXT SESSION TOKEN IN ITS RESPONSE BODY, so HttpOnly protects
+    nothing against same-origin script - and bearer() makes that value a complete credential.
+  failure_scenario: >-
+    The cookie is HttpOnly precisely so script cannot read the token; an endpoint that returns
+    the same value in a body undoes that for any same-origin XSS, and the bearer plugin accepts
+    the value directly. Minor rather than major because reaching it still needs script execution
+    on a trusted origin, which is a different compromise.
+  required_change: State the exposure as an accepted cost with the reasoning, or suppress the field.
+  owner_slot: sdlc-implementer-backend
+  status: parked
+  resolved_by: orchestrator
+  resolved_round: 1
+  ruling: >-
+    ACCEPTED AS A COST, RECORDED IN THE CONTRACT, NO OWNER IN THIS INITIATIVE. Reaching the
+    plaintext token in a get-session body needs script execution on a trusted origin, which is a
+    different compromise from the one HttpOnly defends - so it is real and it is not this card's
+    to close. Written beside the cookie table in auth-config-surface.md so the next initiative
+    shipping a browser surface meets it rather than rediscovers it.
+
+- id: F-209
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: security
+  file: apps/api/src/auth/auth.config.ts
+  line: 1
+  summary: >-
+    THE `level: 'warn'` AUDITED BASIS COVERED warn SITES ONLY. Two `error` sites put an unbounded
+    request-controlled string on the pino line.
+  failure_scenario: >-
+    F-175 changed the level to 'warn' on an audit of every `warn` call site in 1.6.26 - none
+    interpolates a value. `error` sites were never in scope of that audit and they are now above
+    the threshold, which they always were. The message reaches `msg`, the one uncensored field,
+    so the allowlist does not help.
+    THE FINDING IS ABOUT THE SHAPE OF THE EVIDENCE, not the level: an audit of one severity was
+    used to justify a threshold that admits two.
+  required_change: Audit the error sites the way the warn sites were audited, and record the result.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    HALF ACCEPTED, HALF DISPUTED, AND I ACCEPTED THE DISPUTE. The implementer took the half that
+    matters - the basis was scoped to `warn` while the level admits `error` - and named
+    origin-check.mjs:110 and :55,77 in the code. ADR-0060's basis paragraph now states what it
+    covers.
+    It DECLINED the truncation half with a reason grounded in an existing decision: ADR-0052's
+    alternatives table refuses truncation BY NAME and states the trigger that would reverse
+    that, and the trigger has not fired. Its added argument is the good one - a byte cap admits
+    a cap's worth per request and does not touch line VOLUME, which is the cost that would
+    actually bite. Parking beats implementing against a decision already taken on the record.
+
+- id: F-210
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: correctness
+  file: apps/api/src/main.ts
+  line: 1
+  summary: >-
+    A WAVE-3 MODULE-SCOPE BINDING REFUSAL BYPASSES bootstrap().catch ENTIRELY, while main.ts,
+    ADR-0058 and the contract all claim otherwise. Measured.
+  failure_scenario: >-
+    The handler that exists to turn a binding refusal into a clean exit with a named
+    boot_precondition never runs for a throw raised at module scope during import. What the
+    operator sees is an unhandled rejection rather than the designed message - and three
+    artifacts state the opposite, so nobody would look.
+  required_change: Either the import is deferred so the throw lands inside the handler, or all three artifacts stop claiming it does.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    FIXED IN ROUND 1 by removing the false claim from main.ts, which now documents the real
+    behaviour and hands TASK-004 the dynamic-import shape. I corrected the other two artifacts
+    that asserted it - ADR-0058 and auth-config-surface.md:68-72.
+    THREE ARTIFACTS ASSERTED A PROPERTY NONE OF THEM HAD CHECKED, which is why nobody would have
+    looked when it failed. Same class as F-183 and F-190 this wave: a claim propagating into
+    every place that restates it, with the check happening in none of them.
+
+- id: F-211
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: nit
+  kind: doc
+  file: apps/api/.env.example
+  line: 1
+  summary: TWO SECRET REFUSALS POINT AT AN .env.example THAT DOES NOT MENTION THE SECRET.
+  failure_scenario: >-
+    A developer refused at boot is sent to a file that does not contain the variable they were
+    refused for. Same family as F-204, in the same new file, found by a different auditor.
+  required_change: The file names BETTER_AUTH_SECRET, or the refusals stop pointing at it.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    FIXED IN ROUND 1: both refusals now point at the root `.env.example`, which documents the
+    key. THE FINDING WAS SLIGHTLY WRONG AND THE IMPLEMENTER SAID SO - it claimed both messages
+    ended by naming the file; only SECRET_UNSET did, SECRET_TOO_SHORT named none. The substance
+    held, and the correction is recorded so the next reader does not hunt for a string that was
+    never there.
+
+- id: F-212
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: correctness
+  file: apps/api/src/db/better-auth-database-callers.spec.ts
+  line: 265
+  summary: >-
+    SCAN 5 PRE-AUTHORISES AN IMPORT THAT THE FILE IT NAMES FORBIDS, IN THE SAME COMMIT. Its
+    permitted set includes auth.module.ts; auth.module.ts:21-24 says "IT DELIBERATELY IMPORTS
+    NOTHING FROM auth.config.ts" and explains why.
+  failure_scenario: >-
+    VERIFIED BY ME, both sides in the same commit. auth.config.ts evaluates betterAuth({ secret:
+    betterAuthSecret(), baseURL: betterAuthUrl(), ... }) AT MODULE SCOPE, so importing it into
+    auth.module.ts makes every AppModule compile - including the unit tier's - require the auth
+    bindings to be set. A wave-3 implementer wiring TASK-005's guard reads the control as an
+    invitation, takes it, AND REDDENS THE WHOLE UNIT TIER ON MODULE LOAD.
+    A control that permits what the code forbids is worse than one that permits too little: it
+    reads as design intent. Same family as the stale card instructions this wave has now found
+    three times, except this one was born contradictory rather than drifting into it.
+  required_change: >-
+    Drop auth.module.ts from scan 5's permitted set, or state in both places which one governs.
+    The permitted set should be ahead of the tree only where the import is actually intended.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 2
+  ruling: >-
+    FIXED AND BOTH SIDES VERIFIED BY THE FIXER. auth.module.ts is out of scan 5's permitted set, which is now main.ts alone, and the comment states that its absence is deliberate and that the line and auth.module.ts:21-24's docblock move together or neither moves - which is what stops the next author restoring the invitation.
+
+- id: F-213
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: test-coverage
+  file: apps/api/src/auth/auth.config.spec.ts
+  line: 1
+  summary: >-
+    expirationTime HAS NO UNIT ASSERTION AND ONE IS WORTH HAVING NOW. Its only check is red by
+    ruling until wave 3, while auth.config.spec.ts declares the field in its options type and
+    never reads it.
+  failure_scenario: >-
+    F-168 - the bare number minting tokens that expired in 1970 - has NO GREEN PROOF anywhere
+    until TASK-004 mounts. The reviewer's argument for why the skipOriginCheck objection does
+    not transfer is the good part: that key resolves into $context and this one has no resolved
+    surface, and toExpJWT/sec sit behind better-auth's exports map, 56 subpaths with no
+    wildcard. THE TYPE IS THE DEFECT, so asserting `typeof === 'string'` is a claim about which
+    branch of the library runs, not a restatement of the source.
+  required_change: A unit assertion that the composed option is a string, with the reasoning in a comment.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 2
+  ruling: >-
+    FIXED, AND THE ARCHITECT CHECKED THE PREMISE RATHER THAN ACCEPTING MY BRIEF. It confirmed sec() is uncallable - better-auth's exports map has 56 subpaths and no wildcard, and import('better-auth/dist/utils/time.mjs') answers ERR_MODULE_NOT_FOUND - so expirationTime genuinely has no resolved surface the way skipOriginCheck does. Asserted as toBeTypeOf('string'), which fails on the bug and passes on any correct duration, rather than the === '300s' form the contract objected to. MUTATION-CHECKED: reverting to the bare number turns it red. F-168 now has a green proof a wave before the integration tier could give one.
+
+- id: F-214
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 2
+  severity: minor
+  kind: correctness
+  file: apps/api/src/auth/boot-assertions.ts
+  line: 1
+  summary: >-
+    THE UPPER-CASE WILDCARD REFUSAL NAMES FOUR RULES THAT WERE NOT BROKEN AND NOT THE ONE THAT
+    WAS. `https://Shortkit-*.vercel.app` satisfies every clause the message prints.
+  failure_scenario: >-
+    The reviewer upheld my ruling that refusing beats silently lower-casing - a refusal is loud
+    and a rewrite puts a value in force the operator did not write - and then found the refusal
+    unactionable. An operator reads four satisfied rules and concludes the assertion is broken,
+    which is the same pressure F-181 and F-203 are about: an unexplainable refusal is answered
+    with a broader wildcard.
+  required_change: The message names the case rule.
+  owner_slot: sdlc-implementer-backend
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
+  ruling: >-
+    FIXED. The structural check is case-insensitive with a SEPARATE case rule and its own message, so https://Shortkit-*.vercel.app is refused for the rule it actually breaks while the trailing-slash form still gets the trailing-slash message. Every refusal now names a broken rule - which was the point, since an unexplainable refusal is answered with a broader wildcard.
+
+- id: F-215
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-reviewer
+  round: 2
+  severity: nit
+  kind: doc
+  file: apps/api/src/db/better-auth-database-callers.spec.ts
+  line: 1
+  summary: 'TWO STALE COUNTS IN SCAN 5''s BLOCK: "eleven files" is 7 in the scan set.'
+  failure_scenario: >-
+    A count written from the tree rather than from the scan set. Trivial alone; the fourth stale
+    count this wave after ADR-0056's "four equalities", ADR-0061's title and the card's
+    level: 'error'. Every one landed in a summary while the argument beneath it was correct.
+  required_change: Both counts match the scan set.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 2
+  ruling: >-
+    FIXED, AND THE FIXER FOUND THREE MORE THE FINDING DID NOT. Beyond 'eleven files' being seven: 'four greps', 'invariant 11 (the four scans)' and 'scan 2 is a subset and the other three are equalities' - now two subsets. FIFTH STALE COUNT OF THIS WAVE, and the first where looking for one found the rest.
+
+- id: F-216
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: security
+  file: .sdlc/identity-membership/design/adr-0052-better-auth-logger-is-bound-to-pino.md
+  line: 1
+  summary: >-
+    ADR-0052's "EXACTLY ONE CENSORING MECHANISM" IS FALSE FOR THE onError PATH. api/index.mjs:199
+    selects better-auth's PACKAGE-LEVEL LOGGER SINGLETON - no `log` hook, no disableColors,
+    straight to console.error - and writes every APIError message through it.
+  failure_scenario: >-
+    VERIFIED AT THE SOURCE BY ME: `const log = optLogLevel === "error" || optLogLevel === "warn"
+    || optLogLevel === "debug" ? logger : void 0`, then `log?.error(e.message)`. That `logger` is
+    the imported singleton, not the configured one, so the bound hook and the pino field
+    allowlist are both bypassed. THE LEVEL CHANGE DID NOT CAUSE THIS - all three of error, warn
+    and debug are enabling values, so it was equally true before F-175.
+    Nothing leaks today: every message on that path is a fixed string, which is why four rounds
+    of design and a first audit pass did not surface it. ITEM 1b's MANDATED APIError REFUSAL IS
+    WHAT WILL CARRY A TOKEN AND AN EMAIL THROUGH IT - the invitation-validation hook this card
+    ships the empty registry for.
+    FOUND BY THE QUESTION I SKIPPED. implement.md step 2b triggers a fresh-context attack on
+    untestable claims when an implementer returns DONE_WITH_CONCERNS; I ran the phase before
+    reading its file and skipped it, then folded the question into this re-review. The panel's
+    rubric-driven pass had not found it. Two other untested claims the auditor attacked DID hold
+    - the empty before-registry's ordering and short-circuit, and revoke-other-sessions firing
+    per row.
+  required_change: >-
+    One sentence each in ADR-0052, the AuthBeforeHook docblock and invariant 4, naming the onError
+    path as the exception and item 1b as the wave that makes it live.
+  owner_slot: orchestrator
+  status: routed
+  resolved_by: null
+  resolved_round: null
+  ruling: >-
+    SPLIT AND ROUTED 2026-08-16. The two artifact sentences are mine and are written: ADR-0052's
+    central claim now carries the exception, and auth-config-surface.md invariant 4 carries it
+    where the author of item 1b's hook will meet it. The AuthBeforeHook docblock sentence went to
+    sdlc-implementer-backend with F-214, because auth.config.ts is its file.
+
+- id: F-217
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: nit
+  kind: doc
+  file: apps/api/src/db/better-auth-database-callers.spec.ts
+  line: 1
+  summary: >-
+    THE RESIDUAL LIST NAMES THE RUNTIME-BUILT-SPECIFIER EVASION FOR THE ENV KEY AND NOT FOR THE
+    TWO SPECIFIER SCANS, which have the same hole.
+  failure_scenario: >-
+    Nine plants against five scans: scan 5 catches the named import, `export * from` and dynamic
+    import(). It misses the documented side-effect form and a runtime-built specifier. The first
+    is in the gap list; the second is listed only against the env key.
+    A gap list that is complete for one scan and partial for another reads as complete for all.
+  required_change: The specifier scans get the same line the env key has.
+  owner_slot: sdlc-test-architect
+  status: fixed
+  resolved_by: sdlc-test-architect
+  resolved_round: 2
+  ruling: >-
+    FIXED - the runtime-built-specifier gap now names all four scans it defeats rather than the env key alone.
+
+- id: F-218
+  phase: implement
+  wave: 2
+  task: TASK-003
+  source: sdlc-test-architect
+  round: 2
+  severity: minor
+  kind: process
+  file: apps/api/src/auth/auth.config.ts
+  line: 1
+  summary: >-
+    TWO AGENTS WROTE THE SAME FILE INSIDE ONE WINDOW. sdlc-test-architect edited auth.config.ts -
+    sdlc-implementer-backend's file, and a file I had told it not to touch - for about ten
+    seconds, to mutation-check F-213 by reverting expirationTime to the bare number.
+  failure_scenario: >-
+    INVARIANT 11 EXACTLY: "a path an agent writes and then restores still counts" as its write
+    surface. Both agents were live on the same round. The test architect backed up and restored,
+    and the file is coherent - all three round-2 markers present, 195/195, tsc and lint 0 - but
+    it could not prove the implementer had not written inside the window and NEITHER CAN I,
+    because I did not write the file and would not recognise a missing sentence.
+    IT DISCLOSED THIS UNPROMPTED AND NAMED THE BETTER METHOD ITSELF - mutate a copy in /tmp
+    against a scratch spec. That disclosure is the only reason the state is recoverable rather
+    than merely unknown.
+    THE DEFECT IS MINE. I dispatched both agents concurrently and told each which files were the
+    other's - which is the instruction, not the mechanism. A mutation check needs a writable copy
+    of a file the agent does not own, and nothing in the brief gave it one, so the only way to do
+    the verification I asked for was to break the rule I set.
+  required_change: >-
+    Confirmation from the implementer that its file is intact - requested, read-only. Longer term
+    a mutation check gets a scratch copy by construction, so an agent is never choosing between
+    the verification and the isolation rule.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 2
+  ruling: >-
+    CONFIRMED INTACT BY THE OWNER, which is the only party who could confirm it. It read the
+    whole file and enumerated what it checked: round 2's F-216 paragraph complete at :88-104,
+    round 1's F-207 header at :14-39, the advanced block at :198-234, F-209's paragraph at
+    :257-279, F-208's at :360-384, and round 0's adapter, template-string expirationTime,
+    definePayload, both databaseHooks and the registry-iterating hooks.before.
+    IT NAMED A CONSEQUENCE I HAD NOT SEEN: its F-207 header block DELIBERATELY DOES NOT SPELL the
+    auth.config import, because if it did, the fifth scan would match this very file and read as
+    a false positive. A restore that silently dropped that sentence would have produced a red
+    control that looked like a real finding.
+    The process defect stands and is mine. The remedy is structural rather than an instruction: a
+    mutation check gets a scratch copy by construction, so no agent has to choose between the
+    verification it was asked for and the isolation rule it was given.

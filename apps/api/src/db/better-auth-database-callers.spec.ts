@@ -7,11 +7,12 @@ import { describe, expect, it } from 'vitest';
 /**
  * STORY-001 — TASK-003, wave 2. No AC states this; ADR-0056 does, and F-108 pulled it here.
  *
- * Contract: `design/contracts/auth-config-surface.md` invariant 11 (the four scans and their
- * directions). ADR-0056, which amends ADR-0046. ADR-0050.
+ * Contract: `design/contracts/auth-config-surface.md` invariant 11 (four scans and their
+ * directions; the fifth is F-207's and is not in the contract yet). ADR-0056, which amends
+ * ADR-0046. ADR-0050.
  *
  * ============================================================================
- * WHAT IS BEING BOUNDED, AND WHY IT IS WORTH FOUR GREPS.
+ * WHAT IS BEING BOUNDED, AND WHY IT IS WORTH FIVE GREPS.
  * ============================================================================
  *
  * `db/client.ts:259` exports an unconstrained handle on the `shortkit_auth` pool: outside
@@ -57,7 +58,12 @@ import { describe, expect, it } from 'vitest';
  *
  * ADR-0056's list, and one this spec adds:
  *
- *   - a runtime-built env key, `process.env['DATABASE_' + 'AUTH_URL']`, defeating 2 and 3;
+ *   - **a runtime-built string, and it defeats FOUR of the five, not two.** ADR-0056 lists
+ *     it against the env key alone — `process.env['DATABASE_' + 'AUTH_URL']`, beating 2 and
+ *     3 — but scans 4 and 5 match a QUOTED LITERAL in the same way, so
+ *     `await import('./auth' + '.config')` and `require(DRIVER)` beat those two for exactly
+ *     the same reason (F-217). A gap list complete for one scan reads as complete for all,
+ *     which is why this bullet now names all four;
  *   - a DSN read from a file or fetched rather than from the environment;
  *   - a client obtained from a transitive dependency neither specifier names;
  *   - a connection opened from a scan-2-permitted file through a helper;
@@ -73,7 +79,7 @@ import { describe, expect, it } from 'vitest';
  * list above, and renaming the block would make the residual harder to find, not easier.
  *
  * ============================================================================
- * SCAN 2 IS A SUBSET AND THE OTHER THREE ARE EQUALITIES. THAT ASYMMETRY IS DELIBERATE.
+ * SCANS 2 AND 5 ARE SUBSETS AND THE OTHER THREE ARE EQUALITIES. THAT ASYMMETRY IS DELIBERATE.
  * ============================================================================
  *
  * Scan 2's permitted set is ahead of the tree ON PURPOSE: `main.ts` and
@@ -187,7 +193,6 @@ const CLIENT = 'apps/api/src/db/client.ts';
 const AUTH_CONFIG = 'apps/api/src/auth/auth.config.ts';
 const MAIN = 'apps/api/src/main.ts';
 const BOOT_ASSERTIONS = 'apps/api/src/auth/boot-assertions.ts';
-const AUTH_MODULE = 'apps/api/src/auth/auth.module.ts';
 
 describe('who may reach the shortkit_auth role', () => {
   it('ADR-0056 scan 1 (equality): betterAuthDatabase appears in exactly client.ts and auth.config.ts', () => {
@@ -250,10 +255,21 @@ describe('who may reach the shortkit_auth role', () => {
     // `main.ts` mounts the instance in wave 3 through
     // `const { auth } = await import('./auth/auth.config')` — which its own F-210 docblock
     // already spells out and which must stay a DYNAMIC import inside `bootstrap()`, or the
-    // accessors throw during module evaluation and no boot assertion runs. `auth.module.ts`
-    // may hold TASK-005's guard. Both are permitted before they import anything, so an
-    // equality would be red the day this lands, and F-186's trap is that the cheapest green
-    // is to trim the permitted set — which deletes the bound.
+    // accessors throw during module evaluation and no boot assertion runs. It is permitted
+    // before it imports anything, so an equality would be red the day this lands, and
+    // F-186's trap is that the cheapest green is to trim the permitted set — which deletes
+    // the bound.
+    //
+    // ⚠ `auth.module.ts` IS NOT PERMITTED, AND ITS ABSENCE IS THE POINT (F-212). It was in
+    // this set for one round, on the guess that TASK-005's guard would live there. THE CODE
+    // FORBIDS IT: `auth/auth.module.ts:21-24` says "IT DELIBERATELY IMPORTS NOTHING FROM
+    // `auth.config.ts`", because that module evaluates `betterAuth({ secret:
+    // betterAuthSecret(), baseURL: betterAuthUrl(), … })` at module scope — so importing it
+    // from a Nest module makes EVERY `AppModule` compile require the auth bindings,
+    // including the unit tier's, which has none. A permitted set that admits what the file
+    // it names refuses is worse than one that admits too little: a wave-3 implementer reads
+    // it as design intent, takes it, and reddens the whole unit tier on module load. If wave
+    // 3 decides otherwise, this line and that docblock move together or neither moves.
     //
     // ⚠ THIS MATCHES EXACTLY ONE FILE ON THE TREE TODAY AND THAT MATCH IS A COMMENT.
     // Verified: `main.ts:138` is prose quoting the import TASK-004 must write, and NO FILE
@@ -262,7 +278,7 @@ describe('who may reach the shortkit_auth role', () => {
     // — which a `filter(...).toEqual([])` passes over silently. That is why its positive
     // control below is planted text and not a file on the tree: the control proves the
     // PATTERN works, and cannot be defeated by editing prose.
-    const permitted = new Set([MAIN, AUTH_MODULE]);
+    const permitted = new Set([MAIN]);
 
     expect(filesMatching(AUTH_CONFIG_IMPORT).filter((path) => !permitted.has(path))).toEqual([]);
   });
@@ -275,10 +291,12 @@ describe('who may reach the shortkit_auth role', () => {
     // Scan 5 is the only one of the five whose permitted set is satisfied by the tree
     // trivially — nothing imports `auth.config.ts` yet — so `toEqual([])` above proves
     // nothing about the regex. Measured here instead, against spellings hand-written to
-    // defeat it. The must-not list is the half that matters as much: ELEVEN FILES under
-    // `apps/api/src` name `auth.config.ts` in prose today, including `boot-assertions.ts`'s
-    // "THIS FILE MUST NOT IMPORT `auth.config.ts`" banner, and a pattern that matched those
-    // would put the whole scan permanently red and get it deleted.
+    // defeat it. The must-not list is the half that matters as much: SEVEN FILES in the scan
+    // set name `auth.config` in prose today — counted, not estimated: `main.ts`,
+    // `auth/{auth.config,auth.module,boot-assertions,on-user-created,revocation-store}.ts`
+    // and `db/schema/auth.ts` — including `boot-assertions.ts`'s "THIS FILE MUST NOT IMPORT
+    // `auth.config.ts`" banner. A pattern that matched those would put the whole scan
+    // permanently red and get it deleted.
     const matches = [
       `import { auth } from './auth.config';`,
       `import { auth } from '../auth/auth.config';`,

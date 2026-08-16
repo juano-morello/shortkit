@@ -59,6 +59,24 @@ The audited basis is part of the decision and is stated in `auth.config.ts`'s co
 the key, because it is what a later reader needs in order to know whether raising it further
 is safe:
 
+> **THE BASIS WAS SCOPED TO `warn` AND THE LEVEL ADMITS `error` TOO — 2026-08-16, F-209.**
+> Found by the implement-phase security audit. Every claim below is about `warn` call sites,
+> which is what the design round audited; `'warn'` also admits every `error` site, and **two of
+> those put an unbounded request-controlled string on the pino line** — reaching `msg`, the one
+> field the allowlist does not censor. `origin-check.mjs:110` and `:55,77` are named in
+> `auth.config.ts`'s comment.
+>
+> **The defect is the shape of the evidence, not the level.** An audit of one severity was used
+> to justify a threshold that admits two, and nothing in the reasoning made that visible — the
+> paragraph reads as exhaustive because it enumerates exhaustively within a scope it never
+> states. The decision stands; the basis now says what it covers.
+>
+> The implementer **disputed the other half of F-209 and I accepted the dispute**: the finding
+> also asked for truncation, and ADR-0052's alternatives table refuses truncation by name with a
+> stated trigger that has not fired. A byte cap admits a cap's worth per request and does not
+> touch line volume, which is the cost that would matter. Parked with that reasoning rather than
+> implemented.
+
 - the PII line at `sign-up.mjs:168` is `info` and is suppressed at `'warn'`;
 - no `warn` call site in 1.6.26 interpolates a value into its message;
 - `args` are dropped by the hook, so a structured second argument cannot reach the line.

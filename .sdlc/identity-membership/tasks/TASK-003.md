@@ -3,7 +3,7 @@ id: TASK-003
 story: STORY-001
 epic: EPIC-001
 title: The Better Auth instance, its plugin configuration, and tenant creation on signup
-status: tests-red
+status: done
 owner_slot: sdlc-implementer-backend
 depends_on: [TASK-001, TASK-002]
 paths: ["apps/api/src/auth/auth.config.ts", "apps/api/src/auth/on-user-created.ts", "apps/api/src/auth/revocation-store.ts", "apps/api/src/auth/auth.module.ts", "apps/api/src/app.module.ts", "apps/api/src/auth/boot-assertions.ts", "apps/api/src/main.ts", "apps/api/src/db/better-auth-database-callers.spec.ts", "packages/contracts/src/auth/index.ts", "docker-compose.yml", "apps/api/.env.example"]
@@ -48,7 +48,7 @@ acceptance: [AC-1, AC-3, AC-5, AC-4]
 # leg - is not dischargeable there. NOTE: this breaks plan.md's "36 ACs each claimed by EXACTLY
 # one TASK" for AC-4, which is now claimed by two. That is deliberate and recorded rather than
 # resolved by re-cutting the AC, because both halves are real and they land in different waves.
-rework_count: 0
+rework_count: 2
 ---
 
 ## Intent

@@ -282,8 +282,18 @@ browser sees, even when TLS terminates at a proxy. See ADR-0059.
 
 **The README tells them to export rather than to write a root `.env`**, which is ADR-0051's
 established rule for this class of variable: `scripts/check-compose-stack.sh:191-196` refuses
-to run while a root `.env` exists. `apps/api/.env.example` is a template to copy to
-`apps/api/.env` or to read and export from; it is not read by Compose.
+to run while a root `.env` exists. `apps/api/.env.example` is a template to read and export from; it is not read by Compose.
+
+> **CORRECTED 2026-08-16 (F-204). THIS SAID "COPY TO `apps/api/.env`" AND THAT DOES NOTHING.**
+> Nothing in the repository reads `apps/api/.env` — no `dotenv`, no `--env-file` in any script —
+> and **no workspace has a `dev` script except `apps/web`**; the API exposes `start`, `build`,
+> `typecheck`, `test`, `test:integration` and the db scripts. Verified across every manifest.
+>
+> So a developer who hit the boot refusal, followed this sentence and re-ran got **the identical
+> refusal**, now believing the variables were set. TASK-019 fixed exactly this shape on this
+> branch two days ago: a documented remedy that does not resolve the state it describes is worse
+> than no remedy, because it moves the reader from "I need to set this" to "this is broken".
+> The same claim was in `apps/api/.env.example` itself and is fixed there.
 
 ### What the spec asserts
 

@@ -25,6 +25,23 @@ date: 2026-08-13
 > just as completely. The auditor read every `warn` call site in 1.6.26 before proposing the
 > change: none interpolates an email, token, password or user id, and this ADR's own hook drops
 > positional `args`, so the structured second arguments never reach the line either.
+>
+> **AND A SECOND AMENDMENT, 2026-08-16 (F-216): THIS ADR'S CENTRAL CLAIM HAS AN EXCEPTION.**
+> "Exactly one censoring mechanism" does not hold for the `onError` path. `api/index.mjs:199`
+> selects better-auth's **package-level logger singleton** — `const log = optLogLevel ===
+> "error" || optLogLevel === "warn" || optLogLevel === "debug" ? logger : void 0` — and writes
+> every `APIError` message through it with `log?.error(e.message)`. The bound `log` hook is not
+> consulted, `disableColors` does not apply, and the pino field allowlist never sees it.
+>
+> **The level is not the cause and `'warn'` is not the regression**: all three of `error`,
+> `warn` and `debug` enable it, so it was equally true under the `'error'` this ADR originally
+> decided. Nothing leaks today — every message on that path is a fixed string, which is why
+> four design rounds and a first implementation audit did not surface it. It was found by
+> asking which claim in the diff no test could check.
+>
+> Item 1b's mandated `APIError` refusal is what makes it live; `auth-config-surface.md`
+> invariant 4 and the `AuthBeforeHook` docblock carry the same sentence, where the author of
+> that hook will meet it.
 
 ## Context
 

@@ -84,6 +84,24 @@ export type AuthBeforeHookContext = Parameters<Parameters<typeof createAuthMiddl
  *
  * `ctx.body` is UNVALIDATED at this point: probes against 1.6.26 delivered `ctx.body.email`
  * as an object, as a number, and `ctx.body` as `undefined`.
+ *
+ * ============================================================================
+ * AND YOUR `APIError`'s MESSAGE DOES NOT GO THROUGH THE BOUND LOGGER (F-216).
+ * ============================================================================
+ *
+ * PUT NO TOKEN, EMAIL, USER ID OR INVITATION CODE IN IT. `api/index.mjs:199` is
+ * ``const log = optLogLevel === "error" || optLogLevel === "warn" || optLogLevel === "debug"
+ * ? logger : void 0`` followed by `log?.error(e.message)`, and that `logger` is
+ * `@better-auth/core/env`'s PACKAGE-LEVEL SINGLETON (imported at `api/index.mjs:21`), not
+ * the `log` hook this file binds below. So an `APIError` a hook throws reaches `console`
+ * directly: no `LOGGABLE_FIELDS`, no `serializers.err`, no `disableColors`, none of
+ * ADR-0028's one censoring mechanism. `ctx.logger` on the neighbouring branches IS the
+ * bound one, which is what makes this easy to read past.
+ *
+ * The level did not cause it and lowering it does not fix it — `error`, `warn` and `debug`
+ * are all enabling values, so it was equally true before ADR-0060. Nothing leaks today only
+ * because every message that reaches it is a fixed string. Item 1b's invitation-validation
+ * hook is the first one that will hold a token and an address while composing a refusal.
  */
 export type AuthBeforeHook = (ctx: AuthBeforeHookContext) => Promise<void>;
 

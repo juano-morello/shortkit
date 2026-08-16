@@ -206,6 +206,28 @@ it is:
   passes scan 2 by permission and scan 3 only if it never names `process.env`;
 - anything at all outside `apps/api/src`.
 
+**A fifth scan was added 2026-08-16 (F-207), and the list above was written when there were
+four.** The implement-phase security audit measured what none of the four bounded: the composed
+`auth` this card exports is **itself a second handle on `shortkit_auth`** — through
+`auth.$context.adapter` it reads plaintext session tokens, the `account` password hashes and
+`jwks.private_key`, and it created a session row for another user. **All four scans were green
+throughout.** Scans 1–4 bound the construction of a *new* pool; scan 5 bounds importing the
+*existing* one. It is a **subset**, for scan 2's reason: its permitted set is ahead of the tree.
+
+**One spelling scan 5 does not catch, and it is not a bypass:** `import './auth.config';`, the
+side-effect form. It binds no name, so it reaches no adapter. Recorded here because the test
+architect found it by planting twelve spellings against the implementer's seven, and a gap
+found by measurement belongs in the list rather than in a memory.
+
+**The non-vacuity argument for scan 5 was wrong as first stated, which is worth more than the
+scan.** It was proposed on the grounds that `main.ts` already matches — but that match is a
+**comment** at `main.ts:138` quoting the import TASK-004 must write, and **no file under
+`apps/api/src` imports `auth.config.ts` at all` today**. On a subset assertion, rewording that
+one comment would leave scan 5 matching nothing and passing silently — a control defeated by an
+edit to prose. It therefore ships with a **positive control on the pattern itself**, over
+planted text that no prose edit can reach, and was mutation-checked: a planted importer turns it
+red.
+
 These are floors against the direct spelling, which is the spelling a convenience commit
 actually uses. They are not a proof about statements, and ADR-0050's boot assertion is not
 either; the behavioural proof stays the integration tier's.

@@ -213,6 +213,40 @@ describe('the composed Better Auth configuration', () => {
     expect(jwtPlugin.jwt?.audience).toBe(BETTER_AUTH_URL_HTTPS);
   });
 
+  it('F-168: expirationTime is a string, because a number is an absolute exp', async () => {
+    // ============================================================================
+    // THE TYPE *IS* THE DEFECT, WHICH IS WHY THIS IS NOT A RESTATEMENT OF THE CONFIG.
+    // ============================================================================
+    //
+    // `dist/plugins/jwt/utils.mjs:15-19` returns a NUMERIC `expirationTime` unchanged as the
+    // `exp` claim and sends only a STRING through `iat + sec(expirationTime)`. So
+    // `expirationTime: ACCESS_TOKEN_LIFETIME_SECONDS` — the form
+    // `packages/contracts/src/auth/index.ts` instructed until this card, and the form frozen
+    // `auth-contracts.md` instructed too — sets `exp` to epoch second 300, i.e.
+    // 1970-01-01T00:05:00Z. Measured twice: read at the source, then minted as a real token
+    // by the wave-2 security pass, which read `exp = 300` back off it. Every token would be
+    // rejected the instant it was issued and the BFF would refresh forever.
+    //
+    // `auth-config-surface.md` says the spec should assert the resulting `exp` and not the
+    // option, and that IS where the value's correctness is proved —
+    // `test/auth/signup-creates-tenant.int-spec.ts` asserts `exp - iat ===
+    // ACCESS_TOKEN_LIFETIME_SECONDS` over a real mint. That test needs the wave-3 mount and
+    // is red until then, so F-168 has no green proof anywhere in the meantime.
+    //
+    // The contract's objection was to `expirationTime === '300s'`, which pins a literal
+    // nobody may change — a decision. This asserts the TYPE and neither the number nor the
+    // unit, so it fails on the bug and passes on any correct duration string. Checked before
+    // writing it, because "no resolved surface" is a claim and not an excuse:
+    // `skipOriginCheck` above reads off `$context` because the library resolves it there,
+    // and `expirationTime` has no such surface — it is consumed inside `signJWT` at mint
+    // time. `sec()` cannot be called directly either: `better-auth`'s exports map has 56
+    // subpaths and no wildcard, and `import('better-auth/dist/utils/time.mjs')` answers
+    // ERR_MODULE_NOT_FOUND. Verified both, this session.
+    const { jwtPlugin } = await composed(BETTER_AUTH_URL_HTTP);
+
+    expect(jwtPlugin.jwt?.expirationTime).toBeTypeOf('string');
+  });
+
   it('ADR-0055: disableSettingJwtHeader is true, so GET /token is the only mint', async () => {
     // `dist/plugins/jwt/index.mjs:185-188` mints a token from the `/get-session` after-hook
     // and returns it as `set-auth-jwt` unless this is set. Two consequences the ADR turns
