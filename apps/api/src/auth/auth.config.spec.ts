@@ -91,6 +91,7 @@ async function composed(baseUrl: string): Promise<{
   readonly context: {
     readonly authCookies: Record<string, { name: string; attributes: Record<string, unknown> }>;
     readonly trustedOrigins: readonly string[];
+    readonly skipOriginCheck: unknown;
   };
   readonly jwtPlugin: JwtPluginOptions;
 }> {
@@ -111,6 +112,7 @@ async function composed(baseUrl: string): Promise<{
     $context: Promise<{
       authCookies: Record<string, { name: string; attributes: Record<string, unknown> }>;
       trustedOrigins: readonly string[];
+      skipOriginCheck: unknown;
     }>;
   };
 
@@ -346,6 +348,35 @@ describe('the composed Better Auth configuration', () => {
       name: 'better-auth.session_token',
       secure: false,
     });
+  });
+
+  it('F-206: the origin check is on, and does not follow NODE_ENV or a TEST variable', async () => {
+    // ============================================================================
+    // OFF THE RESOLVED VALUE, NEVER THE OPTION, AND IN THIS TIER THAT IS THE WHOLE TEST.
+    // ============================================================================
+    //
+    // `create-context.mjs:210` is `skipOriginCheck: options.advanced?.disableOriginCheck
+    // !== undefined ? options.advanced.disableOriginCheck : isTest() ? true : false`, and
+    // `@better-auth/core/dist/env/env-impl.mjs:36` is `isTest = () => nodeENV === "test" ||
+    // toBoolean(env.TEST)` with `toBoolean(v) = v ? v !== "false" : false`. So an UNSET key
+    // turns better-auth's CSRF origin check off in every test — and `TEST=0` turns it off in
+    // production, because `"0" !== "false"`.
+    //
+    // MEASURED BEFORE THIS ASSERTION WAS WRITTEN, because a check that cannot fail is this
+    // wave's signature defect. Composed three ways in this tier, where vitest sets BOTH
+    // halves of the predicate live (`NODE_ENV=test`, `TEST=true`):
+    //
+    //     advanced: { disableOriginCheck: false }  →  skipOriginCheck = false
+    //     advanced: {}                             →  skipOriginCheck = true
+    //     no `advanced` key at all                 →  skipOriginCheck = true
+    //
+    // So deleting the key from `auth.config.ts` fails this test right here. Reading
+    // `options.advanced.disableOriginCheck` instead would assert the input to that ternary
+    // and never its output, which is the same class of mistake as asserting
+    // `expirationTime === '300s'` rather than the `exp` it produces.
+    const { context } = await composed(BETTER_AUTH_URL_HTTP);
+
+    expect(context.skipOriginCheck).toBe(false);
   });
 
   it('auth-tokens.md:146-149: trustedOrigins extends the API’s own origin, never replaces it', async () => {

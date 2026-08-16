@@ -27,23 +27,50 @@ import { describe, expect, it } from 'vitest';
  * initiative; ADR-0056 pulled it into the card that first uses the handle.
  *
  * ============================================================================
- * FOUR SCANS, THREE DIRECTIONS OF EQUALITY AND ONE SUBSET. THEY ARE NOT OF EQUAL WEIGHT.
+ * FIVE SCANS, THREE EQUALITIES AND TWO SUBSETS. THEY ARE NOT OF EQUAL WEIGHT.
  * ============================================================================
  *
- * ADR-0056's table, restated only as far as the direction per scan goes:
+ * ADR-0056's table, restated only as far as the direction per scan goes, plus scan 5:
  *
  *   1. `betterAuthDatabase`                    equality   ADR-0046's original rule
  *   2. `DATABASE_AUTH_URL`, the bare mention   SUBSET     tripwire on the file set
  *   3. `process.env.DATABASE_AUTH_URL`, the USE  equality LOAD-BEARING
  *   4. the module specifiers `pg` and `drizzle-orm/node-postgres`   equality   tripwire
+ *   5. an import of `auth.config`              SUBSET     the second handle (F-207)
  *
  * Scan 3 is the only thing standing between a convenience commit and the `shortkit_auth`
- * role: `DATABASE_AUTH_URL` is in the API process environment, so any file under
- * `apps/api/src` can write `new pg.Pool({ connectionString: process.env.DATABASE_AUTH_URL })`
- * and hold the role without the string `betterAuthDatabase` appearing anywhere. Scan 4 was
- * once believed to close pool construction and DOES NOT: `drizzle-orm/node-postgres`'s own
- * driver builds the pool when `drizzle()` is handed a string. Do not read four greps as four
- * times the coverage.
+ * role by way of a NEW pool: `DATABASE_AUTH_URL` is in the API process environment, so any
+ * file under `apps/api/src` can write
+ * `new pg.Pool({ connectionString: process.env.DATABASE_AUTH_URL })` and hold the role
+ * without the string `betterAuthDatabase` appearing anywhere. Scan 4 was once believed to
+ * close pool construction and DOES NOT: `drizzle-orm/node-postgres`'s own driver builds the
+ * pool when `drizzle()` is handed a string.
+ *
+ * **Scan 5 closes the second route, which is the EXISTING pool rather than a new one.** The
+ * exported `auth` carries the adapter built on `betterAuthDatabase()`, so a module that
+ * imports it holds the role with none of scans 1-4's spellings in its own text — measured,
+ * with all four green. Do not read five greps as five times the coverage.
+ *
+ * ============================================================================
+ * WHAT THE FIVE STILL DO NOT CATCH, BECAUSE A TABLE OF GREPS READS STRONGER THAN IT IS.
+ * ============================================================================
+ *
+ * ADR-0056's list, and one this spec adds:
+ *
+ *   - a runtime-built env key, `process.env['DATABASE_' + 'AUTH_URL']`, defeating 2 and 3;
+ *   - a DSN read from a file or fetched rather than from the environment;
+ *   - a client obtained from a transitive dependency neither specifier names;
+ *   - a connection opened from a scan-2-permitted file through a helper;
+ *   - anything at all outside `apps/api/src` (ADR-0042's boundary; `test/**` and
+ *     `scripts/**` are where the auditor's original bare script lived);
+ *   - **a side-effect import, `import './auth.config';`, which scan 5 does not match.**
+ *     Measured. It is not a bypass — it binds no name, so it reaches no adapter — but it is
+ *     the one spelling of an import this pattern misses, and a later reader should know that
+ *     rather than rediscover it.
+ *
+ * So the `describe` below is still a wider sentence than the five scans measure, and it is
+ * left as it stands: scan 5 narrows the gap from "any file that imports the instance" to the
+ * list above, and renaming the block would make the residual harder to find, not easier.
  *
  * ============================================================================
  * SCAN 2 IS A SUBSET AND THE OTHER THREE ARE EQUALITIES. THAT ASYMMETRY IS DELIBERATE.
@@ -140,10 +167,27 @@ const DATABASE_AUTH_URL_USED =
 const POSTGRES_DRIVER_IMPORT =
   /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)(['"])(pg|drizzle-orm\/node-postgres)\1/;
 
+/**
+ * Scan 5. THE COMPOSED INSTANCE IS A SECOND HANDLE ON THE SAME ROLE (F-207).
+ *
+ * `(await auth.$context).adapter` reads plaintext `session.token`, the `account` password
+ * hashes and `jwks.private_key`, and writes a session row for any user id — measured by the
+ * wave-2 security pass **with all four scans above green**. A module that imports `auth`
+ * reaches every one of those without any of scans 1-4's spellings appearing in its own text,
+ * because the pool was constructed in `auth.config.ts` and handed over as an object.
+ *
+ * Anchored on IMPORT POSITION like scan 4, so the eleven files that merely name
+ * `auth.config.ts` in prose do not match. Verified both directions in
+ * "the scan-5 pattern matches an import and not a mention" below.
+ */
+const AUTH_CONFIG_IMPORT =
+  /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)(['"])[^'"]*\bauth\.config(?:\.[jt]s)?\1/;
+
 const CLIENT = 'apps/api/src/db/client.ts';
 const AUTH_CONFIG = 'apps/api/src/auth/auth.config.ts';
 const MAIN = 'apps/api/src/main.ts';
 const BOOT_ASSERTIONS = 'apps/api/src/auth/boot-assertions.ts';
+const AUTH_MODULE = 'apps/api/src/auth/auth.module.ts';
 
 describe('who may reach the shortkit_auth role', () => {
   it('ADR-0056 scan 1 (equality): betterAuthDatabase appears in exactly client.ts and auth.config.ts', () => {
@@ -196,6 +240,72 @@ describe('who may reach the shortkit_auth role', () => {
     //
     // A file that obtains a client from somewhere else defeats this and not scan 3.
     expect(filesMatching(POSTGRES_DRIVER_IMPORT)).toEqual([CLIENT]);
+  });
+
+  it('ADR-0056 scan 5 (subset): every file importing the composed instance is permitted', () => {
+    // ============================================================================
+    // SUBSET FOR SCAN 2's REASON, AND NOT AS THE WEAKER CHOICE.
+    // ============================================================================
+    //
+    // `main.ts` mounts the instance in wave 3 through
+    // `const { auth } = await import('./auth/auth.config')` — which its own F-210 docblock
+    // already spells out and which must stay a DYNAMIC import inside `bootstrap()`, or the
+    // accessors throw during module evaluation and no boot assertion runs. `auth.module.ts`
+    // may hold TASK-005's guard. Both are permitted before they import anything, so an
+    // equality would be red the day this lands, and F-186's trap is that the cheapest green
+    // is to trim the permitted set — which deletes the bound.
+    //
+    // ⚠ THIS MATCHES EXACTLY ONE FILE ON THE TREE TODAY AND THAT MATCH IS A COMMENT.
+    // Verified: `main.ts:138` is prose quoting the import TASK-004 must write, and NO FILE
+    // UNDER `apps/api/src` IMPORTS `auth.config.ts` at all. So this scan bounds a capability
+    // nobody has taken yet, and a reword of that one comment would leave it matching nothing
+    // — which a `filter(...).toEqual([])` passes over silently. That is why its positive
+    // control below is planted text and not a file on the tree: the control proves the
+    // PATTERN works, and cannot be defeated by editing prose.
+    const permitted = new Set([MAIN, AUTH_MODULE]);
+
+    expect(filesMatching(AUTH_CONFIG_IMPORT).filter((path) => !permitted.has(path))).toEqual([]);
+  });
+
+  it('the scan-5 pattern matches an import and not a mention', () => {
+    // ============================================================================
+    // THE POSITIVE CONTROL FOR SCAN 5, AND IT IS PLANTED TEXT RATHER THAN A FILE.
+    // ============================================================================
+    //
+    // Scan 5 is the only one of the five whose permitted set is satisfied by the tree
+    // trivially — nothing imports `auth.config.ts` yet — so `toEqual([])` above proves
+    // nothing about the regex. Measured here instead, against spellings hand-written to
+    // defeat it. The must-not list is the half that matters as much: ELEVEN FILES under
+    // `apps/api/src` name `auth.config.ts` in prose today, including `boot-assertions.ts`'s
+    // "THIS FILE MUST NOT IMPORT `auth.config.ts`" banner, and a pattern that matched those
+    // would put the whole scan permanently red and get it deleted.
+    const matches = [
+      `import { auth } from './auth.config';`,
+      `import { auth } from '../auth/auth.config';`,
+      `import { auth } from '../../src/auth/auth.config';`,
+      `import { auth } from './auth/auth.config.js';`,
+      `import type { AuthBeforeHook } from './auth.config.ts';`,
+      `const { auth } = await import('./auth.config');`,
+      `const { auth } = require('./auth.config');`,
+      `export * from './auth.config';`,
+      `import { auth as instance } from "./auth.config";`,
+      `import {auth} from"./auth.config"`,
+      `import {\n  auth,\n  beforeHooks,\n} from './auth.config';`,
+      `import { auth } from '@shortkit/api/auth/auth.config';`,
+    ];
+
+    const mentions = [
+      ` * THIS FILE MUST NOT IMPORT \`auth.config.ts\`. THE DEPENDENCY RUNS THE OTHER WAY.`,
+      ` * \`auth.config.ts\` evaluates betterAuth({ secret: betterAuthSecret(), ... })`,
+      ` * Produced by: TASK-003. Called by: auth.config.ts's databaseHooks.user.create.after.`,
+      `import x from './auth.configuration';`,
+      `import { AuthModule } from './auth.module';`,
+    ];
+
+    expect({
+      importsMissed: matches.filter((line) => !AUTH_CONFIG_IMPORT.test(line)),
+      mentionsMatched: mentions.filter((line) => AUTH_CONFIG_IMPORT.test(line)),
+    }).toEqual({ importsMissed: [], mentionsMatched: [] });
   });
 
   it('the scan set is the API source tree, and it is not empty', () => {

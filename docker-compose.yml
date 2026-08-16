@@ -293,6 +293,32 @@ services:
       # placeholder. Do not paste either command's output into an issue, a report or a
       # shared scrollback while it carries a live BETTER_AUTH_SECRET.
       BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?generate at least 32 characters and export it, or put it in .env at the repository root. No value is committed here because this one signs JWTs. See .env.example and ADR-0051.}'
+      # ---------------------------------------------------------------------------
+      # THESE TWO CARRY DEFAULTS, AND THAT IS THE DIFFERENCE FROM THE KEY ABOVE.
+      # ---------------------------------------------------------------------------
+      # Neither is a credential (ADR-0059). Publishing `http://localhost:3001` discloses
+      # nothing and grants nothing, this file already commits four role passwords, and the
+      # published ports below are exactly these two origins — so the defaults are the
+      # correct values for this stack and `docker compose up` on a fresh clone needs
+      # nothing exported for them. BETTER_AUTH_SECRET stays the only variable in this file
+      # with no default, which is a sentence ADR-0051 relies on.
+      #
+      # BETTER_AUTH_URL is the origin the API issues and verifies tokens for. Unset,
+      # better-auth derives the issuer from each request's Host header — measured, one
+      # session and two Host values minted two validly signed tokens with different `iss`
+      # — and derives the session cookie's `Secure` flag from NODE_ENV.
+      #
+      # WHAT MAKES A COMMITTED DEFAULT SAFE IS THE LOOPBACK RULE, NOT THIS FILE: `http:`
+      # is accepted only for localhost, 127.0.0.0/8 or [::1] (apps/api/src/auth/
+      # boot-assertions.ts). Copying this line to a real host keeps the scheme, and that
+      # copy is a boot refusal rather than a session cookie in cleartext.
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3001}
+      # Comma-separated origins the dashboard is served from, EXTENDING the API's own
+      # origin rather than replacing it. Unset is legal and costs a browser flow a
+      # `403 INVALID_ORIGIN`; a bare `*` is refused at boot, because that is the value an
+      # operator reaches for when every local login answers 403 and it trusts every origin
+      # on the internet (ADR-0059).
+      WEB_APP_ORIGINS: ${WEB_APP_ORIGINS:-http://localhost:3000}
     ports:
       - '127.0.0.1:3001:3001'
     healthcheck:

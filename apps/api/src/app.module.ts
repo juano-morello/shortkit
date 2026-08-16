@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 
+import { AuthModule } from './auth/auth.module';
 import { ApiExceptionFilter } from './common/errors/exception-filter';
 import { HealthModule } from './health/health.module';
 
@@ -16,9 +17,13 @@ import { HealthModule } from './health/health.module';
  * HealthModule is registered here rather than in main.ts because AC-6's assertions run
  * against an application built from this module (TASK-003, F-217). Its route resolves at
  * the root: main.ts excludes `GET /health` from the `/api` global prefix (ADR-0006).
+ *
+ * AuthModule carries no route. Better Auth's handler is mounted on Express in main.ts,
+ * outside this graph, because it needs the raw body (ADR-0013); the module exists for
+ * TASK-005's `AuthGuard` and its providers.
  */
 @Module({
-  imports: [HealthModule],
+  imports: [AuthModule, HealthModule],
   providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
 })
 export class AppModule {}

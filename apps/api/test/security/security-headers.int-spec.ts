@@ -83,6 +83,36 @@ const DATABASE_URL = 'DATABASE_URL';
 const DATABASE_AUTH_URL = 'DATABASE_AUTH_URL';
 
 /**
+ * ===========================================================================
+ * THE TWO AUTH BINDINGS THE CHILD NEEDS FROM WAVE 2 (F-200, ADR-0051, ADR-0059).
+ * ===========================================================================
+ *
+ * `main.ts` refuses to boot without either, BEFORE the database precondition — measured:
+ * eight tests in this file went from passing to failing on
+ * `boot_precondition: "better_auth_secret"` the moment TASK-003 landed. That is the guard
+ * working. This file spawns its own child with its own `env` callback rather than through
+ * `authServerEnv()`, so nothing else was going to supply them.
+ *
+ * The callback stays EXPLICIT and there is deliberately no `process.env` spread: the
+ * comment below has said since wave 1 that it "says what the child needs instead of
+ * inheriting it by accident", and that design is exactly why this broke loudly at a named
+ * boot precondition rather than quietly on an unset value. It also means `ci.yml` needs
+ * neither binding — the callback never reads the ambient environment for them.
+ *
+ * Neither value is a credential in this context and neither is read by anything this file
+ * asserts on. The child is spawned, probed for response headers, and killed.
+ */
+
+/**
+ * Fifty-three characters, the same shape and the same intent as
+ * `test/support/auth-fixture.ts:86` — a throwaway string for a throwaway process, clearing
+ * ADR-0051's 32-character floor and deliberately not better-auth's published
+ * `better-auth-secret-12345678901234567890`, which is the one value ADR-0058 rejects by
+ * exact match. Matched to the fixture's style rather than invented as a third convention.
+ */
+const BETTER_AUTH_SECRET = 'security-headers-fixture-better-auth-secret-not-real';
+
+/**
  * The header table, hand-copied from `logging-and-headers.md` § "Security headers". Values
  * are read off the CONTRACT, not off helmet's documentation: helmet's `frameguard` default is
  * `SAMEORIGIN`, and the contract says `DENY`, so an implementer who registers bare `helmet()`
@@ -168,11 +198,22 @@ beforeAll(() => {
   //
   // Both DSNs are passed EXPLICITLY rather than left to the `process.env` spread, so this
   // callback says what the child needs instead of inheriting it by accident.
+  //
+  // `BETTER_AUTH_URL` IS THE `baseUrl` THE HARNESS ALREADY HANDS THIS CALLBACK, and that is
+  // a deliberate choice over a literal (F-200). The loopback rule is a STRING test, so a
+  // hardcoded `http://127.0.0.1:3001` would satisfy it just as well while telling a future
+  // reader that the value is arbitrary — and it is not: this same binding decides `iss`,
+  // `aud` and the session cookie's `Secure` flag for the two auth suites, which is why
+  // `authServerEnv(baseUrl)` passes the real origin. A child that claims an origin it does
+  // not answer on is a fixture nobody should copy. The port is chosen by `startApiServer`
+  // and is on loopback, so the rule admits it.
   serverBoot = startApiServer({
-    env: () => ({
+    env: (baseUrl) => ({
       GIT_COMMIT_SHA: BUILD_COMMIT_SHA,
       [DATABASE_URL]: process.env[DATABASE_URL] ?? '',
       [DATABASE_AUTH_URL]: process.env[DATABASE_AUTH_URL] ?? '',
+      BETTER_AUTH_SECRET,
+      BETTER_AUTH_URL: baseUrl,
     }),
   });
   serverBoot.catch(() => undefined);

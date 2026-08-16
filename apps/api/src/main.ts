@@ -6,6 +6,12 @@ import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+import {
+  AuthBindingError,
+  assertBetterAuthSecretConfigured,
+  assertBetterAuthUrlConfigured,
+  assertWebAppOriginsConfigured,
+} from './auth/boot-assertions';
 import { assertRuntimeRoleCannotBypassRls } from './db/rls';
 import { readBuildCommitSha } from './health/build-commit';
 import { errorLogFields, logger } from './observability/logger';
@@ -104,7 +110,40 @@ let app: INestApplication | undefined;
  *     allocation, no network. A mis-built image therefore fails before the process opens a
  *     database connection. ADR-0027 fixes this pair's order explicitly; the rest of the
  *     sequence was left open.
- *  2. `assertRuntimeRoleCannotBypassRls()` — F-116, ADR-0003. One transaction against
+ *  2. The three auth bindings — ADR-0051, ADR-0058, ADR-0059. Three `process.env` reads
+ *     and three string comparisons, so they belong in the same class as the SHA check and
+ *     sit before the database one: a misconfigured secret refuses in two milliseconds
+ *     rather than after a twenty-second database budget on a machine where the database is
+ *     also down. Without `BETTER_AUTH_SECRET` better-auth signs every JWT with a constant
+ *     published on npm (F-020); without `BETTER_AUTH_URL` the issuer and the session
+ *     cookie's `Secure` flag are taken from the caller's `Host` header and from `NODE_ENV`.
+ *
+ *     ============================================================================
+ *     WAVE 3 MUST REACH `auth.config.ts` THROUGH A DYNAMIC IMPORT INSIDE `bootstrap()`.
+ *     ============================================================================
+ *
+ *     CORRECTED 2026-08-16 (F-206's sibling, F-210), because the claim that stood here was
+ *     measured false. It said the accessors and these assertions produce an identical log
+ *     line either way, which is ADR-0058's and `auth-config-surface.md:68-72`'s reasoning
+ *     for one shared `AuthBindingError`. They do not. A STATIC import of `auth.config.ts`
+ *     at this file's module scope runs `betterAuth({ secret: betterAuthSecret(), … })`
+ *     during module evaluation, which is BEFORE `bootstrap()` is ever called and therefore
+ *     outside `bootstrap().catch` — measured with wave 3's shape and an empty secret: a raw
+ *     uncaught stack on stderr, no pino line, no `boot_precondition`, no `service`, no
+ *     `env`, and the refusal crossing the process boundary through Node's uncaught handler
+ *     rather than through the one censoring mechanism ADR-0028 requires. It still fails
+ *     closed; what is lost is the labelled line, on the preconditions whose whole
+ *     justification is telling an operator WHICH binding refused.
+ *
+ *     So TASK-004 mounts through `const { auth } = await import('./auth/auth.config')`
+ *     inside `bootstrap()`, after `assertBootPreconditions()` has run. Then these three
+ *     assertions fire first and the accessors never get the chance to throw uncaught, the
+ *     shared error class keeps the meaning ADR-0058 gives it, and the one-way import rule
+ *     (`boot-assertions.ts` never imports `auth.config.ts`) is untouched. With a static
+ *     import they are not redundant — they are dead, and the labelled refusal goes with
+ *     them.
+ *
+ *  3. `assertRuntimeRoleCannotBypassRls()` — F-116, ADR-0003. One transaction against
  *     `pg_roles` and `pg_class`. TASK-005 built it and disclosed that nothing called it,
  *     so until now a `DATABASE_URL` pointing at a superuser or any `BYPASSRLS` role
  *     started the API normally and every tenant-scoped query silently returned every
@@ -157,6 +196,10 @@ let app: INestApplication | undefined;
  */
 async function assertBootPreconditions(): Promise<void> {
   readBuildCommitSha();
+
+  assertBetterAuthSecretConfigured(process.env);
+  assertBetterAuthUrlConfigured(process.env);
+  assertWebAppOriginsConfigured(process.env);
 
   await assertRuntimeRoleIsSafe();
 }
@@ -306,11 +349,23 @@ bootstrap().catch(async (error: unknown) => {
   // (F-245). "database_reachable" means the check could not be answered and the operator
   // waits; "runtime_role_cannot_bypass_rls" means it was answered unsafely and the DSN has
   // to change. Nothing else on this line separates them.
+  //
+  // `AuthBindingError.binding` is the third source of that field and carries the same three
+  // words the assertions above use (ADR-0058). It is mapped here rather than only in the
+  // assertions so that the accessors inside `auth.config.ts` — which raise the same class
+  // and, from wave 3, may raise it first — reach the same labelled line.
+  //
+  // THAT ONLY HOLDS WHILE `auth.config.ts` IS REACHED FROM INSIDE `bootstrap()` (F-210).
+  // A static import at this file's module scope evaluates it before `bootstrap()` runs, so
+  // the throw never reaches this handler at all: measured, a raw uncaught stack on stderr
+  // with none of the fields below. The precondition block above carries the whole finding
+  // and the one-line shape wave 3 has to use.
   logger.error(
     {
       ...(error instanceof BootPreconditionError
         ? { boot_precondition: error.precondition }
         : {}),
+      ...(error instanceof AuthBindingError ? { boot_precondition: error.binding } : {}),
       ...errorLogFields(error, { includeMessage: true }),
     },
     'the API failed to start',

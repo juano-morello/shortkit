@@ -131,8 +131,22 @@ export const shortkitJwtClaimsContract = z.object({
 export type ShortkitJwtClaims = z.infer<typeof shortkitJwtClaimsContract>;
 
 /**
- * ADR-0013 fixes 300 seconds. TASK-003 writes
- * `expirationTime: ACCESS_TOKEN_LIFETIME_SECONDS` rather than restating `'5m'`, and the
- * revocation TTL is the same number, declared here once.
+ * ADR-0013 fixes 300 seconds, and the revocation TTL is the same number, declared here once.
+ *
+ * ============================================================================
+ * THE VALUE IS A NUMBER HERE AND THE CALL SITE CONVERTS IT TO A TIME-SPAN STRING.
+ * ============================================================================
+ *
+ * `auth.config.ts` writes `` expirationTime: `${String(ACCESS_TOKEN_LIFETIME_SECONDS)}s` ``.
+ * Corrected 2026-08-16 (F-168, Juano's ruling): this docblock instructed the BARE NUMBER,
+ * which is a defect. `dist/plugins/jwt/utils.mjs:15-19` returns a numeric `expirationTime`
+ * as the `exp` claim UNCHANGED, so `expirationTime: 300` sets `exp` to epoch second 300 —
+ * 1970-01-01T00:05:00Z — and every token is rejected the instant it is issued. Only a
+ * string goes through `iat + sec(expirationTime)`, and `sec('300s')` is 300. Measured
+ * twice: at the source, and on a real token minted with this exact configuration.
+ *
+ * It stays a NUMBER here rather than becoming `'300s'`, because `REVOCATION_TTL_SECONDS`
+ * derives from it and arithmetic on a string is worse than one conversion at the one call
+ * site that needs the other form.
  */
 export const ACCESS_TOKEN_LIFETIME_SECONDS = 300;
