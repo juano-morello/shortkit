@@ -63,10 +63,24 @@ export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 ```
 
-ADR-0047. `auth.config.ts` reads the same two constants into
-`emailAndPassword.minPasswordLength` and `.maxPasswordLength`, so the two enforcement points
-cannot disagree about the number. **Better Auth is the enforcer of record**; the zod bound is
-a form check that happens to run on both sides.
+ADR-0047. **Better Auth is the enforcer of record**; the zod bound is a form check that happens
+to run on both sides.
+
+> **AMENDED 2026-08-15 (F-169), Juano's ruling. This paragraph previously said `auth.config.ts`
+> reads the same two constants into `emailAndPassword.minPasswordLength` and
+> `.maxPasswordLength`. IT SETS NEITHER KEY.**
+>
+> That instruction contradicted frozen `auth-tokens.md:99`, which says in those words that
+> `auth.config.ts` sets neither, and whose `:333` describes a unit test asserting exactly that.
+> Two frozen contracts, one file, opposite instructions — an implementer following this one
+> wrote code the other's assertion fails.
+>
+> `auth-tokens.md` wins, and the numbers do not move: 8 and 128 are **better-auth 1.6.26's own
+> defaults**, read at `create-context.mjs:185-186` and enforced at `sign-up.mjs:152-158`, probed
+> at 7→400, 8→200, 128→200, 129→400. `PASSWORD_MIN_LENGTH` and `PASSWORD_MAX_LENGTH` stay
+> exported and stay the zod form check; they are not passed to `betterAuth()`. Keeping them
+> equal to the library's defaults is what makes the two enforcement points agree — setting the
+> keys is not.
 
 ### Responses
 
@@ -133,9 +147,26 @@ Fixed by ADR-0013 and GC-D. Three things a later reader must not re-derive:
 - **`aud` is a single string**, not an array. `sign.mjs:45` calls
   `setAudience(aud ?? defaultAud)` with one value.
 
-`ACCESS_TOKEN_LIFETIME_SECONDS` exists so TASK-003 writes `expirationTime:
-ACCESS_TOKEN_LIFETIME_SECONDS` rather than restating `'5m'`, and so the revocation TTL and
-the lifetime are the same number in one place (ADR-0013).
+`ACCESS_TOKEN_LIFETIME_SECONDS` exists so the revocation TTL and the token lifetime are the
+same number in one place (ADR-0013), rather than `'5m'` restated at two call sites.
+
+> **AMENDED 2026-08-15 (F-168), Juano's ruling. This paragraph previously instructed
+> `expirationTime: ACCESS_TOKEN_LIFETIME_SECONDS`. THAT FORM MINTS TOKENS THAT EXPIRED IN 1970.**
+>
+> `sign.mjs:13` passes the value to `toExpJWT`, and `utils.mjs:15-19` returns a **number
+> unchanged** as the `exp` claim — only a string goes through `iat + sec(expirationTime)`. So
+> `expirationTime: 300` sets `exp` to epoch second 300. Measured twice: read at the source
+> during wave-2 design, then minted as a real token by the design security pass, which read
+> `exp = 300` back off it.
+>
+> **The normative form is `` expirationTime: `${ACCESS_TOKEN_LIFETIME_SECONDS}s` ``.** The
+> exported constant stays a `number` — `REVOCATION_TTL_SECONDS` derives from it and needs
+> seconds — so the conversion belongs at the call site. It fails **closed**: every token is
+> rejected the instant it is issued.
+>
+> This amendment reopened the wave-1 design gate for this line alone. The same defect was
+> instructed by `packages/contracts/src/auth/index.ts:133-138`, corrected by TASK-003 under a
+> widened `paths`, and by TASK-003's own card.
 
 ## `packages/contracts/src/members/`
 

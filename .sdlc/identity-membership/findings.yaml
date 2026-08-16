@@ -269,7 +269,7 @@
 - id: F-009
   phase: design
   wave: 1
-  task: TASK-002
+  task: TASK-015
   source: sdlc-architect
   round: 1
   severity: major
@@ -298,6 +298,14 @@
     The architect named it and did not fix it; controls.ts is not in TASK-002's paths - see
     F-010.
   owner_slot: sdlc-implementer-backend
+  routing_note: >-
+    RE-OWNED TO TASK-015 ON 2026-08-14 BY JUANO'S RULING, from TASK-002. TASK-002 reached `done`
+    with this finding open and major, which is the state check-ledger rule 2 exists to catch and
+    did not - the rule read state.yaml's `tasks:` map, which this initiative has never had, so it
+    could not fire on any card. Fixed the same day; the rule now reads the cards and reports this
+    entry. TASK-015 lists apps/api/test/isolation/controls.ts in its own paths and its whole
+    intent is proving the harness would notice a leak, so the predicate's provenance is its
+    subject rather than an errand attached to it.
   status: open
   resolved_by: null
   resolved_round: null
@@ -2119,7 +2127,7 @@
 - id: F-084
   phase: implement
   wave: 0
-  task: null
+  task: TASK-002
   source: sdlc-security-auditor
   round: 3
   severity: minor
@@ -2137,6 +2145,11 @@
     OWNER ASSIGNED 2026-08-14, NOT FIXED. TASK-002 - it already owns test fixtures this wave and
     the spawned child needs DATABASE_AUTH_URL from wave 1. Third instance of the same two-DSN
     defect across three fixtures, each found by a different auditor in a different round.
+    THE FIELD WAS WRITTEN 2026-08-14 AND THE CARD IT NAMES IS ALREADY `done` WITH THIS OPEN.
+    Recorded rather than re-routed: TASK-002 is the only card of nineteen whose paths list
+    security-headers.int-spec.ts, so re-owning it means choosing a new carrier, which is a
+    ruling and not bookkeeping. Raised at the wave-2 Design gate because TASK-003 owns the boot
+    assertions that read DATABASE_AUTH_URL and is the card being designed.
   status: open
   resolved_by: null
   resolved_round: null
@@ -3655,3 +3668,845 @@
     incrementing the digit, because this is the eighth site of that class in one wave and a number
     in prose is what goes stale. VERIFIED - no bare role count remains in the README.
   resolved_round: 1
+
+- id: F-167
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: orchestrator
+  round: 0
+  severity: major
+  kind: process
+  file: .sdlc/identity-membership/design/contracts/auth-contracts.md
+  line: 9
+  summary: >-
+    A FROZEN CONTRACT NAMES FIVE CONSUMER TASKS AND NOT ONE OF THEM REFERENCES IT.
+    auth-contracts.md:9-11 lists TASK-003, TASK-005, TASK-007, TASK-008 and TASK-012 as
+    consumers - the claim shape, the password bounds, ACCESS_TOKEN_LIFETIME_SECONDS. Checked
+    every `contracts:` field across all nineteen cards AND every card body: zero cite it.
+    tenant-membership-lookup.md, 309 lines, is cited by no card in either place. Of the three
+    contracts this initiative wrote in Design wave 1 and froze at that gate, only
+    auth-schema.md reaches an implementer, and through TASK-002's BODY PROSE rather than its
+    front matter. Every `contracts:` entry on every card names a `foundation` contract instead.
+  failure_scenario: >-
+    design.md's own rule is that an implementer reads only its TASK and the contracts that TASK
+    references. Scouts and auditors reach these files because those agents read design/
+    wholesale, which is why three waves passed without anyone noticing - the readers who would
+    notice are the ones who do not need the pointer. The implementer is the one reader that
+    depends on it.
+    LIVE FOR WAVE 2: TASK-003's contracts: field names auth-tokens.md and tenant-context.md,
+    both `foundation`'s, and omits the contract that fixes the claim set its definePayload
+    builds. The card body carries the claim set in detail, so the practical exposure this wave
+    is narrower than the defect - but that is luck from a dense card, not the mechanism working.
+  required_change: >-
+    TASK-003's contracts: field gains design/contracts/auth-contracts.md this wave. The other
+    four named consumers (005, 007, 008, 012) are later waves and get theirs at the Design
+    re-entry that covers them. Whether the front-matter path convention should distinguish this
+    initiative's design/ from foundation's is a separate question and is not settled here.
+  owner_slot: orchestrator
+  routing_note: >-
+    Card text, which config.yaml routes to `orchestrator`. Costs no fix round. Filed at the
+    wave-2 Design phase by the orchestrator, not by an auditor.
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-168
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-architect
+  round: 0
+  severity: major
+  kind: correctness
+  file: packages/contracts/src/auth/index.ts
+  line: 133
+  summary: >-
+    `expirationTime: ACCESS_TOKEN_LIFETIME_SECONDS` ISSUES TOKENS THAT EXPIRED IN 1970. sign.mjs:13
+    passes the value to toExpJWT, which returns a NUMBER UNCHANGED as the exp claim - only a string
+    goes through `iat + sec()`. So exp becomes epoch second 300. Instructed in three places: this
+    docblock, frozen auth-contracts.md:136-138, and TASK-003's card.
+  failure_scenario: >-
+    MEASURED TWICE. I read toExpJWT and the sign.mjs:13 call site; the security auditor then minted
+    a real token with expirationTime: 300 and read exp = 300, 1970-01-01T00:05:00Z. Every access
+    token is rejected by any conformant verifier the instant it is issued. It fails CLOSED, which
+    is why it is not a security finding - but AC-3's lifetime clause is unsatisfiable as three
+    approved artifacts instruct it.
+  required_change: >-
+    RULED BY JUANO 2026-08-15: the call site converts, `${ACCESS_TOKEN_LIFETIME_SECONDS}s`. The
+    constant stays a number because REVOCATION_TTL_SECONDS derives from it. auth-contracts.md's
+    instruction line, this docblock and the card all get corrected.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-169
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-architect
+  round: 0
+  severity: major
+  kind: contract
+  file: .sdlc/identity-membership/design/contracts/auth-contracts.md
+  line: 65
+  summary: >-
+    TWO FROZEN CONTRACTS INSTRUCT OPPOSITE THINGS ABOUT ONE FILE. foundation's auth-tokens.md:99
+    says "auth.config.ts sets neither key" and its :333 describes a unit test asserting exactly
+    that; auth-contracts.md:65-67 says it reads PASSWORD_MIN_LENGTH/PASSWORD_MAX_LENGTH into
+    emailAndPassword.minPasswordLength/.maxPasswordLength.
+  failure_scenario: >-
+    The effective bounds are 8 and 128 either way, so nothing user-visible differs - the two are
+    mechanically incompatible and a test enforces one side. An implementer following
+    auth-contracts.md writes code the other contract's assertion fails.
+  required_change: >-
+    RULED BY JUANO 2026-08-15: auth-tokens.md wins on its probe evidence and its existing
+    assertion. auth.config.ts sets NEITHER key. Amend auth-contracts.md:65-67.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-170
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-architect
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/foundation/design/contracts/auth-tokens.md
+  line: 132
+  summary: >-
+    trustedOrigins IS THE CSRF CONTROL FOR THE WHOLE AUTH SURFACE AND NO CARD OWNS IT. Frozen
+    auth-tokens.md:132-143 requires auth.config.ts to pass it from WEB_APP_ORIGINS. The string
+    appears in no card, no env file and no compose file. Raised by the architect and independently
+    by the security auditor.
+  failure_scenario: >-
+    The failure is LOUD, not silent - the auditor executed it: Origin https://evil.test against
+    Host api.internal returns 403 INVALID_ORIGIN, so browser CSRF is genuinely blocked today.
+    THE RISK IS THE REMEDY. An implementer meeting a 403 on every local login reaches for the
+    value that clears it, and matchesOriginPattern honours `*` as a bare host wildcard, which
+    trusts every origin on the internet with nothing erroring anywhere.
+  required_change: >-
+    RULED BY JUANO 2026-08-15: TASK-003 takes it this wave - the binding, an env-file entry, and a
+    unit test asserting BOTH directions, including that no entry is `*` or a bare-wildcard host.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-171
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-architect
+  round: 0
+  severity: minor
+  kind: design
+  file: .sdlc/foundation/design/adr-0015-signup-creates-the-tenant.md
+  line: 1
+  summary: >-
+    ADR-0015's RESIDUE DESCRIPTION WAS PRICED BEFORE THE ROLE SPLIT. It describes one orphaned user
+    row; under two roles and two pools the surviving state is three rows including a live session
+    credential. The RULING survives - the orphan is acceptable, the alternative is worse - the
+    description does not.
+  failure_scenario: >-
+    A reader who opens ADR-0015 first gets a residue one quarter the size of the real one, with no
+    signal it is stale. Same class as F-024 and F-108: a cost priced against a model that changed.
+  required_change: >-
+    RULED BY JUANO 2026-08-15: correct from this side. ADR-0054 carries the corrected residue and
+    cites ADR-0015 as superseded-in-part ON THE DESCRIPTION ONLY; foundation's ADR gets a one-line
+    pointer. No closed gate reopens.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-172
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-architect
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0046-better-auth-drizzle-client.md
+  line: 151
+  summary: >-
+    ADR-0046 PROMISES A COMPILE ERROR THAT DOES NOT EXIST. client.ts:41 is `import * as schema from
+    './schema'` and :259 returns NodePgDatabase<typeof schema> - the full product schema, which is
+    the alternative ADR-0046 rejected by name at :139. Its Positive section at :151 claims an
+    author reading `workspaces` through it gets a compile error.
+  failure_scenario: >-
+    REPRICED DOWNWARD BY MEASUREMENT, and the measurement is the point. I framed this as an
+    exposure. The auditor ran it: as shortkit_auth, SELECT on tenants and tenant_memberships both
+    answer `permission denied for table`, and enumerating role_table_grants shows shortkit_auth
+    holds DML on exactly the five auth tables - it never received a default privilege, so the
+    revoke did not need to be symmetric. This is a missing compile-time guard over a path the
+    database already refuses, not a reach.
+  required_change: >-
+    Strike or qualify ADR-0046:151's consequence, which is false as written. Whether to narrow the
+    return type is a separate question against a done card's file and is NOT settled here.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 4
+  ruling: >-
+    STRUCK 2026-08-16 BY THE ORCHESTRATOR, AND IT NEARLY REACHED THE GATE UNDONE. Juano ruled on
+    2026-08-15 to strike the false consequence and leave the type as shipped. The finding was
+    routed to sdlc-architect and then never appeared as a task in any of the three round briefs -
+    round 1 carried it as re-pricing context, rounds 2 and 3 were scoped to other findings, and
+    nothing carried the strike itself. FOUND WHILE VERIFYING THE ARTIFACT INVENTORY FOR THE GATE
+    SUMMARY, by opening the file rather than trusting the routing - which is invariant 9's whole
+    point and the second time this wave that a status was about to be reported from a routing
+    rather than from the file.
+
+- id: F-173
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/contracts/auth-config-surface.md
+  line: 66
+  summary: >-
+    baseURL IS ABSENT AND BETTER_AUTH_URL IS PROVISIONED NOWHERE BUT THE TEST FIXTURE, so iss and
+    aud are taken from the request's HOST HEADER.
+  failure_scenario: >-
+    EXECUTED against 1.6.26. One session, two requests: Host api.internal returned a token with
+    iss="http://api.internal"; the SAME COOKIE with Host evil.test returned iss=aud="http://evil.test"
+    - same signature, same kid, same tid, both valid. shortkitJwtClaimsContract types iss/aud as
+    z.string().min(1), so an attacker-chosen issuer is CONTRACT-CONFORMANT. BETTER_AUTH_URL is set
+    only in auth-fixture.ts:85, so the only tier that exercises the mount sets it and `pnpm dev`
+    does not: THE SUITE IS GREEN ON A CONFIGURATION NOBODY RUNS.
+  required_change: >-
+    Pin issuer and audience on the composed config from a declared binding; make BETTER_AUTH_URL a
+    load-bearing key with an owner, an env entry and a boot assertion beside the secret one; assert
+    a minted token's iss/aud do not move with the Host header.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-174
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/contracts/auth-config-surface.md
+  line: 66
+  summary: >-
+    THE SESSION COOKIE'S Secure FLAG FALLS BACK TO NODE_ENV === 'production', and no artifact in
+    this wave states a cookie attribute at all.
+  failure_scenario: >-
+    EXECUTED. cookies/index.mjs:21 derives secure from `useSecureCookies ?? (baseURLString ?
+    startsWith('https://') : isProduction)`, and with BETTER_AUTH_URL unset baseURLString is "".
+    The composed instance issued `better-auth.session_token=...; HttpOnly; SameSite=Lax` - NO
+    Secure, no __Secure- prefix - plus an undocumented better-auth.session_data cookie. That value
+    is a full credential through the bearer plugin, which mints JWTs from it. Silent and
+    environment-dependent: TLS terminated at a proxy speaking http inward, or NODE_ENV anything but
+    exactly `production`, and nothing fails.
+  required_change: >-
+    Fix the cookie attributes explicitly in the config-surface table rather than deriving them, and
+    assert them off $context.authCookies.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-175
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/contracts/auth-config-surface.md
+  line: 70
+  summary: >-
+    logger.level 'error' DISCARDS EVERY warn FROM THE DEPENDENCY - INCLUDING THE ONE LINE THAT
+    REPORTS THE TWO FINDINGS ABOVE.
+  failure_scenario: >-
+    EXECUTED. create-context.mjs:64 warns "Base URL is not set ... the origin is derived from the
+    incoming request". Composed with the exact logger the contract mandates, THE BOUND HOOK
+    RECEIVED ZERO LINES. The same filter drops the short/low-entropy secret warning and the
+    "cannot determine a client IP" line, which is the control TASK-004 depends on. AND THE STATED
+    JUSTIFICATION IS WRONG AT THE SOURCE: the sign-up email leak it cites is logger.INFO, not warn,
+    so 'warn' suppresses it just as completely. The auditor read every warn call site in 1.6.26 -
+    none interpolates an email, token, password or user id, and ADR-0052's hook drops positional
+    args anyway.
+  required_change: >-
+    level: 'warn' in the config-surface table and in ADR-0052, with the audited basis stated. Keep
+    the spec's assertion, at the new value.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-176
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0056-better-auth-database-caller-list-is-asserted-in-wave-2.md
+  line: 133
+  summary: >-
+    THE CALLER-LIST CONTROL BOUNDS AN IDENTIFIER, NOT THE ROLE - and the capability it bounds is
+    larger than the ADR's accepted-cost section says.
+  failure_scenario: >-
+    Two gaps, both executed. (1) DATABASE_AUTH_URL is in the API process environment, so ANY file
+    under apps/api/src reaches the same role with `new pg.Pool({ connectionString:
+    process.env.DATABASE_AUTH_URL })` and never writes the string betterAuthDatabase. The equality
+    scan passes. ADR-0056 names the test/** and scripts/** residuals and not this one, WHICH NEEDS
+    NO UNSCANNED DIRECTORY AT ALL. (2) The capability is priced as READING session tokens and
+    password hashes. Measured as shortkit_auth in a rolled-back transaction, an INSERT INTO session
+    with an attacker-chosen token for ANOTHER USER'S id SUCCEEDED - the five tables carry no RLS -
+    so the handle FORGES A SESSION FOR ANY USER. It also reads jwks.private_key while
+    BETTER_AUTH_SECRET is in the same process, so the holder decrypts the signing key and mints any
+    tid for any user. ADR-0057's "the row is useless without the secret" holds against a
+    database-only adversary and NOT against anything in the API process, where both are in scope.
+  required_change: >-
+    Add both to ADR-0056's accepted costs in those words; restate the capability as read-and-write
+    on five unprotected tables; qualify ADR-0057's two-factor sentence to name the adversary it
+    holds against.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-177
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0053-revocation-store-is-process-local.md
+  line: 161
+  summary: >-
+    REVOCATION EVICTION IS ATTACKER-INFLUENCED AND ITS STATED REASONING IS BACKWARDS. Insertion-
+    order eviction drops the most recently RE-revoked session first.
+  failure_scenario: >-
+    (a) "Above 10,000 live entries the oldest is dropped" reads as a load condition, but every
+    session deletion writes an entry and sign-in/sign-out is an attacker-reachable path: an
+    attacker holding a stolen token whose session was just revoked can drive 10,000 deletions
+    inside the 300-second window and have it honoured again. TASK-004's IP-keyed limiter is what
+    makes that expensive, which is why it is minor - but the cost is set by a limiter in ANOTHER
+    CARD and the ADR should say so. (b) "The oldest is closest to expiry" is FALSE for a re-revoked
+    session: Map.set on an existing key keeps the original position, and invariant 4 makes revoke
+    idempotent with a refreshed TTL, so the newest expiry sits at the oldest position.
+  required_change: >-
+    Name the attacker-reachable write path and its coupling to TASK-004's limiter. Require `delete`
+    before `set` in revoke so insertion order tracks current expiry, and assert a re-revoked entry
+    is not evicted first.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-178
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0054-signup-residue-repriced-across-two-roles.md
+  line: 66
+  summary: >-
+    THE RESIDUE TABLE IS WRONG IN TWO MEASURABLE WAYS - the session is 7 days not 30, and the 500
+    RESPONSE CARRIES THE SESSION COOKIE.
+  failure_scenario: >-
+    EXECUTED with the exact hook shape ADR-0054 decides. The response was 500 with the intended
+    body AND a Set-Cookie carrying a live session_token plus an encrypted session_data, both
+    Max-Age=604800, neither Secure; user, account and session rows all survived. So THE CALLER IS
+    HANDED THE CREDENTIAL IN THE SAME RESPONSE THAT SAYS THE ACCOUNT IS UNUSABLE - a client
+    treating a 500 as "nothing happened" is authenticated anyway. Separately sessionConfig.expiresIn
+    resolves to 604800, the library default that nothing in the config surface sets, so "a live
+    30-day session credential" - stated twice - is off by 4x. auth-tokens.md gives sk_rt a
+    2592000-second max-age, outliving the credential behind it by 23 days.
+  required_change: >-
+    Correct the table to 7 days, add the Set-Cookie-on-500 fact, put session.expiresIn in the
+    config surface as a decided value, and reconcile it with sk_rt's max-age.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-179
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 1
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/design/contracts/auth-config-surface.md
+  line: 78
+  summary: >-
+    SIGN-UP IS AN UNAUTHENTICATED USER-ENUMERATION ORACLE AND NO ADR RECORDS IT AS A DECISION.
+  failure_scenario: >-
+    sign-up.mjs:162 computes the generic-duplicate branch from `requireEmailVerification ||
+    autoSignIn === false`. Neither is set by this design and email verification is explicitly out
+    of scope, so a duplicate address answers 422 USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL and a fresh
+    one answers 200. An unauthenticated attacker tests an address list and learns who has an
+    account. rateLimit: { enabled: false } removes the library's own brake IN THIS CARD and the
+    replacement is IP-keyed and lands in TASK-004. ADR-0054 mentions the 422 as an inconvenience
+    for the burned address and never as a disclosure.
+  required_change: >-
+    Record the enumeration property as an accepted cost with its mitigation named, and add
+    emailAndPassword.autoSignIn and requireEmailVerification to the config surface as deliberate
+    values.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-180
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0056-better-auth-database-caller-list-is-asserted-in-wave-2.md
+  line: 1
+  summary: >-
+    INTRODUCED BY THE ROUND-1 REVISION. The new DATABASE_AUTH_URL equality collides with
+    AUTH_VERDICT_PREFIX = 'DATABASE_AUTH_URL connect', which ADR-0050 and TASK-004's card already
+    require in main.ts.
+  failure_scenario: >-
+    The control goes red in wave 3 against a card that opens no pool - a string in a verdict
+    prefix is not a database handle, and the scan cannot tell them apart. A control that fires on
+    correct code is the control that gets deleted rather than fixed, which is the argument the
+    isolation harness's positive control already ships for.
+  required_change: The scan distinguishes a connection string from a message that names one.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-181
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0059-the-auth-config-declares-its-origin-cookies-and-session.md
+  line: 1
+  summary: >-
+    INTRODUCED BY THE ROUND-1 REVISION, AND IT IS THE HOLE IT WAS ADDED TO CLOSE, ONE SIZE
+    SMALLER. assertWebAppOriginsConfigured admits `https://*.vercel.app`, a form frozen
+    auth-tokens.md:158-162 rules out BY NAME.
+  failure_scenario: >-
+    EXECUTED: it trusts https://evil.vercel.app and lets a cross-origin signup through with 200.
+    `?` is also a live wildcard metacharacter the predicate ignores. The assertion was added
+    beyond the required_change to stop a developer clearing a local 403 with `*` - it rejects `*`
+    and `https://*`, both verified catastrophic, and then admits the platform wildcard that any
+    real deployment reaches for first.
+  required_change: >-
+    The predicate rejects every wildcard host form auth-tokens.md:158-162 names, and `?` with it.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-182
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0056-better-auth-database-caller-list-is-asserted-in-wave-2.md
+  line: 1
+  summary: >-
+    THE `new pg.Pool` / `from 'pg'` SCAN IS DEFEATED IN ONE LINE BY drizzle(dsn), which builds
+    the pool internally (drizzle-orm/node-postgres/driver.js:61-71).
+  failure_scenario: >-
+    Two of the three equalities read as coverage and are not. The auditor's judgement is that the
+    DATABASE_AUTH_URL equality is the only load-bearing one - and it also established that
+    "assembled from parts" is genuinely unavailable in-process, because compose interpolates the
+    password at parse time. So the control is neither as strong as it looks nor as weak as the
+    bypass list suggests, and the ADR should say which.
+  required_change: Say what each equality is worth, or drop the two that are not load-bearing.
+  owner_slot: sdlc-architect
+  status: routed
+  resolved_by: null
+  resolved_round: null
+
+- id: F-183
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 2
+  severity: minor
+  kind: doc
+  file: .sdlc/identity-membership/tasks/TASK-003.md
+  line: 190
+  summary: >-
+    `level: 'error'` SURVIVED THE FIX IN THE TWO ARTIFACTS AN IMPLEMENTER ACTUALLY READS -
+    TASK-003's card and ADR-0052's Decision block, including :171 instructing the spec to ASSERT
+    the old value.
+  failure_scenario: >-
+    The decision landed in the new ADR and the config surface; the card and the amended ADR still
+    said 'error'. An implementer reads the card, writes 'error', and its spec asserts 'error'
+    passes. THE FIX WOULD HAVE BEEN GREEN AND ABSENT.
+  required_change: Both corrected to 'warn' with the amendment dated in place.
+  owner_slot: orchestrator
+  routing_note: >-
+    Card text and an ADR amendment Juano ruled - orchestrator work, no round. Fixed 2026-08-15 in
+    the same step as this entry: ADR-0052 carries an amended_by pointer and three struck sites,
+    TASK-003 carries the corrected value and the reason.
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 2
+
+- id: F-184
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: orchestrator
+  round: 2
+  severity: minor
+  kind: doc
+  file: .sdlc/identity-membership/design/adr-0061-signup-is-an-enumeration-oracle.md
+  line: 1
+  summary: >-
+    THE ARCHITECT NAMED THE WRONG CARDS FOR THE autoSignIn FLOW CHANGE. It reported TASK-007 and
+    TASK-012 as building against a signup that logs the user in. TASK-012 IS "Workspace contracts
+    and endpoints" AND CONTAINS NO SIGNUP MENTION AT ALL - grepped, zero hits.
+  failure_scenario: >-
+    The cards that actually hold the assumption are TASK-008:24, "On success the operator lands on
+    the workspace list", and TASK-013:24, "It is the redirect target of a successful signup and
+    sign-in". Written as reported, the ruling would have landed a flow change on a backend card
+    that cannot act on it while the two screens that break kept an assumption that no longer
+    holds. TASK-007 owns requireAuth() and is unaffected in mechanism - it is what does the
+    bouncing, not what breaks.
+    THE INITIATIVE'S SIGNATURE DEFECT, from the other side of the dispatch: a claim about a
+    file's contents written without opening the file at that moment. Eleven of mine were caught
+    this way by agents; this is one of theirs caught by me, and the check cost one grep.
+  required_change: The flow change is written onto TASK-008 and TASK-013. TASK-012 gets nothing.
+  owner_slot: orchestrator
+  status: open
+  resolved_by: null
+  resolved_round: null
+
+- id: F-185
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: orchestrator
+  round: 2
+  severity: major
+  kind: doc
+  file: .sdlc/identity-membership/tasks/TASK-003.md
+  line: 58
+  summary: >-
+    TWO DECIDED QUESTIONS WERE STILL WRITTEN ON THE CARD AS OPEN, AND ONE OF THEM CARRIED THE
+    WRONG CODE. The Adapter paragraph instructed `drizzleAdapter(db, { provider: 'pg' })`
+    "sharing the application's Drizzle client" and closed by calling the client question a
+    Design decision "listed for the architect". The revocation-store paragraph did the same.
+  failure_scenario: >-
+    ADR-0046 and ADR-0050 answered the client question in wave 1 and ADR-0053 answered the
+    revocation one in wave 2 - but an implementer reads its card top-down, and the card said
+    `db`. `shortkit_app` was revoked on all five auth tables by migration 0001, so an adapter
+    built on the application client CANNOT READ `user` AT ALL: the failure is a login surface
+    that cannot authenticate anyone, arriving as a permission error nobody predicted from
+    reading the card.
+    F-045's class and the ninth instance of it in this initiative - a card whose lead sentence
+    instructs what its own later text forbids. Wave 1 caught one of these in nine lines; this
+    one survived a whole wave because nothing re-reads a paragraph after the ADR that settles it.
+  required_change: >-
+    Both paragraphs rewritten 2026-08-16 with the decision in place, the stale instruction quoted
+    and marked stale rather than silently deleted, and the normative contract named. The card now
+    points at auth-config-surface.md and revocation-store.md rather than restating them.
+  owner_slot: orchestrator
+  routing_note: Card text, orchestrator work, no round. Found by me while writing the wave-2 card additions.
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 2
+
+- id: F-186
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0056-better-auth-database-caller-list-is-asserted-in-wave-2.md
+  line: 118
+  summary: >-
+    SCAN 2 PRE-AUTHORISES TWO FILES THAT WILL NOT CONTAIN THE STRING UNTIL WAVE 3, UNDER AN
+    EQUALITY, SO THE SPEC IS RED THE DAY TASK-003 LANDS. Introduced by the round-2 fix for F-180.
+  failure_scenario: >-
+    Verified against the tree: DATABASE_AUTH_URL occurs in db/client.ts and nowhere else, and
+    will still occur nowhere else after TASK-003 - main.ts gains only the assertion calls, and
+    the wave-2 boot-assertions.ts stub contains the string zero times. AUTH_VERDICT_PREFIX
+    arrives in wave 3. So toEqual(PERMITTED) compares one entry against three and fails on
+    landing. AND ADR-0056's OWN :87-89 DESCRIBES THIS EXACT FAILURE - it explains why the
+    CONTEXT_FLAG_OWNERS precedent asserts subset, then says the constraint does not apply here.
+    It applies to scan 2 precisely.
+    IT IS A SECURITY FINDING BECAUSE OF WHAT A RED GATE ON A CONTROL COSTS: the cheapest green is
+    to trim PERMITTED to what the tree contains, which deletes the wave-3 pre-authorisation this
+    revision was written to add, and F-180's collision returns.
+  required_change: >-
+    Scan 2 becomes a SUBSET assertion and the ADR says it is the one direction that cannot be an
+    equality, because its permitted set is deliberately ahead of the tree. Scans 1, 3 and 4 stay
+    equalities and are green against the tree today.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 3
+  ruling: >-
+    CLOSED IN ROUND 3 AND VERIFIED BY RE-EXECUTION. Scan 2 is a subset, scans 1, 3 and 4 stay
+    equalities, the ADR carries a per-scan direction table and states that scan 2 is the one
+    direction that cannot be an equality - the same constraint its own CONTEXT_FLAG_OWNERS
+    paragraph had recorded and then waved away. All four scans verified green against the tree by
+    the auditor. Accepted cost recorded: subset cannot see a removal, which cannot reach the role
+    and which scan 3 catches anyway.
+
+- id: F-187
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/stubs/apps/api/src/auth/boot-assertions.ts
+  line: 84
+  summary: >-
+    betterAuthUrl ACCEPTS http:// FOR ANY HOST, so the binding that exists to stop a non-Secure
+    session cookie permits one - and the compose default teaches the scheme that produces it.
+  failure_scenario: >-
+    EXECUTED: BETTER_AUTH_URL=http://api.example.com yields better-auth.session_token with
+    secure: false and no __Secure- prefix - IDENTICAL TO THE ROUND-1 FINDING THIS ADR WAS WRITTEN
+    TO CLOSE - while https:// yields the prefixed secure cookie. EVERY ASSERTION PASSES IN BOTH
+    CASES, because a value is set. useSecureCookies is derived from this one string, so nothing
+    else can catch it. The compose default http://localhost:3001 is right for the local stack and
+    is also what teaches the value's shape: an operator who copies it to a real host keeps the
+    scheme, and the session credential travels in the clear with the boot assertion green, the
+    unit test green and the compose job green.
+  required_change: >-
+    One rule, in the accessor and the assertion: `http:` only for a loopback host - localhost, a
+    127.0.0.0/8 address, or [::1] - and `https:` for any host. Reads no NODE_ENV, so GC-B holds;
+    leaves the compose default and every local flow unchanged; turns http://api.example.com into
+    a boot refusal naming the rule.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: sdlc-architect
+  resolved_round: 3
+  ruling: >-
+    CLOSED IN ROUND 3 AND VERIFIED BY RE-EXECUTION. `http:` is permitted only for localhost,
+    127.0.0.0/8 or [::1]; https: for any host; no NODE_ENV read, so GC-B holds. Two residuals
+    volunteered rather than discovered: it is a string test and not a resolution test, and it
+    refuses a TLS-terminating proxy's internal address. THE AUDITOR RULED THAT SECOND RESIDUAL
+    ACCEPTABLE RATHER THAN A TRAP - that topology must use the public https: origin anyway for
+    iss, aud and the cookie flag, so the rule refuses a value that was already wrong, and the
+    refusal message naming the public origin is what stops an operator reaching for
+    useSecureCookies: false.
+
+- id: F-188
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 3
+  severity: major
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0061-signup-is-an-enumeration-oracle.md
+  line: 44
+  summary: >-
+    autoSignIn: false CLOSES THE STATUS-CODE ORACLE AND LEAVES A RESPONSE-SHAPE ONE, so the
+    decision Juano took on 2026-08-15 delivers less than it claims.
+  failure_scenario: >-
+    EXECUTED. A duplicate address now answers 200 rather than 422 - that half works. But the two
+    200s are not the same shape: an existing address returns user keys including `image`, a fresh
+    one returns the same set WITHOUT it. THE `image` KEY IS PRESENT IF AND ONLY IF THE ADDRESS
+    EXISTS, deterministically, every request, no timing analysis. An attacker walks an address
+    list and reads one JSON key. The disclosure is existence only - `name` is the attacker's own
+    value and `id` is fresh, both checked - WHICH IS THE SAME DISCLOSURE THE 422 MADE AND THE ONE
+    ADR-0061 SAYS IS CLOSED. Adapter-independent: one branch serialises a row read back from the
+    store, the other serialises the object it just built, and user.image is nullable in migration
+    0001 so a stored row always has the key.
+    THE RESIDUE HALF OF THE RULING IS VERIFIED REAL - no Set-Cookie, session=0 - so the ruling
+    stands on that alone.
+  required_change: >-
+    Do NOT reopen the ruling. Correct ADR-0061's claim to what it actually buys - the status
+    code, not the oracle - and either close the shape gap or accept it explicitly in the same
+    sentence. The deciding test belongs in the integration tier against the real adapter:
+    signup-creates-tenant.int-spec.ts asserts a duplicate-address and a fresh-address response
+    are BYTE-IDENTICAL after normalising id, createdAt and updatedAt.
+  owner_slot: sdlc-architect
+  status: wont-fix
+  resolved_by: sdlc-security-auditor
+  resolved_round: 4
+  ruling: >-
+    WITHDRAWN BY ITS AUTHOR AFTER MEASUREMENT DISPROVED IT, 2026-08-16. The architect refused to
+    absorb it and said why: the divergence was measured on better-auth's IN-MEMORY adapter, while
+    the stated reason for adapter-independence - user.image is a nullable column, so a stored row
+    always carries the key - implies the opposite under the real adapter. Rather than claim
+    either, it wrote the question undetermined and pre-committed both outcomes to a byte-identity
+    test.
+    MEASURED AGAINST THE REAL drizzleAdapter over a pool authenticating as shortkit_auth, on a
+    scratch database with both migrations applied and the role's grants verified first: THE TWO
+    RESPONSES CONVERGE. Identical key sets including `image`; the duplicate carries a FRESH id
+    and createdAt rather than the existing account's; token: null in both; no row created; the
+    only differing field is `email`, the attacker's own input. Timing 45.0 ms against 46.3 ms
+    median of 12 over loopback, pointing the wrong way for an attacker.
+    NO ENUMERATION ORACLE EXISTS IN THIS DESIGN. `wont-fix` is the closest terminal status the
+    ledger has and it is the wrong word - THERE IS NO STATUS FOR `DISPROVED`, which is a gap
+    worth the retro: a finding that was measured false reads here as one that was real and
+    declined.
+
+- id: F-189
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 3
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/design/contracts/auth-config-surface.md
+  line: 110
+  summary: >-
+    `https://ex*.co.uk` TRUSTS exfiltrate-evil.co.uk - measured. The architect volunteered this
+    residual itself and placed it in all three artifacts; it cannot be closed without a
+    public-suffix list.
+  failure_scenario: >-
+    The origins predicate rejects a label that is entirely metacharacters and any metacharacter
+    in the final two labels, which refuses `*`, `https://*` and `https://*.vercel.app`. A
+    wildcard in the THIRD-from-last label still spans a registrable boundary under a two-part
+    public suffix. Reaching it requires someone to write a wildcard origin with a co.uk-shaped
+    suffix, which no configuration in this repository has.
+  required_change: >-
+    None available without a public-suffix list. The auditor's own recommendation is to park it
+    in writing rather than carry a half-fix.
+  owner_slot: sdlc-architect
+  status: parked
+  resolved_by: orchestrator
+  resolved_round: 3
+  ruling: >-
+    PARKED AT THE CAP 2026-08-16. Real, self-reported by the agent that wrote the predicate, and
+    correctly documented in all three artifacts rather than hidden. Closing it needs a
+    public-suffix list, which is a dependency and a decision this wave has no reason to take; the
+    reachable form requires an operator to write a wildcard origin under a two-part public suffix
+    and no configuration here does. The residual is named in the contract where a future author
+    meets it.
+
+- id: F-190
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: orchestrator
+  round: 3
+  severity: major
+  kind: doc
+  file: .sdlc/identity-membership/design/adr-0061-signup-is-an-enumeration-oracle.md
+  line: 4
+  summary: >-
+    THE TITLE CLAIMS THE CLOSURE THE BODY EXPLICITLY REFUSES TO CLAIM. ADR-0061's title reads
+    "Sign-up does not auto-sign-in, which CLOSES THE ENUMERATION ORACLE and takes the credential
+    out of the failure path". Its own :56 says "The STATUS-CODE oracle closes" and its :73 says
+    "Whether it survives the real adapter is UNDETERMINED and this design did not determine it."
+  failure_scenario: >-
+    F-183's SHAPE, ONE ROUND LATER AND IN THE SAME WAVE. The round-3 fix corrected the claim
+    everywhere it is argued and not where it is announced - and a title is what every citation,
+    every index entry and every reader who does not open the file carries away. The whole reason
+    F-188 was worth filing is that a design claimed more than it bought; correcting the argument
+    and leaving the headline is that finding surviving its own fix.
+    ADR-0056's title has the milder version of the same: "asserted by EQUALITY in wave 2" while
+    its table now records scan 2 as subset. Three of four scans are equalities and the table is
+    right, so it reads as imprecise rather than false.
+  required_change: >-
+    ADR-0061's title names the status-code oracle and the credential, not the oracle. ADR-0056's
+    title stops asserting a single direction. Neither body changes - both are already correct.
+    The FILENAMES stay as they are: they name the problem, not the resolution, and renaming them
+    breaks every citation for no gain.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 4
+  ruling: >-
+    Both titles corrected 2026-08-16 by the orchestrator under Juano gate ruling. ADR-0061 now
+    names the STATUS-CODE oracle, which is what its body claims; ADR-0056 now says "four scans"
+    rather than asserting a single direction. Neither body changed - both were already right.
+    Filenames untouched: they name the problem, not the resolution.
+
+- id: F-191
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: minor
+  kind: design
+  file: .sdlc/identity-membership/design/adr-0056-better-auth-database-caller-list-is-asserted-in-wave-2.md
+  line: 125
+  summary: >-
+    TWO OF THE FOUR SCANS GO RED ON LANDING IF THEIR REGEXES ARE WRITTEN THE OBVIOUS WAY. A naive
+    /'pg'/ for scan 4 matches the MANDATED `provider: 'pg'` in auth.config.ts, and scan 3's
+    "bracket forms" under /process\.env\[/ matches build-commit.ts:39 today.
+  failure_scenario: >-
+    Both anchor correctly in one regex, so this is an implementation note rather than a design
+    defect - but F-186 IS THE SAME FAILURE ONE ROUND EARLIER, and its lesson was what a red
+    control costs: the cheapest green is trimming PERMITTED, which deletes the bound. The
+    implementer meets these on first run, with no memory of F-186.
+  required_change: >-
+    Written onto TASK-003's card as an implementer instruction with both traps named. No round.
+  owner_slot: orchestrator
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 4
+  ruling: >-
+    Card text, orchestrator work. Placed where the implementer meets it rather than in an ADR it
+    would have to remember to re-read.
+
+- id: F-192
+  phase: design
+  wave: 2
+  task: TASK-003
+  source: sdlc-security-auditor
+  round: 4
+  severity: nit
+  kind: doc
+  file: .sdlc/identity-membership/design/adr-0056-better-auth-database-caller-list-is-asserted-in-wave-2.md
+  line: 1
+  summary: >-
+    FOUR PLACES STILL SAY "four equalities" after scan 2 became a subset. Same class as F-190's
+    stale titles and F-183's stale card value.
+  failure_scenario: >-
+    Nit on its own. Filed because it is the THIRD instance this wave of a fix landing in the
+    argument and not in the summary that announces it - F-183 the card and ADR-0052's follow-up,
+    F-190 two ADR titles, and now four counting sentences. The pattern is worth more than any of
+    the three.
+  required_change: The four sentences count what the table records.
+  owner_slot: sdlc-architect
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 4
+  ruling: >-
+    Corrected 2026-08-16 with F-190, same ruling. auth-config-surface.md invariant 11 said "Four
+    equalities" TEN LINES ABOVE its own sentence saying scan 2 is a subset; ADR-0056 Decision
+    described scan 1 as though it were the whole spec, and its accepted-cost bullet counted four
+    equalities. All three now count what the direction table records.

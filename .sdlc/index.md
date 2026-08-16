@@ -11,7 +11,7 @@ summary and returns non-zero on the inconsistencies that used to reach one.
 | Initiative | Slug | Track | Phase | Gate | TASKs | Updated |
 |---|---|---|---|---|---|---|
 | Foundation and tenancy substrate | foundation | full | **done** | merged `aa9c288`, retro applied and its residue repaired | 10 — all done | 2026-08-12 |
-| Identity, tenancy and membership | identity-membership | full | implement | **waves 0-1 implemented and approved**; wave 2 awaits a full Design re-entry | 19 — 4 done, 15 todo | 2026-08-14 |
+| Identity, tenancy and membership | identity-membership | full | design → test | **wave 2 designed and approved**; waves 0-1 implemented | 19 — 4 done, 15 todo | 2026-08-16 |
 | Publish the shortkit engineering posts | tech-writing | — | refine | not started; deferred | 0 | 2026-08-10 |
 
 ## foundation — closed 2026-08-12
@@ -60,6 +60,36 @@ passing test *could* fail.
 **And F-034/F-074/F-081/F-144/F-147 are one story.** Five mechanisms on a single variable, each
 ruled after the last broke, each broken by something nobody had checked — ending in an approved,
 shipped, `met` criterion in the closed `foundation` initiative being amended from both sides.
+
+## identity-membership — wave 2 design, 2026-08-16
+
+Nine ADRs, two contracts, three stubs, four security rounds, 26 findings. Three fix rounds against
+a cap of two, the third scoped by Juano.
+
+**What the wave decided.** The composed Better Auth instance declares what it was otherwise
+inheriting: its origin, its cookie policy, its session lifetime, its log level and its issuer. Every
+one of those was being taken from the request or from `NODE_ENV`, and each was found by executing
+the composition rather than reading it.
+
+**Read F-173 first**: with `BETTER_AUTH_URL` unset, one session produced two validly-signed tokens
+with different issuers — same `kid`, same `tid`, both conforming to the claim contract, because the
+origin came from the Host header. The only tier that sets that variable is the only tier that
+exercises the mount, so **the suite was green on a configuration `pnpm dev` never runs.**
+
+**And F-175 is why it stayed invisible.** `logger.level: 'error'` discarded the one warning that
+reports it — the bound hook received zero lines. The justification for `'error'` was a PII leak
+that is `logger.info` at the source, so `'warn'` suppresses it just as completely.
+
+**F-188 is the one to read for how the panel works.** The auditor found a real response-shape
+divergence and concluded an enumeration oracle from it. The architect disputed the *reasoning* —
+the measurement was on the in-memory adapter, and its own stated grounds implied convergence under
+the real one — and refused to encode either answer, pre-committing both outcomes to a test. The
+auditor then ran it against the real drizzle adapter and **withdrew its own major in writing**.
+Three agents and a ruling to establish one fact, and the ledger has no terminal status for
+"disproved".
+
+**Six of the 26 findings were introduced by a fix for an earlier finding.** The rounds converged;
+the round count does not show that.
 
 ## Roadmap
 

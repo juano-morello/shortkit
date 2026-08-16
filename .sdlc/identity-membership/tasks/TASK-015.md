@@ -113,6 +113,20 @@ change to `labelled()`, which every control in this file uses, or a local `${dir
 assertion in that one roster. Juano routed it here: a shared-helper change belongs to the card that
 owns the harness, not to a wave-1 fix round.
 
+## The predicate in `controls.ts` is copied, not imported — F-009, yours as of 2026-08-14
+
+`controls.ts:131` declares its own `current_setting('app.tenant_id', true)::uuid`, and the
+docblock on the next line calls it "the same shape every tenant-scoped table has, from the same
+production constant." **It is imported from nowhere.** ADR-0049 wraps every flag cast in
+`nullif(<flag>, '')`; the copy does not move with it, and the copy still isolates correctly on a
+cold connection — the only state the fixture creates — so the suite goes green while measuring a
+shape production no longer has.
+
+Filed against TASK-002 in Design wave 1, left open through that card's `done`, and **re-owned
+here by Juano's ruling on 2026-08-14** because `controls.ts` is in this card's paths and proving
+the harness would notice a leak is this card's entire subject. Either import the predicate so the
+comment becomes true, or say plainly that it is a copy and assert the two agree.
+
 ## Out of scope for this TASK
 
 The HTTP attempt mechanism itself (TASK-014). The `tenant_memberships` and `workspaces`

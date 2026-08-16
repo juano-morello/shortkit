@@ -195,6 +195,28 @@ than inferred ones. Every row was produced by probing the pinned release. All ca
 **Duplicate signup answers 422, not 409 and not 400.** A caller branching on status alone
 will miss it. Branch on `code`.
 
+> **AMENDED 2026-08-15 by Juano's ruling on ADR-0061 (`identity-membership`, wave 2). THE 422
+> ROW ABOVE STOPS BEING TRUE ONCE `emailAndPassword.autoSignIn: false` LANDS IN TASK-003.**
+>
+> `sign-up.mjs:162` computes its generic-duplicate branch from `requireEmailVerification ||
+> autoSignIn === false`. With `autoSignIn` on — the state this contract was written against — a
+> duplicate address answers `422 USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` and a fresh one answers
+> 200, **which is an unauthenticated user-enumeration oracle**: an attacker tests an address
+> list against a public route and learns who has an account. The wave-2 design security pass
+> filed it, and `rateLimit: { enabled: false }` removes the library's own brake in the same card
+> while the replacement limiter is IP-keyed and lands a wave later.
+>
+> Taking `autoSignIn: false` closes it, and closes a second finding with the same key: signup no
+> longer returns a session, so the failed-signup residue stops handing the caller a live
+> credential by `Set-Cookie` on its own 500 (ADR-0054). **Two findings, one key** — which is why
+> it was worth falsifying a frozen row for.
+>
+> **What the row becomes:** a duplicate address answers the same generic success shape as a
+> fresh one, and signup no longer establishes a session. The exact status and body are
+> ADR-0061's to state and TASK-003's to assert. **A signup flow that assumed it was logged in
+> afterwards no longer is** — that is TASK-007's and TASK-012's, both `todo`, both carrying the
+> change on their cards.
+
 `INVALID_EMAIL_OR_PASSWORD` is returned for both a wrong password and an address with no
 account, which is deliberate on Better Auth's part and is the behaviour AC-20's 401 rests
 on.
@@ -319,6 +341,20 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
 8. A signup that returns 200 created a user whose `name` is exactly the string the caller
    sent and whose password was 8 to 128 characters. Nothing else about the password is
    guaranteed (F-234, F-235).
+
+   > **FALSIFIED 2026-08-16 by ADR-0061 (`identity-membership` wave 2), amended under the same
+   > ruling as the 422 row above. A 200 NO LONGER MEANS A USER WAS CREATED.**
+   >
+   > Under `emailAndPassword.autoSignIn: false`, a signup against an address that **already has
+   > an account** also returns 200, carrying a response body byte-identical to a real creation
+   > apart from the caller's own `email` — measured against the real drizzle adapter: same key
+   > set, a **fresh** `id` and `createdAt` rather than the existing account's, `token: null`,
+   > and **no row written**. That indistinguishability is the point: it is what closes the
+   > enumeration oracle the 422 used to be.
+   >
+   > **What survives:** when a row *is* created, `name` is exactly the string sent and the
+   > password was 8 to 128 characters. What does not survive is reading 200 as proof that
+   > anything was created. A caller that needs to know has to sign in.
 
 ## What the implementer must guarantee
 

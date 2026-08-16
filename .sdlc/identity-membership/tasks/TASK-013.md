@@ -21,8 +21,18 @@ The screen an operator lands on after signup: their client workspaces, and a way
 
 One protected route under an `(app)` route group showing the caller's workspaces, with a
 create control, a rename control per workspace and an archive control per workspace. It is
-the redirect target of a successful signup and sign-in (TASK-008) and the screen AC-19's
+the redirect target of a successful **sign-in** (TASK-008) and the screen AC-19's
 unauthenticated request must be bounced away from.
+
+> **NO LONGER THE REDIRECT TARGET OF SIGNUP — corrected 2026-08-15, Design wave 2, Juano's
+> ruling.** ADR-0061 sets `emailAndPassword.autoSignIn: false` to close an unauthenticated
+> user-enumeration oracle, so signup no longer establishes a session and TASK-008's signup route
+> lands on the sign-in screen with a confirmation instead. A new operator reaches this screen on
+> their **second** step, not their first.
+>
+> **The empty state below is unaffected and still the first thing most operators see** — they
+> arrive here right after signing in, with a tenant and no workspaces. What changes is only how
+> they got here.
 
 **Protection is server-side.** `requireAuth()` (TASK-007) redirects a visitor with no
 session to the sign-in screen. **Do not render the page and hide it** — a page that renders

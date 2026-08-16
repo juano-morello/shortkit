@@ -148,8 +148,24 @@ under `apps/api/src`: `db/client.ts` and `auth/auth.config.ts`. Same control as 
   **Struck 2026-08-13 (ADR-0050, F-028).** Two pools, two sets of listeners, one
   `closeDatabase` that ends both, and two capacity numbers that add to fifteen. ADR-0050
   carries that cost in its own Negative section.
-- The exported type reaches five tables. An author who tries to read `workspaces` through it
-  gets a compile error rather than a silent empty result.
+- ~~The exported type reaches five tables. An author who tries to read `workspaces` through it
+  gets a compile error rather than a silent empty result.~~
+  **Struck 2026-08-16 (F-172, Juano's ruling). THIS CONSEQUENCE IS FALSE AGAINST THE SHIPPED
+  FILE.** `client.ts:41` is `import * as schema from './schema'` and `:259` returns
+  `NodePgDatabase<typeof schema>` — the **full product schema**, which is the alternative this
+  ADR rejected by name in its own Alternatives table. There is no compile error and never was.
+  The narrowing was the stated value of the export and it did not get built.
+
+  **Measured before being priced, and it is not a reach.** As `shortkit_auth`, `SELECT` on
+  `tenants` and on `tenant_memberships` both answer `permission denied for table`, and
+  enumerating `role_table_grants` shows the role holds DML on exactly the five auth tables — it
+  never received a default privilege, so the `REVOKE` never needed to be symmetric. **This is a
+  missing compile-time guard over a path the database already refuses.** The reach that matters
+  is write access to those five unprotected tables, which ADR-0056's caller-list scans bound.
+
+  Juano ruled the line struck and the type left as shipped: narrowing it now means reopening
+  `client.ts`, which belongs to a `done` card, to restore a guard over a refusal that already
+  holds.
 - `betterAuthSchema` gives TASK-003 the exact object the adapter wants, so neither the
   `db.query[model]` fallback nor the `config.schema` scan is exercised.
 

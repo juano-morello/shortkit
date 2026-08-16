@@ -5,8 +5,26 @@ title: Better Auth's logger is bound to the pino instance, because a second log 
 status: accepted
 supersedes: null
 amends: ADR-0028, ADR-0013
+amended_by: ADR-0060
 date: 2026-08-13
 ---
+
+> **AMENDED 2026-08-15 BY ADR-0060 (F-175), Juano's ruling. The level is `'warn'`, not
+> `'error'`. Every `level: 'error'` below is struck; read ADR-0060 for the reasoning and the
+> audited basis.**
+>
+> Measured by the wave-2 design security pass: composed with the exact logger this ADR
+> mandates, the bound `log` hook received **zero lines** — `'error'` filtered out
+> `create-context.mjs:64`'s warning that the base URL is unset and the origin is being derived
+> from each incoming request, which is the line that reports two of that audit's major
+> findings. It also dropped the short-secret warning and `rate-limiter/index.mjs:284`'s
+> "cannot determine a client IP", which is the control TASK-004 depends on.
+>
+> **The justification stated below is wrong at the source.** `sign-up.mjs:168`'s "Sign-up
+> attempt for existing email" is `logger.info`, not `logger.warn`, so `'warn'` suppresses it
+> just as completely. The auditor read every `warn` call site in 1.6.26 before proposing the
+> change: none interpolates an email, token, password or user id, and this ADR's own hook drops
+> positional `args`, so the structured second arguments never reach the line either.
 
 ## Context
 
@@ -66,7 +84,7 @@ instance through the `log` hook, and `auth.config.spec.ts` asserts it.**
 ```ts
 betterAuth({
   logger: {
-    level: 'error',
+    level: 'warn',   // 'error' until 2026-08-15; struck by ADR-0060, F-175
     disableColors: true,
     // THE MESSAGE IS THE ONLY THING THAT CROSSES, AND IT CROSSES AS `msg`.
     // `args` is dropped: dispatch.mjs and index.mjs pass error objects positionally,
@@ -97,9 +115,11 @@ Three properties, each load-bearing:
   not make Better Auth's messages safe; it makes them visible to one mechanism instead of
   none, and puts them in the field that is already understood to be uncensored.**
 
-`level: 'error'` keeps `sign-up.mjs:168`'s email line suppressed at the source rather than
-relying on a downstream filter. Raising it to `info` is a decision this ADR forbids without
-an amendment, and the spec asserts the level.
+~~`level: 'error'` keeps `sign-up.mjs:168`'s email line suppressed at the source rather than
+relying on a downstream filter.~~ **Struck 2026-08-15 (ADR-0060, F-175): the level is `'warn'`,
+and that line is `logger.info` at the source, so `'warn'` suppresses it just as completely.**
+Raising it to `info` is a decision this ADR forbids without an amendment, and the spec asserts
+the level — now at `'warn'`.
 
 ### The residual, stated rather than closed
 
@@ -132,8 +152,9 @@ with the trigger below.
 - One log stream, one format, one level scheme. `LOGGABLE_FIELDS` is not bypassed by a
   channel nobody enumerated, and ADR-0028's "exactly one censoring mechanism" becomes true
   again from the moment Better Auth mounts rather than false from that moment.
-- The email line at `sign-up.mjs:168` is suppressed at the source by `level: 'error'`, and
-  raising the level is now a diff that fails a test.
+- The email line at `sign-up.mjs:168` is suppressed at the source by `level: 'warn'` — it is an
+  `info` call, struck from `'error'` 2026-08-15 — and raising the level is now a diff that
+  fails a test.
 - `disableColors: true` removes ANSI escapes from a stream that is otherwise JSON — the
   benign half of F-278, closed here before it lands rather than after.
 
@@ -168,7 +189,8 @@ with the trigger below.
 ### Follow-ups this creates
 
 - TASK-003 writes the `logger` key and its comment, and `auth.config.spec.ts` asserts
-  `level === 'error'` and that `log` is a function.
+  `level === 'warn'` — struck from `'error'` 2026-08-15, ADR-0060 — and that `log` is a
+  function.
 - ADR-0028 gains no edit; it is frozen. This ADR is the record that its "exactly one
   censoring mechanism" claim needs a dependency-shaped caveat, and the caveat is: **a mounted
   dependency is a second channel until something binds it.**

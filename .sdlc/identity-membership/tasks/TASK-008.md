@@ -21,8 +21,34 @@ it.
 ## Approach
 
 Two routes under a shared `(auth)` route group, each a form with an email field, a password
-field and a submit control. Signup also takes the name Better Auth requires. On success the
-operator lands on the workspace list; on failure they stay put with a message.
+field and a submit control. Signup also takes the name Better Auth requires. On failure they
+stay put with a message.
+
+**On success the two routes diverge — corrected 2026-08-15, Design wave 2, Juano's ruling.**
+Sign-in lands the operator on the workspace list. **Signup does not: it lands on the sign-in
+screen, carrying a confirmation that the account is ready.**
+
+> **Why, and it is not a UX preference.** ADR-0061 sets `emailAndPassword.autoSignIn: false`,
+> so signup no longer establishes a session. This card previously said both routes land on the
+> workspace list; with no session, `requireAuth()` (TASK-007) bounces the new operator straight
+> back to sign-in — so the corrected journey is what the code will do anyway, and the only
+> question was whether the operator is told why.
+>
+> **What `autoSignIn: false` buys.** `sign-up.mjs:162` gates its generic-duplicate branch on
+> `requireEmailVerification || autoSignIn === false`. With it off, a duplicate address answered
+> `422 USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` and a fresh one answered 200 — **an
+> unauthenticated user-enumeration oracle on a public route**, with `rateLimit: { enabled:
+> false }` removing the library's own brake and the replacement limiter landing a wave later.
+> The same key also stops a failed signup handing the caller a live session credential by
+> `Set-Cookie` on its own 500 (ADR-0054). Two findings, one key.
+>
+> The alternative considered and declined was signing in explicitly from this form after a
+> successful signup, which preserves the old journey at the cost of a second request holding the
+> password and a narrower version of the timing signal that was just closed.
+>
+> **A duplicate address no longer answers 422.** It answers the same generic shape a fresh one
+> does. Do not write a branch on `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` — frozen
+> `auth-tokens.md`'s row for it is amended, and the live shape is ADR-0061's.
 
 **`better-auth@1.6.26` requires `name` on `POST /api/auth/sign-up/email`** — a body without
 it answers 400, measured and recorded at `apps/api/test/support/auth-fixture.ts:56-60`. The
