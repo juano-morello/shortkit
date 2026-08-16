@@ -28,6 +28,13 @@ paths: ["apps/api/src/auth/auth.config.ts", "apps/api/src/auth/on-user-created.t
 # a closed initiative; the same ruling that fixed it then applies now - the declarations land in
 # the same wave as the assertions that read them. TASK-009 KEEPS EVERY OTHER ENTRY IN BOTH
 # FILES, four waves later, exactly as it kept them around TASK-018's three.
+#
+# THE FOURTH WIDENING WAS REVERTED THE SAME DAY IT WAS MADE, 2026-08-16. It added
+# apps/api/test/security/security-headers.int-spec.ts for F-084's two-DSN message. THE FIX WAS
+# ALREADY SHIPPED - commit 86c6b2b, TASK-002's own implementation commit on 2026-08-14, which
+# cites F-084 by name in the code and names all three DSNs. Only the ledger entry lagged. I
+# raised the carrier question to Juano on a premise I had not checked against the code, he ruled
+# on it, and the scout found the fix while grounding the Test phase.
 contracts: [design/contracts/auth-tokens.md, design/contracts/tenant-context.md, design/contracts/auth-contracts.md, design/contracts/revocation-store.md, design/contracts/auth-config-surface.md]
 # CONTRACTS LIST CORRECTED AND EXTENDED 2026-08-15 (F-167). The first two resolve under
 # `.sdlc/foundation/design/contracts/`; the last three under this initiative's own `design/`.

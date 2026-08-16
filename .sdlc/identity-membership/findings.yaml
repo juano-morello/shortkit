@@ -2150,9 +2150,23 @@
     security-headers.int-spec.ts, so re-owning it means choosing a new carrier, which is a
     ruling and not bookkeeping. Raised at the wave-2 Design gate because TASK-003 owns the boot
     assertions that read DATABASE_AUTH_URL and is the card being designed.
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: sdlc-implementer-backend
+  resolved_round: 1
+  ruling: >-
+    ALREADY FIXED WHEN I ESCALATED IT, AND FIXED BY THE CARD I SAID HAD CLOSED WITHOUT IT.
+    Commit 86c6b2b - TASK-002's own implementation commit, 2026-08-14 - rewrote the message to
+    name all three DSNs and cites F-084 by id in the code. Verified by reading the file and the
+    diff. ONLY THE LEDGER ENTRY LAGGED.
+    What I did with it instead: wrote a routing_note saying the card had closed with it open,
+    carried it to the wave-2 Design gate as an open carrier question, missed raising it there,
+    caught the miss, raised it as a decision, and got a ruling widening TASK-003's paths a fourth
+    time. All of that rested on a status field I never checked against the tree. The wave-2 test
+    scout found the fix in its first hour, grounding a different phase.
+    THE DEFECT IS NOT THE STALE FIELD, IT IS THAT I ESCALATED FROM IT. check-ledger cannot catch
+    this - it cross-checks findings against cards and escalations, never against the code - and
+    an entry that reads `open` next to shipped code is indistinguishable from one that is real.
+    The widening was reverted the same day.
 
 - id: F-085
   phase: implement
@@ -4510,3 +4524,38 @@
     equalities" TEN LINES ABOVE its own sentence saying scan 2 is a subset; ADR-0056 Decision
     described scan 1 as though it were the whole spec, and its accepted-cost bullet counted four
     equalities. All three now count what the direction table records.
+
+- id: F-193
+  phase: test
+  wave: 2
+  task: TASK-003
+  source: orchestrator
+  round: 0
+  severity: major
+  kind: contract
+  file: .sdlc/identity-membership/stories/STORY-001.md
+  line: 19
+  summary: >-
+    ADR-0061 FALSIFIED HALF OF AN APPROVED ACCEPTANCE CRITERION AND NOTHING IN THE DESIGN PHASE
+    NOTICED. AC-3's premise read "Given a session created by a successful sign-up OR SIGN-IN";
+    autoSignIn: false means a successful sign-up no longer creates a session, so that branch is
+    unsatisfiable.
+  failure_scenario: >-
+    The test architect would have written the sign-up branch, watched it fail to produce a
+    session, and either reported an ambiguity a round later or - worse - quietly tested only the
+    sign-in path and left an AC clause with no test while the coverage table read complete.
+    FOURTH APPROVED ARTIFACT FALSIFIED BY ONE RULING: auth-tokens.md's 422 row, its invariant 8,
+    the TASK-008/TASK-013 signup journey, and now AC-3. Three of the four were named by ADR-0061's
+    own cost section; THIS ONE WAS NOT, and I found it reading the STORY at the start of the Test
+    phase rather than at the gate that took the ruling.
+  required_change: >-
+    RULED BY JUANO 2026-08-16: amend the premise to sign-in alone, with the reason dated in place.
+    Every assertion the AC makes is unaffected, including `exp` minus `iat` equal to 300 - the
+    clause F-168 would have broken and the wave-2 security pass measured at exactly 300.
+  owner_slot: orchestrator
+  routing_note: >-
+    Approved-STORY text, which is Juano's to amend and never the architect's. Amended in the same
+    step as this entry. Found where test.md says such things are free to find.
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 0

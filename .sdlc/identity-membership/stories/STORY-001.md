@@ -16,7 +16,17 @@ and a password, so that I have a tenant of my own to put client workspaces in.
 
 - [ ] AC-1: Given a running API whose `user`, `tenants` and `tenant_memberships` tables are empty, when `POST /api/auth/sign-up/email` is sent a well-formed email, password and name, then the response status is 200, exactly one `user` row exists, exactly one `tenants` row exists, exactly one `tenant_memberships` row exists, that membership's `user_id` is the new user's id, its `tenant_id` is the new tenant's id, and its `role` is `owner`.
 - [ ] AC-2: Given a user who already holds a `tenant_memberships` row, when a second `tenant_memberships` row naming that same `user_id` is inserted under any tenant, then Postgres rejects the statement with a unique violation on the `tenant_memberships_user_unique` constraint and the table still holds exactly one row for that user.
-- [ ] AC-3: Given a session created by a successful sign-up or sign-in, when a JWT is minted for it, then the decoded claim set carries `sub` equal to the user's id, `tid` equal to that user's `tenant_memberships.tenant_id`, `email` equal to the signup address, `ev` equal to the user's `emailVerified` value, `jti` equal to the Better Auth session id, and `exp` minus `iat` equal to 300 seconds.
+- [ ] AC-3: Given a session created by a successful sign-in, when a JWT is minted for it, then the decoded claim set carries `sub` equal to the user's id, `tid` equal to that user's `tenant_memberships.tenant_id`, `email` equal to the signup address, `ev` equal to the user's `emailVerified` value, `jti` equal to the Better Auth session id, and `exp` minus `iat` equal to 300 seconds.
+
+  > **PREMISE AMENDED 2026-08-16 at the wave-2 Test phase, Juano's ruling.** It read "a
+  > session created by a successful sign-up **or sign-in**". ADR-0061 sets
+  > `emailAndPassword.autoSignIn: false` to close an enumeration oracle and to keep a live
+  > credential out of the failure path, so **a successful sign-up no longer creates a
+  > session** and that branch became unsatisfiable. The sign-in branch is unchanged and
+  > every assertion above it stands, including `exp` minus `iat` equal to 300 — which is
+  > the clause F-168 would have broken, and which the wave-2 security pass measured at
+  > exactly 300 after the fix. Found while writing the tests, which is where it is free.
+
 - [ ] AC-4: Given a `user` row that has no `tenant_memberships` row, when a JWT is minted for a session belonging to that user, then minting fails with `NoTenantMembershipError`, no JWT is returned, and the caller receives an error rather than a token with an absent `tid`.
 - [ ] AC-5: Given the composed Better Auth configuration object, when a unit test reads it without starting a server, then `rateLimit.enabled` is exactly `false`.
 - [ ] AC-6: Given the API mounted per ADR-0013, when `POST /api/auth/sign-up/email` is sent a JSON body over a request that also carries `Content-Type: application/json`, then Better Auth receives that body with its fields intact and the signup succeeds, which is the observable form of "no earlier body parser consumed the stream".
