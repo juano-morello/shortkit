@@ -1,9 +1,9 @@
 slug: identity-membership
 title: Identity, tenancy and membership
 type: feature
-phase: test
+phase: design
 track: full
-wave: 2        # wave 2 DESIGNED and approved 2026-08-16; Test phase for TASK-003 is next
+wave: 3        # waves 0-2 shipped through implement; wave 3 is TASK-004, the Express mount
 branch: feat/identity-membership
 created: 2026-08-12
 updated: 2026-08-14
@@ -39,6 +39,7 @@ gates:
     wave_1: { status: approved, approved_at: 2026-08-13, note: "SIX ROUNDS AGAINST A CAP OF 2, every round past the second scoped by Juano's ruling rather than granted by the orchestrator. 35 findings, 33 closed, 2 open by design (F-001, F-009 - both sdlc-implementer-backend's, both carried in TASK-002). Four security passes, all EXECUTED rather than read. Ten ADRs, three contracts, six stubs, all verified non-empty on disk. CONTRACTS ARE NOW FROZEN for this initiative. TASK-018 claims NO AC and that gap is knowingly approved - the role split postdates the plan's 36 criteria, the round-4 re-review judged it not load-bearing, and adding one would amend an approved STORY." }
 
   implement:
+    wave_2: { status: approved, approved_at: 2026-08-16, note: "TASK-003, wave 2 complete. 294 unit tests across 30 files, integration 82 passing with 13 RED BY RULING for TASK-004s mount, typecheck/lint/build/db:check-policies all 0 - every command run by me. Two audit rounds, rework_count 2 of 5. Panel: product clear, reviewer clear twice, security changes-requested then ALL SIX ADDRESSED by re-execution. 52 findings this wave. NO OPEN BLOCKER OR MAJOR, nothing BLOCKED. Parked with rulings: F-189, F-208, F-209s truncation half (withdrawn by its author). Deferred minors to Ship triage: F-196, F-199, F-201, F-205 - the last with the reviewers condition that it not be closed wontfix at a gate. THREE PROCESS DEFECTS OF MINE, RECORDED RATHER THAN SMOOTHED: I ran the phase before reading implement.md and skipped four steps including the step-2b doubt reviewer, whose question - asked late, inside the security re-review - found F-216, a censoring bypass four design rounds and a full audit pass had missed. Fifteen findings sat at routed while resolved because I wrote each resolution into prose and never moved the field, which is foundations own diagnosis repeated across a wave. And F-218 is mine: two agents wrote one file because a mutation check needs a writable copy and my brief gave only an instruction. OUTSTANDING: the Obsidian mirror lists design in sync_on and was not run at the wave-2 design gate." }
     wave_0: { status: approved, approved_at: 2026-08-14, note: "TASK-018. Four fix rounds, 24 findings, 22 closed. The provisioning guards were widened after a security auditor measured both passing what they claimed to refuse." }
     wave_1: { status: approved, approved_at: 2026-08-14, note: "TASK-001, TASK-002 and TASK-019. 236 unit, 82/82 integration RUN WITH BETTER_AUTH_SECRET UNSET THE WAY CI RUNS IT, AC-115 green on every clause, typecheck/lint/build 0, db:check-policies green - all run by the orchestrator rather than taken from reports. 166 findings filed, 13 open and EVERY ONE ROUTED to a card that owns it. No blocker, no escalation, no unrouted major. Rework: TASK-018 four rounds, TASK-002 two, TASK-019 one, TASK-001 one." }
   test:
