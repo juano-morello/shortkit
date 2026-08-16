@@ -456,7 +456,21 @@ From `apps/api/src/db/schema/tenants.ts` (shipped): `tenants`.
   - `beforeHooks: AuthBeforeHook[]` — created **empty**; appenders push, never assign
   - `type AuthBeforeHook = (ctx: AuthMiddlewareContext) => Promise<void>`
 - `apps/api/src/auth/on-user-created.ts` exporting:
-  - `createTenantForNewUser(user: { id: string; email: string }): Promise<{ tenantId: string; membershipId: string }>` — mints the tenant id with `crypto.randomUUID()`, writes both rows, and resolves only after the transaction commits
+  - `createTenantForNewUser(user: { id: string; name: string }): Promise<{ tenantId: string; membershipId: string }>` — mints the tenant id with `crypto.randomUUID()`, writes both rows, and resolves only after the transaction commits
+
+    > **SIGNATURE CHANGED AND `tenants.name` SETTLED 2026-08-16 (F-198), Juano's ruling.** It took
+    > `{ id, email }` and `email` was used for nothing, while `tenants.name` is `NOT NULL` and no
+    > artifact said what goes in it — so the implementer would have invented a value and a
+    > reviewer would have discovered it.
+    >
+    > **`tenants.name` is the name the operator typed at signup, verbatim.** Nothing derived,
+    > nothing parsed, no placeholder. The operator renames the agency later if they want to; the
+    > alternatives were the email's domain, which is wrong for anyone on a consumer address, and
+    > a shared literal, which is unhelpful in every list until someone renames it.
+    >
+    > **`email` is dropped rather than left in place.** A parameter that is passed and unused
+    > reads as an answer somebody wrote down, and this one was not — F-009's class, a signature
+    > implying a provenance it does not have.
 - `apps/api/src/auth/revocation-store.ts` exporting:
   - `interface RevocationStore { revoke(sessionId: string): Promise<void>; isRevoked(sessionId: string): Promise<boolean> }` — `revoke` never throws
   - `REVOCATION_TTL_SECONDS = 300`

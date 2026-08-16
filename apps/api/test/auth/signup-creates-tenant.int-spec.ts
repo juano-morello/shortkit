@@ -5,6 +5,7 @@ import { startApiServer } from '../support/api-server';
 import type { ApiServer } from '../support/api-server';
 import {
   POLICY_COMPLIANT_PASSWORD,
+  SIGNUP_NAME,
   authRequestWithHost,
   authServerEnv,
   clearSignupState,
@@ -46,22 +47,22 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
  * unambiguous while signup creates none.
  *
  * ============================================================================
- * ONE CLAUSE OF AC-1 IS NOT MEASURABLE FROM THIS TIER, AND IT IS REPORTED RATHER THAN FAKED.
+ * ONE CLAUSE OF AC-1 WAS UNMEASURABLE AND WAS AMENDED RATHER THAN APPROXIMATED.
  * ============================================================================
  *
- * "exactly one `tenants` row exists" is a GLOBAL count, and no DSN this suite is given can
- * produce one: `tenants` carries FORCE ROW LEVEL SECURITY and `tenants_self_select` admits
- * only the row whose id equals `app.tenant_id`, so one context sees at most one row — its
- * own — and every role the suite connects as is NOBYPASSRLS by design
+ * It read "exactly one `tenants` row exists", which is a GLOBAL count that no DSN this suite
+ * is given can produce: `tenants` carries FORCE ROW LEVEL SECURITY and `tenants_self_select`
+ * admits only the row whose id equals `app.tenant_id`, so one context sees at most one row —
+ * its own — and every role the suite connects as is NOBYPASSRLS by design
  * (`docker-compose.test.yml`: "a superuser is exempt from every policy and would make
  * AC-8..AC-11 vacuous"). See `auth-fixture.ts`'s `tenantRow`.
  *
- * What is asserted instead is every clause that IS reachable: exactly one `user` row,
- * exactly one membership row for that user ACROSS EVERY TENANT (through
- * `app.membership_lookup_user`, so a second membership under a second tenant would show),
- * that the tenant it names exists, and the two links and the role. THE RESIDUAL IS A
- * SECOND, ORPHANED `tenants` ROW WITH NO MEMBERSHIP POINTING AT IT — a shape no assertion
- * here can see. Raised to Juano with the Test-phase report.
+ * Ruled by Juano 2026-08-16: the clause is now "exactly one `tenant_memberships` row exists
+ * for that user ACROSS ALL TENANTS, the `tenants` row it names exists". That is what the
+ * membership read below asserts, through `app.membership_lookup_user`, so a second
+ * membership under a second tenant appears in the count rather than being filtered out of
+ * it. THE RESIDUAL THE AMENDMENT ACCEPTS is a second, orphaned `tenants` row with no
+ * membership pointing at it — a shape no assertion here can see, recorded on the AC.
  */
 
 /** The account AC-1 and AC-3 are stated over. */
@@ -198,6 +199,35 @@ describe('signup provisions a tenant', () => {
       tenantExists: true,
       tenantIdMatches: true,
     });
+  });
+
+  it('F-198: the tenant is named with the name the operator typed, verbatim', async () => {
+    // ============================================================================
+    // THE ONLY TIER THAT CAN SEE THIS. `tenants.name` IS A ROW, NOT A RETURN VALUE.
+    // ============================================================================
+    //
+    // `createTenantForNewUser` resolves `{ tenantId, membershipId }` and never returns the
+    // name, so `src/auth/on-user-created.spec.ts` has nothing to read: the claim is about
+    // what landed in the column, and reaching the column means reaching the database through
+    // `tenants_self_select`. That is why this test is here and not there.
+    //
+    // Ruled by Juano 2026-08-16 on F-198, which this Test phase raised: `tenants.name` is
+    // `text NOT NULL` and NO ARTIFACT SAID WHAT SIGNUP WRITES THERE, while
+    // `createTenantForNewUser` took an `email` whose only plausible use was that column. The
+    // ruling is the name, verbatim — nothing derived, nothing parsed, no placeholder — and
+    // `email` left the signature rather than staying in it implying a use it did not have.
+    //
+    // `SIGNUP_NAME` is what the fixture sends as the signup body's `name`, and it CANNOT BE
+    // DERIVED from `wave2-owner@example.com` by any transformation. So the three
+    // implementations the ruling forbids each fail here: a name built from the local part or
+    // the domain, a constant like "My workspace" or the tenant's own uuid, and an empty
+    // string from a `name` the hook never read.
+    await signUp(server, SIGNUP_EMAIL, POLICY_COMPLIANT_PASSWORD);
+
+    const user = theUser(SIGNUP_EMAIL);
+    const tenantId = membershipsFor(user.id)[0]?.tenantId;
+
+    expect(tenantId === undefined ? undefined : tenantRow(tenantId)?.name).toBe(SIGNUP_NAME);
   });
 
   it('ADR-0061 invariant 13: a successful signup issues no session row and no Set-Cookie', async () => {

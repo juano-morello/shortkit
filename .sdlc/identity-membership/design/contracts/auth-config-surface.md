@@ -200,7 +200,23 @@ Resolved by `cookies/index.mjs:21,29-40` from the keys above. Decided values, no
 | Cookie | Attributes | Max-Age |
 |---|---|---|
 | `better-auth.session_token` | `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` iff `BETTER_AUTH_URL` is `https://` | 604800 |
-| `better-auth.session_data` | same | 604800 |
+| `better-auth.session_data` | same | **300** |
+| `better-auth.dont_remember` | same | **none** |
+| `better-auth.account_data` | same | **300** |
+
+> **CORRECTED AND COMPLETED 2026-08-16 (F-197), Juano's ruling — an amendment to a contract that
+> froze the same morning.** The table gave `session_data` a Max-Age of 604800 and listed two
+> cookies. The composed instance sets **four**, measured off `$context.authCookies`:
+> `session_data` is **300**, and `dont_remember` and `account_data` were in no artifact at all.
+>
+> **`session_data`'s 300 does not come from `session.expiresIn`** — it is the session-cookie-cache
+> default, which is a different knob and is why the number looked like a typo for the session
+> lifetime and was not. Nothing asserted the wrong value, so nothing was failing.
+>
+> Worth naming plainly: **this table was added in round 1 to close the finding where a session
+> cookie shipped with no `Secure` flag**, and it was wrong on the first measurement ever taken
+> against it. A table of decided values is only as good as the run that checked it, and this one
+> had not been run — the same shape as every other control this wave found that could not fail.
 
 `better-auth.session_data` carries an encrypted copy of the session and is set when session
 cookie caching is active. **It is recorded here because no other artifact in this repository

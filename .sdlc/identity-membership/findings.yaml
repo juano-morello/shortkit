@@ -4649,6 +4649,16 @@
   status: open
   resolved_by: null
   resolved_round: null
+  ruling: >-
+    ADJUDICATED BY THE ORCHESTRATOR 2026-08-16, not fixed. The design owes an
+    on-user-created.ts stub and the Design gate is closed. Nothing downstream is blocked: the
+    test architect proved the correct red with a temporary throwing file at the real path,
+    disclosed it, and restored the tree - and TASK-003's implementer creates the real module as
+    its first act, which is the same file the stub would have been.
+    Left OPEN rather than closed, because the gap is real and the wave-3 Design re-entry should
+    see that the stub set did not match its own README. THE DEFECT THAT PRODUCED IT IS MINE: I
+    wrote "the six stubs" into a dispatch without opening the directory, which holds five, two
+    of them TASK-002's shipped work.
 
 - id: F-197
   phase: test
@@ -4673,9 +4683,18 @@
     Correct the row to 300, add the two undocumented cookies, or state why they are out of scope.
     A frozen contract, so it is an amendment and Juano's to rule.
   owner_slot: sdlc-architect
-  status: open
-  resolved_by: null
-  resolved_round: null
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    CORRECTED AND COMPLETED 2026-08-16 BY JUANO'S RULING. session_data is 300, not 604800, and
+    the two cookies in no artifact - dont_remember and account_data - are now in the table. The
+    300 is the SESSION-COOKIE-CACHE default and not session.expiresIn, which is why it read as a
+    typo for the session lifetime and was not. Amendment recorded in the contract the same way
+    the injected clock was, rather than patched.
+    WORTH KEEPING FOR THE RETRO: this table was added in ROUND 1 to close the finding where a
+    session cookie shipped with no Secure flag, and it was wrong on the first measurement ever
+    taken against it. A table of decided values is worth exactly the run that checked it.
 
 - id: F-198
   phase: test
@@ -4697,6 +4716,46 @@
     decided by whoever implements it and discovered by whoever reviews it.
   required_change: The card or ADR-0054 states what `name` receives, and why the signature takes an email.
   owner_slot: orchestrator
+  status: fixed
+  resolved_by: orchestrator
+  resolved_round: 0
+  ruling: >-
+    SETTLED 2026-08-16 BY JUANO'S RULING. tenants.name is the name the operator typed at
+    signup, verbatim - nothing derived, nothing parsed, no placeholder. The email's domain was
+    declined as wrong for anyone on a consumer address; a shared literal as unhelpful in every
+    list until renamed. AND THE UNUSED `email` PARAMETER IS DROPPED rather than left in place:
+    a parameter passed and never read is an answer somebody appears to have written down and
+    did not. F-009's class, in a signature.
+    The card's Produces carries both. The one-line spec change went back to sdlc-test-architect,
+    which owns test files, with an instruction to re-verify the red - a call site that no longer
+    type-checks fails on a type error, which is the wrong red.
+
+- id: F-199
+  phase: test
+  wave: 2
+  task: TASK-015
+  source: sdlc-test-architect
+  round: 0
+  severity: minor
+  kind: test-coverage
+  file: apps/api/test/tenancy/tenant-context.int-spec.ts
+  line: 1
+  summary: >-
+    A SECOND UNREPRODUCED TRANSPORT FAILURE IN THE INTEGRATION TIER. On one combined run the
+    invariant-13 test failed with `fetch failed` instead of its assertion; it passed on an
+    isolated re-run and on two later full-tier runs, and on both of mine.
+  failure_scenario: >-
+    F-146's CLASS AND THE SECOND INSTANCE - that one left 30 isolation tests skipped when a
+    beforeAll threw, also unreproduced, also filed rather than diagnosed. THE DIFFERENCE IS THAT
+    THIS TIME THE ERROR TEXT SURVIVED: `fetch failed`, a transport error and not an assertion,
+    which narrows it to the client or the spawned child rather than the database. Two
+    unreproduced flakes in one tier is a pattern; one is noise.
+    A tier that intermittently reports a transport error as a test failure teaches everyone
+    reading it to re-run rather than to look, which is how a real failure gets re-run away.
+  required_change: >-
+    If it recurs, capture the full output before anything else. Longer term this belongs with
+    F-146 to TASK-015, which owns the harness and already carries an unreproduced run.
+  owner_slot: sdlc-implementer-backend
   status: open
   resolved_by: null
   resolved_round: null
