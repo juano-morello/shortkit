@@ -977,10 +977,11 @@ export function isMutatingMethod(method: string): boolean {
  * F-035. The client address the proxy forwards, and where it comes from.
  * ============================================================================
  *
- * The proxy adds, on every upstream request:
+ * The proxy adds, on every upstream request WHEN `BFF_PROXY_SECRET` IS SET — and neither
+ * header when it is unset, which is the local compose stack's state (TASK-009):
  *   BFF_CLIENT_IP_HEADER:  the browser's address, read from VERCEL_CLIENT_IP_HEADER
- *   BFF_PROXY_AUTH_HEADER: process.env.BFF_PROXY_SECRET (server-only, REQUIRED,
- *                          registered by TASK-004; NEVER logged — see
+ *   BFF_PROXY_AUTH_HEADER: process.env.BFF_PROXY_SECRET (server-only, optional; the
+ *                          API-side match is TASK-004's; NEVER logged — see
  *                          logging-and-headers.md F-032 for the API-side mirror)
  *
  * VERCEL_CLIENT_IP_HEADER is read WHOLE. Vercel sets it to the connecting client's

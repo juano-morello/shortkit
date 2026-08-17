@@ -13,7 +13,8 @@
  * ============================================================================
  *
  * ADR-0014 decided the BFF topology: the browser never talks to Fly. It calls this
- * same-origin route, which forwards to `${API_BASE_URL}/api/*` with `Authorization: Bearer
+ * same-origin route, which forwards to `API_BASE_URL` (a value that already carries the
+ * `/api` prefix — `buildUpstreamUrl` replaces the path, never appends) with `Authorization: Bearer
  * <sk_at>`, never forwarding the browser's cookies upstream and never returning upstream's
  * `Set-Cookie`. The alternative (browser calls the API's own origin, this route not built)
  * was rejected; the ruling is recorded here and is normative in `web-api-client.md`, "The
