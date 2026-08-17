@@ -116,12 +116,23 @@ project-root `.env` instead (see `.env.example`) makes it persist, at one cost: 
 file exists, `pnpm test:compose` refuses to run at all (`cannot run the AC-115 check:
 there is a .env at the repository root`, exit 2, nothing measured) — move it aside first.
 
+Nothing else needs exporting. `docker-compose.yml` sets every other variable the stack
+reads: the role passwords, `BETTER_AUTH_URL` and `WEB_APP_ORIGINS` for the API,
+`API_BASE_URL` for the web app. It leaves the API's two trust declarations
+(`CLIENT_TRUST_BOUNDARY`, `BFF_TRUST_BOUNDARY`) unset, because the stack has no proxy in
+front of the API and shares no BFF secret between the two services; `apps/api/.env.example`
+says what that costs. That file and `apps/web/.env.example` list every variable each
+process reads. Compose reads neither: they are templates for a process run outside the
+stack, and each says how to use it.
+
 Postgres comes up with its roles provisioned, the migrations are applied, the seed
-inserts one demo tenant, and the API and the web app start.
+inserts one demo tenant, the API starts, and the web app starts once the API is healthy.
 
 | Address | What answers |
 | --- | --- |
 | `http://localhost:3000/` | the web app's root page |
+| `http://localhost:3000/signup` | the signup form; the request goes through the web app's own `/api/bff/…` route to the API |
+| `http://localhost:3000/sign-in` | the sign-in form, same path |
 | `http://localhost:3001/health` | `{"status":"ok","commit":"…"}` |
 | `postgres://shortkit_app:app@127.0.0.1:55432/shortkit` | the database |
 
@@ -147,10 +158,19 @@ broke rather than that something did.
 `docker compose up` prints five services and ends with `api` and `web` healthy. Two gaps
 are worth knowing before you read that as a working system.
 
-**The frontend cannot call the backend.** Everything under `apps/web` that goes through
-`apiClient()` targets the same-origin BFF proxy at `/api/bff/…`, and that route does not
-exist in this repository. It returns 404. No screen calls it today, so nothing is broken,
-but two green containers are not evidence of a path between them.
+**A green `web` means `/` answered, not that the proxied path works.** Everything under
+`apps/web` that goes through `apiClient()` targets the same-origin BFF proxy at
+`/api/bff/…`. That route exists (`apps/web/app/api/bff/[...path]/route.ts`) and forwards
+to the API at `API_BASE_URL=http://api:3001/api`, the compose network's name for the API,
+which is why `web` waits for `api` to be healthy before it starts. A signup posted from
+`http://localhost:3000` reaches the API and creates an account against an empty database,
+with no seed data involved. The web container's health check asks for `/` and nothing
+else, and `pnpm test:compose` asserts reachability and health rather than a signup, so
+two green containers prove the path exists and not that the flow works. Two things the
+stack still does not do: it forwards no browser address to the API (the two services
+share no `BFF_PROXY_SECRET`), so the IP-keyed rate limits do not bind here; and
+`http://api:3001` resolves only inside the compose network, so a browser reaches the API
+through the web app's proxy or on `http://localhost:3001` and no other way.
 
 **A green `api` means the process is up, not that the database is reachable now.**
 `/health` touches no database by design. What carries the database claim is boot: the API

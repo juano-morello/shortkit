@@ -1,8 +1,8 @@
 # The whole stack, up from nothing (AC-115).
 #
 # Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
-# ADR: adr-0030 .. adr-0037
-# Produced by: TASK-059
+# ADR: adr-0030 .. adr-0037; adr-0040, adr-0050, adr-0051, adr-0059 (the api and web environment)
+# Produced by: TASK-059. Environment blocks extended by TASK-018, TASK-003 and TASK-009.
 # Measured by: scripts/check-compose-stack.sh
 #
 #   docker compose up                                                  # AC-115's command
@@ -319,6 +319,42 @@ services:
       # operator reaches for when every local login answers 403 and it trusts every origin
       # on the internet (ADR-0059).
       WEB_APP_ORIGINS: ${WEB_APP_ORIGINS:-http://localhost:3000}
+      # ---------------------------------------------------------------------------
+      # THE FOUR TRUST DECLARATIONS ARE ABSENT, AND ABSENT ON PURPOSE (ADR-0040, TASK-009).
+      # ---------------------------------------------------------------------------
+      # Two boundaries, declared independently, each with the same shape: a named hop or
+      # `direct`, unset is read as `direct`, and any other value refuses boot in EVERY
+      # environment — `Proxy`, `true`, `1` and `prod` all fail here as they would anywhere.
+      # apps/api/.env.example carries the full table.
+      #
+      #   CLIENT_TRUST_BOUNDARY=proxy      a hop in front terminates client connections and
+      #                                    sets AND strips the header named below; without
+      #                                    it, unset, read as `direct`
+      #   TRUSTED_CLIENT_IP_HEADER=...     the header that hop sets. Required only under
+      #                                    `proxy`; never x-forwarded-for or forwarded
+      #   BFF_TRUST_BOUNDARY=bff           our own frontend forwards a browser address it
+      #                                    authenticates with the secret below; unset, `direct`
+      #   BFF_PROXY_SECRET=...             required only under `bff`. Shared with the `web`
+      #                                    service's copy, which is ALSO unset here
+      #
+      # This stack has no hop in front of `api` — a laptop browser reaches 127.0.0.1:3001
+      # directly — so `CLIENT_TRUST_BOUNDARY` is unset. And the `web` service below carries no
+      # BFF_PROXY_SECRET, so its proxy route forwards NEITHER x-shortkit-client-ip NOR
+      # x-shortkit-proxy-auth, so `BFF_TRUST_BOUNDARY` is unset too. What that costs, stated
+      # (ADR-0040): no assertion fires, no IP principal is established, the IP-keyed rate
+      # buckets do not bind, and `trusted_client_ip_unresolved_total` is nonzero from the
+      # first request. `authBodyCap` at 32 KiB and the email-keyed bucket still bind, so the
+      # credential surface is less protected here, not unprotected.
+      #
+      # DO NOT ADD A FIXTURE BFF_PROXY_SECRET TO BOTH SERVICES TO "TURN THE LIMITS ON". A
+      # secret that reads as real is one somebody copies into a deployment, and ADR-0040
+      # rejected that route by name. A stack that wants the BFF trust path exercised sets
+      # BFF_TRUST_BOUNDARY=bff here and the same BFF_PROXY_SECRET on both services, from its
+      # own environment, and takes ownership of that value.
+      #
+      # PORT is not set: main.ts defaults to 3001, which is the port published below and the
+      # one the healthcheck probes. GIT_COMMIT_SHA is not set here either — it is baked into
+      # the image by the build arg above (ADR-0037), not read from this block.
     ports:
       - '127.0.0.1:3001:3001'
     healthcheck:
@@ -354,6 +390,32 @@ services:
       dockerfile: apps/web/Dockerfile
     pull_policy: build
     restart: unless-stopped
+    # `service_healthy`, not plain `depends_on` (ADR-0036): a started `api` container is
+    # one whose boot preconditions have not yet run, and the BFF route below would answer
+    # every request with a connection refused until they had. ADR-0035 declared no
+    # dependency because nothing under apps/web called the API; the proxy route now does,
+    # so the dependency exists and is declared in the same file that carries the route's
+    # base URL (TASK-009, wave 4).
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Read at REQUEST time by apps/web/app/api/bff/[...path]/route.ts and
+      # apps/web/src/lib/session/session.ts — server-only, never inlined, so it needs no
+      # rebuild and it is the compose network's name for the API, not the published port:
+      # `localhost:3001` inside this container is this container. Includes `/api`
+      # (ADR-0006); the route replaces the path, so the suffix is not doubled.
+      #
+      # A LITERAL, NOT `${API_BASE_URL:-...}`, on purpose. A developer running `next dev`
+      # on the host exports API_BASE_URL=http://localhost:3001/api, and interpolating that
+      # here would hand this container an address that resolves to itself, with a green
+      # healthcheck and a 502 from every proxied call. No value from the host is right
+      # inside this network, so none is read. apps/web/.env.example documents the same value.
+      API_BASE_URL: http://api:3001/api
+      # BFF_PROXY_SECRET IS NOT SET, and its absence is paired with the `api` service's:
+      # with no secret the route forwards NEITHER x-shortkit-client-ip NOR
+      # x-shortkit-proxy-auth, and `api` declares no BFF_TRUST_BOUNDARY, so no assertion
+      # asks for one. Optional for a local stack. See the block above `api`'s ports.
     ports:
       - '127.0.0.1:3000:3000'
     healthcheck:
@@ -364,21 +426,20 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
-    # NO `depends_on`, deliberately (ADR-0035). Nothing under apps/web calls the API, so
-    # a declared dependency would assert a relationship that does not exist.
+    # WHAT A GREEN `web` MEANS NOW. `apiClient()` targets the same-origin BFF proxy at
+    # `/api/bff/<path>`, the route exists (apps/web/app/api/bff/[...path]/route.ts,
+    # TASK-007), and it forwards to API_BASE_URL over this network. So a signup posted at
+    # http://localhost:3000 reaches `api` with the browser's `Origin: http://localhost:3000`,
+    # which WEB_APP_ORIGINS above trusts. Green here still means "/ answered 200", not
+    # "the proxied path works" — scripts/check-compose-stack.sh is where the flow gets
+    # asserted (its signup clause is TASK-017's), not this probe. `http://api:3001/...` is
+    # reachable from inside this container and from no browser; `http://localhost:3001/...`
+    # is reachable from a browser and not from inside.
     #
-    # WHAT A GREEN `web` DOES NOT MEAN. Anything through `apiClient()` returns 404,
-    # because the BFF proxy route it targets — apps/web/app/api/bff/[...path]/route.ts —
-    # does not exist in this repository. No screen calls it today, so nothing is broken,
-    # but two green containers are not evidence of a working frontend-to-backend path.
-    # `http://api:3001/...` is reachable from inside this container and from no browser;
-    # `http://localhost:3001/...` is reachable from a browser and not from inside here.
-    # When the proxy lands it brings `depends_on: api: service_healthy` and reads
-    # API_BASE_URL=http://api:3001/api server-side, in the same commit as the route.
-    #
-    # No NEXT_PUBLIC_* is set for the build, deliberately: Next inlines those, and the
-    # only two candidate values are one no browser can resolve and one that would be
-    # baked wrong anywhere but this machine.
+    # No NEXT_PUBLIC_* is set for the build, deliberately (ADR-0035): Next inlines those,
+    # nothing under apps/web reads NEXT_PUBLIC_API_BASE_URL, and the only two candidate
+    # values are one no browser can resolve and one that would be baked wrong anywhere but
+    # this machine.
 
 volumes:
   pgdata:
