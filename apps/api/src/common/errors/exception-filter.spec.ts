@@ -4,6 +4,7 @@ import {
   Get,
   HttpException,
   NotFoundException,
+  SetMetadata,
 } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -16,6 +17,7 @@ import type { ErrorEnvelope } from '@shortkit/contracts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { AppModule } from '../../app.module';
+import { PUBLIC_ROUTE_METADATA } from '../../tenancy/tenant-context';
 import { DomainError } from './domain-error';
 import type * as domainErrorModule from './domain-error';
 
@@ -123,7 +125,13 @@ function zodErrorFixture(): unknown {
   return result.error;
 }
 
+/**
+ * Public since TASK-005 registered `AuthGuard` as `APP_GUARD`: every Nest route is guarded by
+ * default, and this controller exists to make the FILTER throw, which needs the handler to be
+ * reached. The metadata is what `@Public('…')` writes once TASK-006 implements it.
+ */
 @Controller('api/error-probe')
+@SetMetadata(PUBLIC_ROUTE_METADATA, 'exception-filter spec: the probe has to reach its handler')
 class ErrorProbeController {
   /** Anything the filter has no mapping for. */
   @Get('unmapped')
