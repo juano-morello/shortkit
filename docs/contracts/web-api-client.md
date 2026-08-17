@@ -256,12 +256,16 @@ Ordered. Normative.
 5. Body not matching the envelope, including Better Auth's native errors from
    `/api/auth/*` (ADR-0013): mapped to `ApiError` with `code: 'internal_error'` and the
    original status, except Better Auth's documented shapes which are mapped explicitly.
-   **That mapping is deferred**, ruled 2026-08-10 under F-291 (`TASK-008.md`): its
-   consumers are the auth screens, which left with EPIC-002. Until it lands, a wrong
-   password arrives as `{ code: 'internal_error', status: 401 }` and AC-20's behaviour is
-   unreachable. The eight probed Better Auth shapes are in `auth-tokens.md:180-193`, and
-   the one open design question is in `error-envelope.md`, "Open: the code Better Auth's
-   422 carries".
+   **That mapping was deferred** on 2026-08-10 under F-291 (`TASK-008.md`), its consumers
+   having left with EPIC-002. **Materialised 2026-08-17 by identity-membership TASK-007**,
+   which re-scoped the three F-291 deferrals: `mapBetterAuthError` is implemented in
+   `client.ts`, and the BFF proxy applies it to **every non-2xx response on `/api/auth/*`**
+   whose body is not already an `ErrorEnvelope` by `isErrorEnvelope`'s closed code enum
+   (the Express limiters in front of the mount emit that shape and pass through). A wrong
+   password now arrives as `{ code: 'unauthenticated', status: 401 }`. The eight probed
+   Better Auth shapes are in `auth-tokens.md:180-193`; the 422 question in
+   `error-envelope.md` ("Open: the code Better Auth's 422 carries") is answered in
+   `mapBetterAuthError`'s docblock: `validation_failed`, status kept at 422.
 6. Transport failure: `NetworkError`. Both the `fetch` rejection and a rejection while
    reading the body are transport. **Neither carries the platform rejection on `cause`.**
    Amended 2026-08-11 (F-310); see "`cause` is a channel, and it is closed" below.
@@ -605,13 +609,22 @@ constraint).
 
 ```ts
 export declare function useSession(): { user: SessionUser | null; status: 'loading' | 'authenticated' | 'unauthenticated' };
-export declare function requireAuth(): Promise<SessionUser>;   // redirects to /login
+export declare function requireAuth(): Promise<SessionUser>;   // redirects to /sign-in (amended 2026-08-17, see below)
 
 export interface SessionUser { id: string; email: string; emailVerified: boolean; }
 ```
 
 `useSession` reads `GET /api/bff/session`, which returns the projection above. **No
 token is ever exposed to the client**, in any form.
+
+**Amended 2026-08-17 (identity-membership TASK-007).** `requireAuth` redirects to
+**`/sign-in`**, not `/login`. This block and ADR-0014 were written before the sign-in screen
+had a route; identity-membership fixed it at `apps/web/app/(auth)/sign-in/page.tsx`
+(TASK-008, STORY-003 AC-19 "the sign-in screen"), and `session.ts` carries the target as
+`SIGN_IN_ROUTE`. `useSession` lives in `apps/web/src/lib/session/use-session.ts` (a `'use
+client'` module, re-exported from `session.ts`); `GET /api/bff/session` and the
+refresh-and-bounce `GET /api/bff/session/refresh` (invariant 5) are static routes beside the
+`[...path]` catch-all, both shipped by TASK-007.
 
 ## Invariants a caller may rely on
 

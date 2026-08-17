@@ -55,7 +55,9 @@ response. Better Auth's own `Set-Cookie` for the Fly origin is dropped.
 new JWT from `sk_rt`, set `sk_at`, and retry the original request once. Two
 consecutive failures clear both cookies and return 401, and `requireAuth()` sends the
 user to `/login`. Refresh happens in the route handler, so a burst of parallel client
-fetches can each trigger one; a per-request in-flight map collapses them.
+fetches can each trigger one; a per-request in-flight map collapses them. (Corrected
+2026-08-17, TASK-007: the sign-in screen is `/sign-in`, not `/login` — `web-api-client.md`,
+"Session".)
 
 **Server components skip the proxy.** `serverApiClient()` reads `sk_at` from
 `cookies()` and calls Fly directly from the Vercel function. Same token, same
@@ -236,6 +238,13 @@ Four more, all for the `Origin` question (F-233):
   `apps/web/src/lib/api/client.ts`. **A returning TASK-012 must not read this bullet as
   saying that work is done.** Do not implement any of the three under another TASK without
   re-scoping, and do not delete them: `web-api-client.md` still specifies all three.
+  **Re-scoped and materialised 2026-08-17 by identity-membership TASK-007** (STORY-003,
+  the card whose `paths` name `apps/web/src/lib/api/client.ts`, `apps/web/src/lib/session/**`
+  and `apps/web/app/api/bff/**`). All three ship: `serverApiClient`, `mapBetterAuthError`
+  and `buildUpstreamUrl`, together with the proxy route, both cookies, the refresh path,
+  `useSession()` and `requireAuth()` the next bullet assigned to TASK-012 — which did not
+  return under that number. The re-scoping is the card itself, not a silent override of
+  this bullet; `web-api-client.md` step 5 records the same date.
 - TASK-012 owns the proxy route handler, both cookies, the refresh path, `useSession()`,
   and `requireAuth()`.
 - TASK-004 keeps `NEXT_PUBLIC_API_BASE_URL` for anything genuinely public and adds
