@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
+import './globals.css';
+
 export const metadata: Metadata = {
   title: 'Shortkit',
   description: 'Branded short links for agencies, one workspace per client.',
