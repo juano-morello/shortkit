@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +10,8 @@ import {
   BETTER_AUTH_SECRET_MIN_LENGTH,
   assertBetterAuthSecretConfigured,
   assertBetterAuthUrlConfigured,
+  assertBffProxySecretConfigured,
+  assertTrustedClientIpHeaderConfigured,
   assertWebAppOriginsConfigured,
   betterAuthSecret,
   betterAuthUrl,
@@ -89,6 +92,15 @@ const REFUSED_ORIGINS: Outcome = {
   refusedWith: 'AuthBindingError',
   binding: 'web_app_origins',
 };
+const REFUSED_CLIENT_BOUNDARY: Outcome = {
+  refusedWith: 'AuthBindingError',
+  binding: 'client_trust_boundary',
+};
+const REFUSED_BFF_BOUNDARY: Outcome = {
+  refusedWith: 'AuthBindingError',
+  binding: 'bff_trust_boundary',
+};
+const BOOTED: Outcome = { returned: undefined };
 
 /** Runs the accessor with `BETTER_AUTH_SECRET` bound to `value`, or unset for `undefined`. */
 function secretUnder(value: string | undefined): Outcome {
@@ -426,6 +438,212 @@ describe('assertWebAppOriginsConfigured', () => {
   });
 });
 
+/**
+ * ============================================================================
+ * TASK-004, WAVE 3: THE TWO TRUST-BOUNDARY ASSERTIONS. NEITHER READS `NODE_ENV`.
+ * ============================================================================
+ *
+ * Contract: `docs/contracts/trusted-client-address.md` ("The trust boundary"),
+ * `docs/contracts/rate-limit.md` ("The BFF trust boundary"). ADR-0040, F-380, F-385.
+ *
+ * `Dockerfile:83` is `ENV NODE_ENV=production` in the image `docker compose` runs, so a
+ * `NODE_ENV` gate refuses to boot `api` on a laptop. Each assertion keys on its OWN declared
+ * boundary variable: validity is asserted unconditionally (a typo must not silently mean the
+ * permissive `direct`), the requirement only under the named hop. Every case below sets a
+ * boundary variable and never `NODE_ENV`, and a scan at the bottom of this file asserts the
+ * three wave-3 modules do not read it.
+ */
+describe('assertTrustedClientIpHeaderConfigured', () => {
+  it('ADR-0040: unset and direct assert nothing, whatever the header variable holds', () => {
+    // A stack that declares no boundary asserts nothing, establishes no principal, and fails
+    // open with signal. That is `docker compose up` today, and it is the case F-380 was filed
+    // on. A malformed header under `direct` is NOT refused here — the read returns null for it
+    // — because the boundary governs whether forgetting the header is an error, never what
+    // is read.
+    const outcomes = [
+      outcomeOf(() => assertTrustedClientIpHeaderConfigured({})),
+      outcomeOf(() => assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: '' })),
+      outcomeOf(() => assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'direct' })),
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({
+          CLIENT_TRUST_BOUNDARY: 'direct',
+          TRUSTED_CLIENT_IP_HEADER: 'X-Forwarded-For',
+        }),
+      ),
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({ TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip' }),
+      ),
+    ];
+
+    expect(outcomes).toEqual([BOOTED, BOOTED, BOOTED, BOOTED, BOOTED]);
+  });
+
+  it('ADR-0040: an unrecognised boundary value refuses unconditionally, whatever else is set', () => {
+    // `Proxy`, `true`, `prod` and `1` all fail everywhere, including with a perfectly good
+    // header declared beside them: `direct` is the permissive branch and a typo must not
+    // reach it silently.
+    const outcomes = ['Proxy', 'true', 'prod', '1', 'bff', ' proxy'].map((value) =>
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({
+          CLIENT_TRUST_BOUNDARY: value,
+          TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
+        }),
+      ),
+    );
+
+    expect(outcomes).toEqual(outcomes.map(() => REFUSED_CLIENT_BOUNDARY));
+  });
+
+  it('ADR-0040: proxy requires a header that is set, well formed and not a forwarding header', () => {
+    const outcomes = [
+      outcomeOf(() => assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'proxy' })),
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'proxy', TRUSTED_CLIENT_IP_HEADER: '' }),
+      ),
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'proxy', TRUSTED_CLIENT_IP_HEADER: 'X-Real-IP' }),
+      ),
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'proxy', TRUSTED_CLIENT_IP_HEADER: 'x-forwarded-for' }),
+      ),
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'proxy', TRUSTED_CLIENT_IP_HEADER: 'forwarded' }),
+      ),
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'proxy', TRUSTED_CLIENT_IP_HEADER: 'fly-client-ip' }),
+      ),
+      outcomeOf(() =>
+        assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'proxy', TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip' }),
+      ),
+    ];
+
+    expect(outcomes).toEqual([
+      REFUSED_CLIENT_BOUNDARY,
+      REFUSED_CLIENT_BOUNDARY,
+      REFUSED_CLIENT_BOUNDARY,
+      REFUSED_CLIENT_BOUNDARY,
+      REFUSED_CLIENT_BOUNDARY,
+      BOOTED,
+      BOOTED,
+    ]);
+  });
+
+  it('ADR-0029: no refusal interpolates the configured value', () => {
+    // An environment read is not eligible for error text. The messages name the rule; the
+    // one below would otherwise be the natural place to quote the header name back.
+    const quoted = ['X-Real-IP-Quoted-Back', 'x-forwarded-for'].map((header) => {
+      try {
+        assertTrustedClientIpHeaderConfigured({ CLIENT_TRUST_BOUNDARY: 'proxy', TRUSTED_CLIENT_IP_HEADER: header });
+        return 'nothing was thrown';
+      } catch (error) {
+        return (error instanceof Error ? error.message : String(error)).includes(header);
+      }
+    });
+
+    expect(quoted).toEqual([false, false]);
+  });
+});
+
+describe('assertBffProxySecretConfigured', () => {
+  it('rate-limit.md: unset and direct assert nothing, and unset with no secret boots', () => {
+    // The third of the contract's three boot tests: "unset with no secret boots and the BFF
+    // branch stays disabled by F-033 rule 1". The branch's disablement is
+    // `resolve-rate-limit-principal.spec.ts`'s; this is the boot half.
+    const outcomes = [
+      outcomeOf(() => assertBffProxySecretConfigured({})),
+      outcomeOf(() => assertBffProxySecretConfigured({ BFF_TRUST_BOUNDARY: '' })),
+      outcomeOf(() => assertBffProxySecretConfigured({ BFF_TRUST_BOUNDARY: 'direct' })),
+      outcomeOf(() => assertBffProxySecretConfigured({ BFF_PROXY_SECRET: 'FIXTURE-bff-proxy-secret_not_a_real_value_00' })),
+    ];
+
+    expect(outcomes).toEqual([BOOTED, BOOTED, BOOTED, BOOTED]);
+  });
+
+  it('rate-limit.md: an unrecognised boundary value refuses whatever else is set', () => {
+    // "`BFF_TRUST_BOUNDARY=Bff` refuses whatever else is set" — the contract's second boot
+    // test, with the siblings that share its shape.
+    const outcomes = ['Bff', 'true', 'proxy', '1', ' bff'].map((value) =>
+      outcomeOf(() =>
+        assertBffProxySecretConfigured({
+          BFF_TRUST_BOUNDARY: value,
+          BFF_PROXY_SECRET: 'FIXTURE-bff-proxy-secret_not_a_real_value_00',
+        }),
+      ),
+    );
+
+    expect(outcomes).toEqual(outcomes.map(() => REFUSED_BFF_BOUNDARY));
+  });
+
+  it('rate-limit.md: bff requires the secret set and non-empty, and checks nothing about its format', () => {
+    // "Set and non-empty", not the base64url shape the Vercel half enforces (F-169). That
+    // divergence is recorded in the contract and F-385 did not reopen it.
+    const outcomes = [
+      outcomeOf(() => assertBffProxySecretConfigured({ BFF_TRUST_BOUNDARY: 'bff' })),
+      outcomeOf(() => assertBffProxySecretConfigured({ BFF_TRUST_BOUNDARY: 'bff', BFF_PROXY_SECRET: '' })),
+      outcomeOf(() => assertBffProxySecretConfigured({ BFF_TRUST_BOUNDARY: 'bff', BFF_PROXY_SECRET: '   ' })),
+      outcomeOf(() => assertBffProxySecretConfigured({ BFF_TRUST_BOUNDARY: 'bff', BFF_PROXY_SECRET: 'short' })),
+      outcomeOf(() =>
+        assertBffProxySecretConfigured({
+          BFF_TRUST_BOUNDARY: 'bff',
+          BFF_PROXY_SECRET: 'FIXTURE-bff-proxy-secret_not_a_real_value_00',
+        }),
+      ),
+    ];
+
+    expect(outcomes).toEqual([REFUSED_BFF_BOUNDARY, REFUSED_BFF_BOUNDARY, REFUSED_BFF_BOUNDARY, BOOTED, BOOTED]);
+  });
+});
+
+describe('the wave-3 modules and NODE_ENV', () => {
+  /**
+   * The modules TASK-004 adds or extends, with comments AND string literals stripped: a
+   * docblock saying "never reads NODE_ENV" must not satisfy the scan, and neither must the
+   * contracts' own refusal text ("It is not NODE_ENV and it is not a boolean"), which two of
+   * these files carry verbatim as constants. What is left is code, and a read is
+   * `process.env.NODE_ENV`, `env.NODE_ENV`, the bracket form or a destructuring — so the bare
+   * token is what is scanned for.
+   */
+  const files = [
+    '../auth/boot-assertions.ts',
+    '../auth/resolve-rate-limit-principal.ts',
+    '../auth/auth-rate-limit.ts',
+    '../auth/auth-body-cap.ts',
+    '../common/net/trusted-client-address.ts',
+  ];
+
+  it.each(files)('F-380/F-385: %s does not name NODE_ENV outside a comment', (file) => {
+    const source = readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+      .replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""');
+
+    expect(/\bNODE_ENV\b/.test(source)).toBe(false);
+  });
+});
+
+describe('who may open the auth-pool introspection transaction', () => {
+  /**
+   * `db/client.ts` exports `withAuthRoleIntrospection` so `assertAuthRoleSeparation` can read
+   * `pg_roles` and `pg_class` AS `shortkit_auth` without naming the adapter handle
+   * (`better-auth-database-callers.spec.ts` scan 1 closes that name to two files). It is a
+   * READ ONLY transaction on the auth pool, and it is still a handle on the role, so who may
+   * name it is bounded the same way: the file that defines it and the one that calls it.
+   */
+  const apiSource = fileURLToPath(new URL('../', import.meta.url));
+  const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url));
+
+  const naming = readdirSync(apiSource, { recursive: true, encoding: 'utf8' })
+    .filter((entry) => entry.endsWith('.ts') && !entry.endsWith('.spec.ts'))
+    .map((entry) => join(apiSource, entry))
+    .filter((path) => /\bwithAuthRoleIntrospection\b/.test(readFileSync(path, 'utf8')))
+    .map((path) => relative(repositoryRoot, path).split(sep).join('/'))
+    .sort();
+
+  it('ADR-0050: withAuthRoleIntrospection is named by exactly db/client.ts and auth/boot-assertions.ts', () => {
+    expect(naming).toEqual(['apps/api/src/auth/boot-assertions.ts', 'apps/api/src/db/client.ts']);
+  });
+});
+
 describe('the call site in main.ts', () => {
   /**
    * ⚠ A TEXT SCAN, AND THE LOAD-BEARING TEST IN THIS FILE.
@@ -438,6 +656,11 @@ describe('the call site in main.ts', () => {
    *
    * It reads `main.ts` rather than importing it, for the reason `context-flag-owners.spec.ts`
    * gives for the same idiom, plus one of its own: importing `main.ts` runs `bootstrap()`.
+   *
+   * SIX SINCE WAVE 3 (TASK-004): the two trust-boundary assertions and the auth-role
+   * separation join the three bindings. All are called UNCONDITIONALLY — the gating is inside
+   * each function — so a call wrapped in an `if` on any variable would still be found here
+   * and would need the integration tier to catch.
    */
   const main = readFileSync(fileURLToPath(new URL('../main.ts', import.meta.url)), 'utf8');
 
@@ -447,6 +670,9 @@ describe('the call site in main.ts', () => {
     ['assertBetterAuthSecretConfigured'],
     ['assertBetterAuthUrlConfigured'],
     ['assertWebAppOriginsConfigured'],
+    ['assertTrustedClientIpHeaderConfigured'],
+    ['assertBffProxySecretConfigured'],
+    ['assertAuthRoleSeparation'],
   ])('ADR-0058: main.ts calls %s before it listens', (assertion) => {
     const called = main.indexOf(`${assertion}(`);
 

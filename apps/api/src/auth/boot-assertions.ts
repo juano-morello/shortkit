@@ -1,7 +1,12 @@
 /**
- * Contract: `docs/contracts/auth-config-surface.md`
- * ADR: adr-0058-better-auth-secret-assertion-shape.md, adr-0059, adr-0051, adr-0050
- * Produced by: TASK-003 (this file and the three bindings). Extended by: TASK-004, wave 3.
+ * Contract: `docs/contracts/auth-config-surface.md` (the three bindings),
+ *           `docs/contracts/trusted-client-address.md` and `docs/contracts/rate-limit.md`
+ *           (the two trust-boundary assertions, TASK-004)
+ * ADR: adr-0058-better-auth-secret-assertion-shape.md, adr-0059, adr-0051, adr-0050,
+ *      adr-0040 (the trust boundaries, F-380 and F-385)
+ * Produced by: TASK-003 (this file and the three bindings). Extended by: TASK-004, wave 3
+ *              (`assertTrustedClientIpHeaderConfigured`, `assertBffProxySecretConfigured`,
+ *              `assertAuthRoleSeparation`).
  *
  * ============================================================================
  * THIS FILE MUST NOT IMPORT `auth.config.ts`. THE DEPENDENCY RUNS THE OTHER WAY.
@@ -13,19 +18,46 @@
  * module evaluation, and the throw would land before `bootstrap()` runs and before any
  * boot-precondition wording reaches the log (ADR-0058).
  *
- * TASK-004 adds `assertTrustedClientIpHeaderConfigured`, `assertBffProxySecretConfigured`
- * and `assertAuthRoleSeparation` here in wave 3. None of them may import `auth.config.ts`
- * either, and `assertAuthRoleSeparation` reaches its pool through `db/client.ts`.
+ * TASK-004's three assertions are at the bottom of this file. None of them imports
+ * `auth.config.ts` either; `assertAuthRoleSeparation` reaches both pools through
+ * `db/client.ts` — `databaseTransaction` for the application role and
+ * `withAuthRoleIntrospection` for the auth role — and never names the adapter handle.
  *
  * NONE OF THESE READS `NODE_ENV`. That is GC-B, and it is the rule better-auth's own
  * `validateSecret` and its cookie-secure fallback both break inside `node_modules`, where
- * this repository's lint cannot reach them (ADR-0051, ADR-0059).
+ * this repository's lint cannot reach them (ADR-0051, ADR-0059). The two trust-boundary
+ * assertions key on `CLIENT_TRUST_BOUNDARY` and `BFF_TRUST_BOUNDARY` for the same reason,
+ * and `boot-assertions.spec.ts` scans the wave-3 modules for the token.
  *
  * THE ACCESSORS READ `process.env`; THE ASSERTIONS TAKE ONE. Both go through the same
  * `accepted*` predicate below, which is what keeps them from disagreeing (ADR-0051): an
  * accessor that trusted a boot assertion would be unsafe in a unit test, a script, or a
  * worker that never ran one.
  */
+import { sql } from 'drizzle-orm';
+
+import {
+  CLIENT_TRUST_BOUNDARIES,
+  CLIENT_TRUST_BOUNDARY_ENV,
+  CLIENT_TRUST_BOUNDARY_INVALID_MESSAGE,
+  FORBIDDEN_TRUSTED_HEADERS,
+  TRUSTED_CLIENT_IP_HEADER_ENV,
+  TRUSTED_CLIENT_IP_HEADER_FORBIDDEN_MESSAGE,
+  TRUSTED_CLIENT_IP_HEADER_MALFORMED_MESSAGE,
+  TRUSTED_CLIENT_IP_HEADER_UNSET_MESSAGE,
+  isAcceptableTrustedHeaderName,
+} from '../common/net/trusted-client-address';
+import type { ClientTrustBoundary } from '../common/net/trusted-client-address';
+import { databaseTransaction, withAuthRoleIntrospection } from '../db/client';
+import type { DatabaseTransaction } from '../db/client';
+import {
+  BFF_PROXY_SECRET_ENV,
+  BFF_PROXY_SECRET_UNSET_MESSAGE,
+  BFF_TRUST_BOUNDARIES,
+  BFF_TRUST_BOUNDARY_ENV,
+  BFF_TRUST_BOUNDARY_INVALID_MESSAGE,
+} from './resolve-rate-limit-principal';
+import type { BffTrustBoundary } from './resolve-rate-limit-principal';
 
 /**
  * `better-auth@1.6.26`'s published fallback, `dist/utils/constants.mjs:2`, reached by the
@@ -43,17 +75,30 @@ export const SESSION_LIFETIME_SECONDS = 604_800;
 /**
  * Raised by EVERY accessor and assertion in this file.
  *
- * One class across three bindings so `main.ts` reports the same `boot_precondition`
- * whichever path fired. From wave 3 the accessors win the race: `main.ts` imports
- * `auth.config.ts` for the mount, so a module-scope accessor throws before
- * `assertBootPreconditions()` is called and the assertion never executes (ADR-0058).
+ * One class across the bindings so `main.ts` reports the same `boot_precondition`
+ * whichever path fired. THE ASSERTIONS FIRE FIRST, since wave 3 (F-210): `main.ts` reaches
+ * `auth.config.ts` through a dynamic import inside `bootstrap()`, after
+ * `assertBootPreconditions()`, so a module-scope accessor never gets the chance to throw
+ * outside `bootstrap().catch` — a static import would have made it win the race and turned
+ * the labelled refusal into a raw stack (ADR-0058).
  *
  * NEVER CARRIES A VALUE, A PREFIX OF ONE, OR A LENGTH. It names the rule that was broken.
  * The secret is not in `LOGGABLE_FIELDS` and no field name is added for it, unlike
  * ADR-0045's user-id prefix where the value is not a credential.
  */
 export class AuthBindingError extends Error {
-  readonly binding: 'better_auth_secret' | 'better_auth_url' | 'web_app_origins';
+  /**
+   * The three bindings, plus the two trust boundaries since wave 3 (TASK-004). The last two
+   * are declared topology rather than credentials, so their messages COULD carry a value;
+   * they still do not, because an environment read is not eligible for error text (ADR-0029)
+   * and one rule is easier to keep than one rule with an exception.
+   */
+  readonly binding:
+    | 'better_auth_secret'
+    | 'better_auth_url'
+    | 'web_app_origins'
+    | 'client_trust_boundary'
+    | 'bff_trust_boundary';
 
   constructor(binding: AuthBindingError['binding'], message: string) {
     super(message);
@@ -470,4 +515,340 @@ function parseUrl(value: string): URL | undefined {
 
 function isLoopbackHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === LOOPBACK_IPV6 || LOOPBACK_IPV4.test(hostname);
+}
+
+/**
+ * ============================================================================
+ * TASK-004, WAVE 3. TWO TRUST BOUNDARIES, ONE RULE: A BOOT ASSERTION KEYS ON A DECLARED
+ * PROPERTY OF THE DEPLOYMENT, NEVER ON A BUILD FLAG (ADR-0040, F-380, F-385).
+ * ============================================================================
+ *
+ * `Dockerfile:83` is `ENV NODE_ENV=production` in the image `docker compose` runs, and the
+ * compose `api` service declares no header and no secret. A `NODE_ENV` gate on either
+ * assertion refuses to boot `api` on a developer's laptop the day it lands — which is the
+ * single most repeated trap in this repository's history, ruled on twice (F-380, F-385).
+ *
+ * So each keys on its own declared variable, and each has the same two-part shape:
+ *
+ *   1. VALIDITY IS ASSERTED UNCONDITIONALLY. `Proxy`, `true`, `prod`, `1` fail boot in tests,
+ *      in CI and in compose. `direct` is the permissive branch, and a typo must never
+ *      silently mean the permissive thing.
+ *   2. THE REQUIREMENT IS CONDITIONAL on the named hop. Unset and `direct` assert nothing.
+ *
+ * `main.ts` calls both UNCONDITIONALLY, before `listen()`; the gating is in here.
+ *
+ * WHAT NEITHER CAN CHECK, stated once for both: that a declared header is actually stripped
+ * by the hop in front, or that the secret matches the BFF's copy. And an operator who
+ * declares NEITHER variable in a real deployment boots cleanly with no IP-keyed limit and no
+ * complaint — `trusted_client_ip_unresolved_total` and `bff_proxy_auth_mismatch_total` are
+ * what make that state observable rather than silent, and ADR-0040 records the counter as
+ * the price of not letting a build flag decide a trust question.
+ *
+ * NO MESSAGE INTERPOLATES A CONFIGURED VALUE (ADR-0029). The strings are the contracts' own,
+ * imported from the module each contract names as their home.
+ */
+
+/**
+ * `CLIENT_TRUST_BOUNDARY = proxy | direct`, unset read as `direct`. Under `proxy`,
+ * `TRUSTED_CLIENT_IP_HEADER` must be set, a lowercase header name, and not `x-forwarded-for`
+ * or `forwarded` — the two are defined to be appended to rather than replaced, so no hop can
+ * strip-and-set them, and declaring either reintroduces F-009 through the front door.
+ *
+ * The boundary governs whether FORGETTING the header is an error. It never governs what is
+ * read: `readTrustedClientAddress` keys on the header variable alone, so a harness may
+ * declare the header without the boundary.
+ */
+export function assertTrustedClientIpHeaderConfigured(env: NodeJS.ProcessEnv): void {
+  const boundary = declaredBoundary(env[CLIENT_TRUST_BOUNDARY_ENV], CLIENT_TRUST_BOUNDARIES);
+
+  if (boundary === undefined) {
+    throw new AuthBindingError('client_trust_boundary', CLIENT_TRUST_BOUNDARY_INVALID_MESSAGE);
+  }
+
+  if (boundary !== 'proxy') {
+    return;
+  }
+
+  const header = env[TRUSTED_CLIENT_IP_HEADER_ENV];
+
+  if (header === undefined || header.trim() === '') {
+    throw new AuthBindingError('client_trust_boundary', TRUSTED_CLIENT_IP_HEADER_UNSET_MESSAGE);
+  }
+
+  // THE SAME PREDICATE THE READ USES, so the assertion and `readTrustedClientAddress` cannot
+  // disagree on what a usable header name is. The forbidden list is consulted a second time
+  // only to pick the message: a forwarding header is refused for a different reason than a
+  // malformed name, and the operator's remedy differs.
+  if (!isAcceptableTrustedHeaderName(header)) {
+    throw new AuthBindingError(
+      'client_trust_boundary',
+      FORBIDDEN_TRUSTED_HEADERS.includes(header)
+        ? TRUSTED_CLIENT_IP_HEADER_FORBIDDEN_MESSAGE
+        : TRUSTED_CLIENT_IP_HEADER_MALFORMED_MESSAGE,
+    );
+  }
+}
+
+/**
+ * `BFF_TRUST_BOUNDARY = bff | direct`, unset read as `direct`. Under `bff`,
+ * `BFF_PROXY_SECRET` must be set and non-empty. SET AND NON-EMPTY, not the base64url shape
+ * the Vercel half enforces (F-169): that divergence is recorded in `rate-limit.md` and F-385
+ * did not reopen it.
+ *
+ * A SEPARATE VARIABLE FROM `CLIENT_TRUST_BOUNDARY` ON PURPOSE. That one says a hop in front
+ * terminates connections and strips a header; this one says our own frontend forwards an
+ * address it authenticates with a shared secret. An API reachable at its own origin behind a
+ * Vercel BFF is `direct` there and `bff` here, and it is the deployment where the secret is
+ * the ONLY source of a rate-limit principal — gating on `proxy` would fall silent exactly
+ * there (ADR-0040, "The sibling assertion declares its own boundary").
+ *
+ * The boundary does not affect the read: `resolveRateLimitPrincipal`'s rule 1 already
+ * disables the BFF branch unconditionally when the secret is unset.
+ */
+export function assertBffProxySecretConfigured(env: NodeJS.ProcessEnv): void {
+  const boundary = declaredBoundary(env[BFF_TRUST_BOUNDARY_ENV], BFF_TRUST_BOUNDARIES);
+
+  if (boundary === undefined) {
+    throw new AuthBindingError('bff_trust_boundary', BFF_TRUST_BOUNDARY_INVALID_MESSAGE);
+  }
+
+  if (boundary !== 'bff') {
+    return;
+  }
+
+  const secret = env[BFF_PROXY_SECRET_ENV];
+
+  if (secret === undefined || secret.trim() === '') {
+    throw new AuthBindingError('bff_trust_boundary', BFF_PROXY_SECRET_UNSET_MESSAGE);
+  }
+}
+
+/**
+ * The declared value of a boundary variable, `'direct'` when unset or empty, or `undefined`
+ * when it is anything outside the set. Exact match: no trimming and no case folding, because
+ * `Proxy` and ` proxy` are the typos the unconditional check exists to catch, and a value
+ * that is normalised into acceptance is a value in force that nobody wrote.
+ *
+ * Empty is unset. `CLIENT_TRUST_BOUNDARY=` is what an env file produces when the variable it
+ * expands is absent, and it is the same statement as absence rather than a typo.
+ */
+function declaredBoundary<T extends ClientTrustBoundary | BffTrustBoundary>(
+  value: string | undefined,
+  accepted: readonly T[],
+): T | 'direct' | undefined {
+  if (value === undefined || value === '') {
+    return 'direct';
+  }
+
+  return accepted.find((candidate) => candidate === value);
+}
+
+/**
+ * ============================================================================
+ * TASK-004, WAVE 3. THE AUTH-ROLE SEPARATION ASSERTION (ADR-0050, F-030, F-031).
+ * ============================================================================
+ *
+ * ADR-0050 splits Better Auth's five tables onto `shortkit_auth` and revokes `shortkit_app`
+ * on all five, because a SQL defect anywhere in `apps/api` running as `shortkit_app` could
+ * otherwise `INSERT` a session row with a chosen token for another tenant's user — measured,
+ * account takeover rather than disclosure. This proves the negative that split rests on,
+ * both ways, at boot, and refuses to serve when it does not hold.
+ *
+ * FOUR THINGS ABOUT ITS SHAPE, EACH ONE A WAY THE OBVIOUS VERSION FAILED (F-031, measured):
+ *
+ *   1. THE WHOLE PRIVILEGE SET, NOT `SELECT`. The attack is an `INSERT`. A `SELECT`-only
+ *      check passed green while `shortkit_app` inserted a forged session row. The table-level
+ *      call names all seven privileges `has_table_privilege` accepts; the comma list is
+ *      ANY-of, so its NEGATION is "holds none of them", which is the assertion wanted.
+ *   2. `has_any_column_privilege` OR'ed IN. `GRANT SELECT (email) ON "user"` leaves the
+ *      table-level call `false` while `SELECT email` returns the row. Its list is the THREE
+ *      column-grantable privileges and no more: `DELETE` raises `unrecognized privilege type`
+ *      rather than returning false.
+ *   3. THE WHOLE EXEMPT LIST, BOTH DIRECTIONS. All five as `shortkit_app` — `account` holds
+ *      the password hashes and `jwks` the signing key, and both were unchecked in the first
+ *      draft — and every OTHER table in `public` as `shortkit_auth`. The tenant-scoped set is
+ *      derived from the catalogue as "everything in `public` that is not one of the five",
+ *      the way `scripts/check-policies.mts`'s grant matrix derives it, so a table added later
+ *      is covered without anyone editing a list here.
+ *   4. ONE CATALOGUE QUERY PER DIRECTION, JOINING `pg_class`, NOT ONE CALL PER TABLE NAME.
+ *      `has_table_privilege` on an absent table raises `42P01`, which `main.ts` cannot tell
+ *      from a driver error; a table that does not exist contributes no row here instead. The
+ *      exempt direction then additionally requires all five to be PRESENT and reports
+ *      "migrations have not run" when they are not — a different verdict from "privileges
+ *      are wrong", because the two call for opposite responses (F-245's rule one level down).
+ *
+ * Plus the auth role's three attributes, read in the same round trip as its direction:
+ * `NOBYPASSRLS`, not superuser, owns no table in `public`. `assertRuntimeRoleCannotBypassRls`
+ * covers `DATABASE_URL` and nothing else, on purpose (F-030), and is not touched.
+ *
+ * VERDICT WORDING IS LOAD-BEARING. Every verdict this function reaches ON ITS OWN begins with
+ * the literal `DATABASE_AUTH_URL connect`, which `main.ts`'s `AUTH_VERDICT_PREFIX` matches to
+ * tell an unsafe answer (refuse now) from a failure to answer (retry on the reachability
+ * budget). Including the application-direction verdicts: they are about the SEPARATION
+ * between the two DSNs, and they say so in that order. Anything else this rejects with came
+ * from the driver. `'DATABASE_AUTH_URL connects as x'.startsWith('DATABASE_URL connect')` is
+ * `false`, so the two prefixes do not collide.
+ *
+ * WHAT IT CANNOT SEE: it reads grants, not statements. A `SECURITY DEFINER` function owned by
+ * `shortkit_migrator` would let either role reach the other's tables with no grant of its
+ * own; none exists today, and the behavioural proof is the integration tier's.
+ */
+
+/**
+ * The five tables `shortkit_auth` owns access to and `shortkit_app` is revoked on. The same
+ * five `scripts/check-policies.mts` closes its `EXEMPT` map at (`EXPECTED_EXEMPT_COUNT`),
+ * and migration `0001` revokes by name. A sixth Better Auth table is a change to ADR-0050,
+ * and it lands in all three places or the grant matrix fails.
+ */
+export const BETTER_AUTH_TABLES: readonly string[] = ['user', 'session', 'account', 'verification', 'jwks'];
+
+/**
+ * Every privilege `has_table_privilege` accepts, and the three `has_any_column_privilege`
+ * accepts. `has_any_column_privilege('...', 'DELETE')` RAISES rather than returning false,
+ * which is why the two lists are two lists.
+ */
+const TABLE_PRIVILEGES = 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER';
+const COLUMN_PRIVILEGES = 'SELECT,INSERT,UPDATE';
+
+const AUTH_VERDICT = 'DATABASE_AUTH_URL connect';
+
+interface PrivilegeAuditRow extends Record<string, unknown> {
+  role: string;
+  superuser: boolean;
+  /** `null` when `pg_roles` does not list `current_user`, which no sane connection produces. */
+  bypassrls: boolean | null;
+  tables_owned_in_public: number;
+  /** Tables in `public`, from the named set, on which `current_user` holds ANY privilege. */
+  reachable: string[];
+  /** Tables in `public`, from the named set, that exist. */
+  present: string[];
+}
+
+export async function assertAuthRoleSeparation(): Promise<void> {
+  // Direction two first, because it is the one that opens the second connection: as the auth
+  // role, its three attributes and every tenant-scoped table it can reach, in one round trip.
+  const auth = await withAuthRoleIntrospection(async (tx) => privilegeAudit(tx, 'not in'));
+
+  if (auth.bypassrls === null) {
+    throw new Error(`${AUTH_VERDICT}ed as a role that pg_roles does not list.`);
+  }
+
+  if (auth.superuser || auth.bypassrls) {
+    throw new Error(
+      `${AUTH_VERDICT}s as '${auth.role}', which is exempt from row-level security ` +
+        `(superuser=${String(auth.superuser)}, bypassrls=${String(auth.bypassrls)}). ` +
+        'The auth role must be NOBYPASSRLS and not a superuser: it can reach tenant-scoped ' +
+        'tables by cascade, and a policy-exempt auth role reads every tenant. Connect as ' +
+        'shortkit_auth (ADR-0050).',
+    );
+  }
+
+  if (auth.tables_owned_in_public > 0) {
+    throw new Error(
+      `${AUTH_VERDICT}s as '${auth.role}', which owns ` +
+        `${String(auth.tables_owned_in_public)} table(s) in schema public. The auth role ` +
+        'owns nothing; shortkit_migrator owns everything and runs the DDL (ADR-0050).',
+    );
+  }
+
+  if (auth.reachable.length > 0) {
+    throw new Error(
+      `${AUTH_VERDICT}s as '${auth.role}', which holds a privilege on tenant-scoped ` +
+        `table(s) ${auth.reachable.join(', ')}. No row-level security policy stands in ` +
+        'front of the auth role, so this is a way around tenant isolation rather than a ' +
+        'convenience. Revoke it; migration 0001 grants shortkit_auth the five Better Auth ' +
+        'tables and nothing else (ADR-0050).',
+    );
+  }
+
+  // Direction one: as the application role, none of the five is reachable — and all five
+  // exist. Its attributes were already asserted by `assertRuntimeRoleCannotBypassRls`.
+  const application = await databaseTransaction(async (tx) => privilegeAudit(tx, 'in'));
+
+  const missing = BETTER_AUTH_TABLES.filter((table) => !application.present.includes(table));
+
+  if (missing.length > 0) {
+    throw new Error(
+      `${AUTH_VERDICT}s to a database where Better Auth table(s) ${missing.join(', ')} do not ` +
+        'exist in schema public, so migrations have not run against it and the grant matrix ' +
+        'cannot be answered. Run `pnpm --filter @shortkit/api db:migrate` with ' +
+        'DATABASE_MIGRATION_URL set (ADR-0050). This is not a privilege verdict.',
+    );
+  }
+
+  if (application.reachable.length > 0) {
+    throw new Error(
+      `${AUTH_VERDICT}s as '${auth.role}' but is not separated from DATABASE_URL: ` +
+        `'${application.role}' still holds a privilege on Better Auth table(s) ` +
+        `${application.reachable.join(', ')}. session.token is a credential in plaintext, so ` +
+        'the application role holding INSERT there is account takeover (ADR-0050, measured). ' +
+        'Migration 0001 revokes shortkit_app on all five; the REVOKE has been undone or a ' +
+        'later grant re-opened it.',
+    );
+  }
+}
+
+/**
+ * ONE catalogue query for one direction: `current_user`'s three role attributes — the same
+ * three `db/rls.ts` reads, so the auth role is held to the application role's posture — and
+ * every table in `public` whose name is `in` (or `not in`) the five, with whether the role
+ * holds ANY privilege on it: table-level over the whole set, OR column-level over the three
+ * column-grantable ones.
+ *
+ * `pg_class` is not privilege-filtered, so it answers for a role that cannot read the table,
+ * and a table that does not exist contributes no row rather than raising `42P01`. The five
+ * names are bound parameters; the two privilege lists are module literals from a closed
+ * vocabulary, inlined so the overload of `has_table_privilege` resolves on `(name, oid,
+ * text)` without a cast the reader has to reason about.
+ */
+async function privilegeAudit(
+  tx: DatabaseTransaction,
+  membership: 'in' | 'not in',
+): Promise<PrivilegeAuditRow> {
+  const names = sql.join(
+    BETTER_AUTH_TABLES.map((table) => sql`${table}`),
+    sql`, `,
+  );
+  const predicate =
+    membership === 'in' ? sql`c.relname::text in (${names})` : sql`c.relname::text not in (${names})`;
+
+  const result = await tx.execute<PrivilegeAuditRow>(
+    sql`select current_user::text                        as role,
+               current_setting('is_superuser') = 'on'   as superuser,
+               (select r.rolbypassrls
+                  from pg_roles r
+                 where r.rolname = current_user)         as bypassrls,
+               (select count(*)::int
+                  from pg_class c
+                  join pg_namespace n on n.oid = c.relnamespace
+                 where n.nspname = 'public'
+                   and c.relkind in ('r', 'p')
+                   and c.relowner = current_user::regrole) as tables_owned_in_public,
+               (select coalesce(array_agg(c.relname::text order by c.relname)
+                                filter (where has_table_privilege(current_user, c.oid, ${sql.raw(`'${TABLE_PRIVILEGES}'`)})
+                                           or has_any_column_privilege(current_user, c.oid, ${sql.raw(`'${COLUMN_PRIVILEGES}'`)})),
+                                '{}'::text[])
+                  from pg_class c
+                  join pg_namespace n on n.oid = c.relnamespace
+                 where n.nspname = 'public'
+                   and c.relkind in ('r', 'p')
+                   and ${predicate})                     as reachable,
+               (select coalesce(array_agg(c.relname::text order by c.relname), '{}'::text[])
+                  from pg_class c
+                  join pg_namespace n on n.oid = c.relnamespace
+                 where n.nspname = 'public'
+                   and c.relkind in ('r', 'p')
+                   and ${predicate})                     as present`,
+  );
+
+  const row = result.rows[0];
+
+  if (row === undefined) {
+    // A select of scalar subqueries yields exactly one row on any Postgres, so this is
+    // unreachable; it is a verdict rather than a silent pass because "could not answer" must
+    // never read as "answered safely".
+    throw new Error(`${AUTH_VERDICT}ed, but the grant-matrix catalogue query returned no row.`);
+  }
+
+  return row;
 }

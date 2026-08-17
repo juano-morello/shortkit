@@ -10,8 +10,9 @@
  * leaves this module is `databaseTransaction`, and its only sanctioned callers are
  * `withTenantTransaction` (tenancy/tenant-context.ts), `withRedirectRead`
  * (TASK-029), `privilegedTenantEraser` (TASK-054),
- * `assertRuntimeRoleCannotBypassRls` (db/rls.ts) and `withMembershipLookup`
- * (auth/membership-lookup.ts). TASK-056 asserts that list.
+ * `assertRuntimeRoleCannotBypassRls` (db/rls.ts), `withMembershipLookup`
+ * (auth/membership-lookup.ts) and `assertAuthRoleSeparation`
+ * (auth/boot-assertions.ts). TASK-056 asserts that list.
  *
  * The fourth entry was added 2026-08-05 (F-126). The boot check reads pg_roles and
  * pg_class before the app accepts traffic, so it runs no tenant-scoped statement;
@@ -25,12 +26,18 @@
  * table, and at mint time no tenant is known. `tenant-context.md`'s consumer list
  * already carries all five.
  *
+ * The sixth entry was added 2026-08-17 (ADR-0050, TASK-004). `assertAuthRoleSeparation`
+ * reads `pg_class` as the application role for the first direction of the grant matrix
+ * — the boot check's shape, on the boot check's terms — and reaches the AUTH pool for
+ * its second direction through `withAuthRoleIntrospection` below, which is that
+ * function's only sanctioned caller.
+ *
  * Driver: `pg` with `drizzle-orm/node-postgres` (ADR-0002). Not
  * `@neondatabase/serverless`: its HTTP driver takes a transaction as an array of
  * statements decided up front, and GC-5 needs an interactive transaction whose
  * statements the application chooses as it runs.
  */
-import { DrizzleQueryError } from 'drizzle-orm';
+import { DrizzleQueryError, sql } from 'drizzle-orm';
 import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { NodePgDatabase, NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
@@ -275,6 +282,43 @@ export function betterAuthDatabase(): NodePgDatabase<typeof schema> {
   }
 
   return authDatabase;
+}
+
+/**
+ * ============================================================================
+ * A READ ONLY TRANSACTION ON THE AUTH POOL, FOR ONE CALLER: `assertAuthRoleSeparation`.
+ * ============================================================================
+ *
+ * ADR-0050's boot assertion has to read `pg_roles` and `pg_class` AS `shortkit_auth` — its
+ * second direction asks whether the role this process holds on `DATABASE_AUTH_URL` reaches
+ * any tenant-scoped table, holds `BYPASSRLS`, or owns anything, and `has_table_privilege(
+ * current_user, ...)` is only that question when `current_user` is the auth role. The
+ * adapter handle above is closed to two files by name (`better-auth-database-callers.spec.ts`
+ * scan 1), so the assertion reaches the pool through this narrower door instead.
+ *
+ * NARROWER, NOT NARROW. `SET TRANSACTION READ ONLY` refuses every write, so nothing opened
+ * here can forge a session row; it does not stop a read of `session.token`, and this is
+ * therefore still a handle on the role. Who may name it is bounded the same way the adapter
+ * handle is — `boot-assertions.spec.ts` asserts the identifier appears in exactly this file
+ * and `auth/boot-assertions.ts` — and the sanctioned caller list is that one function.
+ * Adding a second caller is an ADR-0056 conversation, not a convenience.
+ *
+ * It shares the auth pool with the adapter (`AUTH_POOL_MAX`, five) rather than opening a
+ * sixth connection: the boot assertion runs once, before the process serves, and the pool
+ * is otherwise idle at that moment.
+ */
+export async function withAuthRoleIntrospection<T>(
+  fn: (tx: DatabaseTransaction) => Promise<T>,
+): Promise<T> {
+  try {
+    return await betterAuthDatabase().transaction(async (tx) => {
+      await tx.execute(sql`set transaction read only`);
+
+      return fn(tx);
+    });
+  } catch (error) {
+    throw unwrapDriverError(error);
+  }
 }
 
 /**

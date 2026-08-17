@@ -3,15 +3,24 @@ import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { toNodeHandler } from 'better-auth/node';
+import express from 'express';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+import { authBodyCap } from './auth/auth-body-cap';
+import { authRateLimit } from './auth/auth-rate-limit';
 import {
   AuthBindingError,
+  assertAuthRoleSeparation,
   assertBetterAuthSecretConfigured,
   assertBetterAuthUrlConfigured,
+  assertBffProxySecretConfigured,
+  assertTrustedClientIpHeaderConfigured,
   assertWebAppOriginsConfigured,
 } from './auth/boot-assertions';
+import { AUTH_RATE_LIMIT_PORT } from './auth/ports/auth-rate-limit.port';
+import type { AuthRateLimitPort } from './auth/ports/auth-rate-limit.port';
 import { assertRuntimeRoleCannotBypassRls } from './db/rls';
 import { readBuildCommitSha } from './health/build-commit';
 import { errorLogFields, logger } from './observability/logger';
@@ -53,7 +62,34 @@ const DATABASE_RETRY_MAX_MS = 4000;
  */
 const RLS_VERDICT_PREFIX = 'DATABASE_URL connect';
 
-type BootPrecondition = 'database_reachable' | 'runtime_role_cannot_bypass_rls';
+/**
+ * The same arrangement for `assertAuthRoleSeparation()` (ADR-0050, TASK-004): every verdict
+ * it reaches on its own opens with this literal — "DATABASE_AUTH_URL connects as '…'",
+ * "DATABASE_AUTH_URL connects to a database where … do not exist" — and anything else came
+ * from the driver and is retried. Checked not to collide with the one above in either
+ * direction: `'DATABASE_AUTH_URL connects as x'.startsWith('DATABASE_URL connect')` is
+ * `false`, and no `DATABASE_URL` verdict starts with `DATABASE_AUTH_URL`.
+ *
+ * Duplicated rather than shared with `RLS_VERDICT_PREFIX` on purpose (F-030): that function
+ * stays parameterless and `DATABASE_URL`-only, and generalising its wording to cover a second
+ * DSN would break the match in the expensive direction.
+ */
+const AUTH_VERDICT_PREFIX = 'DATABASE_AUTH_URL connect';
+
+/**
+ * The size cap on the Better Auth mount (ADR-0013). 32 KiB, and it is the ONLY body bound on
+ * `/api/auth/*`: `express.json({ limit })` below runs after the mount and never sees these
+ * requests, and `better-call` bounds nothing when handed no `Content-Length`.
+ */
+const AUTH_BODY_MAX_BYTES = 32 * 1024;
+
+/** The Nest routes' body limit, `logging-and-headers.md`'s "none larger than 100 KiB". */
+const NEST_BODY_LIMIT = '100kb';
+
+type BootPrecondition =
+  | 'database_reachable'
+  | 'runtime_role_cannot_bypass_rls'
+  | 'auth_role_separation';
 
 /**
  * Carries WHICH precondition refused onto the log line. F-245: "the database could not be
@@ -100,7 +136,7 @@ let app: INestApplication | undefined;
 
 /**
  * Everything that has to be true before the process is allowed to serve, in the order it
- * is cheapest to find out. Both members refuse by throwing, which lands in `bootstrap`'s
+ * is cheapest to find out. Every member refuses by throwing, which lands in `bootstrap`'s
  * `catch` below and exits non-zero — a Fly machine that exits non-zero fails the deploy
  * and the previous version keeps serving.
  *
@@ -136,12 +172,20 @@ let app: INestApplication | undefined;
  *     justification is telling an operator WHICH binding refused.
  *
  *     So TASK-004 mounts through `const { auth } = await import('./auth/auth.config')`
- *     inside `bootstrap()`, after `assertBootPreconditions()` has run. Then these three
- *     assertions fire first and the accessors never get the chance to throw uncaught, the
- *     shared error class keeps the meaning ADR-0058 gives it, and the one-way import rule
- *     (`boot-assertions.ts` never imports `auth.config.ts`) is untouched. With a static
- *     import they are not redundant — they are dead, and the labelled refusal goes with
- *     them.
+ *     inside `bootstrap()`, after `assertBootPreconditions()` has run — which is what
+ *     `bootstrap()` below does. Then these three assertions fire first and the accessors
+ *     never get the chance to throw uncaught, the shared error class keeps the meaning
+ *     ADR-0058 gives it, and the one-way import rule (`boot-assertions.ts` never imports
+ *     `auth.config.ts`) is untouched. With a static import they are not redundant — they
+ *     are dead, and the labelled refusal goes with them.
+ *
+ *  2b. The two trust-boundary assertions — ADR-0040, F-380, F-385 (TASK-004, wave 3). Two
+ *     more `process.env` reads, so they sit with the bindings and ahead of anything that
+ *     opens a connection. Called UNCONDITIONALLY; each keys on its own declared variable
+ *     (`CLIENT_TRUST_BOUNDARY`, `BFF_TRUST_BOUNDARY`) inside, and NEITHER READS `NODE_ENV`
+ *     — `Dockerfile:83` sets that to `production` in the image `docker compose` runs, and
+ *     a gate on it refuses to boot `api` on a laptop. Unset and `direct` assert nothing, so
+ *     the compose stack, which declares neither, boots.
  *
  *  3. `assertRuntimeRoleCannotBypassRls()` — F-116, ADR-0003. One transaction against
  *     `pg_roles` and `pg_class`. TASK-005 built it and disclosed that nothing called it,
@@ -152,8 +196,17 @@ let app: INestApplication | undefined;
  *     tests run, so it proves the POLICIES work while nothing proved the deployed PROCESS
  *     refused the wrong role.
  *
- * Both run before `NestFactory.create`. A container that has resolved its providers holds
- * handles, and there is nothing either check needs from the module graph.
+ *  4. `assertAuthRoleSeparation()` — ADR-0050, F-030, F-031 (TASK-004, wave 3). One
+ *     catalogue query per direction: as `shortkit_auth` on `DATABASE_AUTH_URL`, that the
+ *     role reaches no tenant-scoped table and is `NOBYPASSRLS`, not superuser and owns
+ *     nothing; as the application role on `DATABASE_URL`, that it holds NO privilege — the
+ *     whole set, not `SELECT` — on any of Better Auth's five tables. It is the first
+ *     precondition that needs a second connection before the process serves, and its
+ *     reachability half is retried on the same budget and by the same loop as the RLS
+ *     check, for the same reason: a cold wake is not a wrong grant.
+ *
+ * All of them run before `NestFactory.create`. A container that has resolved its providers
+ * holds handles, and there is nothing any check needs from the module graph.
  *
  * Refusal, not a warning. A process that logs and then serves traffic with RLS disabled is
  * worse than one that never came up, because only the second is visible.
@@ -180,8 +233,9 @@ let app: INestApplication | undefined;
  *  - A rejection that is a failure to REACH the database is retried with backoff for
  *    `DATABASE_REACHABLE_BUDGET_MS`, so the refusal fires on a wrong role rather than on a
  *    slow one. Every attempt writes a `warn` line naming the attempt and the wait.
- *  - The two refusals are distinguishable by machine, not only by prose: the line carries
- *    `boot_precondition: "database_reachable"` or `"runtime_role_cannot_bypass_rls"`.
+ *  - The refusals are distinguishable by machine, not only by prose: the line carries
+ *    `boot_precondition: "database_reachable"`, `"runtime_role_cannot_bypass_rls"` or, since
+ *    wave 3, `"auth_role_separation"`.
  *
  * AND THE PART THAT IS A JUDGEMENT RATHER THAN A MECHANISM. After the budget is spent the
  * process still exits 1. Twenty seconds of consecutive unreachability is an outage rather
@@ -201,15 +255,52 @@ async function assertBootPreconditions(): Promise<void> {
   assertBetterAuthUrlConfigured(process.env);
   assertWebAppOriginsConfigured(process.env);
 
-  await assertRuntimeRoleIsSafe();
+  assertTrustedClientIpHeaderConfigured(process.env);
+  assertBffProxySecretConfigured(process.env);
+
+  // ONE DEADLINE FOR BOTH DATABASE CHECKS. `DATABASE_REACHABLE_BUDGET_MS` is sized as the
+  // whole boot's reachability allowance (see its declaration), so the second check inherits
+  // whatever the first left rather than opening a budget of its own — otherwise two cold
+  // wakes could take the boot to twice the number that constant was calibrated against.
+  const deadline = Date.now() + DATABASE_REACHABLE_BUDGET_MS;
+
+  await answeredOrRetried(deadline, {
+    precondition: 'runtime_role_cannot_bypass_rls',
+    verdictPrefix: RLS_VERDICT_PREFIX,
+    unknown: 'whether the runtime role can bypass row-level security',
+    check: assertRuntimeRoleCannotBypassRls,
+  });
+
+  await answeredOrRetried(deadline, {
+    precondition: 'auth_role_separation',
+    verdictPrefix: AUTH_VERDICT_PREFIX,
+    unknown: 'whether the auth role and the application role are separated',
+    check: assertAuthRoleSeparation,
+  });
+}
+
+interface RetriedPrecondition {
+  /** What the log line names when the check ANSWERS unsafely. */
+  readonly precondition: BootPrecondition;
+  /** The literal every verdict the check reaches on its own opens with. */
+  readonly verdictPrefix: string;
+  /** What stays unknown when the budget is spent, for the `database_reachable` message. */
+  readonly unknown: string;
+  readonly check: () => Promise<void>;
 }
 
 /**
- * Precondition 2, with the reachability half retried. See the block above for why the two
- * halves are separated and why the budget ends in a refusal.
+ * The two database preconditions, with the reachability half retried. See the block above
+ * for why the two halves are separated and why the budget ends in a refusal.
+ *
+ * ONE LOOP FOR BOTH (ADR-0050), AND ONE DEADLINE. The caller computes `deadline` once from
+ * `DATABASE_REACHABLE_BUDGET_MS`, so the two checks together spend at most that budget: a
+ * cold wake met by the first leaves the second whatever remains, and a boot that exhausts it
+ * refuses at the same wall-clock number whichever DSN was the slow one. The prefixes are what
+ * tell an answer from a failure to answer, and each check brings its own; the loop does not
+ * know which DSN it is waiting on beyond that.
  */
-async function assertRuntimeRoleIsSafe(): Promise<void> {
-  const deadline = Date.now() + DATABASE_REACHABLE_BUDGET_MS;
+async function answeredOrRetried(deadline: number, target: RetriedPrecondition): Promise<void> {
   let wait = DATABASE_RETRY_MIN_MS;
   let attempts = 0;
 
@@ -217,24 +308,21 @@ async function assertRuntimeRoleIsSafe(): Promise<void> {
     attempts += 1;
 
     try {
-      await assertRuntimeRoleCannotBypassRls();
+      await target.check();
       return;
     } catch (error: unknown) {
-      if (error instanceof Error && error.message.startsWith(RLS_VERDICT_PREFIX)) {
+      if (error instanceof Error && error.message.startsWith(target.verdictPrefix)) {
         // The check answered, and the answer is unsafe. Its own message is the diagnosis
         // and is kept verbatim; the original is on `cause`.
-        throw new BootPreconditionError('runtime_role_cannot_bypass_rls', error.message, {
-          cause: error,
-        });
+        throw new BootPreconditionError(target.precondition, error.message, { cause: error });
       }
 
       if (Date.now() + wait >= deadline) {
         throw new BootPreconditionError(
           'database_reachable',
-          `the database could not be reached in ${String(attempts)} attempt(s) over ` +
-            `${String(DATABASE_REACHABLE_BUDGET_MS)}ms, so whether the runtime role can ` +
-            'bypass row-level security is unknown and the process will not serve. Last ' +
-            `failure: ${describeCause(error)}`,
+          `the database could not be reached in ${String(attempts)} attempt(s) before the ` +
+            `${String(DATABASE_REACHABLE_BUDGET_MS)}ms boot budget ran out, so ${target.unknown} is unknown ` +
+            `and the process will not serve. Last failure: ${describeCause(error)}`,
           { cause: error },
         );
       }
@@ -276,7 +364,17 @@ async function delay(ms: number): Promise<void> {
 async function bootstrap(): Promise<void> {
   await assertBootPreconditions();
 
-  app = await NestFactory.create(AppModule);
+  // ============================================================================
+  // `bodyParser: false` IS A GLOBAL SETTING MADE FOR ONE ROUTE (ADR-0013).
+  // ============================================================================
+  //
+  // Better Auth reads the raw request stream, so nothing may parse a body before its mount
+  // below. Nest's own parsers are therefore off for the whole app, and `express.json` /
+  // `express.urlencoded` are registered by hand AFTER the mount. ANY MIDDLEWARE ADDED
+  // BETWEEN `NestFactory.create` AND THOSE TWO `app.use` CALLS RECEIVES AN UNPARSED BODY,
+  // AND THE SYMPTOM IS `req.body === undefined` RATHER THAN AN ERROR. helmet below is fine —
+  // it reads no body. Anything else goes after the parsers.
+  app = await NestFactory.create(AppModule, { bodyParser: false });
 
   // ============================================================================
   // SECURITY HEADERS (F-243 clause 2, ADR-0022, `logging-and-headers.md` invariant 4).
@@ -317,6 +415,49 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
+  // ============================================================================
+  // THE AUTH MOUNT (ADR-0013). ONE REGISTRATION, AND THE ORDERING IS THE WHOLE TRICK.
+  // ============================================================================
+  //
+  // On the raw Express instance, OUTSIDE the Nest module graph and AHEAD of every body
+  // parser: no Nest guard, interceptor or filter applies to it, `RateLimitGuard` cannot see
+  // it, and `express.json`'s limit does not reach it. The two middlewares in front of the
+  // handler are the price of that and are what keep the pre-auth credential surface bounded
+  // (F-004): `authBodyCap` refuses or cuts an oversized body WITHOUT parsing or consuming the
+  // stream, and `authRateLimit` charges an IP-keyed bucket from HEADERS ONLY, through
+  // `AUTH_RATE_LIMIT_PORT` (F-024) and never a store client, with the principal from
+  // `resolveRateLimitPrincipal` (F-031) — and where that is `null`, which is every
+  // environment that exists today (ADR-0040), the bucket does not run.
+  //
+  // helmet is registered above, so it covers this mount: its docblock's "anything mounted
+  // outside the Nest module graph" was written for exactly this line.
+  //
+  // `auth.config.ts` IS REACHED HERE, DYNAMICALLY, AND NOWHERE EARLIER (F-210). It evaluates
+  // `betterAuth({ secret: betterAuthSecret(), … })` at module scope, so a static import at
+  // the top of this file would run the accessors during module evaluation — before
+  // `bootstrap()`, outside `bootstrap().catch`, and the refusal would be a raw stack on
+  // stderr with no `boot_precondition`. Awaited after `assertBootPreconditions()`, the three
+  // bindings have already answered and the accessors cannot throw. This is the one file that
+  // may import it (`better-auth-database-callers.spec.ts` scan 5), because the composed
+  // instance is a second handle on the auth role.
+  //
+  // NestJS 11 ships Express 5, whose wildcard syntax is `{*splat}`, not `*`.
+  const { auth } = await import('./auth/auth.config');
+  const authRateLimitPort = app.get<AuthRateLimitPort>(AUTH_RATE_LIMIT_PORT);
+  const server: express.Express = app.getHttpAdapter().getInstance();
+
+  server.all(
+    '/api/auth/{*splat}',
+    authBodyCap({ maxBytes: AUTH_BODY_MAX_BYTES }),
+    authRateLimit(authRateLimitPort),
+    toNodeHandler(auth),
+  );
+
+  // The parsers Nest would have registered, at the limit `rate-limit.md` invariant 8 fixes
+  // for Nest handlers. After the mount, so they never touch an auth request's stream.
+  app.use(express.json({ limit: NEST_BODY_LIMIT }));
+  app.use(express.urlencoded({ extended: true, limit: NEST_BODY_LIMIT }));
+
   // ADR-0006: every controller answers under /api. GET /health stays at the
   // root so the platform health check never depends on the API surface.
   app.setGlobalPrefix('api', {
@@ -346,20 +487,21 @@ bootstrap().catch(async (error: unknown) => {
   // was the only part of a stack that carries anything worth reaching.
   //
   // `boot_precondition` is present only when a precondition refused, and names which one
-  // (F-245). "database_reachable" means the check could not be answered and the operator
-  // waits; "runtime_role_cannot_bypass_rls" means it was answered unsafely and the DSN has
-  // to change. Nothing else on this line separates them.
+  // (F-245). "database_reachable" means a check could not be answered and the operator
+  // waits; "runtime_role_cannot_bypass_rls" and "auth_role_separation" mean it was answered
+  // unsafely and a DSN or a grant has to change. Nothing else on this line separates them.
   //
-  // `AuthBindingError.binding` is the third source of that field and carries the same three
-  // words the assertions above use (ADR-0058). It is mapped here rather than only in the
-  // assertions so that the accessors inside `auth.config.ts` — which raise the same class
-  // and, from wave 3, may raise it first — reach the same labelled line.
+  // `AuthBindingError.binding` is the third source of that field and carries the same
+  // words the assertions above use (ADR-0058) — the three bindings, and since wave 3 the
+  // two trust boundaries. It is mapped here rather than only in the assertions so that the
+  // accessors inside `auth.config.ts` — which raise the same class — reach the same
+  // labelled line.
   //
   // THAT ONLY HOLDS WHILE `auth.config.ts` IS REACHED FROM INSIDE `bootstrap()` (F-210).
   // A static import at this file's module scope evaluates it before `bootstrap()` runs, so
   // the throw never reaches this handler at all: measured, a raw uncaught stack on stderr
-  // with none of the fields below. The precondition block above carries the whole finding
-  // and the one-line shape wave 3 has to use.
+  // with none of the fields below. The precondition block above carries the whole finding;
+  // `bootstrap()` awaits the import after `assertBootPreconditions()` for that reason.
   logger.error(
     {
       ...(error instanceof BootPreconditionError
