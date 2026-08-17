@@ -11,3 +11,4 @@
 export * from './auth';
 export * from './tenant-memberships';
 export * from './tenants';
+export * from './workspaces';

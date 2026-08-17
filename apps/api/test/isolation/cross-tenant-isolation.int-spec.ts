@@ -10,8 +10,9 @@
  * WHAT A GREEN RUN OF THIS FILE DOES AND DOES NOT SAY
  * ---------------------------------------------------------------------------
  *
- * IT SAYS: for the three tables that exist today — `tenants`, `rls_fixture_rows` and
- * `tenant_memberships` (TASK-002) — a tenant transaction belonging to either tenant
+ * IT SAYS: for the four tables that exist today — `tenants`, `rls_fixture_rows`,
+ * `tenant_memberships` (TASK-002) and `workspaces` (TASK-011, also attempted through the
+ * five methods of `WorkspaceRepository`) — a tenant transaction belonging to either tenant
  * cannot read, filter for, update, delete or plant a row belonging to the other, or TAKE
  * OWNERSHIP OF ONE, through any of EIGHT statement shapes ON EVERY ONE OF THEM — no table
  * is excused from one since r4 withdrew the
@@ -29,8 +30,9 @@
  * `shortkit_app`, a role holding neither SUPERUSER nor BYPASSRLS.
  *
  * IT DOES NOT SAY the system has no uncovered cross-tenant surface. Most of the system
- * is unwritten: there is no authenticated route, no repository class, and no
- * `workspaces`, `links`, `domains` or `click_events` table. `tenant_memberships` is here
+ * is unwritten: there is no authenticated route, one repository class
+ * (`WorkspaceRepository`, registered by hand rather than discovered), and no `links`,
+ * `domains` or `click_events` table. `tenant_memberships` is here
  * as a TABLE, attempted directly; the ONE surface that reads it outside a tenant context
  * — `withMembershipLookup` / `tenantIdForUser`, the token-mint escape — is not attempted
  * here at all, and is the third entry in `ISOLATION_EXCLUSIONS` (ADR-0045). Route
@@ -436,20 +438,24 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       judged().attempts.map(() => 'pass'),
     );
 
-    // TWENTY-FOUR surfaces, each attempted in both directions (F-293) — the same eight
-    // shapes on all THREE tables, since r4 withdrew the one decline (F-342) and TASK-002
-    // registered `tenant_memberships`. Reads and writes are both exercised: AC-94 covers
-    // the reads and AC-95 the writes, and a battery that had lost all of one kind would
-    // still satisfy the count above.
-    expect(judged().attempts).toHaveLength(48);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(12);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(36);
+    // THIRTY-SEVEN surfaces, each attempted in both directions (F-293) — the same eight
+    // shapes on all FOUR tables, since r4 withdrew the one decline (F-342), TASK-002
+    // registered `tenant_memberships` and TASK-011 registered `workspaces`; plus the
+    // FIVE methods of `WorkspaceRepository`, the first real repository, attempted through
+    // the class itself (two reads, three writes). Reads and writes are both exercised:
+    // AC-94 covers the reads and AC-95 the writes, and a battery that had lost all of one
+    // kind would still satisfy the count above.
+    expect(judged().attempts).toHaveLength(74);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(20);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(54);
 
-    // F-302, F-330, F-342. Eighteen of those thirty-six writes carry NO WHERE CLAUSE —
-    // three shapes, on each of three tables, in each of two directions. Hand-derived,
+    // F-302, F-330, F-342. Twenty-four of those fifty-four writes carry NO WHERE CLAUSE —
+    // three shapes, on each of four tables, in each of two directions. Hand-derived,
     // because a battery that silently lost them is a battery that cannot see a wide-open
     // UPDATE policy, and the counts above would not move if `updateAll` were quietly
-    // replaced by a second owner-qualified statement.
+    // replaced by a second owner-qualified statement. `WorkspaceRepository` contributes
+    // none: every statement it issues is owner-qualified by contract, and the table's
+    // unqualified writes come from its sibling `WorkspacesTableAccess`.
     expect(
       labelled(
         judged().attempts.filter(
@@ -460,18 +466,24 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       'A->B deleteAll',
       'A->B deleteAll',
       'A->B deleteAll',
+      'A->B deleteAll',
+      'A->B reparentAll',
       'A->B reparentAll',
       'A->B reparentAll',
       'A->B reparentAll',
       'A->B updateAll',
       'A->B updateAll',
       'A->B updateAll',
+      'A->B updateAll',
+      'B->A deleteAll',
       'B->A deleteAll',
       'B->A deleteAll',
       'B->A deleteAll',
       'B->A reparentAll',
       'B->A reparentAll',
       'B->A reparentAll',
+      'B->A reparentAll',
+      'B->A updateAll',
       'B->A updateAll',
       'B->A updateAll',
       'B->A updateAll',
@@ -534,10 +546,16 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   });
 
   it('F-295: each tenant sees exactly its own row in every registered table before anything is attempted', async () => {
-    // The positive control. Six lines, hand-derived from the fixture: three tables, two
+    // The positive control. Ten lines, hand-derived from the fixture: four tables, two
     // tenants, one row each, and each tenant seeing only its own. If `app.tenant_id`
     // were never set, set under a mistyped name, or set to a value no row matches, this
     // is empty and every cross-tenant attempt in the file would be passing on nothing.
+    //
+    // The two `workspaces` lines each appear TWICE: the census is taken per REGISTRATION
+    // and that table carries two subjects (`WorkspacesTableAccess` and
+    // `WorkspaceRepository`, TASK-011 — the F-353 pattern), so its rows are read once per
+    // subject. Same row, same digest, same owner; a third copy or a fourth id here is a
+    // registration or a row that should not exist.
     const { id: a } = fixtures.tenantA;
     const { id: b } = fixtures.tenantB;
 
@@ -553,6 +571,10 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       `tenant_memberships seen-by=${b} id=b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1 owner=${b}`,
       `tenants seen-by=${a} id=${a} owner=${a}`,
       `tenants seen-by=${b} id=${b} owner=${b}`,
+      `workspaces seen-by=${a} id=a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2 owner=${a}`,
+      `workspaces seen-by=${a} id=a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2 owner=${a}`,
+      `workspaces seen-by=${b} id=b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2 owner=${b}`,
+      `workspaces seen-by=${b} id=b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2 owner=${b}`,
     ]);
   });
 
@@ -600,10 +622,18 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // invariant above is what says so rather than this roster: all six carry
     // `qualification: 'owner-qualified'`, `refusalKind: 'row-level-security'` and a
     // message matching `violates row-level security policy`.
+    //
+    // Four per direction since TASK-011: `workspaces`' `insertOwnedBy` is refused by the
+    // same WITH CHECK, from the same builder, applied by migration 0002. The five
+    // `WorkspaceRepository` attempts add nothing here — none of them is refused, because
+    // the repository never issues a statement the policy has to refuse: its predicate
+    // finds nothing first, and `create` writes under the actor.
     expect(labelled(refused)).toEqual([
       'A->B insertOwnedBy',
       'A->B insertOwnedBy',
       'A->B insertOwnedBy',
+      'A->B insertOwnedBy',
+      'B->A insertOwnedBy',
       'B->A insertOwnedBy',
       'B->A insertOwnedBy',
       'B->A insertOwnedBy',
@@ -1397,7 +1427,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
     // ...and it is not an empty marker: the attempts are this run's and were judged, so a
     // process killed here strands the evidence without stranding a verdict.
-    expect(inFlight.attempts).toHaveLength(48);
+    expect(inFlight.attempts).toHaveLength(74);
     expect(inFlight.attemptVerdict).toBe('pass');
     expect(inFlight.incompleteBecause).toContain('had not finished');
 
@@ -1436,7 +1466,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // and recorded in the round's report.
     const afterTheAttempts = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
 
-    expect(afterTheAttempts.attempts).toHaveLength(48);
+    expect(afterTheAttempts.attempts).toHaveLength(74);
     expect(afterTheAttempts.runAt).not.toBe(marker.runAt);
   });
 

@@ -24,12 +24,20 @@
  * same policies — so what an attempt exercises is Postgres's row-level security, not
  * this file. When `LinkRepository` arrives it registers its own methods and the harness
  * does not notice the difference.
+ *
+ * SINCE TASK-011 ONE REAL REPOSITORY IS REGISTERED BESIDE THEM. `workspaces` carries two
+ * subjects on one table — the shipped F-353 pattern: `WorkspacesTableAccess` is the
+ * eight-shape statement battery every table gets, and `WorkspaceRepository` names the
+ * class in `src/workspaces/workspace.repository.ts` and attempts ITS FIVE METHODS, so
+ * `repo:WorkspaceRepository.rename` in `report.json` points at a method that exists.
  */
 import { sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
+import { WorkspaceNotFoundError } from '../../src/workspaces/workspace-not-found.error';
+import { WorkspaceRepository } from '../../src/workspaces/workspace.repository';
 import {
   createRlsFixture,
   migrationDsn,
@@ -661,6 +669,22 @@ const MEMBERSHIP_SEEDED_ROLE = 'owner';
 
 /**
  * ===========================================================================
+ * THE MIGRATED `workspaces` TABLE (TASK-011, docs/contracts/workspaces.md).
+ * ===========================================================================
+ *
+ * The fourth registered production table and the first template-shaped one whose
+ * policies come from a MIGRATION rather than from the fixture — `0002_*.sql` carries
+ * `tenantScopedPolicies('workspaces')` hand-appended. `id` is database-generated in
+ * production; the fixture supplies fixed ids so `WorkspaceRepository`'s attempts below
+ * can name the target's row without a lookup.
+ */
+const WORKSPACE_ROW_A = 'a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2';
+const WORKSPACE_ROW_B = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2';
+const PLANTED_WORKSPACE_ROW_ID = 'f5f5f5f5-f5f5-4f5f-8f5f-f5f5f5f5f5f5';
+const WORKSPACE_SEEDED_NAME = 'seeded-workspace';
+
+/**
+ * ===========================================================================
  * THE RESET EVERY REGISTRATION IN THIS FILE USES. IT REBUILDS THE WHOLE FIXTURE,
  * NOT ONE SUBJECT'S SHARE OF IT — AND THAT IS F-123.
  * ===========================================================================
@@ -692,6 +716,12 @@ function resetTenantFixtures(): void {
   // attempt, so the three round trips it replaced were worth collapsing — the tenant flag
   // is set inline per statement instead of through `execSql`'s session-level option.
   //
+  // WORKSPACES ARE SEEDED HERE TOO (TASK-011), one row per tenant, under each tenant's
+  // own flag: `workspaces` carries FORCE ROW LEVEL SECURITY, so the owning role's insert
+  // has to satisfy the WITH CHECK like anyone else's. Erasing the fixture tenants above
+  // already cascaded every workspace row away — seeded and planted alike — so no DELETE
+  // is needed for them.
+  //
   // Deleting the `"user"` rows cascades their memberships too, which is what clears a row
   // a previous attempt planted. `"user"` carries no row-level security (ADR-0044), so
   // that half needs no tenant context — only the migrator's grant. The membership inserts
@@ -717,10 +747,14 @@ function resetTenantFixtures(): void {
      SELECT set_config('app.tenant_id', :'tenant_a', false) \\g /dev/null
      INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
        VALUES (:'row_a', :'tenant_a', :'user_a', :'seeded_role');
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'workspace_a', :'tenant_a', :'workspace_name');
 
      SELECT set_config('app.tenant_id', :'tenant_b', false) \\g /dev/null
      INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
-       VALUES (:'row_b', :'tenant_b', :'user_b', :'seeded_role');`,
+       VALUES (:'row_b', :'tenant_b', :'user_b', :'seeded_role');
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'workspace_b', :'tenant_b', :'workspace_name');`,
     {
       variables: {
         tenant_a: TENANT_A,
@@ -734,6 +768,9 @@ function resetTenantFixtures(): void {
         email_b: `${MEMBERSHIP_USER_B}@example.test`,
         email_p: `${MEMBERSHIP_USER_PLANTED}@example.test`,
         seeded_role: MEMBERSHIP_SEEDED_ROLE,
+        workspace_a: WORKSPACE_ROW_A,
+        workspace_b: WORKSPACE_ROW_B,
+        workspace_name: WORKSPACE_SEEDED_NAME,
       },
     },
   );
@@ -759,9 +796,172 @@ const tenantMembershipsAccess: TenantScopedSurfaceRegistration = {
   }),
 };
 
+/**
+ * `workspaces`, attacked as a TABLE: the eight shapes, exactly as every other table.
+ * This registration is what gives the table its three unqualified writes (rule 4) and
+ * the owner-column theft attempt (F-330); the repository below issues none of those
+ * shapes by design, so it cannot supply them itself.
+ */
+const workspacesAccess: TenantScopedSurfaceRegistration = {
+  subject: 'WorkspacesTableAccess',
+  table: 'workspaces',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'workspaces',
+    ownerColumn: 'tenant_id',
+    projection: ['id', 'tenant_id', 'name'],
+    mutableColumn: 'name',
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('workspaces')} (id, tenant_id, name)
+          values (${PLANTED_WORKSPACE_ROW_ID}::uuid, ${ownerId}::uuid, ${'planted-by-another-tenant'})`,
+  }),
+};
+
+/**
+ * ===========================================================================
+ * `workspaces`, attacked THROUGH THE REPOSITORY: one method per public method of
+ * `WorkspaceRepository`, called inside the ACTOR's tenant transaction with the TARGET's
+ * arguments, which is what isolation-coverage.md's "repository method" row describes.
+ * ===========================================================================
+ *
+ * What differs from the table battery, and why each difference is what it is:
+ *
+ * - EVERY METHOD IS `owner-qualified`, AND THAT IS THE REPOSITORY'S CONTRACT, NOT A
+ *   CONVENIENCE. Every statement it issues carries `tenant_id = currentTenantId()` in
+ *   its WHERE, or sets `tenant_id` on INSERT — `workspace.repository.spec.ts` compiles
+ *   all of them and asserts exactly that, which is the same property `shape()` derives
+ *   from the SQL for the table battery, checked at a different time. Nothing here can
+ *   be checked by `assertDeclaredQualification()` because a repository method hands the
+ *   harness a result and not a statement.
+ *
+ * - THE UNQUALIFIED WRITES LIVE IN `workspacesAccess` ABOVE. A registration whose writes
+ *   are all owner-qualified is blind to a wide-open UPDATE or DELETE policy (F-302), so
+ *   the rule is satisfied for the TABLE by the sibling registration — the F-353 pattern
+ *   of two subjects on one table, one per way of attacking it.
+ *
+ * - `create` HAS NO TARGET ARGUMENT TO CROSS WITH. The repository writes under the
+ *   context's tenant and takes no tenant parameter, so the attempt creates in the actor's
+ *   context and reports as `rowsAffected` the number of rows it wrote that the TARGET
+ *   owns — zero when the row landed under the actor, which is the only correct answer.
+ *   The per-row digest of the target's rows judges it a second way, and `reset()`
+ *   clears the created row before the next attempt.
+ *
+ * - `rename` AND `archive` ANSWER not-found FOR A ROW THE ACTOR DOES NOT OWN. That is
+ *   the repository's contract (`WorkspaceNotFoundError`, docs/contracts/workspaces.md),
+ *   so the attempt maps THAT error and no other to `rowsAffected: 0`. Anything else
+ *   thrown propagates and lands as `unverified`, naming the surface.
+ *
+ * - READS PROJECT `tenant_id`. The repository returns `tenantId`; the harness judges a
+ *   read on the owner COLUMN, so each row is mapped to `{ id, tenant_id, name }`.
+ */
+const workspaceRepository = new WorkspaceRepository();
+
+function seededWorkspaceOf(tenant: TenantFixture): string {
+  switch (tenant.id) {
+    case TENANT_A:
+      return WORKSPACE_ROW_A;
+    case TENANT_B:
+      return WORKSPACE_ROW_B;
+    default:
+      throw new Error(
+        `no seeded workspace for tenant ${tenant.id}; resetTenantFixtures seeds A and B only`,
+      );
+  }
+}
+
+function ownerProjection(
+  rows: ReadonlyArray<{ id: string; tenantId: string; name: string }>,
+): CrossTenantAttemptResult {
+  return { rows: rows.map((row) => ({ id: row.id, tenant_id: row.tenantId, name: row.name })) };
+}
+
+/** `WorkspaceNotFoundError` is the contract's answer to a foreign row; anything else is not. */
+async function affectedOrNotFound(work: () => Promise<unknown>): Promise<CrossTenantAttemptResult> {
+  try {
+    await work();
+
+    return { rowsAffected: 1 };
+  } catch (error) {
+    if (error instanceof WorkspaceNotFoundError) {
+      return { rowsAffected: 0 };
+    }
+
+    throw error;
+  }
+}
+
+const workspaceRepositoryAccess: TenantScopedSurfaceRegistration = {
+  subject: 'WorkspaceRepository',
+  table: 'workspaces',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: [
+    {
+      name: 'create',
+      kind: 'write',
+      reaches: 'new-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const created = await workspaceRepository.create({ name: 'planted-by-another-tenant' });
+
+          return { rowsAffected: created.tenantId === target.id ? 1 : 0 };
+        }),
+    },
+    {
+      name: 'list',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor) =>
+        withTenantTransaction(actor.id, async () =>
+          ownerProjection(await workspaceRepository.list({ includeArchived: true })),
+        ),
+    },
+    {
+      name: 'findById',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const found = await workspaceRepository.findById(seededWorkspaceOf(target));
+
+          return ownerProjection(found === null ? [] : [found]);
+        }),
+    },
+    {
+      name: 'rename',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, () =>
+          affectedOrNotFound(() =>
+            workspaceRepository.rename(seededWorkspaceOf(target), 'renamed-by-another-tenant'),
+          ),
+        ),
+    },
+    {
+      name: 'archive',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, () =>
+          affectedOrNotFound(() => workspaceRepository.archive(seededWorkspaceOf(target))),
+        ),
+    },
+  ],
+};
+
 registerTenantScopedSurfaces(tenantsAccess);
 registerTenantScopedSurfaces(rlsFixtureRowsAccess);
 registerTenantScopedSurfaces(tenantMembershipsAccess);
+registerTenantScopedSurfaces(workspacesAccess);
+registerTenantScopedSurfaces(workspaceRepositoryAccess);
 
 const PLANTED_CANARY_ROW_ID = 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2';
 
@@ -1018,4 +1218,19 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:TenantsTableAccess.reparentAll',
   'repo:TenantsTableAccess.updateAll',
   'repo:TenantsTableAccess.updateOwnedBy',
+  // The fourth table (TASK-011): the five methods of the first real repository,
+  // attempted through the class itself, and the eight shapes on `workspaces`.
+  'repo:WorkspaceRepository.archive',
+  'repo:WorkspaceRepository.create',
+  'repo:WorkspaceRepository.findById',
+  'repo:WorkspaceRepository.list',
+  'repo:WorkspaceRepository.rename',
+  'repo:WorkspacesTableAccess.deleteAll',
+  'repo:WorkspacesTableAccess.deleteOwnedBy',
+  'repo:WorkspacesTableAccess.findAll',
+  'repo:WorkspacesTableAccess.findOwnedBy',
+  'repo:WorkspacesTableAccess.insertOwnedBy',
+  'repo:WorkspacesTableAccess.reparentAll',
+  'repo:WorkspacesTableAccess.updateAll',
+  'repo:WorkspacesTableAccess.updateOwnedBy',
 ] as const;
