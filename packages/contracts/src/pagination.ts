@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/error-envelope.md (shared primitives)
+ * Contract: docs/contracts/error-envelope.md (shared primitives)
  * Produced by: TASK-007
  */
 import { z } from 'zod';

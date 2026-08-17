@@ -1,7 +1,7 @@
 /**
  * STORY-001 — AC-8. TASK-001.
  *
- * Contract: design/contracts/auth-contracts.md
+ * Contract: docs/contracts/auth-contracts.md
  * ADR: adr-0048-role-brands-are-applied-after-parsing.md, adr-0015-user-tenant-cardinality.md,
  *      adr-0023-branded-role-types.md
  *

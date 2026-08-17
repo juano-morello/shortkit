@@ -5,7 +5,7 @@ import { NoTenantMembershipError } from './tenant-id-for-user';
 /**
  * STORY-001 — AC-4. TASK-002.
  *
- * Contract: `design/contracts/tenant-membership-lookup.md` ("`tenantIdForUser`", "Error
+ * Contract: `docs/contracts/tenant-membership-lookup.md` ("`tenantIdForUser`", "Error
  * cases"). ADR-0045, ADR-0015, ADR-0013, ADR-0052.
  *
  * AC-4: "Given a `user` row that has no `tenant_memberships` row, when a JWT is minted for

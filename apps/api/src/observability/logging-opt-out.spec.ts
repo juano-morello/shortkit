@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * enumerated, then each one emits through the pino instance registered at the composition
  * root — no module constructs `Logger` from `@nestjs/common` or any other logger."
  *
- * Contract: `design/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
+ * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
  * Nothing may opt out, with two named exceptions". ADR-0028. Enforces GC-9.
  *
  * ============================================================================

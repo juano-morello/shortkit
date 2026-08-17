@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/web-api-client.md
+ * Contract: docs/contracts/web-api-client.md
  * ADR: adr-0014-web-session-handling.md, adr-0005, adr-0013, adr-0029, adr-0038
  * Produced by: TASK-008
  * Consumed by: TASK-012, 015, 019, 022, 026, 028, 041, 044, 047, 050, 052, 055, 057

@@ -9,7 +9,7 @@ import { CONTEXT_FLAG_OWNERS } from '../../test/isolation/coverage';
 /**
  * STORY-001 — TASK-002. The wave-1-runnable half of clauses A1 and A4.
  *
- * Contract: `.sdlc/foundation/design/contracts/isolation-coverage.md:466-542` ("The grep
+ * Contract: `docs/contracts/isolation-coverage.md:466-542` ("The grep
  * assertion"), a frozen contract. ADR-0045, ADR-0003.
  *
  * This control cites those clauses rather than restating them. It is the ONE executing

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 /**
  * STORY-001 — TASK-003, wave 2. No AC states this; ADR-0056 does, and F-108 pulled it here.
  *
- * Contract: `design/contracts/auth-config-surface.md` invariant 11 (four scans and their
+ * Contract: `docs/contracts/auth-config-surface.md` invariant 11 (four scans and their
  * directions; the fifth is F-207's and is not in the contract yet). ADR-0056, which amends
  * ADR-0046. ADR-0050.
  *

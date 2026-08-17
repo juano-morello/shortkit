@@ -161,20 +161,7 @@ jobs:
       - name: Assert no server-only value was inlined into the build
         run: pnpm --filter @shortkit/web assert:no-secrets
 
-      # F-288's class, and the foundation retro's approved gap. A STEP IN `quality` RATHER
-      # THAN A FOURTH GATING JOB, deliberately: `quality` is already named in `gate`'s
-      # `needs`, its `env:` and its assertion loop, so a step here fails the job, fails the
-      # gate and blocks the merge with no wiring to keep in step across three places — the
-      # exact shape F-390 filed against `check-compose-stack.sh`. A separate job earns its
-      # three entries when it needs its own runner, its own services or its own timeout;
-      # this one is a filesystem walk and a parse, under a second, with no network and no
-      # Docker. Same reasoning that puts `assert-contract-drift.mjs` below it.
-      #
-      # Through the package script so the command in CI is the command in the README.
-      - name: Assert no surviving design stub has drifted from its source
-        run: pnpm assert:stub-drift
-
-      # AC-14, specified in design/test-strategy.md and revised by F-091 to two mutations.
+      # AC-14, specified in test-strategy.md and revised by F-091 to two mutations.
       # Last because it is the slowest step here — it runs the recursive typecheck twice —
       # and everything above fails faster.
       - name: Assert a breaking contract change fails a consumer's typecheck
@@ -297,7 +284,7 @@ jobs:
   # only evidence this repository runs as a system rather than as a test suite. Until this
   # job existed it had been measured exactly once, by hand, and a change to the Dockerfile,
   # `docker-compose.yml`, the roles SQL, the migration or the seed broke it silently — the
-  # next person to find out being the next person to clone. `.sdlc/roadmap.md` holds this
+  # next person to find out being the next person to clone. `docs/roadmap.md` holds this
   # project to the opposite standard in its own words: the isolation harness ships its
   # negative controls "so those measurements run on every CI run rather than once on the
   # afternoon somebody thought of them."

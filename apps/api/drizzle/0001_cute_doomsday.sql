@@ -76,7 +76,7 @@ ALTER TABLE "tenant_memberships" ADD CONSTRAINT "tenant_memberships_user_id_user
 --
 -- Every statement comes from a function or a contract, never typed twice:
 --   tenantScopedPolicies('tenant_memberships') and membershipLookupPolicy()
---   in apps/api/src/db/rls.ts, and design/contracts/rls-policy-template.md.
+--   in apps/api/src/db/rls.ts, and docs/contracts/rls-policy-template.md.
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------

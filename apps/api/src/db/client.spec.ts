@@ -8,7 +8,7 @@ import { postgresErrorCode, postgresErrorConstraint } from './client';
  * `databaseTransaction` unwraps drizzle's `DrizzleQueryError` at the TRANSACTION
  * boundary, but drizzle wraps at the STATEMENT boundary, so a `catch` inside `fn`
  * still holds the wrapper and reads `error.code` as `undefined`. The downstream
- * caller this protects is TASK-025's collision loop (`design/contracts/slug.md`
+ * caller this protects is TASK-025's collision loop (`docs/contracts/slug.md`
  * "Uniqueness and collision"): insert inside `SAVEPOINT slug_try`, catch `23505`,
  * roll back, redraw. That catch is inside `fn`.
  *

@@ -4,7 +4,7 @@ import { startApiServer } from '../support/api-server';
 import type { ApiServer } from '../support/api-server';
 
 /**
- * F-243 clause 2 — `design/contracts/logging-and-headers.md` § "Security headers" and
+ * F-243 clause 2 — `docs/contracts/logging-and-headers.md` § "Security headers" and
  * **invariant 4**. ADR-0022. Assigned to TASK-003 by Juano on 2026-08-10.
  *
  * Invariant 4 reads: "HSTS, `nosniff` and `DENY` are present on every API response including

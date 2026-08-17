@@ -6,9 +6,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * F-244 — the shared logger does not write an error's incidental fields, or its
  * message, into a log line.
  *
- * Contract: `design/contracts/logging-and-headers.md`, "What may never appear in a log
+ * Contract: `docs/contracts/logging-and-headers.md`, "What may never appear in a log
  * line" and "What the implementer must guarantee". Policy:
- * `design/contracts/error-envelope.md`, "What the 500 log line carries, and who owns
+ * `docs/contracts/error-envelope.md`, "What the 500 log line carries, and who owns
  * changing it". Enforces GC-9 — no PII in log bodies.
  *
  * WHY THIS SUITE EXISTS AND WHY IT IS SHAPED THIS WAY. F-244 was a live credential

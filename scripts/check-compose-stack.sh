@@ -10,7 +10,7 @@ set -euo pipefail
 #   state, the migrations have been applied, the seed has run, and `GET /health` on the
 #   composed API returns 200 with `status` equal to "ok".
 #
-# ADR: adr-0030 .. adr-0037. Contract: design/contracts/rls-policy-template.md.
+# ADR: adr-0030 .. adr-0037. Contract: docs/contracts/rls-policy-template.md.
 #
 #   ./scripts/check-compose-stack.sh
 #

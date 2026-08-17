@@ -23,7 +23,7 @@ import type * as domainErrorModule from './domain-error';
  * AC-13 — every rejected API request answers with the shared error envelope and a
  * stable machine-readable `code`.
  *
- * Contract: design/contracts/error-envelope.md. The invariants exercised here are
+ * Contract: docs/contracts/error-envelope.md. The invariants exercised here are
  * numbered 1 (every non-2xx body under /api validates against errorEnvelopeContract),
  * 2 (the code is stable and its status is fixed by ERROR_CODE_STATUS), 4 (`details`
  * appears only where the contract names a shape) and 8 (no secret reaches the body),

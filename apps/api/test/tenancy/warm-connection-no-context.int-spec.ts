@@ -1,7 +1,7 @@
 /**
  * STORY-001 — TASK-002. ADR-0049's behavioural control.
  *
- * Contract: `design/contracts/rls-policy-template.md`, `design/contracts/tenant-context.md`.
+ * Contract: `docs/contracts/rls-policy-template.md`, `docs/contracts/tenant-context.md`.
  * ADR: adr-0049-context-flags-are-never-cast-directly.md, adr-0050.
  *
  * ============================================================================

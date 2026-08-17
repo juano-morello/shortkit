@@ -1,5 +1,5 @@
 /**
- * Contract: `.sdlc/identity-membership/design/contracts/revocation-store.md`
+ * Contract: `docs/contracts/revocation-store.md`
  * ADR: adr-0053-revocation-store-is-process-local.md, adr-0013-better-auth-in-nestjs.md
  * Produced by: TASK-003 (the write side and the store). Read by: TASK-005 (AuthGuard step 6).
  *

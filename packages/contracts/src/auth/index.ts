@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/auth-contracts.md
+ * Contract: docs/contracts/auth-contracts.md
  * ADR: adr-0047-password-policy.md, adr-0013-better-auth-in-nestjs.md,
  *      adr-0005-contract-distribution.md
  * Produced by: TASK-001
@@ -67,7 +67,7 @@ export type SignInRequest = z.infer<typeof signInRequestContract>;
  * same fact that makes `tenant_memberships.user_id` a `text` column (ADR-0015).
  *
  * `createdAt` and `updatedAt` are ISO strings because they crossed JSON. In the database
- * they are `timestamptz` (design/contracts/auth-schema.md).
+ * they are `timestamptz` (docs/contracts/auth-schema.md).
  */
 export const authUserContract = z.object({
   id: z.string().min(1),

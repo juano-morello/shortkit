@@ -1,7 +1,7 @@
 /**
  * `pnpm --filter @shortkit/api db:check-policies`
  *
- * Contract: design/contracts/rls-policy-template.md
+ * Contract: docs/contracts/rls-policy-template.md
  * ADR: adr-0003-rls-policy-template-and-roles.md, adr-0004-schema-layout-and-migrations.md
  * Produced by: TASK-005 (F-122)
  *
@@ -529,7 +529,7 @@ async function main(): Promise<void> {
       `\nFAIL: ${String(unprotected.length)} table(s) in schema public are readable and ` +
         'writable by any tenant:\n' +
         unprotected.map((line) => `  - ${line}`).join('\n') +
-        '\n\nAppend the statements from design/contracts/rls-policy-template.md to the ' +
+        '\n\nAppend the statements from docs/contracts/rls-policy-template.md to the ' +
         'migration that creates the table — tenantScopedPolicies() in src/db/rls.ts emits ' +
         'them — and add a new migration rather than editing an applied one. A table that ' +
         'genuinely carries no tenant_id goes in this script\'s exception list with its reason.',

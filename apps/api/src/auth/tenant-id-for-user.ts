@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/tenant-membership-lookup.md
+ * Contract: docs/contracts/tenant-membership-lookup.md
  * ADR: adr-0045-token-mint-membership-lookup.md, adr-0015-user-tenant-cardinality.md,
  *      adr-0013-better-auth-in-nestjs.md
  * Produced by: TASK-002

@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/tenant-membership-lookup.md, rls-policy-template.md
+ * Contract: docs/contracts/tenant-membership-lookup.md, rls-policy-template.md
  * ADR: adr-0015-user-tenant-cardinality.md, adr-0045-token-mint-membership-lookup.md,
  *      adr-0003-rls-policy-template-and-roles.md, adr-0004-schema-layout-and-migrations.md
  * Produced by: TASK-002

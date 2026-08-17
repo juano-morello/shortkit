@@ -5,8 +5,8 @@ database is what makes a missing `where` clause return nothing instead of return
 another agency's links.
 
 Sources: ADR-0002 (tenant context binding), ADR-0003 (policy template and roles), and
-the contracts `design/contracts/tenant-context.md` and
-`design/contracts/rls-policy-template.md`. This document is the working version — how
+the contracts `docs/contracts/tenant-context.md` and
+`docs/contracts/rls-policy-template.md`. This document is the working version — how
 the pieces fit and what you have to do when you add a table.
 
 ## The two roles

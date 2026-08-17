@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/logging-and-headers.md
+ * Contract: docs/contracts/logging-and-headers.md
  * ADR: adr-0022-logging-cors-and-security-headers.md
  * Produced by: TASK-003
  * Consumed by: every API TASK. Nothing may opt out.
@@ -460,7 +460,7 @@ function childOptionsChecked(
       `a child logger may not supply its own ${replaced.join(', ')}: pino replaces the ` +
         `logger's own rather than merging, so this child would lose the controls that keep ` +
         `an error's incidental fields, a credential and an IP off every line it writes. ` +
-        `See design/contracts/logging-and-headers.md.`,
+        `See docs/contracts/logging-and-headers.md.`,
     );
   }
 

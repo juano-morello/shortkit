@@ -1,5 +1,5 @@
 /**
- * Contract: `.sdlc/identity-membership/design/contracts/auth-config-surface.md`
+ * Contract: `docs/contracts/auth-config-surface.md`
  * ADR: adr-0013, adr-0046, adr-0050, adr-0051, adr-0052, adr-0053, adr-0054, adr-0055,
  *      adr-0056, adr-0057, adr-0058, adr-0059, adr-0060, adr-0061
  * Produced by: TASK-003. Consumed by: TASK-004 (the mount), item 1b (appends a hook).

@@ -8,7 +8,7 @@ import {
 /**
  * STORY-001 — AC-5. TASK-003, wave 2.
  *
- * Contract: `design/contracts/auth-config-surface.md` ("The composed configuration, key by
+ * Contract: `docs/contracts/auth-config-surface.md` ("The composed configuration, key by
  * key", "Cookies", "What the implementer must guarantee"). ADR-0013, ADR-0051, ADR-0052,
  * ADR-0055, ADR-0059, ADR-0060, ADR-0061.
  *

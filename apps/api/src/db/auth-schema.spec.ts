@@ -9,7 +9,7 @@ import * as authSchema from './schema/auth';
 /**
  * STORY-001 — TASK-002. The drift pin ADR-0043 requires.
  *
- * Contract: `design/contracts/auth-schema.md` ("What the implementer must guarantee", 2).
+ * Contract: `docs/contracts/auth-schema.md` ("What the implementer must guarantee", 2).
  * ADR: adr-0043-better-auth-schema-is-hand-written-and-pinned.md, adr-0013.
  *
  * ============================================================================

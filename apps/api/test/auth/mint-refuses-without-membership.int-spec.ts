@@ -19,7 +19,7 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
 /**
  * STORY-001 — AC-4's MINT LEG. TASK-003, wave 2.
  *
- * Contract: `design/contracts/auth-config-surface.md` ("Error cases", invariant 7).
+ * Contract: `docs/contracts/auth-config-surface.md` ("Error cases", invariant 7).
  * ADR-0055, ADR-0015, ADR-0013.
  *
  * AC-4: "Given a `user` row that has no `tenant_memberships` row, when a JWT is minted for a

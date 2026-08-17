@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/error-envelope.md
+ * Contract: docs/contracts/error-envelope.md
  * ADR: adr-0024-domain-error-transport.md, adr-0025-zod-error-recognition-in-contracts.md
  * Produced by: TASK-007
  * Consumed by: every API TASK. Nothing may opt out.

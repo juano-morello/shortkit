@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 /**
  * The logger's configuration lives in two artifacts that cannot be derived from one another:
  * `apps/api/src/observability/logger.ts`, which runs, and the fenced block in
- * `design/contracts/logging-and-headers.md`, which is what every later TASK reads before it
+ * `docs/contracts/logging-and-headers.md`, which is what every later TASK reads before it
  * writes a log call. Nothing has ever compared them.
  *
  * WHY THIS TEST EXISTS. That pair produced F-244, F-248, F-249 and F-250 in sequence — the
@@ -52,7 +52,7 @@ const SOURCE_PATH = new URL('./logger.ts', import.meta.url);
  * in the message, which is the correct outcome — a missing contract is not a passing test.
  */
 const CONTRACT_PATH = new URL(
-  '../../../../.sdlc/foundation/design/contracts/logging-and-headers.md',
+  '../../../../docs/contracts/logging-and-headers.md',
   import.meta.url,
 );
 

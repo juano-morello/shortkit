@@ -3,7 +3,7 @@
  *
  * Contract: TASK-004.md (F-078's AC-113, F-084's split, and the round 1-6 fixes:
  * F-154/F-155/F-156/F-160/F-161/F-163/F-164/F-165/F-167/F-171/F-172/F-173/F-175), ADR-0014,
- * design/contracts/web-api-client.md
+ * docs/contracts/web-api-client.md
  * Produced by: TASK-004
  *
  * WHY THIS EXISTS. `BFF_PROXY_SECRET` is a required, server-only Vercel project variable

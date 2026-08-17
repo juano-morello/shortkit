@@ -1,6 +1,6 @@
 # The Postgres `pnpm test:integration` runs against locally.
 #
-# Contract: design/contracts/rls-policy-template.md (roles, grants, env vars)
+# Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
 # ADR: adr-0001-test-framework.md, adr-0003-rls-policy-template-and-roles.md
 # Produced by: TASK-005 (F-038)
 #
@@ -117,7 +117,7 @@ configs:
   # service that runs them.
   shortkit_roles_sql:
     content: |
-      -- design/contracts/rls-policy-template.md "Roles", verbatim but for the
+      -- docs/contracts/rls-policy-template.md "Roles", verbatim but for the
       -- literal passwords, which psql cannot take as :'variables' here.
       --
       -- NOBYPASSRLS on all three roles. It is the default, and it is written out because

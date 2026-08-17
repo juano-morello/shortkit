@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/tenant-context.md
+ * Contract: docs/contracts/tenant-context.md
  * ADR: adr-0002-tenant-context-binding.md, adr-0003-rls-policy-template-and-roles.md
  * Produced by: TASK-005 (withTenantTransaction, tenantDb), TASK-011 (interceptor, RequestContext)
  *
@@ -7,7 +7,7 @@
  * has set `app.tenant_id`. THIS IS THE ONLY FILE THAT MAY SET IT outside tests, and
  * the only file besides ../db/rls.ts that may contain the string at all. rls.ts holds
  * the policies that READ the flag and sets nothing; the isolation suite asserts both
- * halves by grep (design/contracts/isolation-coverage.md, clauses A1 to A4).
+ * halves by grep (docs/contracts/isolation-coverage.md, clauses A1 to A4).
  *
  * SQL issued (F-007, 2026-08-04; third statement F-123, 2026-08-05):
  *   BEGIN;
@@ -53,7 +53,7 @@ declare const tenantScopedBrand: unique symbol;
  * apps/api/src/db/client.ts, so this is the only way a repository reaches a connection.
  *
  * The `any` query-result and table-relation type params are the normative form in
- * design/contracts/tenant-context.md, supplied by drizzle-orm's own generics rather
+ * docs/contracts/tenant-context.md, supplied by drizzle-orm's own generics rather
  * than by this module.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -132,7 +132,7 @@ type AfterCommitHook = () => Promise<void> | void;
  */
 const tenantStorage = new AsyncLocalStorage<ActiveTenantContext>();
 
-/** design/contracts/tenant-context.md, TenantTransactionOptions.statementTimeoutMs. */
+/** docs/contracts/tenant-context.md, TenantTransactionOptions.statementTimeoutMs. */
 const DEFAULT_STATEMENT_TIMEOUT_MS = 5000;
 
 /**

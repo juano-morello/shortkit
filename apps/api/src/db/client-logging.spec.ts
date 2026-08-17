@@ -9,8 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 /**
  * AC-116, SITE 3 — F-278. The two connection-error lines `db/client.ts` writes.
  *
- * Contract: `design/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
- * Nothing may opt out"; `design/contracts/tenant-context.md` rule 2, which closes the
+ * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
+ * Nothing may opt out"; `docs/contracts/tenant-context.md` rule 2, which closes the
  * readable fields of a caught database error to name and SQLSTATE. Enforces GC-9.
  *
  * ============================================================================

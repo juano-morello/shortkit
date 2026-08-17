@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/rls-policy-template.md
+ * Contract: docs/contracts/rls-policy-template.md
  * ADR: adr-0003-rls-policy-template-and-roles.md, adr-0004-schema-layout-and-migrations.md
  * Produced by: TASK-005
  *
@@ -12,7 +12,7 @@
  * `app.redirect_context`, `app.privileged_erase` and `app.membership_lookup_user`,
  * because the policies that read them are built here. The isolation suite asserts this
  * file contains no set_config call at all, which is what keeps that carve-out from being
- * the hole (design/contracts/isolation-coverage.md, clause A3).
+ * the hole (docs/contracts/isolation-coverage.md, clause A3).
  *
  * FOUR, NOT THREE, SINCE 2026-08-13 (ADR-0045, F-007). `membershipLookupPolicy()` below
  * put `app.membership_lookup_user` in this file, so an enumeration that stopped at three

@@ -26,8 +26,8 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
 /**
  * STORY-001 — AC-1 and AC-3. TASK-003, wave 2.
  *
- * Contract: `design/contracts/auth-config-surface.md` ("What the implementer must
- * guarantee", invariants 2, 12 and 13), `.sdlc/foundation/design/contracts/auth-tokens.md`
+ * Contract: `docs/contracts/auth-config-surface.md` ("What the implementer must
+ * guarantee", invariants 2, 12 and 13), `docs/contracts/auth-tokens.md`
  * ("Claim set", amended invariant 8). ADR-0013, ADR-0015, ADR-0054, ADR-0059, ADR-0061.
  *
  * AC-1 asserts three tables, two roles and a link between them; nothing below a real

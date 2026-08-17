@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 /**
  * STORY-001 — AC-1's failure branch. TASK-003, wave 2.
  *
- * Contract: `design/contracts/auth-config-surface.md` (the `createTenantForNewUser` row and
+ * Contract: `docs/contracts/auth-config-surface.md` (the `createTenantForNewUser` row and
  * its error case). ADR-0015, ADR-0054, ADR-0055, ADR-0052 (GC-G).
  *
  * AC-1, as amended 2026-08-16: "…the response status is 200, exactly one `user` row exists,

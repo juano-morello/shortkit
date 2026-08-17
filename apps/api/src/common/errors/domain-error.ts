@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/error-envelope.md
+ * Contract: docs/contracts/error-envelope.md
  * ADR: adr-0024-domain-error-transport.md
  * Produced by: TASK-007
  * Consumed by: TASK-010, 011, 014, 017, 018, 021, 024, 025, 040, 045, 049, 051, 053, 054

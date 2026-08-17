@@ -1,7 +1,7 @@
 /**
  * STORY-001 — AC-8. TASK-001.
  *
- * Contract: design/contracts/auth-contracts.md
+ * Contract: docs/contracts/auth-contracts.md
  * ADR: adr-0047-password-policy.md, adr-0013-better-auth-in-nestjs.md
  *
  * AC-8: "Given the auth and membership contracts in `packages/contracts`, when a signup

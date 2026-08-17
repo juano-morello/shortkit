@@ -4,9 +4,6 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     ignores: [
-      // Inert design artifacts. `design/stubs/**` holds sources at the paths they
-      // will occupy; the TASK that materialises one lints it then.
-      '.sdlc/**',
       '**/node_modules/**',
       '**/dist/**',
       '**/.next/**',

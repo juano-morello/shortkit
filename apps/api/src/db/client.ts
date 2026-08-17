@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/tenant-context.md
+ * Contract: docs/contracts/tenant-context.md
  * ADR: adr-0002-tenant-context-binding.md
  * Produced by: TASK-005
  *
@@ -334,7 +334,7 @@ function driverError(error: unknown): pg.DatabaseError | undefined {
 
 /**
  * The five-character SQLSTATE of a caught database error, or undefined when it is
- * not one. Normative in design/contracts/tenant-context.md, "Driver errors inside
+ * not one. Normative in docs/contracts/tenant-context.md, "Driver errors inside
  * `fn`": every catch that branches on a Postgres condition goes through here, and
  * reading `.code` off a caught error directly is a defect — inside `fn` a silent
  * one, because the branch simply never matches.

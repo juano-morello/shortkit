@@ -18,7 +18,7 @@ import {
 /**
  * STORY-001 — TASK-003, wave 2. No AC states these; three ADRs do.
  *
- * Contract: `design/contracts/auth-config-surface.md` ("The declared bindings",
+ * Contract: `docs/contracts/auth-config-surface.md` ("The declared bindings",
  * "`BETTER_AUTH_URL`: `http:` is loopback-only", "Wildcard rules for `WEB_APP_ORIGINS`").
  * ADR-0051, ADR-0058, ADR-0059.
  *

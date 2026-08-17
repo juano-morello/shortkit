@@ -1,5 +1,5 @@
 /**
- * Contract: `.sdlc/identity-membership/design/contracts/auth-config-surface.md`
+ * Contract: `docs/contracts/auth-config-surface.md`
  * ADR: adr-0058-better-auth-secret-assertion-shape.md, adr-0059, adr-0051, adr-0050
  * Produced by: TASK-003 (this file and the three bindings). Extended by: TASK-004, wave 3.
  *

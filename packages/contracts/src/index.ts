@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/error-envelope.md, slug.md, workspace-authorization.md
+ * Contract: docs/contracts/error-envelope.md, slug.md, workspace-authorization.md
  * ADR: adr-0005-contract-distribution.md
  * Produced by: TASK-007
  *

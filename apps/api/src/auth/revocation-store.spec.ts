@@ -14,7 +14,7 @@ import {
 /**
  * STORY-001 — TASK-003, wave 2. No AC states these; ADR-0053 and ADR-0013 do.
  *
- * Contract: `design/contracts/revocation-store.md` ("Error cases", "Invariants a caller may
+ * Contract: `docs/contracts/revocation-store.md` ("Error cases", "Invariants a caller may
  * rely on", "Spec obligations"). ADR-0053, ADR-0013, ADR-0012.
  *
  * ============================================================================

@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/tenant-membership-lookup.md
+ * Contract: docs/contracts/tenant-membership-lookup.md
  * ADR: adr-0045-token-mint-membership-lookup.md, adr-0002-tenant-context-binding.md,
  *      adr-0003-rls-policy-template-and-roles.md
  * Produced by: TASK-002

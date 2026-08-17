@@ -14,8 +14,8 @@ import { RESPONSE_OBJECT_ONLY_MARKER } from '../../test/support/response-object-
 /**
  * F-244, END TO END, AGAINST A REAL NEST APPLICATION.
  *
- * Contract: `design/contracts/logging-and-headers.md`, "What may never appear in a log line".
- * Policy: `design/contracts/error-envelope.md`, "What the 500 log line carries". Enforces
+ * Contract: `docs/contracts/logging-and-headers.md`, "What may never appear in a log line".
+ * Policy: `docs/contracts/error-envelope.md`, "What the 500 log line carries". Enforces
  * GC-9 — no PII in log bodies.
  *
  * ============================================================================

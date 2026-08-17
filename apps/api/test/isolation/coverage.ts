@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/isolation-coverage.md — this file is that contract's
+ * Contract: docs/contracts/isolation-coverage.md — this file is that contract's
  *           NORMATIVE FORM. Read the two together; the clause each export answers is
  *           named in its own comment.
  * ADR: adr-0020-isolation-suite-enumeration.md, adr-0003, adr-0019

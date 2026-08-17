@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/rls-policy-template.md
+ * Contract: docs/contracts/rls-policy-template.md
  * ADR: adr-0003-rls-policy-template-and-roles.md, adr-0004-schema-layout-and-migrations.md
  * Produced by: TASK-005
  *

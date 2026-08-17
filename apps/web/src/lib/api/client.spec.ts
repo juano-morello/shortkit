@@ -17,8 +17,8 @@
  * The first test is the falsifier for the rest: without it a client that threw
  * ContractViolationError unconditionally would pass every violation assertion below.
  *
- * Contract: design/contracts/web-api-client.md ("Response handling", ordered and
- * normative) and design/contracts/error-envelope.md.
+ * Contract: docs/contracts/web-api-client.md ("Response handling", ordered and
+ * normative) and docs/contracts/error-envelope.md.
  *
  * `fetch` is the only thing stubbed. It is the genuine external boundary; everything
  * else — the response objects, the zod contracts, the error classes — is real. Response

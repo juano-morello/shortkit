@@ -44,7 +44,7 @@ export const POLICY_COMPLIANT_PASSWORD = 'quilted-harbour-19-lantern';
 
 /**
  * One character. **No artifact in this repository states a password policy** — not
- * `STORY-005`, not ADR-0013, not `design/contracts/auth-tokens.md` — so the only
+ * `STORY-005`, not ADR-0013, not `docs/contracts/auth-tokens.md` — so the only
  * policy of record is the pinned release's own floor, which probing
  * `better-auth@1.6.26` puts at 8 characters (7 answers `400 PASSWORD_TOO_SHORT`, 8 is
  * accepted). A single character fails that floor and every policy anyone could state
@@ -55,7 +55,7 @@ export const TOO_SHORT_PASSWORD = 'x';
 
 /**
  * Better Auth's sign-up endpoint **requires** `name` in 1.6.26: a body without it
- * answers 400. `design/contracts/auth-tokens.md:47` writes the body as
+ * answers 400. `docs/contracts/auth-tokens.md:47` writes the body as
  * `{ email, password, name?, invitationToken? }`, with `name` optional. The fixture
  * sends one so no test depends on which of the two is corrected.
  */
@@ -68,7 +68,7 @@ export const SIGNUP_NAME = 'Integration Fixture';
  * decides `GIT_COMMIT_SHA` and says so: no ADR, contract, `.env.example` or workflow
  * names the variables the auth mount reads. `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`
  * are `better-auth`'s own conventions; `BFF_PROXY_SECRET` is named in
- * `design/contracts/rate-limit.md:129` and is here because TASK-009 adds
+ * `docs/contracts/rate-limit.md:129` and is here because TASK-009 adds
  * `assertBffProxySecretConfigured()` to `main.ts`, which refuses to boot without it.
  * If an implementer picks other names, this function is the single edit.
  *

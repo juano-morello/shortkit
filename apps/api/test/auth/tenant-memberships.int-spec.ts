@@ -1,7 +1,7 @@
 /**
  * STORY-001 — AC-2, AC-4. TASK-002.
  *
- * Contract: `design/contracts/tenant-membership-lookup.md` ("The table", "The policies",
+ * Contract: `docs/contracts/tenant-membership-lookup.md` ("The table", "The policies",
  * "Isolation controls this owes"). ADR-0015, ADR-0045, ADR-0049.
  *
  * ============================================================================

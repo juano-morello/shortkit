@@ -8,7 +8,7 @@ the product. They get one redirect that resolves fast or does not.
 **None of that is here yet.** This repository holds the substrate underneath it: one
 migrated table, `tenants`; one route, `GET /health`; one static page; and the tenancy,
 contracts and CI machinery around them. The five increments that turn it into the product
-above are named in `.sdlc/roadmap.md`, in the order they have to land.
+above are named in `docs/roadmap.md`, in the order they have to land.
 
 Two rules shape the code that exists:
 
@@ -60,7 +60,6 @@ Run these from the repository root.
 | `pnpm build` | Bundles the API to `apps/api/dist/` with tsup and builds the Next.js app |
 | `pnpm test:integration` | API suites that need a live Postgres |
 | `pnpm test:compose` | Brings the whole stack up from nothing with Docker and asserts fifteen clauses over it |
-| `pnpm assert:stub-drift` | Compares every surviving design stub with the source file at the same path, on exported shape |
 
 `pnpm build` bundles the API with tsup rather than emitting file by file.
 `packages/contracts` ships TypeScript source and has no build step (ADR-0005), so
@@ -75,15 +74,24 @@ save. `pnpm test:compose` needs Docker, builds four images and takes minutes; it
 change to the Dockerfile, the compose file, the roles SQL, the migration or the seed
 cannot break the stack silently.
 
-`pnpm assert:stub-drift` guards a different pair. `.sdlc/foundation/design/stubs/` holds
-design-time copies of boundaries at the paths they will occupy, and ADR-0039 deletes each
-one when the TASK that materialised its file closes. While both copies exist they can
-part: F-288 was a blocker where the stub carried an `origin` header constant the shipped
-file had lost, which would have answered 403 to every signup, sign-in and sign-out in
-production with the whole suite green. The check compares exported shape rather than text,
-so bodies, comments and ordering may differ freely; a declaration the stub exports and the
-source does not is what fails it. It runs as a step in CI's `quality` job. A stub with no
-source file yet is not drift — most of them name a producer that has not been built.
+## Where the decisions live
+
+`docs/decisions/` holds 61 ADRs and `docs/contracts/` holds 26 contracts. The code cites
+them by number — `ADR-0003` in a docblock, a `Contract:` header at the top of a file — and
+every one of those citations resolves inside this repository. When a contract and the
+shipped file disagree the shipped file wins, and the divergence is a finding.
+`logger-contract-drift.spec.ts` is the only place that comparison runs mechanically today,
+checking `docs/contracts/logging-and-headers.md`'s normative fence against `logger.ts` on
+every `pnpm test`.
+
+They moved here on 2026-08-17, out of a `.sdlc/` tree that also carried the process
+machinery: task cards, audit rounds, gate state, design stubs. That machinery is deleted
+rather than moved, and it sits in git history at `c617ebd` and earlier. Two of its pieces
+are still named by things that outlived it. CI comments cite
+`.sdlc/foundation/design/test-strategy.md`, and ADR prose cites task and work files at their
+old paths — an ADR records a decision at a date and does not get rewritten to match a later
+move. The stub drift check (`pnpm assert:stub-drift`, ADR-0039) is retired outright, because
+the tree it compared against is gone.
 
 ## Running the whole stack
 

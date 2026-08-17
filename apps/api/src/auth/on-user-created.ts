@@ -1,5 +1,5 @@
 /**
- * Contract: `.sdlc/identity-membership/design/contracts/auth-config-surface.md`
+ * Contract: `docs/contracts/auth-config-surface.md`
  *           (the `databaseHooks.user.create.after` row and its error case)
  * ADR: adr-0015-user-tenant-cardinality.md, adr-0054-signup-residue-repriced-across-two-roles.md,
  *      adr-0002-tenant-context-binding.md, adr-0003-rls-policy-template-and-roles.md

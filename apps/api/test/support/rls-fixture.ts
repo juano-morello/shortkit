@@ -2,7 +2,7 @@
  * The two-tenant fixture STORY-003's acceptance criteria are stated against:
  * tenants A and B, each owning exactly one row in an RLS-protected table.
  *
- * Contracts: design/contracts/rls-policy-template.md, design/contracts/tenant-context.md
+ * Contracts: docs/contracts/rls-policy-template.md, docs/contracts/tenant-context.md
  * ADRs: ADR-0002, ADR-0003
  *
  * Two decisions worth knowing before you change anything here.

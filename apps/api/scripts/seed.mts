@@ -1,7 +1,7 @@
 /**
  * `pnpm --filter @shortkit/api db:seed`, and `docker compose`'s `seed` service.
  *
- * Contract: design/contracts/rls-policy-template.md, design/contracts/tenant-context.md
+ * Contract: docs/contracts/rls-policy-template.md, docs/contracts/tenant-context.md
  * ADR: adr-0034-seed-contract.md (normative), adr-0033-compose-migrate-and-seed-services.md
  * Produced by: TASK-059
  *

@@ -9,9 +9,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 /**
  * AC-116, SITE 1 — F-247. The `afterCommit` failure line.
  *
- * Contract: `design/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
+ * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
  * Nothing may opt out" and "What may never appear in a log line". Policy: ADR-0028, the
- * field allowlist. Invariant: `design/contracts/tenant-context.md` invariant 6 — a throw
+ * field allowlist. Invariant: `docs/contracts/tenant-context.md` invariant 6 — a throw
  * out of an `afterCommit` hook "is logged and does not propagate". Enforces GC-9.
  *
  * ============================================================================

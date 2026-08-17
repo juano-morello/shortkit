@@ -1,6 +1,6 @@
 # The whole stack, up from nothing (AC-115).
 #
-# Contract: design/contracts/rls-policy-template.md (roles, grants, env vars)
+# Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
 # ADR: adr-0030 .. adr-0037
 # Produced by: TASK-059
 # Measured by: scripts/check-compose-stack.sh
@@ -403,7 +403,7 @@ configs:
         -v migrator_password="$$SHORTKIT_MIGRATOR_PASSWORD" \
         -v app_password="$$SHORTKIT_APP_PASSWORD" \
         -v auth_password="$$SHORTKIT_AUTH_PASSWORD" <<'SQL'
-      -- design/contracts/rls-policy-template.md "Roles", verbatim.
+      -- docs/contracts/rls-policy-template.md "Roles", verbatim.
       --
       -- NOBYPASSRLS on all three roles. It is the Postgres default, and it is written out
       -- because a role that can bypass RLS makes every isolation claim in this system a

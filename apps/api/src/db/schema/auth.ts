@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/auth-schema.md
+ * Contract: docs/contracts/auth-schema.md
  * ADR: adr-0043-better-auth-schema-is-hand-written-and-pinned.md,
  *      adr-0044-better-auth-tables-carry-no-rls.md,
  *      adr-0046-better-auth-drizzle-client.md, adr-0004-schema-layout-and-migrations.md

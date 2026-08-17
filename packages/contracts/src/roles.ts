@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/workspace-authorization.md
+ * Contract: docs/contracts/workspace-authorization.md
  * ADR: adr-0015-user-tenant-cardinality.md, adr-0023-branded-role-types.md
  * Produced by: TASK-016
  *

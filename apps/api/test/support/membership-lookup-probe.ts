@@ -2,7 +2,7 @@
  * THE TOKEN-MINT ESCAPE'S READ, AS ONE MECHANISM — used by the control that asserts the
  * real policy and by the negative control that proves the assertion discriminates.
  *
- * Contract: `design/contracts/tenant-membership-lookup.md` ("Isolation controls this
+ * Contract: `docs/contracts/tenant-membership-lookup.md` ("Isolation controls this
  * owes", controls 2 and 3). ADR-0045, ADR-0049.
  *
  * ⚠ WHY THIS IS SHARED CODE AND NOT TWO COPIES (F-133). Control 2 in

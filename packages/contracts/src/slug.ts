@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/slug.md
+ * Contract: docs/contracts/slug.md
  * ADR: adr-0007-short-code-generation.md, adr-0006-http-surface-partitioning.md
  * Produced by: TASK-007 (constants), TASK-024 (validateSlug)
  *

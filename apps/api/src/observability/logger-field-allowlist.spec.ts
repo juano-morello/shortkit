@@ -5,8 +5,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 /**
  * ADR-0028 — a log field reaches the line only if its key is named.
  *
- * Decision: `.sdlc/foundation/design/adr-0028-log-field-allowlist.md`. Contract:
- * `design/contracts/logging-and-headers.md`, "What may never appear in a log line" and
+ * Decision: `docs/decisions/adr-0028-log-field-allowlist.md`. Contract:
+ * `docs/contracts/logging-and-headers.md`, "What may never appear in a log line" and
  * invariant 1. Enforces GC-9 — no PII in log bodies.
  *
  * Findings: F-261, F-262, F-266.
@@ -101,13 +101,14 @@ const UNNAMED_FIELD_MARKER = 'unnamed-field-marker';
 
 /**
  * The four IP spellings F-262 measured, one distinct literal each so a failure names WHICH
- * key leaked rather than only that one did. Hand-copied from
- * `.sdlc/foundation/audits/TASK-003-sdlc-security-auditor-r5.md` § F-262, which measured
- * them against this same singleton, and they are TEST-NET-1 addresses (RFC 5737) so nothing
- * here resembles a real client.
+ * key leaked rather than only that one did. Hand-copied from the TASK-003 round-5 security
+ * audit § F-262, which measured them against this same singleton, and they are TEST-NET-1
+ * addresses (RFC 5737) so nothing here resembles a real client. That audit was one of the
+ * process artifacts deleted on 2026-08-17; it is in git history at `c617ebd` and earlier,
+ * under `.sdlc/foundation/audits/`.
  *
- * `trustedClientIp` is the one that matters most: it is the accessor already named in
- * `design/stubs/apps/api/src/auth/resolve-rate-limit-principal.ts:28`, so the spelling this
+ * `trustedClientIp` is the one that matters most: it is the accessor the retired design stub
+ * `apps/api/src/auth/resolve-rate-limit-principal.ts` already named, so the spelling this
  * system will actually hold is one of the uncensored ones.
  */
 const CLIENT_IP = '203.0.113.9';
