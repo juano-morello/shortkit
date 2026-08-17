@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import { AppModule } from '../app.module';
 import { logger } from '../observability/logger';
-import { PUBLIC_ROUTE_METADATA } from '../tenancy/tenant-context';
+import { NoTenantTransaction, PUBLIC_ROUTE_METADATA } from '../tenancy/tenant-context';
 import type { RequestContext } from '../tenancy/tenant-context';
 import { JWKS_KEY_SET_SOURCE, REQUEST_CONTEXT_KEY, REVOCATION_STORE } from './auth.guard';
 import { InMemoryRevocationStore, RevocationStoreUnavailableError } from './revocation-store';
@@ -51,7 +51,14 @@ const handlerRuns: string[] = [];
 
 @Controller('api/guard-probe')
 class GuardProbeController {
+  /**
+   * `@NoTenantTransaction` since TASK-006 (wave 5): the guard is what is under test here, and
+   * this tier has no database. Without the marker the global `TenantTransactionInterceptor`
+   * would open a real tenant transaction around this handler and 500 on the missing pool.
+   * The guard still runs in full for this route — that is exactly what the marker means.
+   */
   @Get('private')
+  @NoTenantTransaction('guard spec: the guard alone is under test, and this tier has no database')
   privateRoute(@Req() request: Record<PropertyKey, unknown>): RequestContext | null {
     handlerRuns.push('private');
     return (request[REQUEST_CONTEXT_KEY] as RequestContext | undefined) ?? null;
