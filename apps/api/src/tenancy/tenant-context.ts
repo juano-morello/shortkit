@@ -341,10 +341,22 @@ function activeContext(): ActiveTenantContext {
   return active;
 }
 
-/** Populated by AuthGuard from JWT claims only. NO DATABASE READ. */
+/**
+ * Populated by AuthGuard from JWT claims only. NO DATABASE READ.
+ *
+ * `email` (TASK-1b-05, D-06): the `email` claim, verbatim. The mail template needs the
+ * inviter's address and `shortkit_app` cannot read `user` (ADR-0050); the token already
+ * carries it. NOT a loggable field (`LOGGABLE_FIELDS` excludes it, GC-G): nothing reads it
+ * into a log line, and a record carrying it renders `[redacted]`.
+ *
+ * The three optional fields are set by `WorkspaceAuthorizationInterceptor` (TASK-1b-05, the
+ * contract's `WorkspaceGuard`) on a route carrying `@RequireWorkspaceRole` /
+ * `@RequireTenantRole`, after the lookup passes; on any other route they stay unset.
+ */
 export interface RequestContext {
   readonly userId: string;
   readonly tenantId: string;
+  readonly email: string;
   readonly emailVerified: boolean;
   workspaceId?: string;
   workspaceRole?: WorkspaceRole;

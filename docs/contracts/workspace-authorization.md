@@ -1,9 +1,9 @@
 # Contract: roles, ranking, and the authorization surface
 
 - **Boundary:** every authenticated write and every workspace-scoped read.
-- **Normative form:** `packages/contracts/src/roles.ts` (role values, brands, ranks) and `apps/api/src/common/authorization/roles.ts` (enforcement). The first file exists and its design stub was retired 2026-08-11 under ADR-0039, TASK-007 having closed. The second is not yet written; the design stub at `design/stubs/apps/api/src/common/authorization/roles.ts` stands in until TASK-017 lands it and is retired then. That stub is a design-gate scaffold, not a normative form.
+- **Normative form:** `packages/contracts/src/roles.ts` (role values, brands, ranks) and `apps/api/src/common/authorization/roles.ts` (enforcement). The first file exists and its design stub was retired 2026-08-11 under ADR-0039, TASK-007 having closed. ~~The second is not yet written; the design stub at `design/stubs/apps/api/src/common/authorization/roles.ts` stands in until TASK-017 lands it and is retired then.~~ **Amended 2026-08-18 (TASK-1b-05, item 1b).** The enforcement half is shipped, and it is three files under `apps/api/src/common/authorization/`: `roles.ts` (`RequireWorkspaceRole`, `RequireTenantRole`, the two metadata keys), `workspace-authorizer.ts` (`WorkspaceAuthorizer`, Form B and Form C, and the two rank functions both forms share), and `workspace-authorization.interceptor.ts` (Form A — an **interceptor**, not a guard; see "The two enforcement forms"). Beside them: `errors.ts` (the four `DomainError` refusals), `actor-context.ts` (how Form B learns the caller), `authorization.module.ts`. The repositories they read are `apps/api/src/memberships/{membership,tenant-membership}.repository.ts`.
 - **Producer attribution in `packages/contracts/src/roles.ts` is stale and this line is the correction.** The shipped file's header reads `Produced by: TASK-016`, the spelling F-068 corrected on 2026-08-05. TASK-016 cannot write that file: its paths are `apps/api/src/db/schema/**` and `apps/api/drizzle/**`. The producer is TASK-007. Recorded 2026-08-11 when the stub carrying the correction was retired.
-- **Produced by:** TASK-007 (role values, branded types, constants, casts, rank tables), TASK-017 (guard, decorators, authorizer). TASK-016 consumes both and defines no role type of its own; corrected 2026-08-05 (F-068).
+- **Produced by:** TASK-007 (role values, branded types, constants, casts, rank tables), ~~TASK-017 (guard, decorators, authorizer)~~ **TASK-1b-05 (the interceptor, decorators, authorizer, `MembershipRepository`, `TenantMembershipRepository`; 2026-08-18)**. TASK-016 consumes both and defines no role type of its own; corrected 2026-08-05 (F-068).
 - **Consumed by:** TASK-014, 018, 021, 025, 040, 045, 049, 051, 053, 054, 056.
 - **ADRs:** ADR-0015. Role set fixed by Amendment A-1.
 
@@ -89,13 +89,41 @@ Both call the same authorizer. Which one applies depends on where the workspace 
 **Form A, declarative.** For routes carrying the workspace id in the request.
 
 ```ts
-export declare function RequireWorkspaceRole(min: WorkspaceRole): MethodDecorator;
-export declare function RequireTenantRole(min: AuthorisingTenantRole): MethodDecorator;
+export declare function RequireWorkspaceRole(min: WorkspaceRole): MethodDecorator & ClassDecorator;
+export declare function RequireTenantRole(min: AuthorisingTenantRole): MethodDecorator & ClassDecorator;
 ```
 
 `WorkspaceGuard` resolves the workspace id from `params.workspaceId`, then
 `body.workspaceId`, then `query.workspaceId`, in that order. None present is 400
 `workspace_id_required`.
+
+> **Amended 2026-08-18 (TASK-1b-05, D-05): Form A is an INTERCEPTOR registered after
+> `TenantTransactionInterceptor`, and the name `WorkspaceGuard` above is a name, not a
+> mechanism.** Nest runs every guard before any interceptor, so a `CanActivate` cannot run
+> inside the transaction the tenant interceptor opens — and "its membership lookup is under
+> RLS", "with no active context it throws" are the load-bearing properties in this contract;
+> the noun is not. The shipped enforcement point is `WorkspaceAuthorizationInterceptor`, the
+> **third** `APP_INTERCEPTOR` in `app.module.ts` (RequestLog → TenantTransaction →
+> WorkspaceAuthorization; the order is a ruling and `app.module.spec.ts` asserts it). The
+> tenant interceptor calls `next.handle()` inside `withTenantTransaction`, so the third
+> interceptor's `intercept()` runs under the ambient store: it reads the two metadata keys
+> (handler first, then class — a class-level decorator covers every handler), resolves the
+> workspace id in the order above (a value that is not a non-empty string counts as absent),
+> looks the caller up through `MembershipRepository.roleFor` / `TenantMembershipRepository.roleFor`
+> — both `tenantDb()`-only, so with no active transaction they throw
+> `TenantContextMissingError` before any statement (500, never a pass) — sets
+> `RequestContext.workspaceId` / `workspaceRole` / `tenantRole`, applies the status table
+> below with every 404 decided before any 403, and hands over to the handler. A route carrying
+> neither key is untouched. Everywhere else in this document, read `WorkspaceGuard` as this
+> interceptor. Consequence recorded under Form C: **Form A cannot be used on a
+> `@NoTenantTransaction` route** (or a `@Public()` one) — the interceptor throws
+> `AuthorizationMisconfiguredError` (500) at the first request to such a route.
+>
+> **The tenant role is read from `tenant_memberships` inside the same transaction**, under
+> `tenant_memberships_tenant_isolation` (the ordinary template policy admits the current
+> tenant's rows). This is not `withMembershipLookup` (`tenant-membership-lookup.md`), which
+> stays the token-mint path with one caller; the JWT carries no role claim (invariant 6), so
+> a request-time read is the only source.
 
 **Form B, imperative.** For resource routes such as `/api/links/:id`, where the
 workspace is a property of the resource and cannot be known before loading it.
@@ -114,6 +142,15 @@ rank 0 and would authorise every user in the tenant, so it is excluded by type
 The handler loads the resource through a tenant-scoped repository first. RLS returns
 nothing for another tenant, so cross-tenant access is already 404 before any role check
 runs (AC-41, AC-69, AC-81). Then it calls `assert(resource.workspaceId, 'member')`.
+
+> **Amended 2026-08-18 (TASK-1b-05).** The signature takes no caller, so `WorkspaceAuthorizer`
+> reads the caller from an ambient store (`actor-context.ts`, `currentActor()`) that
+> `WorkspaceAuthorizationInterceptor` establishes around `next.handle()` for every
+> authenticated route — decorated or not — from the `RequestContext` the guard wrote. A Form B
+> call outside a request (a Better Auth hook, a boot script) throws
+> `ActorContextMissingError` (500); it never answers for nobody. `assert` and `assertTenant`
+> throw exactly what Form A throws — the same four classes in `errors.ts`, through the same
+> `requireWorkspaceRank` / `requireTenantRank` — and set nothing on the `RequestContext`.
 
 **Every authenticated write route uses exactly one of the two forms.** TASK-056's
 enumeration flags a route using neither.
@@ -134,23 +171,39 @@ Normative, and the most-mistaken part of this contract.
 
 404 before 403. Existence is never disclosed to a non-member.
 
+> **Amended 2026-08-18 (TASK-1b-05).** Two rows the table above implied and now states. (a)
+> The 404 for "no membership" / "another tenant" / "not a uuid" carries **the same body as
+> `WorkspaceRepository`'s `WorkspaceNotFoundError`** (`WorkspaceAccessNotFoundError`,
+> `not_found`, `Workspace not found.`); a spec asserts the two envelopes are byte-equal, so
+> the shape of the 404 cannot say which of the two happened. (b) A `RequireTenantRole` /
+> `assertTenant` check for a caller with **no `tenant_memberships` row in the tenant** is
+> **404 `not_found`** (`TenantMembershipNotFoundError`), not 403 — error-envelope.md
+> invariant 6 reserves the two `insufficient_*` codes for a member whose role is too low.
+> Reachable only inside a token's 300 s life after the row is removed (the mint refuses
+> without one). On a route carrying both decorators every absence is decided before any rank.
+
 ## Minimum role per surface
 
 Normative. A TASK adding a route adds a row here in the same commit.
 
 | Surface | Requirement |
 |---|---|
-| `GET /api/workspaces`, `GET /api/workspaces/:id` | any workspace membership |
-| `POST /api/workspaces` | tenant `admin` |
-| `PATCH`/`DELETE /api/workspaces/:id` | `workspace_admin` |
-| `GET /api/members` | `member` |
-| `PATCH /api/members/:id/workspace-role` | `workspace_admin` |
-| `DELETE /api/members/:id/workspace/:workspaceId` (remove from one workspace) | `workspace_admin` |
-| **`GET /api/tenant/members`** (tenant roles) | tenant **`owner`** |
-| **`PATCH /api/tenant/members/:id/tenant-role`** | tenant **`owner`** |
-| **`DELETE /api/tenant/members/:id`** (remove from the tenant entirely) | tenant **`owner`** |
-| `POST /api/invitations`, `DELETE /api/invitations/:id` | `workspace_admin` |
-| `GET /api/invitations/:token`, `POST /api/invitations/:token/accept` | `@Public()` |
+| `GET /api/workspaces` | ~~any workspace membership~~ **membership-filtered list, no decorator** (D-10; the statement joins `memberships` on the caller, owner-qualified; TASK-1b-06) |
+| `GET /api/workspaces/:workspaceId` | any workspace membership (Form A, `viewer`; TASK-1b-06 — the param is `:workspaceId`, D-07) |
+| `POST /api/workspaces` | tenant `admin` (Form A `RequireTenantRole`); creates the workspace **and** the creator's `workspace_admin` membership in one transaction (D-10; TASK-1b-06) |
+| `PATCH /api/workspaces/:workspaceId`, `POST /api/workspaces/:workspaceId/archive` | `workspace_admin` (Form A; TASK-1b-06). There is no `DELETE`; archive is the retirement path (`workspaces.md`) |
+| `GET /api/members` | `member` — **not built in 1b** |
+| `PATCH /api/members/:id/workspace-role` | `workspace_admin` — **not built in 1b** |
+| `DELETE /api/members/:id/workspace/:workspaceId` (remove from one workspace) | `workspace_admin` — **not built in 1b** |
+| **`GET /api/tenant/members`** (tenant roles) | tenant **`owner`** — **not built in 1b** |
+| **`PATCH /api/tenant/members/:id/tenant-role`** | tenant **`owner`** — **not built in 1b** |
+| **`DELETE /api/tenant/members/:id`** (remove from the tenant entirely) | tenant **`owner`** — **not built in 1b** |
+| `POST /api/invitations` | `workspace_admin` on **every** named workspace — Form B, before any write; a workspace the caller is not admin of, another tenant's, or a non-uuid → 404 (D-09; TASK-1b-08) |
+| `GET /api/invitations?workspaceId=<uuid>` | `workspace_admin` — Form A on `query.workspaceId` (**new row, 2026-08-18**; D-09; TASK-1b-08) |
+| `DELETE /api/invitations/:id` | `workspace_admin` on every workspace the invitation names — Form B (D-09; TASK-1b-08) |
+| `POST /api/invitations/lookup` | `@Public()`; the token travels in the body (D-03) |
+| `POST /api/invitations/accept` | authenticated, **no role decorator** — the token authorises; a token for another tenant is 409 `invitation_tenant_conflict` (D-04) |
+| ~~`GET /api/invitations/:token`, `POST /api/invitations/:token/accept`~~ | ~~`@Public()`~~ — superseded 2026-08-18 by the two rows above (D-03, D-04): the raw token never travels in a URL path |
 | `GET /api/links`, `GET /api/links/:id` | `viewer` |
 | `POST`/`PATCH`/`DELETE /api/links` | `member` |
 | `GET /api/links/:id/audit` | `member` |
@@ -160,7 +213,7 @@ Normative. A TASK adding a route adds a row here in the same commit.
 | `PATCH /api/workspaces/:id/branding` | `workspace_admin` |
 | `POST /api/gdpr/export` | tenant **`owner`** (AC-105), Form A |
 | `POST /api/gdpr/delete` | tenant **`owner`** plus confirmation (AC-105, AC-92, AC-106). **Form C**, checked in-handler: see below |
-| `GET /api/invitations/:token`, `POST /api/invitations/:token/accept` | `@Public()`; authorisation **is** the capability token (ADR-0021) |
+| ~~`GET /api/invitations/:token`, `POST /api/invitations/:token/accept`~~ `POST /api/invitations/lookup` | `@Public()`; authorisation **is** the capability token (ADR-0021). Path form superseded 2026-08-18 (D-03) |
 
 ### Tenant-role mutation, added 2026-08-04 (F-011)
 
@@ -185,8 +238,12 @@ Normative rules, beyond the table:
 ### Form C: routes that open their own transaction
 
 Added 2026-08-04 (F-020). `POST /api/gdpr/delete` carries `@NoTenantTransaction`
-(`tenant-context.md`) so it can run its three-phase erasure, which means **there is no
-ambient tenant context when guards run**. `WorkspaceGuard`'s membership lookup needs one.
+(`tenant-context.md`) so it can run its three-phase erasure, which means ~~**there is no
+ambient tenant context when guards run**~~ **Form A cannot be used on it** (amended
+2026-08-18, TASK-1b-05: there is never an ambient tenant context when guards run, on any
+route — that is why Form A is an interceptor; what a `@NoTenantTransaction` route lacks is
+the transaction the interceptor would run inside, because the handler is where it now
+begins). `WorkspaceGuard`'s membership lookup needs one.
 
 Left unstated, an implementer meets a guard that throws on the only irreversible route in
 the system, and the cheapest green fix is to make `WorkspaceGuard` tolerate a missing
@@ -196,9 +253,12 @@ destroy the whole tenant.
 Normative:
 
 - **A `@NoTenantTransaction` route may not carry `@RequireTenantRole` or
-  `@RequireWorkspaceRole`.** TASK-056 asserts that combination never exists. The
+  `@RequireWorkspaceRole`.** TASK-056 asserts that combination never exists. ~~The
   decorators are guards, guards run before the handler, and the handler is where the
-  transaction now begins.
+  transaction now begins.~~ The decorators are read by an interceptor that runs before the
+  handler, and the handler is where the transaction now begins; until TASK-056's static
+  assertion exists, the interceptor throws `AuthorizationMisconfiguredError` (500) at the
+  first request to such a route (2026-08-18).
 - **Authorization runs inside phase 1's `withTenantTransaction`, before the census**,
   through `WorkspaceAuthorizer.assertTenant(TENANT_ROLE.owner)`. Same authorizer, same
   RLS-backed membership lookup, same 403 and the same error code. Only the call site
@@ -248,9 +308,14 @@ Order inside `POST /api/gdpr/delete`:
 
 ## What the implementer must guarantee
 
-- `WorkspaceGuard` runs after `AuthGuard` and inside the tenant transaction, so its
-  membership lookup is itself under RLS. **With no active context it throws. It never
-  returns true.**
+- `WorkspaceGuard` — `WorkspaceAuthorizationInterceptor` since 2026-08-18 — runs after
+  `AuthGuard` and inside the tenant transaction, so its membership lookup is itself under
+  RLS. **With no active context it throws. It never returns true.** Asserted in
+  `apps/api/src/common/authorization/workspace-authorization.interceptor.spec.ts` (fake
+  transaction, fake repositories that still call `tenantDb()`) and
+  `apps/api/test/authorization/workspace-authorization.int-spec.ts` (live database; an
+  application whose chain lacks the tenant interceptor answers 500 with the repository
+  having thrown before any statement).
 - **An integration test asserts `POST /api/gdpr/delete` returns 403 for a tenant
   `member` and for a tenant `admin`, and succeeds for an `owner`.** Route enumeration
   cannot see an in-handler check, so this test is the only coverage for AC-105 on that
