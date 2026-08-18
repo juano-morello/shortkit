@@ -84,9 +84,27 @@
  * `tenantScopedPolicies()` rather than written here (F-009), so the literal reaches these
  * canaries from `src/db/rls.ts` — which is the one file the scan set permits to hold it.
  */
+import {
+  Body,
+  Controller,
+  Get,
+  Module,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
+import { sql } from 'drizzle-orm';
+
 import { TENANT_ID_COLUMN_SQL, membershipLookupPolicy, tenantScopedPolicies } from '../../src/db/rls';
+import { currentTenantId, tenantDb } from '../../src/tenancy/tenant-context';
 import { execSql } from '../support/psql';
+import { mintToken } from '../support/auth-fixture';
 import { appRoleName, migrationDsn, TENANT_A, TENANT_B } from '../support/rls-fixture';
+
+import type { AttemptGroup } from './coverage';
+import { endpointAccess } from './http-attempts';
+import type { EndpointAttemptSpec, SignedInTenants } from './http-attempts';
 
 export const DIRECTION_CANARY_TABLE = 'isolation_direction_canary';
 export const BASELINE_LEAK_CANARY_TABLE = 'isolation_baseline_leak_canary';
@@ -858,6 +876,255 @@ export function dropUnregisteredOwnerColumnProbes(): void {
   );
 }
 
+/**
+ * =========================================================================
+ * AC-31. THE ENDPOINT-LEVEL NEGATIVE CONTROL (TASK-015).
+ * =========================================================================
+ *
+ * The table controls above each prove the harness would catch a leaking TABLE. This proves
+ * it would catch a leaking AUTHENTICATED ENDPOINT — the exact defect
+ * `scripts/check-policies.mts` exists to catch, reached over HTTP: a table shaped like
+ * `workspaces` with `ENABLE ROW LEVEL SECURITY` OMITTED, read and written through a control
+ * endpoint that trusts row-level security to scope it and issues no `tenant_id` predicate of
+ * its own. Every attempt over it must report `fail`; a harness that could not see an endpoint
+ * leak would report that endpoint clean.
+ *
+ * IT IS REACHED THROUGH THE REAL GUARD AND INTERCEPTOR. The control controller below runs
+ * inside an in-process Nest app the spec builds from `AppModule` plus `EndpointControlModule`
+ * (the shape `test/auth/auth-guard.int-spec.ts` uses), pointed at the child's JWKS. So the
+ * request passes the real `AuthGuard`, opens the real tenant transaction, and reads the
+ * control table through `tenantDb()` — everything a shipped route does except the missing
+ * row-level security.
+ *
+ * NOT REGISTERED. Like every control, `endpointControlGroup()` is a value the spec passes to
+ * `runCrossTenantAttempts()`/`runAttemptGroups()` directly, never `registerTenantScopedSurfaces()`:
+ * the registry has no notion of a subject allowed to leak (F-346), and the endpoint control
+ * follows the same rule.
+ *
+ * WHY THE CREATE ATTACK LOOKS DIFFERENT. A create that writes under the caller's own tenant
+ * cannot cross a boundary whatever the policies, so a missing-RLS defect could never make it
+ * leak — the SHIPPED `POST /api/workspaces` is exactly that, and its endpoint attempt passes.
+ * The control's create is therefore the analogue of `insertOwnedBy`: it PLANTS a row under a
+ * tenant named in the body, which the isolation policy's `WITH CHECK` would refuse and which,
+ * with row-level security omitted, succeeds. That is the create defect the harness must catch.
+ */
+export const ENDPOINT_CONTROL_CANARY_TABLE = 'isolation_endpoint_control_canary';
+
+const ENDPOINT_CONTROL_ROW_A = 'ec010101-ec01-4ec0-8ec0-ec01ec01ec01';
+const ENDPOINT_CONTROL_ROW_B = 'ec020202-ec02-4ec0-8ec0-ec02ec02ec02';
+const ENDPOINT_CONTROL_NAME = 'endpoint-control-seeded-row';
+
+/** The control table: workspaces-shaped, and DELIBERATELY without ENABLE ROW LEVEL SECURITY. */
+export function createEndpointControlCanary(): void {
+  run(
+    `DROP TABLE IF EXISTS ${ENDPOINT_CONTROL_CANARY_TABLE};
+
+     CREATE TABLE ${ENDPOINT_CONTROL_CANARY_TABLE} (
+       id          uuid PRIMARY KEY,
+       ${TENANT_ID_COLUMN_SQL},
+       name        text NOT NULL,
+       archived_at timestamptz
+     );
+
+     ${grantAll(ENDPOINT_CONTROL_CANARY_TABLE)}`,
+    // NO ALTER TABLE ... ENABLE ROW LEVEL SECURITY. That omission is the whole artifact,
+    // spelled by absence rather than by deleting a line, so nobody repairs it by adding one.
+  );
+}
+
+/** Seeds one control row per signed-in tenant. No RLS, so a plain insert as the migrator serves. */
+export function resetEndpointControlCanary(runtime: SignedInTenants): void {
+  execSql(
+    migrationDsn(),
+    `DELETE FROM ${ENDPOINT_CONTROL_CANARY_TABLE};
+     INSERT INTO ${ENDPOINT_CONTROL_CANARY_TABLE} (id, tenant_id, name) VALUES
+       (:'row_a'::uuid, :'ta'::uuid, :'name'),
+       (:'row_b'::uuid, :'tb'::uuid, :'name');`,
+    {
+      variables: {
+        row_a: ENDPOINT_CONTROL_ROW_A,
+        row_b: ENDPOINT_CONTROL_ROW_B,
+        ta: runtime.a.tenantId,
+        tb: runtime.b.tenantId,
+        name: ENDPOINT_CONTROL_NAME,
+      },
+    },
+  );
+}
+
+const CONTROL_TABLE = sql.identifier(ENDPOINT_CONTROL_CANARY_TABLE);
+
+/**
+ * The control route surface. It reads and writes the control table through `tenantDb()` and
+ * TRUSTS row-level security to scope it — it issues no `tenant_id` predicate of its own, the
+ * shape a route takes when its author assumes the table is protected. With RLS omitted, every
+ * one of these crosses the boundary.
+ */
+@Controller('control')
+export class EndpointControlController {
+  @Get()
+  async list(): Promise<{ items: Record<string, unknown>[] }> {
+    const { rows } = await tenantDb().execute<Record<string, unknown>>(
+      sql`select id, tenant_id, name from ${CONTROL_TABLE} order by id`,
+    );
+
+    return { items: [...rows] };
+  }
+
+  @Post()
+  async create(
+    @Body() body: { name?: string; tenantId?: string },
+  ): Promise<Record<string, unknown>> {
+    // The `insertOwnedBy` analogue: the caller may name the owning tenant, which the WITH
+    // CHECK would refuse and which, with RLS omitted, plants a foreign-owned row.
+    const owner = body.tenantId ?? currentTenantId();
+    const { rows } = await tenantDb().execute<Record<string, unknown>>(
+      sql`insert into ${CONTROL_TABLE} (id, tenant_id, name)
+          values (gen_random_uuid(), ${owner}::uuid, ${body.name ?? 'planted'})
+          returning id, tenant_id, name`,
+    );
+
+    return rows[0];
+  }
+
+  @Patch(':id')
+  async rename(
+    @Param('id') id: string,
+    @Body() body: { name?: string },
+  ): Promise<Record<string, unknown>> {
+    const { rows } = await tenantDb().execute<Record<string, unknown>>(
+      sql`update ${CONTROL_TABLE} set name = ${body.name ?? 'renamed'}
+           where id = ${id}::uuid returning id, tenant_id, name`,
+    );
+
+    if (rows.length === 0) {
+      throw new NotFoundException();
+    }
+
+    return rows[0];
+  }
+
+  @Post(':id/archive')
+  async archive(@Param('id') id: string): Promise<Record<string, unknown>> {
+    const { rows } = await tenantDb().execute<Record<string, unknown>>(
+      sql`update ${CONTROL_TABLE} set archived_at = now()
+           where id = ${id}::uuid returning id, tenant_id, name`,
+    );
+
+    if (rows.length === 0) {
+      throw new NotFoundException();
+    }
+
+    return rows[0];
+  }
+}
+
+@Module({ controllers: [EndpointControlController] })
+export class EndpointControlModule {}
+
+/** The four control-endpoint attempts, mirroring the workspace routes shape for shape. */
+const ENDPOINT_CONTROL_ROUTES: readonly EndpointAttemptSpec[] = [
+  {
+    name: 'create',
+    method: 'POST',
+    route: '/control',
+    httpKind: 'write',
+    reaches: 'new-row',
+    qualification: 'owner-qualified',
+    buildRequest: (_actor, target) => ({
+      path: '/control',
+      body: { name: 'planted-by-another-tenant', tenantId: target.id },
+    }),
+    expectedRefusal: { kind: 'created-under-actor' },
+  },
+  {
+    name: 'list',
+    method: 'GET',
+    route: '/control',
+    httpKind: 'read',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    buildRequest: () => ({ path: '/control' }),
+    expectedRefusal: { kind: 'absent-from-list' },
+  },
+  {
+    name: 'rename',
+    method: 'PATCH',
+    route: '/control/:id',
+    httpKind: 'write',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    buildRequest: (_actor, target, ctx) => ({
+      path: `/control/${ctx.seededRowId(target.id)}`,
+      body: { name: 'renamed-by-another-tenant' },
+    }),
+    expectedRefusal: { kind: 'status', status: 404 },
+  },
+  {
+    name: 'archive',
+    method: 'POST',
+    route: '/control/:id/archive',
+    httpKind: 'write',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    buildRequest: (_actor, target, ctx) => ({
+      path: `/control/${ctx.seededRowId(target.id)}/archive`,
+    }),
+    expectedRefusal: { kind: 'status', status: 404 },
+  },
+];
+
+/**
+ * The endpoint control as an attempt group: the in-process control app is `baseUrl`, tokens
+ * are minted fresh from the child (`runtime.server`) so they cannot expire, and the fixtures
+ * are the two signed-in tenants. Every attempt must report `fail`.
+ */
+export function endpointControlGroup(runtime: SignedInTenants, baseUrl: string): AttemptGroup {
+  const tokenFor = async (tenantId: string): Promise<string> => {
+    const tenant = tenantId === runtime.a.tenantId ? runtime.a : runtime.b;
+    const minted = await mintTokenFromChild(runtime, tenant.cookie);
+
+    return minted;
+  };
+
+  const seededRowId = (tenantId: string): string =>
+    tenantId === runtime.a.tenantId ? ENDPOINT_CONTROL_ROW_A : ENDPOINT_CONTROL_ROW_B;
+
+  const registration = endpointAccess({
+    subject: 'EndpointControl',
+    table: ENDPOINT_CONTROL_CANARY_TABLE,
+    ownerColumn: 'tenant_id',
+    reset: () => resetEndpointControlCanary(runtime),
+    baseUrl,
+    tokenFor,
+    seededRowId,
+    endpoints: ENDPOINT_CONTROL_ROUTES,
+  });
+
+  return {
+    registrations: [registration],
+    fixtures: {
+      tenantA: { id: runtime.a.tenantId, name: 'signed-in-tenant-a' },
+      tenantB: { id: runtime.b.tenantId, name: 'signed-in-tenant-b' },
+    },
+  };
+}
+
+async function mintTokenFromChild(runtime: SignedInTenants, cookie: string): Promise<string> {
+  const minted = await mintToken(runtime.server, cookie);
+  const token = (minted.body as { token?: unknown }).token;
+
+  if (minted.status !== 200 || typeof token !== 'string') {
+    throw new Error(`control-endpoint token mint answered ${String(minted.status)}: ${minted.raw}`);
+  }
+
+  return token;
+}
+
+export function dropEndpointControlCanary(): void {
+  execSql(migrationDsn(), `DROP TABLE IF EXISTS ${ENDPOINT_CONTROL_CANARY_TABLE};`);
+}
+
 /** Every control table this file builds, dropped in the suite's `afterAll`. */
 export function dropControlTables(): void {
   execSql(
@@ -876,6 +1143,7 @@ export function dropControlTables(): void {
       MEMBERSHIP_LOOKUP_CANARY_TABLE,
       MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE,
       MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
+      ENDPOINT_CONTROL_CANARY_TABLE,
       UNREGISTERED_TABLE_PROBE,
       ...OWNER_COLUMN_PROBE_PROTECTIONS.map(ownerColumnProbeTable),
     ]

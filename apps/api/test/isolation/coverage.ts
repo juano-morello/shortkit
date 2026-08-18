@@ -51,13 +51,14 @@
  * from the production policy builder. `workspaces`, `links`, `domains`, `click_events`,
  * `tenant_memberships` and the rest do not exist yet.
  *
- * NO ROUTES AND NO REPOSITORIES. There is no `AppModule` route carrying tenant data and
- * no class carrying `@TenantScopedRepository()` — the decorator itself still throws
- * `not implemented` in `src/tenancy/tenant-context.ts` (TASK-011). So the three
- * discovery mechanisms in isolation-coverage.md's "Discovery" section discover nothing
- * today, and they are TASK-056's to build. What this file delivers is the layer beneath
- * them: the registry they will register into, the attempt semantics they will drive,
- * and the report they will fill.
+ * NO DISCOVERY. Routes carrying tenant data and one class carrying
+ * `@TenantScopedRepository()` exist since identity-membership (the four `/api/workspaces`
+ * routes and `WorkspaceRepository`; the decorator became real in TASK-006), but the three
+ * discovery mechanisms in isolation-coverage.md's "Discovery" section still discover
+ * nothing — they throw, and they are TASK-056's to build. Every surface attacked today
+ * was registered by hand. What this file delivers is the layer beneath discovery: the
+ * registry it will register into, the attempt semantics it will drive, and the report it
+ * will fill.
  *
  * SO A GREEN RUN OF `cross-tenant-isolation.int-spec.ts` SAYS EXACTLY THIS: for the two
  * tables that exist, a tenant transaction belonging to A cannot read, update, delete or
@@ -267,6 +268,13 @@ export interface TenantScopedMethod {
    * means the decision has to be written down per statement.
    */
   readonly qualification: 'owner-qualified' | 'unqualified';
+  /**
+   * TASK-014. Present iff this method is an HTTP attempt, in which case it is
+   * `route:${method} ${pattern}` and overrides `surfaceIdOf(subject, name)` — so an
+   * endpoint attempt names the ROUTE in the report rather than a repository method. A
+   * table or repository method leaves it undefined and keeps the `repo:` id.
+   */
+  readonly surfaceId?: SurfaceId;
   readonly attempt: CrossTenantAttempt;
 }
 
@@ -536,7 +544,11 @@ export const UNENUMERABLE_SURFACES = [
   {
     id: 'hook:onUserCreated',
     reason: 'Better Auth handler is mounted outside the Nest module graph (ADR-0013).',
-    coveredBy: 'apps/api/test/auth/signup-invited.int-spec.ts',
+    // TASK-014: repointed at the signup hook's integration test, which ships this
+    // initiative and exists. The uninvited branch — signup creates a tenant that is the
+    // generated uuid and one membership in it — is what `signup-creates-tenant.int-spec.ts`
+    // asserts, and it is the one anonymous path that writes `tenant_memberships`.
+    coveredBy: 'apps/api/test/auth/signup-creates-tenant.int-spec.ts',
   },
   {
     id: 'handler:POST /api/gdpr/delete authorization',
@@ -547,67 +559,59 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-006, wave 2, revised r5. Covers the two tables that carry a tenant boundary ' +
-  'today: `tenants` (the migrated table, four bespoke policies) and `rls_fixture_rows` ' +
-  '(a FIXTURE TABLE this suite creates and drops per run, built from the production ' +
-  'tenantScopedPolicies()). No routes and no repositories are enumerated, because none ' +
-  'exist — route and repository discovery is TASK-056. ' +
-  'HOW THE COVERED SET IS BOUNDED: it is the registry in registrations.ts, and the ' +
-  'registry is cross-checked against the database on every run. A relation in schema ' +
-  'public must be registered if ANY of FIVE independent properties holds — it is ' +
-  '`tenants`; it carries a column named tenant_id; row-level security is enabled AND ' +
-  'forced on it; one of its policies reads app.tenant_id; or it declares a FOREIGN KEY ' +
-  'to tenants(id) — and a difference in either direction fails the run and names the ' +
-  'table (ADR-0019, SQL half). Arms 3 and 4 are F-303: enumerating on the literal ' +
-  'column name alone made a table whose owner column is spelled any other way invisible ' +
-  'to the check, measured. Arm 5 is F-333: arms 3 and 4 are properties of a table being ' +
-  'PROTECTED, so the UNPROTECTED shape of that same table was invisible to all four and ' +
-  'was caught only by db:check-policies, which is a different gate. WHAT STILL ESCAPES ' +
-  'ALL FIVE: a table that is not `tenants`, spells its owner column something other ' +
-  'than tenant_id, declares no foreign key to tenants, carries no policy reading ' +
-  'app.tenant_id, and is not force-RLS\'d — three simultaneous departures from ' +
-  'ADR-0019\'s stated convention. ' +
-  'WHAT A PASS MEANS: every registered method was attempted in BOTH directions, each ' +
-  'acting tenant was shown to see its own row first, every refusal scored as a pass ' +
-  'was a row-level security refusal recorded with its SQLSTATE and message, and no ' +
-  'tenant could see a row it does not own before or after any attempt. An attempt that ' +
-  'proved nothing is reported `unverified` and fails the run. ' +
-  'EIGHT STATEMENT SHAPES PER TABLE, ON EVERY TABLE, and THREE of them carry NO WHERE ' +
-  'CLAUSE (F-302): an owner-qualified write is routed through the SELECT policy by ' +
-  'PostgreSQL and reports zero rows however wide open the UPDATE or DELETE policy is, so ' +
-  'an unqualified write is the only shape that can see that class of defect. It is judged ' +
-  'on the row count the statement itself reported, against the number of its own rows ' +
-  'the acting tenant was shown to see, and separately on a per-row digest of every row ' +
-  'the actor does not own — because an overwrite preserves ownership. ' +
-  'ONE OF THE THREE ASSIGNS THE OWNER COLUMN (F-330), because widening a policy\'s USING ' +
-  'while leaving its WITH CHECK correct — one token from the production builder — makes ' +
-  'every other shape report a pass: the unqualified write is REFUSED by the WITH CHECK, ' +
-  'which proves that clause held and nothing about the USING clause. Such a refusal is ' +
-  'scored `unverified`, never `pass`. ' +
-  'NO TABLE MAY DECLINE A SHAPE, AND r3 SAID OTHERWISE (F-342). `tenants` declined the ' +
-  'owner-column write here, with a reason published in this artifact, on the premise ' +
-  'that `UPDATE tenants SET id = <actor>` is refused by the primary key index "before ' +
-  'any policy is evaluated". MEASURED on the migrated table, as shortkit_app inside an ' +
-  'ordinary tenant transaction: under the migration\'s own policies it reports UPDATE 1 ' +
-  'and no error, because the USING clause admits only the actor\'s own row and the ' +
-  'assignment is an identity update; the 23505 appears only once the USING is widened, ' +
-  'in which case the attempt is scored `unverified` and names the surface. The policy is ' +
-  'evaluated FIRST and is what prevents the collision. The decline and the mechanism ' +
-  'behind it are both withdrawn: a table whose WITH CHECK asks for more than tenancy ' +
-  'changes the STATEMENT the unqualified writes issue (F-344), and a table that cannot ' +
-  'answer at all goes `unverified` and red. ' +
-  'THAT STATEMENT CHANGE IS A COLUMN AND A BOUND VALUE, NOT A FRAGMENT (F-352). r4 took a ' +
-  'free SQL fragment and claimed it could not hide a leak because the statement still ' +
-  'carried no WHERE clause. The WHERE clause is not what keeps the SELECT policies out — ' +
-  'a column reference anywhere in the statement pulls them back in, and a SET expression ' +
-  'is part of the statement. Measured: `set label = <const>, status = status` reports ' +
-  'UPDATE 1 where `set label = <const>` reports UPDATE 2, so one column reference disarms ' +
-  'both unqualified writes silently, and `version = version + 1` is the idiomatic way to ' +
-  'write one. The field is now a column and a value that is bound as a parameter, so the ' +
-  'mistake is not rejected — it is unexpressible. ' +
-  'It does not mean the system has no uncovered cross-tenant surface: most of the ' +
-  'system is unwritten, and the module-graph enumeration, the four grep clauses and ' +
-  'the pg_policies shape assertion are TASK-056\'s.';
+  'TASK-015, wave 9. This run covers FOUR TABLES and FOUR AUTHENTICATED ENDPOINTS, in ' +
+  'TWO ATTEMPT CATEGORIES. ' +
+  'THE FOUR TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
+  '`tenants` (the migrated cascade root, four bespoke policies), `rls_fixture_rows` (a ' +
+  'FIXTURE TABLE this suite creates and drops per run, built from the production ' +
+  'tenantScopedPolicies()), `tenant_memberships` (migrated, TASK-002 — carrying the ' +
+  'token-mint FOR SELECT escape as a third policy), and `workspaces` (migrated, TASK-011 ' +
+  '— attacked both as a table and through the five methods of WorkspaceRepository). Each ' +
+  'is hit with EIGHT statement shapes in BOTH directions; three of the eight carry NO ' +
+  'WHERE CLAUSE (F-302) and one of those assigns the owner column (F-330). ' +
+  'THE FOUR ENDPOINTS, attacked as authenticated HTTP requests by a second signed-in ' +
+  'operator against the composition root (TASK-014, SC-4): `POST /api/workspaces`, ' +
+  '`GET /api/workspaces`, `PATCH /api/workspaces/:id` and `POST /api/workspaces/:id/archive`. ' +
+  'Two real users, two real memberships and two real tokens are minted through the shipped ' +
+  'auth surface — not forged — and each route is attempted in both directions. A 404 or ' +
+  '403 counts as a pass ONLY when the OWNER of the addressed row succeeds (2xx) at the ' +
+  'same request in the same run: otherwise the id or the route is wrong, the refusal ' +
+  'proves nothing, and the attempt is `unverified` and red. A mutating attempt is verified ' +
+  'against the DATABASE, never the response body. ' +
+  'THE SET WAS REGISTERED BY HAND, NOT DISCOVERED. There is no route or repository ' +
+  'enumeration in this wave: the table subjects are the registry in registrations.ts and ' +
+  'the endpoint subjects are a hand-written list of EndpointAttemptSpecs. A ROUTE NOBODY ' +
+  'REGISTERED IS A ROUTE NOBODY ATTACKED — module-graph route discovery, the ' +
+  '@TenantScopedRepository decorator enumeration, the four grep clauses and the ' +
+  'pg_policies shape assertion are all TASK-056\'s and unbuilt. What keeps the TABLE ' +
+  'registry honest is the database cross-check: a relation in schema public must be ' +
+  'registered if ANY of FIVE independent properties holds — it is `tenants`; it carries a ' +
+  'column named tenant_id; row-level security is enabled AND forced on it; one of its ' +
+  'policies reads app.tenant_id; or it declares a FOREIGN KEY to tenants(id) — and a ' +
+  'difference in either direction fails the run and names the table (ADR-0019, SQL half). ' +
+  'That cross-check does NOT reach routes: a controller nobody registered is invisible to ' +
+  'it, which is the endpoint half of the same "registered by hand" bound. ' +
+  'WHAT A PASS MEANS: every registered method and endpoint was attempted in both ' +
+  'directions, each acting tenant was shown to own a row first, every refusal scored as a ' +
+  'pass was a recognised refusal (a row-level security SQLSTATE for a table attempt, an ' +
+  'owner-verified 404/403 for an endpoint attempt), and no tenant could see or change a ' +
+  'row it does not own before or after any attempt. An attempt that proved nothing is ' +
+  '`unverified` and fails the run. ' +
+  'WHAT THIS RUN STILL DOES NOT PROVE. Coverage is bounded by the shapes someone thought ' +
+  'of — Juano\'s 2026-08-11 ruling — and this initiative adds a whole new attempt ' +
+  'category (HTTP) to that same bound rather than escaping it. FIVE STATEMENT SHAPES ' +
+  'F-341 NAMES ARE NOT BUILT: INSERT ... ON CONFLICT DO UPDATE (the save()/upsert() idiom, ' +
+  'reaching the UPDATE policy\'s USING on conflict); MERGE (each WHEN branch a different ' +
+  'policy); eviction, UPDATE <t> SET <owner> = <a tenant the fixture never seeds> (the ' +
+  'count rule detects it but the digest cannot name the recipient); cascade and trigger ' +
+  'effects on a SIBLING table (bounded today only because tenants has no ordinary DELETE ' +
+  'policy); and SELECT ... FOR UPDATE / FOR SHARE (a locking read applies the UPDATE ' +
+  'policy\'s USING, an existence side channel). ISOLATION_EXCLUSIONS carries the surfaces ' +
+  'deliberately outside the tenant-facing interface — redirect resolution, GDPR erasure, ' +
+  'and the token-mint membership lookup — each narrowed by database policy and justified ' +
+  'in-file; the LENGTH of that list is the control, so a new exclusion arrives as a ' +
+  'one-line diff a reviewer sees. And most of the system is simply unwritten: there are ' +
+  'no `links`, `domains` or `click_events` tables and no other authenticated routes.';
 
 /* ========================================================================== *
  * The registry. This is the enumeration mechanism.
@@ -694,6 +698,12 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
   'isolation_membership_lookup_canary',
   'isolation_membership_lookup_wide_open_canary',
   'isolation_membership_lookup_flag_gated_canary',
+  // TASK-015. The endpoint-level negative control (AC-31): a workspaces-shaped table with
+  // ENABLE ROW LEVEL SECURITY omitted, reached through an in-test control endpoint. Built
+  // and dropped inside its own test, so the main run never sees it — but the control run's
+  // own drift check would, and the F-346 rule requires its `fail` to be the attempts' answer
+  // and not a drift tripwire, so it is exempted here like every other control table.
+  'isolation_endpoint_control_canary',
 ];
 
 /**
@@ -823,20 +833,35 @@ export function surfaceIdOf(subject: string, method: string): SurfaceId {
   return `repo:${subject}.${method}`;
 }
 
+/**
+ * The id a method contributes to the report: its own `route:` id when it is an HTTP
+ * attempt (TASK-014), the `repo:` id built from the subject and the method name otherwise.
+ */
+function methodSurfaceId(
+  registration: TenantScopedSurfaceRegistration,
+  method: TenantScopedMethod,
+): SurfaceId {
+  return method.surfaceId ?? surfaceIdOf(registration.subject, method.name);
+}
+
 /** Every surface the registry knows about, in the shape the contract's report declares. */
 export function discoveredSurfaces(
   registrations: readonly TenantScopedSurfaceRegistration[] = registeredSubjects(),
 ): DiscoveredSurface[] {
   return registrations.flatMap((registration) =>
-    registration.methods.map(
-      (method): DiscoveredSurface => ({
-        id: surfaceIdOf(registration.subject, method.name),
-        kind: 'repository-method',
-        // Every method here runs inside a tenant transaction, which is what
-        // `authenticated` means for a repository surface.
+    registration.methods.map((method): DiscoveredSurface => {
+      const id = methodSurfaceId(registration, method);
+
+      return {
+        id,
+        // A `route:` id is an HTTP endpoint attempt (TASK-014); everything else runs
+        // inside a tenant transaction as a repository-shaped surface.
+        kind: id.startsWith('route:') ? 'route' : 'repository-method',
+        // Every method here is behind the guard or the tenant transaction, which is what
+        // `authenticated` means for these surfaces.
         authenticated: true,
-      }),
-    ),
+      };
+    }),
   );
 }
 
@@ -1229,7 +1254,7 @@ async function attempt(
   ).length;
 
   const common = {
-    id: surfaceIdOf(registration.subject, method.name),
+    id: methodSurfaceId(registration, method),
     subject: registration.subject,
     method: method.name,
     table: registration.table,
@@ -1401,7 +1426,7 @@ export async function assertNoCrossTenantAccess(
     .flatMap((registration) =>
       registration.methods.map((method) => ({ registration, method })),
     )
-    .find(({ registration, method }) => surfaceIdOf(registration.subject, method.name) === surface.id);
+    .find(({ registration, method }) => methodSurfaceId(registration, method) === surface.id);
 
   if (found === undefined) {
     throw new Error(
@@ -1431,6 +1456,18 @@ export async function assertNoCrossTenantAccess(
 let lastReport: IsolationReport | null = null;
 
 /**
+ * TASK-014. One battery of registrations against one pair of tenant fixtures. The table
+ * subjects run against the seeded `tenants`/`tenant_memberships`/`workspaces` fixtures;
+ * the HTTP endpoint subjects run against the two SIGNED-IN operators, whose tenant ids and
+ * tokens are different — so a run can carry both, each group with the fixtures its attempts
+ * were built for, and the report combines them.
+ */
+export interface AttemptGroup {
+  readonly registrations: readonly TenantScopedSurfaceRegistration[];
+  readonly fixtures: TenantFixtures;
+}
+
+/**
  * Runs every registered method and returns the report. Judges; does not assert. The
  * suite is what turns a `fail` verdict into a red test, which is what lets the negative
  * control assert a `fail` without the run dying first.
@@ -1439,17 +1476,32 @@ export async function runCrossTenantAttempts(
   registrations: readonly TenantScopedSurfaceRegistration[],
   fixtures: TenantFixtures,
 ): Promise<IsolationReport> {
-  const discovered = discoveredSurfaces(registrations);
+  return runAttemptGroups([{ registrations, fixtures }]);
+}
+
+/**
+ * TASK-014. Runs several batteries in one report, each against its own fixtures. The
+ * SQL table battery and the HTTP endpoint battery act as different pairs of tenants, so
+ * they arrive as two groups; the report's `covered`, `failed`, `unverified` and verdict
+ * are computed over every attempt in every group together, exactly as a single group was.
+ */
+export async function runAttemptGroups(
+  groups: readonly AttemptGroup[],
+): Promise<IsolationReport> {
+  const allRegistrations = groups.flatMap((group) => group.registrations);
+  const discovered = discoveredSurfaces(allRegistrations);
   const attempts: AttemptOutcome[] = [];
 
-  for (const registration of registrations) {
-    for (const method of registration.methods) {
-      // F-293. BOTH DIRECTIONS. One call site attempting `(tenantA, tenantB)` was the
-      // blocker r1 found: the actor was always A, so a policy leaking only to B — an
-      // "internal tenant" carve-out, a support read, a predicate compared against a
-      // hard-coded id — was never attempted at all.
-      for (const direction of ATTEMPT_DIRECTIONS) {
-        attempts.push(await attempt(registration, method, fixtures, direction));
+  for (const group of groups) {
+    for (const registration of group.registrations) {
+      for (const method of registration.methods) {
+        // F-293. BOTH DIRECTIONS. One call site attempting `(tenantA, tenantB)` was the
+        // blocker r1 found: the actor was always A, so a policy leaking only to B — an
+        // "internal tenant" carve-out, a support read, a predicate compared against a
+        // hard-coded id — was never attempted at all.
+        for (const direction of ATTEMPT_DIRECTIONS) {
+          attempts.push(await attempt(registration, method, group.fixtures, direction));
+        }
       }
     }
   }

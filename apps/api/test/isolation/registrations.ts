@@ -15,8 +15,9 @@
  *
  * `repo:TenantsTableAccess.findAll` names a class that exists, in this file, with that
  * method on it. There is no `TenantRepository` to name instead: no repository class
- * exists anywhere in `apps/api/src` yet, and `@TenantScopedRepository()` still throws
- * `not implemented` (TASK-011). Naming one would put a surface id in `report.json` that
+ * for `tenants` exists anywhere in `apps/api/src` (the one repository that does,
+ * `WorkspaceRepository`, carries `@TenantScopedRepository()` — real since TASK-006 — and is
+ * registered below). Naming one would put a surface id in `report.json` that
  * points at nothing, and `ISOLATION_EXCLUSIONS` is keyed on exactly these strings.
  *
  * The access objects are thin on purpose. Each method issues ONE statement through
@@ -47,14 +48,18 @@ import {
   TENANT_C_NEVER_SEEDED,
 } from '../support/rls-fixture';
 import { execSql } from '../support/psql';
+import { mintToken } from '../support/auth-fixture';
 
 import type {
+  AttemptGroup,
   CrossTenantAttemptResult,
   TenantFixture,
   TenantScopedMethod,
   TenantScopedSurfaceRegistration,
 } from './coverage';
 import { registerTenantScopedSurfaces } from './coverage';
+import { endpointAccess } from './http-attempts';
+import type { EndpointAttemptSpec, SignedInTenants } from './http-attempts';
 import {
   BASELINE_LEAK_CANARY_TABLE,
   createBaselineLeakCanary,
@@ -1188,7 +1193,166 @@ export const guardedLeakBoundValueCanaryAccess = controlAccess(
   [{ column: 'lock_token', value: 'lock_token' }],
 );
 
-/** Every surface id this wave covers, hand-written so a battery quietly losing a method fails. */
+/**
+ * ===========================================================================
+ * THE FOUR WORKSPACE ROUTES, ATTACKED AS AUTHENTICATED HTTP (TASK-014, TASK-015).
+ * ===========================================================================
+ *
+ * SC-4's clause: "one negative control per endpoint, IN THE ISOLATION HARNESS rather than
+ * in a controller test." A controller test proves the controller does what its author
+ * expected; this proves the composition root — guard, tenant interceptor, filter,
+ * repository, policies — refuses what the controller was never asked about, issued as a
+ * SECOND signed-in operator against the first's rows.
+ *
+ * These run against the CHILD API `signedInTenants()` booted (the real main.ts, the real
+ * /api prefix), as two real operators whose tenants are the ones their own signups
+ * created. So the fixtures below are the SIGNED-IN tenants, not `tenants`' TENANT_A/B, and
+ * the endpoint battery is a second attempt group with its own fixtures (coverage.ts,
+ * `runAttemptGroups`). The two workspace rows the routes address are seeded by hand under
+ * those two tenants at fixed ids.
+ *
+ * EVERY ROUTE IS `owner-qualified`, AND THAT IS WHAT THE ENDPOINT ENFORCES, not merely what
+ * the repository happens to do. Every statement the route issues carries
+ * `tenant_id = currentTenantId()` in its WHERE, or sets `tenant_id` on insert, and no route
+ * takes a parameter or body field naming another tenant — `docs/contracts/workspaces.md`
+ * ("Endpoints"): a cross-tenant reference is answered 404 `not_found`, indistinguishable
+ * from a malformed or missing id. There is no unqualified HTTP shape to declare, because
+ * the endpoint offers no way to express one.
+ */
+const ENDPOINT_WORKSPACE_A = 'e1e1e1e1-e1e1-4e1e-8e1e-e1e1e1e1e1e1';
+const ENDPOINT_WORKSPACE_B = 'e2e2e2e2-e2e2-4e2e-8e2e-e2e2e2e2e2e2';
+const ENDPOINT_WORKSPACE_NAME = 'signed-in-seeded-workspace';
+
+const WORKSPACE_ENDPOINTS: readonly EndpointAttemptSpec[] = [
+  {
+    name: 'create',
+    method: 'POST',
+    route: '/api/workspaces',
+    httpKind: 'write',
+    reaches: 'new-row',
+    qualification: 'owner-qualified',
+    // Create takes only a name and writes under the caller's tenant; the attack is that
+    // the created row must belong to the ACTOR, never the target. Verified against the
+    // database, because the response carries no tenantId (workspaces.md, "The client shape").
+    buildRequest: () => ({ path: '/api/workspaces', body: { name: 'planted-by-another-tenant' } }),
+    expectedRefusal: { kind: 'created-under-actor' },
+  },
+  {
+    name: 'list',
+    method: 'GET',
+    route: '/api/workspaces',
+    httpKind: 'read',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    // The actor lists its own; the target's seeded workspace must not appear. The positive
+    // control is the target listing its own and seeing that row, so an empty cross-tenant
+    // list is isolation and not a broken route.
+    buildRequest: () => ({ path: '/api/workspaces?includeArchived=true' }),
+    expectedRefusal: { kind: 'absent-from-list' },
+  },
+  {
+    name: 'rename',
+    method: 'PATCH',
+    route: '/api/workspaces/:id',
+    httpKind: 'write',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    buildRequest: (_actor, target, ctx) => ({
+      path: `/api/workspaces/${ctx.seededRowId(target.id)}`,
+      body: { name: 'renamed-by-another-tenant' },
+    }),
+    expectedRefusal: { kind: 'status', status: 404 },
+  },
+  {
+    name: 'archive',
+    method: 'POST',
+    route: '/api/workspaces/:id/archive',
+    httpKind: 'write',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    buildRequest: (_actor, target, ctx) => ({
+      path: `/api/workspaces/${ctx.seededRowId(target.id)}/archive`,
+    }),
+    expectedRefusal: { kind: 'status', status: 404 },
+  },
+];
+
+/** A fresh bearer for one signed-in tenant, minted from its cookie so it cannot expire mid-run. */
+async function tokenMinter(runtime: SignedInTenants): Promise<(tenantId: string) => Promise<string>> {
+  return async (tenantId: string): Promise<string> => {
+    const tenant = tenantId === runtime.a.tenantId ? runtime.a : runtime.b;
+    const minted = await mintToken(runtime.server, tenant.cookie);
+    const token = (minted.body as { token?: unknown }).token;
+
+    if (minted.status !== 200 || typeof token !== 'string') {
+      throw new Error(`re-mint for ${tenantId} answered ${String(minted.status)}: ${minted.raw}`);
+    }
+
+    return token;
+  };
+}
+
+/** Seeds one workspace per signed-in tenant at a fixed id, under each tenant's own flag. */
+function resetSignedInWorkspaces(runtime: SignedInTenants): void {
+  execSql(
+    migrationDsn(),
+    `SELECT set_config('app.tenant_id', :'ta', false) \\g /dev/null
+     DELETE FROM workspaces;
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'wa'::uuid, :'ta'::uuid, :'name');
+
+     SELECT set_config('app.tenant_id', :'tb', false) \\g /dev/null
+     DELETE FROM workspaces;
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'wb'::uuid, :'tb'::uuid, :'name');`,
+    {
+      variables: {
+        ta: runtime.a.tenantId,
+        tb: runtime.b.tenantId,
+        wa: ENDPOINT_WORKSPACE_A,
+        wb: ENDPOINT_WORKSPACE_B,
+        name: ENDPOINT_WORKSPACE_NAME,
+      },
+    },
+  );
+}
+
+/**
+ * The endpoint attempt group: the registration whose methods are the four HTTP attacks,
+ * and the signed-in fixtures they run against. Built at runtime because it needs the booted
+ * child and the two live sessions; the surface ids it contributes are pinned in
+ * `EXPECTED_SURFACE_IDS`.
+ */
+export async function workspaceEndpointGroup(runtime: SignedInTenants): Promise<AttemptGroup> {
+  const tokenFor = await tokenMinter(runtime);
+  const seededRowId = (tenantId: string): string =>
+    tenantId === runtime.a.tenantId ? ENDPOINT_WORKSPACE_A : ENDPOINT_WORKSPACE_B;
+
+  const registration = endpointAccess({
+    subject: 'WorkspaceEndpoints',
+    table: 'workspaces',
+    ownerColumn: 'tenant_id',
+    reset: () => resetSignedInWorkspaces(runtime),
+    baseUrl: runtime.server.baseUrl,
+    tokenFor,
+    seededRowId,
+    endpoints: WORKSPACE_ENDPOINTS,
+  });
+
+  return {
+    registrations: [registration],
+    fixtures: {
+      tenantA: { id: runtime.a.tenantId, name: 'signed-in-tenant-a' },
+      tenantB: { id: runtime.b.tenantId, name: 'signed-in-tenant-b' },
+    },
+  };
+}
+
+/**
+ * Every surface id this wave covers, hand-written so a battery quietly losing a method
+ * fails. IN SORTED ORDER: the suite compares it against `covered.sort()`, and `repo:`
+ * sorts before `route:`, so the four route ids come last.
+ */
 export const EXPECTED_SURFACE_IDS = [
   'repo:RlsFixtureRowsTableAccess.deleteAll',
   'repo:RlsFixtureRowsTableAccess.deleteOwnedBy',
@@ -1233,4 +1397,10 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:WorkspacesTableAccess.reparentAll',
   'repo:WorkspacesTableAccess.updateAll',
   'repo:WorkspacesTableAccess.updateOwnedBy',
+  // TASK-014/015: the four authenticated workspace routes, attacked as HTTP by a second
+  // signed-in operator. `route:` ids sort after every `repo:` id.
+  'route:GET /api/workspaces',
+  'route:PATCH /api/workspaces/:id',
+  'route:POST /api/workspaces',
+  'route:POST /api/workspaces/:id/archive',
 ] as const;
