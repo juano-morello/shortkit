@@ -59,7 +59,7 @@ Run these from the repository root.
 | `pnpm test` | Vitest across all three workspaces, with no database and no network |
 | `pnpm build` | Bundles the API to `apps/api/dist/` with tsup and builds the Next.js app |
 | `pnpm test:integration` | API suites that need a live Postgres |
-| `pnpm test:compose` | Brings the whole stack up from nothing with Docker and asserts fifteen clauses over it |
+| `pnpm test:compose` | Brings the whole stack up from nothing with Docker and asserts eighteen clauses over it |
 
 `pnpm build` bundles the API with tsup rather than emitting file by file.
 `packages/contracts` ships TypeScript source and has no build step (ADR-0005), so
@@ -145,12 +145,13 @@ deploy target is chosen for the API (ADR-0030).
 
 `pnpm test:compose` measures the same stack, one step earlier: it generates and exports
 its own `BETTER_AUTH_SECRET` for the duration of the run, so it needs nothing exported
-first. It tears any existing stack down to nothing, brings it up, and reports fifteen
+first. It tears any existing stack down to nothing, brings it up, and reports eighteen
 clauses — every service healthy,
 `shortkit_app` authenticating over TCP with the fixture password and refused with a wrong
 one, every migration recorded as applied, the demo tenant readable by that same role,
-`/health` answering 200 with `status` of `"ok"`, and the data surviving a second `up` and
-a `restart`. Each clause fails on its own and prints why, so the output says which part
+`/health` answering 200 with `status` of `"ok"`, a signup, a sign-in and a workspace
+creation driven through the web app's proxy in that order, and the data surviving a second
+`up` and a `restart`. Each clause fails on its own and prints why, so the output says which part
 broke rather than that something did.
 
 ### What a green stack does not give you
@@ -165,8 +166,9 @@ to the API at `API_BASE_URL=http://api:3001/api`, the compose network's name for
 which is why `web` waits for `api` to be healthy before it starts. A signup posted from
 `http://localhost:3000` reaches the API and creates an account against an empty database,
 with no seed data involved. The web container's health check asks for `/` and nothing
-else, and `pnpm test:compose` asserts reachability and health rather than a signup, so
-two green containers prove the path exists and not that the flow works. Two things the
+else, so two green containers prove the path exists and not that the flow works;
+`pnpm test:compose` is what drives a signup, a sign-in and a workspace creation through
+that proxy and asserts each one. Two things the
 stack still does not do: it forwards no browser address to the API (the two services
 share no `BFF_PROXY_SECRET`), so the IP-keyed rate limits do not bind here; and
 `http://api:3001` resolves only inside the compose network, so a browser reaches the API
