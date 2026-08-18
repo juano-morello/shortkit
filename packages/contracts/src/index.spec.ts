@@ -40,6 +40,7 @@ import { describe, expect, it } from 'vitest';
 import { signUpRequestContract } from './auth';
 import * as entryPoint from './index';
 import { parseTenantMembership } from './members';
+import { workspaceContract } from './workspaces';
 
 describe('package entry point', () => {
   it('AC-8 (ADR-0005, F-099): the auth and member contracts are reachable through src/index.ts', () => {
@@ -52,5 +53,11 @@ describe('package entry point', () => {
       'auth: signUpRequestContract': true,
       'members: parseTenantMembership': true,
     });
+  });
+
+  it('AC-21 (ADR-0005, TASK-012): the workspace contracts are reachable through src/index.ts', () => {
+    // The same pin for the line TASK-012 uncommented: `apps/web` reads `workspaceContract`
+    // through this barrel and nothing else would notice the line going back to a comment.
+    expect(entryPoint.workspaceContract === workspaceContract).toBe(true);
   });
 });

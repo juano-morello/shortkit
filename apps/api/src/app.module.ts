@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { ApiExceptionFilter } from './common/errors/exception-filter';
 import { HealthModule } from './health/health.module';
 import { TenantTransactionInterceptor } from './tenancy/tenant-transaction.interceptor';
+import { WorkspacesModule } from './workspaces/workspaces.module';
 
 /**
  * Composition root. Feature modules register here, each added by its own TASK.
@@ -34,7 +35,7 @@ import { TenantTransactionInterceptor } from './tenancy/tenant-transaction.inter
  * exempts it from the interceptor alone. `GET /health` is `@Public('platform probe')`.
  */
 @Module({
-  imports: [AuthModule, HealthModule],
+  imports: [AuthModule, HealthModule, WorkspacesModule],
   providers: [
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: TenantTransactionInterceptor },
