@@ -1,9 +1,9 @@
 # Contract: outbound mail
 
 - **Boundary:** the application to the email provider; and every test, every local stack and every deployment with no mail configured, none of which may reach it.
-- **Normative form:** `apps/api/src/mail/mail-sender.ts`, not yet written. The design stub at `design/stubs/apps/api/src/mail/mail-sender.ts` stands in until TASK-010 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form. **The stub still carries the `NODE_ENV` binding this contract removed (F-386); this file is normative and the stub is stale until TASK-010 or a stub sweep corrects it.**
-- **Produced by:** TASK-010.
-- **Consumed by:** TASK-021 (invitations), TASK-009/010 (verification).
+- **Normative form:** `apps/api/src/mail/mail-sender.ts` (the port and the union), `apps/api/src/mail/mail-transport.ts` (the declaration, the assertion, the resolver, the five strings), `apps/api/src/mail/senders/*.ts` (the four classes), `apps/api/src/mail/templates/*.ts` (the renderers), `apps/api/src/mail/mail.module.ts` (the `useFactory` binding). Shipped 2026-08-18 by TASK-1b-02. The design stub this line used to point at (`design/stubs/apps/api/src/mail/mail-sender.ts`) no longer exists in the tree — `design/stubs/**` is gone — so F-401 (a stub carrying the struck `NODE_ENV` binding) is discharged by absence.
+- **Produced by:** TASK-1b-02 (item 1b). TASK-010 was the foundation card that never shipped.
+- **Consumed by:** TASK-1b-08 (invitations dispatch, `MailModule` imported into `InvitationsModule`). **No verification caller exists**: email verification is outside item 1b, the `email_verification` arm and its renderer are present so the union has two members and every sender is compiled against both, and nothing dispatches it.
 - **ADRs:** ADR-0017, ADR-0002, ADR-0028 (log field allowlist), ADR-0029 (no configured value in error text).
 - **Depends on:** nothing. `MAIL_TRANSPORT` is read here and nowhere else.
 
@@ -102,6 +102,19 @@ distinguishable by machine from `database_reachable` and
 `runtime_role_cannot_bypass_rls` (F-245). This follows shipped `main.ts` rather than the two
 unwritten sibling assertions, whose contracts say only "throw" with an exact message; when
 TASK-009 writes those, the same wrapping should apply to them.
+
+> **Shipped 2026-08-18 (TASK-1b-02), and it diverges in the class, not the field.** The
+> assertion throws `MailBindingError`, declared in `mail-transport.ts` with
+> `readonly binding: 'mail_transport'`, and `main.ts`'s `bootstrap().catch` maps
+> `error.binding` onto `boot_precondition` exactly as it maps `AuthBindingError.binding`
+> (ADR-0058). `BootPreconditionError` could not be used: it is module-private to `main.ts`,
+> and `main.ts` calls `bootstrap()` at module scope, so a leaf module importing it would boot
+> the API. The auth bindings met the same wall and answered it the same way. The FIELD VALUE
+> on the line is this contract's, verbatim, and it is what `test/mail/mail-transport-boot.int-spec.ts`
+> and every operator grep key on. `resolveMailTransport` throws the same class on an
+> unrecognised value rather than returning `none`, so `mail.module.ts`'s factory — reachable
+> without `main.ts` from a testing module — cannot turn a typo into a silently suppressed
+> sender either.
 
 It also emits the one signal a misconfigured deployment gets before a user notices: when the
 resolved transport is `none`, **one warn line at boot**, carrying
@@ -212,10 +225,61 @@ export interface FakeMailSender extends MailSender {
 }
 ```
 
+> **Shipped shape, 2026-08-18 (TASK-1b-02), where it adds to the block above:**
+>
+> - `ResendMailSender`'s constructor takes an optional fourth argument,
+>   `options: { replyTo?: string; fetch?: typeof fetch }`. `replyTo` carries `MAIL_REPLY_TO`
+>   (sent as Resend's `reply_to`); `fetch` is how `senders.spec.ts` drives the retry table
+>   against a fake without a socket. The three-argument form above is unchanged and is what
+>   the module factory calls, plus `replyTo`. The adapter uses the platform `fetch` and no
+>   SDK: one `POST`, `authorization: Bearer <key>`, JSON `{ from, to: [to], subject, text,
+>   html, reply_to? }`; the provider's response body is drained and never read, because
+>   Resend's error text can quote the rejected field and `to` is an address.
+> - `readResendBinding(env)` in `mail-transport.ts` is the one reader of `RESEND_API_KEY`,
+>   `MAIL_FROM` and `MAIL_REPLY_TO`; the assertion calls it to refuse and the factory calls it
+>   to construct, so "set" means the same thing on both paths (set and non-blank).
+>   `resolveMailTransport` is the ONE literal read of `MAIL_TRANSPORT`; the assertion goes
+>   through it. `mail-transport.spec.ts` scans `apps/api/src/**` (comments and strings
+>   stripped) and asserts `mail/mail-transport.ts` is the only file naming the variable and
+>   that nothing under `mail/` names `NODE_ENV` in code. `vitest.setup.ts` (guard 1) sits
+>   outside `src/` and reads it directly, as this contract says it does.
+> - `NoopMailSender`'s counter is process-local: `readMailSuppressedCount()` in
+>   `senders/noop-mail-sender.ts` is the number behind `MAIL_SUPPRESSED_COUNTER` until a
+>   metrics client exists.
+> - `ConsoleMailSender` writes ONE `console.log` per message, in this exact shape, so the
+>   compose e2e and a developer's `grep` can rely on it (the text part puts the URL on a line
+>   of its own):
+>
+>   ```
+>   --- outbound mail (console transport; nothing was sent) ---
+>   To: <to>
+>   Subject: <subject>
+>
+>   <text part, verbatim>
+>   --- end of outbound mail ---
+>   ```
+>
+>   That `console.log` is the one sanctioned `console` call under `apps/api/src`: the eslint
+>   carve-out is one `disable-next-line` on the statement, and AC-116's enumeration
+>   (`logging-opt-out.spec.ts`) names the file as its second exemption beside `logger.ts`,
+>   with the reason recorded in `logging-and-headers.md` ("Never call `console.*`"). The
+>   content is a delivery channel, not a log line, and it may never go through the logger.
+> - Templates: `templates/render-mail.ts` exports `renderMail(message): { subject, text, html }`
+>   with an exhaustive `switch`; `templates/workspace-invitation.ts` exports
+>   `renderWorkspaceInvitation(data)` (subject "You've been invited to <tenantName> on
+>   Shortkit"; `tenantName`, `inviterEmail`, workspace names and the URL HTML-escaped in the
+>   HTML part; the URL verbatim on its own line in the text part; expiry as
+>   `25 August 2026 at 15:04 UTC`); `templates/email-verification.ts` the minimal sibling.
+> - The module: `MailModule` binds `MAIL_SENDER` by `useFactory: () => mailSenderFor(process.env)`
+>   and exports it. `mailSenderFor` is exhaustive over `MailTransport`, so a fifth value
+>   without a class is a compile error.
+
 ## No test sends mail. Enforced twice, and neither guard reads `NODE_ENV`.
 
 1. `apps/api/vitest.setup.ts` throws `MAIL_TEST_GUARD_MESSAGE` at import time if
-   `RESEND_API_KEY` is set **or** `MAIL_TRANSPORT` is `resend`.
+   `RESEND_API_KEY` is set **or** `MAIL_TRANSPORT` is `resend`. ("Set" is set and non-empty:
+   `RESEND_API_KEY=` is what an env file produces for an absent variable and authenticates
+   nothing. Shipped 2026-08-18; both configs name the setup file, so both tiers are covered.)
 2. `ResendMailSender`'s constructor throws `RESEND_SENDER_NOT_DECLARED_MESSAGE` when
    `MAIL_TRANSPORT` is not `resend`.
 
@@ -263,8 +327,9 @@ somebody from a deployment that cannot send.
 **No log line carries a recipient address, a subject, a rendered body, or a URL containing a
 token.** `LOGGABLE_FIELDS` is an allowlist (ADR-0028), so `to`, `subject`, `inviteUrl` and
 `verificationUrl` are censored to `[redacted]` by default and no denylist entry is needed.
-`template` is the one new name TASK-010 adds to `LOGGABLE_FIELDS`; it is a closed union of
-two literals and carries nothing about a person. `err_name` and `err_message` are already
+`template` is the one new name this contract adds to `LOGGABLE_FIELDS` (landed by
+TASK-1b-02, 2026-08-18; `logger.ts` and the fence in `logging-and-headers.md` both carry it);
+it is a closed union of two literals and carries nothing about a person. `err_name` and `err_message` are already
 allowlisted (`error-envelope.md`).
 
 **No counter backend exists.** Verified 2026-08-12: nothing in `apps/api/src` imports a
@@ -290,10 +355,16 @@ stack that exists resolves to `NoopMailSender`, which is the state F-386 asked f
 reached by adding nothing to any environment. A stack that wants the rendered message in its
 logs declares `console`; a stack that declares nothing stays safe.
 
+> 2026-08-18: D-02 (ruled by Juano) has the compose stack declare `MAIL_TRANSPORT=console`
+> so a developer and the compose e2e read the invite URL out of `docker compose logs api`;
+> TASK-1b-11 sets it in `docker-compose.yml`. Every other environment — the unit and
+> integration tiers, CI, `pnpm dev`, a bare `docker run` — still declares nothing and resolves
+> `none`. `apps/api/.env.example` documents all four variables (TASK-1b-02).
+
 ## Invariants a caller may rely on
 
-1. Exactly one `send` per verification request (AC-16) and per invitation creation (AC-32),
-   from one place, whatever the transport.
+1. Exactly one `send` per invitation creation (AC-1b-3, formerly AC-32), from one place,
+   whatever the transport. (The verification clause, AC-16, has no caller in item 1b.)
 2. `send` resolving means the **bound transport** accepted the message. Under `resend` that
    means the provider accepted it, and it still does not mean delivery: nothing in
    `launch-core` reads bounces. Under `console`, `fake` or `none` it means no message left

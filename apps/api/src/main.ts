@@ -23,6 +23,7 @@ import { AUTH_RATE_LIMIT_PORT } from './auth/ports/auth-rate-limit.port';
 import type { AuthRateLimitPort } from './auth/ports/auth-rate-limit.port';
 import { assertRuntimeRoleCannotBypassRls } from './db/rls';
 import { readBuildCommitSha } from './health/build-commit';
+import { MailBindingError, assertMailTransportConfigured } from './mail/mail-transport';
 import { errorLogFields, logger } from './observability/logger';
 
 const DEFAULT_PORT = 3001;
@@ -187,6 +188,17 @@ let app: INestApplication | undefined;
  *     a gate on it refuses to boot `api` on a laptop. Unset and `direct` assert nothing, so
  *     the compose stack, which declares neither, boots.
  *
+ *  2c. The mail transport — ADR-0017, F-386 (TASK-1b-02, item 1b). One more `process.env`
+ *     read in the same class, and the same rule with absence INVERTED: validity of
+ *     `MAIL_TRANSPORT` is asserted unconditionally, `resend` requires `RESEND_API_KEY` and
+ *     `MAIL_FROM`, and unset selects `NoopMailSender` rather than asserting nothing — the
+ *     permissive branch here spends money and reaches a stranger's inbox, so absence has to
+ *     land on the sender that can do neither. Its refusal is `MailBindingError`, mapped in
+ *     the catch below like `AuthBindingError`; when it resolves `none` it writes ONE warn
+ *     line carrying `boot_precondition: 'mail_transport'`, which is the only local evidence
+ *     a deployment that forgot the variable ever gets. NEVER READS `NODE_ENV`, for the
+ *     reason 2b gives.
+ *
  *  3. `assertRuntimeRoleCannotBypassRls()` — F-116, ADR-0003. One transaction against
  *     `pg_roles` and `pg_class`. TASK-005 built it and disclosed that nothing called it,
  *     so until now a `DATABASE_URL` pointing at a superuser or any `BYPASSRLS` role
@@ -257,6 +269,8 @@ async function assertBootPreconditions(): Promise<void> {
 
   assertTrustedClientIpHeaderConfigured(process.env);
   assertBffProxySecretConfigured(process.env);
+
+  assertMailTransportConfigured(process.env);
 
   // ONE DEADLINE FOR BOTH DATABASE CHECKS. `DATABASE_REACHABLE_BUDGET_MS` is sized as the
   // whole boot's reachability allowance (see its declaration), so the second check inherits
@@ -497,6 +511,11 @@ bootstrap().catch(async (error: unknown) => {
   // accessors inside `auth.config.ts` — which raise the same class — reach the same
   // labelled line.
   //
+  // `MailBindingError.binding` is the fourth, always `'mail_transport'` (item 1b, F-386).
+  // It is a class of its own rather than a `BootPreconditionError` because that class is
+  // module-private here and this file boots on import, so `mail/mail-transport.ts` cannot
+  // reach it; the field VALUE is the one `mail-sender.md` fixes and the one the tests read.
+  //
   // THAT ONLY HOLDS WHILE `auth.config.ts` IS REACHED FROM INSIDE `bootstrap()` (F-210).
   // A static import at this file's module scope evaluates it before `bootstrap()` runs, so
   // the throw never reaches this handler at all: measured, a raw uncaught stack on stderr
@@ -508,6 +527,7 @@ bootstrap().catch(async (error: unknown) => {
         ? { boot_precondition: error.precondition }
         : {}),
       ...(error instanceof AuthBindingError ? { boot_precondition: error.binding } : {}),
+      ...(error instanceof MailBindingError ? { boot_precondition: error.binding } : {}),
       ...errorLogFields(error, { includeMessage: true }),
     },
     'the API failed to start',

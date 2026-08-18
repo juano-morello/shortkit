@@ -218,6 +218,7 @@ export const LOGGABLE_FIELDS: ReadonlySet<string> = new Set([
   'retry_in_ms', // main.ts, boot retry
   'route', // logging-and-headers.md, Required fields. The PATTERN, never a path
   'status', // logging-and-headers.md, Required fields
+  'template', // mail/senders/*.ts, a MailTemplate literal (mail-sender.md, "Signal")
   'tenant_id', // logging-and-headers.md, Required fields
 ]);
 
@@ -561,7 +562,7 @@ who owns changing it". It returns `err_name`, an `err_stack` of frames with the
 
 ### Why each mechanism is here
 
-**`LOGGABLE_FIELDS` decides which keys may carry a value.** Thirteen names, and every other
+**`LOGGABLE_FIELDS` decides which keys may carry a value.** Fourteen names since item 1b added `template` (TASK-1b-02, 2026-08-18), and every other
 key is `[redacted]` whatever it holds. It is consulted by `formatters.log` and by both
 bindings wrappers, and by nothing else. There is no `redact` option to describe here any
 more; what used to cover "fields you can name" now covers every field nobody named.
@@ -1488,7 +1489,16 @@ quotes it, so the fix is made there and copied here, not the other way round.
   (TASK-060, AC-116). A new one is a finding, not a precedent.
 - **Never call `console.*` from `apps/api/src`.** Same hole with no JSON at all. Where that
   prohibition stops, and why `apps/api/scripts` and `apps/api/test` are outside it on purpose,
-  is ADR-0042.
+  is ADR-0042. **One named exemption since 2026-08-18 (item 1b, TASK-1b-02):**
+  `apps/api/src/mail/senders/console-mail-sender.ts`, the `MAIL_TRANSPORT=console` delivery
+  channel (`mail-sender.md`). It writes a rendered mail body — recipient, invitation URL,
+  token — to stdout with one `console.log`, because that content may never go through the
+  logger (`to` and the URL are on the never-allowlist) and stdout is where an operator who
+  declared `console` asked to read it. It is a mail transport sharing a descriptor with the
+  log, not a log line; it is bound only by explicit declaration (absence binds a sender that
+  writes nothing); the `no-console` carve-out is one `disable-next-line`; and
+  `logging-opt-out.spec.ts` names the path as its second exemption beside `logger.ts`. A
+  third is a finding.
 - **Never pass `redact`, `serializers` or `formatters` to `logger.child`.** It throws a
   `TypeError` naming the option and the reason. pino replaces these rather than merging them,
   so a child that supplied `formatters.log` would run with no scan at all. The check reads the
