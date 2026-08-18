@@ -3,6 +3,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { AuthModule } from './auth/auth.module';
 import { ApiExceptionFilter } from './common/errors/exception-filter';
+import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { HealthModule } from './health/health.module';
 import { RequestLogInterceptor } from './observability/request-log.interceptor';
 import { TenantTransactionInterceptor } from './tenancy/tenant-transaction.interceptor';
@@ -43,9 +44,21 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
  * reads `tenant_id` from the `RequestContext` the guard wrote, which is there whatever the
  * order (guards run before every interceptor), and it exempts nothing: a `@Public()` route
  * gets its line too, without a `tenant_id`.
+ *
+ * `APP_GUARD` → `RateLimitGuard` IS BOUND IN `RateLimitModule` (TASK-1b-07, F-018), AND THAT
+ * MODULE IS IMPORTED AFTER `AuthModule` ON PURPOSE. Nest applies `APP_GUARD` providers in
+ * module scan order — this import list's order — and runs global guards in that order, so
+ * `AuthGuard` runs first and `RateLimitGuard` second, which is what `rate-limit.md` fixes
+ * ("after `AuthGuard`, before `TenantTransactionInterceptor`"; the second half is Nest's
+ * lifecycle, every guard before any interceptor). Today the guard's real branch is the
+ * `@Public()` per-IP bucket, for which `AuthGuard` returns at once and the order is
+ * immaterial; the order is pinned (`app.module.spec.ts`) for the tenant-keyed write branch
+ * TASK-051 fills, which reads the `RequestContext` `AuthGuard` writes. `GET /health` is
+ * `@Public()` and outside the `/api` prefix, and the guard leaves it alone by that path.
  */
 @Module({
-  imports: [AuthModule, HealthModule, WorkspacesModule],
+  // `RateLimitModule` after `AuthModule` — see the docblock; swapping them changes the guard order.
+  imports: [AuthModule, HealthModule, WorkspacesModule, RateLimitModule],
   providers: [
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
     // Outermost first — see the docblock. Swapping these two lines changes what

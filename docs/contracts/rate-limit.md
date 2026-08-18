@@ -3,6 +3,7 @@
 - **Boundary:** every route under `/api`, including `@Public()` routes and the pre-auth `/api/auth/*` surface; and the web client that renders a 429.
 - **Normative form:** `apps/api/src/common/rate-limit/rate-limit.types.ts`, `apps/api/src/auth/ports/auth-rate-limit.port.ts`, and `apps/api/src/auth/resolve-rate-limit-principal.ts`, none yet written. The design stubs at the matching paths under `design/stubs/` stand in until TASK-051 and TASK-009 land the files and are retired then (ADR-0039). They are design-gate scaffolds, not normative forms.
 - **Produced by:** TASK-009 (auth surface: body cap, IP buckets, email hook, the port) and TASK-051 (`RateLimitGuard`, the Redis implementations). See the ownership table below.
+- **Amended 2026-08-18 (TASK-1b-07, item 1b wave 1).** `rate-limit.types.ts` is now written and is the normative form for the guard's port and constants; `auth-rate-limit.port.ts` and `resolve-rate-limit-principal.ts` shipped under TASK-004 (see "Ownership and injection order"). No design stub stands in for any of the three; `design/stubs/**` no longer exists in the repository. Produced by, additionally: **TASK-1b-07** (`RateLimitGuard`'s `@Public()` per-IP branch, `LocalRateLimiter.checkPublicIp`, `RATE_LIMIT_PORT`, `RateLimitModule`). TASK-051 keeps the tenant-keyed write bucket and the Redis implementations. What shipped and what did not is recorded under "Scope" below.
 - **Consumed by:** TASK-052 (web handling), TASK-056 (enumeration).
 - **ADRs:** ADR-0012, ADR-0006, ADR-0013, ADR-0040.
 - **Depends on:** `docs/contracts/trusted-client-address.md`, which is normative for the declared trusted header, the boot assertion, the shared read, and what a `null` principal means. This contract does not restate those rules (F-320).
@@ -72,6 +73,46 @@ does. Authenticated `GET`s remain unlimited; that is unchanged and deliberate.
 **Not limited, deliberately:** `GET /health` (platform probe), and the redirect
 controller, which is registered outside the `/api` prefix and therefore outside the
 guard entirely (AC-86). Redirect traffic is never limited at any rate.
+
+### What shipped 2026-08-18 (TASK-1b-07), and what did not
+
+Item 1b's wave 1 closed F-018 before the first `@Public()` route that opens a tenant
+transaction exists (the invitation lookup, wave 3). **Shipped:** the second row of the table
+above. `RateLimitGuard` (`apps/api/src/common/rate-limit/rate-limit.guard.ts`) applies the
+**`@Public()` per-IP bucket, 30 per 60 s, every method including `GET`**, to a route carrying
+`PUBLIC_ROUTE_METADATA` (handler then class) whose request path is under `/api`; the
+principal is `resolveRateLimitPrincipal(req.headers, process.env)` and a `null` principal
+skips the bucket with the once-per-minute `trusted_client_ip_unresolved_total` warn where a
+header is declared, exactly as `authRateLimit` does; the store is `LocalRateLimiter`
+(`local-rate-limiter.ts`, one IP map under F-028's three rules) behind `RATE_LIMIT_PORT`
+(`rate-limit.types.ts`); the refusal is a `DomainError('rate_limited', …)` carrying
+`Retry-After` in its `headers`, which `ApiExceptionFilter` writes before the envelope. The
+guard is registered as `APP_GUARD` in `RateLimitModule`, imported by `AppModule` **after
+`AuthModule`**, so the resolved global guard order is `AuthGuard` then `RateLimitGuard`;
+`app.module.spec.ts` reads that order from the container and pins it. The guard leaves
+`GET /health` alone **by path** (it is `@Public()` and outside the `/api` prefix), not by its
+justification text; the same test leaves the redirect controller outside the guard. The path
+test is **case-insensitive**, because Express 5 routes case-insensitively by default and
+`req.path` keeps the caller's casing: `/API/...` reaches the handler at `/api/...` and is
+charged to the same bucket (found in security review 2026-08-18; unit and integration tests
+pin it). The pre-auth mount shares that matcher, so `/API/auth/...` reaches the Express IP
+buckets too; Better Auth answers 404 for the case-varied path, and `bucketFor` charges it as
+`otherPerIp` (measured in `public-ip-bucket.int-spec.ts`).
+
+**Not shipped, still TASK-051's (D-08):** the first row, the tenant-keyed write bucket
+(`RATE_LIMIT_MAX_WRITES = 120` per `RATE_LIMIT_WINDOW_S = 60`, `POST`/`PATCH`/`PUT`/`DELETE`
+on authenticated routes), `checkTenant`, `RedisAuthRateLimiter`, `redisClient`, and the
+`rate_limit_degraded_total` path. The guard's authenticated branch is a documented no-op that
+charges nothing; `RateLimitPort` declares no `checkTenant`, so no no-op method can be read as
+coverage. The two constants are declared in `rate-limit.types.ts`, unused, so TASK-051 finds
+them where this contract says they live.
+
+Coverage note: no `@Public()` business route exists under `/api` yet, so
+`rate-limit.guard.spec.ts` (unit, real HTTP through `AppModule` with a probe route) carries
+AC-1b-37, AC-1b-38 and AC-1b-40, and `test/rate-limit/public-ip-bucket.int-spec.ts` repeats
+the shape against a live database (a refused request opens no transaction) and asserts
+`GET /health` on a booted process. The wave-3 invitation lookup inherits the guard without an
+edit here.
 
 ### Which address "the client IP" means, under the BFF
 
@@ -330,6 +371,17 @@ The rows above stay as written; the shipped file wins and this table records the
 | `RedisAuthRateLimiter` | `apps/api/src/common/rate-limit/redis-auth-rate-limiter.ts` | **TASK-051** |
 | `RateLimitGuard` and the tenant bucket | `apps/api/src/common/rate-limit/**` | **TASK-051** |
 | binding the Redis implementation to the token | `apps/api/src/app.module.ts` | **TASK-051** |
+
+**Amended 2026-08-18 (TASK-1b-07).** The `@Public()` half of the guard shipped in item 1b's
+wave 1; the tenant-branch rows above keep TASK-051:
+
+| Piece | Shipped file | Owning TASK |
+|---|---|---|
+| `RateLimitGuard` (public branch), `RATE_LIMITED_MESSAGE`, `isUnderApiPrefix` | `apps/api/src/common/rate-limit/rate-limit.guard.ts` | **TASK-1b-07** |
+| `LocalRateLimiter.checkPublicIp` (one IP map, F-028's rules) | `apps/api/src/common/rate-limit/local-rate-limiter.ts` | **TASK-1b-07** |
+| `RATE_LIMIT_PORT`, `RateLimitPort`, `RateLimitDecision`, `PUBLIC_IP_LIMIT`, `PUBLIC_IP_WINDOW_S`, `LOCAL_LIMITER_MAX_PUBLIC_IPS`, `RATE_LIMIT_WINDOW_S`, `RATE_LIMIT_MAX_WRITES` | `apps/api/src/common/rate-limit/rate-limit.types.ts` | **TASK-1b-07** |
+| `RateLimitModule` (binds `RATE_LIMIT_PORT` → `LocalRateLimiter`, `APP_GUARD` → `RateLimitGuard`); its import into `AppModule` after `AuthModule` | `apps/api/src/common/rate-limit/rate-limit.module.ts`, `apps/api/src/app.module.ts` | **TASK-1b-07** |
+| `RateLimitGuard` tenant branch, `checkTenant`, `RedisAuthRateLimiter`, the Redis binding | `apps/api/src/common/rate-limit/**`, `apps/api/src/app.module.ts` | **TASK-051** |
 
 **The injection order.** The auth module **declares the port**, exactly as the redirect
 module declares its branding port (ADR-0011). The mount and the hook call through the
@@ -645,6 +697,10 @@ the API does when Redis is gone.
    refused without it (`trusted-client-address.md`), so the invariant holds wherever it can
    be relied on and is false in compose, CI and local dev. The tenant-keyed half, the email
    bucket and `authBodyCap` are unconditional.
+   **Qualified 2026-08-18 (TASK-1b-07):** the IP-keyed half for `@Public()` routes now holds
+   where a header is declared. The tenant-keyed half is not built yet (TASK-051, D-08), so
+   until it lands authenticated writes under `/api` are covered by nothing but `AuthGuard`;
+   recorded here rather than left to be inferred from the guard's no-op branch.
 8. No request body larger than 32 KiB reaches Better Auth, and none larger than 100 KiB
    reaches a Nest handler.
 9. A `@Public()` route cannot be used to exhaust the connection pool the redirect path
