@@ -253,6 +253,15 @@ Ordered. Normative.
    the value in the body rather than the header (F-027, `rate-limit.md`). Normalising
    both here is what lets TASK-052's central rendering work on the login screen, which
    is the 429 a user is most likely to see. No screen reimplements it.
+   **Not yet true in `apiClient` (noted 2026-08-18).** TASK-052 owned the normalisation
+   and left the initiative; `apps/web/src/lib/api/client.ts` says so at the `apiClient`
+   docblock, and `ApiError.retryAfterSeconds` is undefined through it. The mapping does
+   exist in `mapBetterAuthError` (TASK-007), which the BFF proxy applies to `/api/auth/*`
+   errors: header first, body field second, and the proxy re-emits `Retry-After` on the
+   browser-facing response. `apiClient` does not read that header, so through the real
+   client the signup and sign-in screens show a rate-limit message with no seconds. Recorded
+   in `docs/roadmap.md` under "Carried forward from `identity-membership`, 2026-08-18"
+   (W5-01).
 5. Body not matching the envelope, including Better Auth's native errors from
    `/api/auth/*` (ADR-0013): mapped to `ApiError` with `code: 'internal_error'` and the
    original status, except Better Auth's documented shapes which are mapped explicitly.

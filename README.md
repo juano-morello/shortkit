@@ -5,10 +5,17 @@ once, creates a workspace per client, points that client's branded domain at the
 workspace, and invites teammates scoped to the clients they work on. Visitors never see
 the product. They get one redirect that resolves fast or does not.
 
-**None of that is here yet.** This repository holds the substrate underneath it: one
-migrated table, `tenants`; one route, `GET /health`; one static page; and the tenancy,
-contracts and CI machinery around them. The five increments that turn it into the product
-above are named in `docs/roadmap.md`, in the order they have to land.
+**Signup, sessions and workspaces are here. The rest is not.** After the
+`identity-membership` branch, an operator signs up, signs in and holds a session; signup
+creates a tenant and the operator's membership in it (`tenant_memberships`); the operator
+lists, creates, renames and archives workspaces through four authenticated routes under
+`/api/workspaces` and one screen in `apps/web`. The browser never calls the API directly.
+Every request goes through the web app's own BFF proxy at `/api/bff/…`, which holds the
+session cookies. Each matched API request writes one structured log line. Nothing else
+exists: no invitations and no mail, no links and no redirect, no custom domains, no export
+or erasure paths, no marketing site. The five increments that turn the substrate into the
+product above are named in `docs/roadmap.md`, in the order they have to land; item 1a is
+what this branch delivers.
 
 Two rules shape the code that exists:
 
@@ -16,11 +23,14 @@ Two rules shape the code that exists:
   transaction that has bound the tenant to the connection, and row-level security backs
   that up. Isolation gets measured by a suite that runs against a real database, not
   asserted in a comment. The suite states its own boundary on every run and writes it into
-  `report.json`, and the boundary is narrow: it covers the two tables that carry a tenant
-  boundary today — `tenants`, and a fixture table it creates and drops per run from the
-  same production policy builder — and no routes and no repositories, because none exist.
-  A green run means the mechanism works. **It does not mean the system has no uncovered
-  cross-tenant surface: most of the system is unwritten.**
+  `report.json`, and the boundary is still narrow: four tables (`tenants`; a fixture table
+  it creates and drops per run from the same production policy builder; `tenant_memberships`;
+  and `workspaces`, attacked as a table and through the five methods of its repository) and
+  the four registered `/api/workspaces` endpoints, attacked as a second signed-in operator.
+  Every one of those subjects is registered by hand, not discovered from the module graph,
+  and the run says so. A green run means the mechanism works for the surface someone
+  registered. **It does not mean the system has no uncovered cross-tenant surface: a route
+  nobody registered is a route nobody attacked, and most of the system is unwritten.**
 - **One set of contracts.** `packages/contracts` holds the zod schemas the API builds its
   error envelope from and the web client narrows on. It ships TypeScript source with no
   build step, so an incompatible change breaks `pnpm typecheck` in the same commit — and
@@ -36,8 +46,8 @@ statement behind a cache, no ORM, and no import from the management API — is r
 
 | Workspace | Package | What it is |
 | --- | --- | --- |
-| `apps/api` | `@shortkit/api` | NestJS. `GET /health` at the root; the management API prefix `/api` is registered and carries no routes yet |
-| `apps/web` | `@shortkit/web` | Next.js App Router. One static page and a 404 |
+| `apps/api` | `@shortkit/api` | NestJS. `GET /health` at the root; Better Auth mounted on Express at `/api/auth/*` ahead of Nest, behind a body cap and IP-keyed buckets; four workspace routes under `/api/workspaces`, behind a bearer-token guard and a per-request tenant transaction |
+| `apps/web` | `@shortkit/web` | Next.js App Router. `/signup`, `/sign-in`, `/workspaces`, a root page and a 404; the BFF proxy under `/api/bff/…` that holds the session cookies and forwards to the API |
 | `packages/contracts` | `@shortkit/contracts` | Shared zod schemas and the types inferred from them |
 
 ## Requirements
@@ -76,7 +86,7 @@ cannot break the stack silently.
 
 ## Where the decisions live
 
-`docs/decisions/` holds 61 ADRs and `docs/contracts/` holds 26 contracts. The code cites
+`docs/decisions/` holds 61 ADRs and `docs/contracts/` holds 27 contracts. The code cites
 them by number — `ADR-0003` in a docblock, a `Contract:` header at the top of a file — and
 every one of those citations resolves inside this repository. When a contract and the
 shipped file disagree the shipped file wins, and the divergence is a finding.
@@ -133,6 +143,7 @@ inserts one demo tenant, the API starts, and the web app starts once the API is 
 | `http://localhost:3000/` | the web app's root page |
 | `http://localhost:3000/signup` | the signup form; the request goes through the web app's own `/api/bff/…` route to the API |
 | `http://localhost:3000/sign-in` | the sign-in form, same path |
+| `http://localhost:3000/workspaces` | the workspace list, create, rename and archive screen; a request with no session bounces to `/sign-in` |
 | `http://localhost:3001/health` | `{"status":"ok","commit":"…"}` |
 | `postgres://shortkit_app:app@127.0.0.1:55432/shortkit` | the database |
 
@@ -243,6 +254,8 @@ and data, and the symptom is a green stack rather than an error. Set
 
 The volume is unencrypted developer storage. It survives `docker compose down`,
 `git clean -xdf` and a branch switch, and `docker volume ls` is the only place it appears.
-Today it holds one synthetic demo tenant, whatever you typed, and Postgres's own password
-verifiers for three fixture roles. Nothing personal. The first table carrying real
-personal data is what makes that sentence need rewriting.
+Today it holds one synthetic demo tenant, Postgres's own password verifiers for three
+fixture roles, and whatever you typed: a local signup writes its email address and password
+hash to Better Auth's `user` and `account` tables, and its workspace names to `workspaces`.
+Since 2026-08-18 that is real personal data if you typed a real address, so the volume is
+not something to hand around.

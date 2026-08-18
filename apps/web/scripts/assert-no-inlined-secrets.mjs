@@ -454,9 +454,10 @@ async function main() {
         `\`${POSITIVE_CONTROL_REFERENCE}\`) and no value for it were found anywhere under ` +
         `${POSITIVE_CONTROL_SCAN_ROOT.name} (excluding cache/). No compiled read means this run ` +
         'has no evidence either way, not evidence of a mismatch (F-171) — the positive control ' +
-        'is inactive, and this run does NOT prove build/check environment agreement. It ' +
-        'activates automatically the first time a module reachable from an entrypoint reads ' +
-        `${POSITIVE_CONTROL_VAR} (TASK-008).`,
+        'is inactive, and this run does NOT prove build/check environment agreement. That ' +
+        'is by design today: no non-test module reads the variable, because the browser ' +
+        'reaches the API through the same-origin BFF proxy. It activates automatically the ' +
+        `first time a module reachable from an entrypoint reads ${POSITIVE_CONTROL_VAR}.`,
     );
     return;
   }

@@ -65,8 +65,9 @@ export const SIGNUP_NAME = 'Integration Fixture';
  * Environment for the API child process.
  *
  * Every name here is **decided by this fixture**, exactly as `src/health/health.spec.ts`
- * decides `GIT_COMMIT_SHA` and says so: no ADR, contract, `.env.example` or workflow
- * names the variables the auth mount reads. `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`
+ * decides `GIT_COMMIT_SHA` and says so (written when no `.env.example` named them;
+ * `apps/api/.env.example` lists `GIT_COMMIT_SHA` and the auth mount's variables since
+ * TASK-009, and the fixture still decides its own values). `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`
  * are `better-auth`'s own conventions; `BFF_PROXY_SECRET` is named in
  * `docs/contracts/rate-limit.md:129` and is here because TASK-009 adds
  * `assertBffProxySecretConfigured()` to `main.ts`, which refuses to boot without it.

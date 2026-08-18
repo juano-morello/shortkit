@@ -181,7 +181,7 @@ was wrong and not what is owed, so the ledger is here and each strike below poin
 
 | Claim as written | Status today | What would make it true | Owner |
 |---|---|---|---|
-| "The suite reads the real module graph, so it cannot drift from what the server serves" (invariant 4) | **False in this wave.** No `AppModule` route carries tenant data, no class carries `@TenantScopedRepository()`, and the decorator itself throws `not implemented` | TASK-011 lands the decorator; TASK-056 lands the three discovery mechanisms in "Discovery". Until both, the substitute is the registry plus the five-arm drift check plus `db:check-policies`, and it is a substitute, not the thing | TASK-011, TASK-056 |
+| "The suite reads the real module graph, so it cannot drift from what the server serves" (invariant 4) | **False in this wave.** No `AppModule` route carries tenant data, no class carries `@TenantScopedRepository()`, and the decorator itself throws `not implemented`. *Amended 2026-08-18:* the decorator shipped in TASK-006 and no longer throws; `WorkspaceRepository` carries it and `WorkspacesController` carries four routes over tenant data. Nothing reads the marker or walks the routes yet, so the claim stays false | ~~TASK-011 lands the decorator~~ TASK-006 landed the decorator (amended 2026-08-18); TASK-056 lands the three discovery mechanisms in "Discovery". Until then, the substitute is the registry plus the five-arm drift check plus `db:check-policies`, and it is a substitute, not the thing | TASK-056 |
 | "`pnpm db:check-policies` is the same assertion" as the `pg_policies` shape check | **False.** `assertOnlyApprovedPolicies()` throws `not implemented`; the shape assertion is unbuilt. `db:check-policies` asserts `relrowsecurity` and `relforcerowsecurity` against an exception list and by its own header does **not** assert the policy set | TASK-056 implements `assertOnlyApprovedPolicies()` with expected `qual` strings captured from a live database after migration, which needs `tenantScopedTables()` (ADR-0019, TASK-053). Until then no test matches a policy against an approved shape by name and `qual` text | TASK-053, TASK-056 |
 | "`apps/api/test/isolation/report.json`, uploaded as a CI artifact" | **False.** `.gitignore` ignores the path and `ci.yml` has no `upload-artifact` step. The artifact exists only in the workspace of whichever job ran the suite | **F-297, open.** The upload must exist **and** fail the job when the artifact's `runAt` predates the job — that second half is the only side the collection-error residual can be closed from | F-297 |
 
@@ -240,9 +240,13 @@ method on an existing repository is discovered with no edit.
 // fails and names the class
 const undecorated = providers
   .filter((p) => /Repository$|Repo$/.test(p.name))
-  .filter((p) => !Reflect.getMetadata(TENANT_SCOPED_REPOSITORY, p.metatype));
+  .filter((p) => !Reflect.getMetadata(TENANT_SCOPED_REPOSITORY_METADATA, p.metatype));
 expect(undecorated).toEqual([]);
 ```
+
+The key is `TENANT_SCOPED_REPOSITORY_METADATA` (amended 2026-08-18): the snippet spelled it
+`TENANT_SCOPED_REPOSITORY` until then, and TASK-006 shipped it suffixed like the two route
+keys, in `apps/api/src/tenancy/tenant-context.ts`.
 
 plus: every table from `tenantScopedTables()` must be reachable through at least one
 registered repository, so a table with no repository fails too.
@@ -252,7 +256,13 @@ registered repository, so a table with no repository fails too.
 Added 2026-08-11 (F-327, F-333). All three mechanisms above are TASK-056's, and none of
 them runs today: no `AppModule` route carries tenant data, no class carries
 `@TenantScopedRepository()`, and the decorator itself still throws `not implemented`
-(TASK-011). **The set of subjects in this wave is a registry**, so `uncovered` is
+(TASK-011). *Amended 2026-08-18:* the decorator shipped in TASK-006, writing
+`TENANT_SCOPED_REPOSITORY_METADATA`; `WorkspaceRepository` (TASK-011) carries it and
+`WorkspacesController` (TASK-012) carries four routes over tenant data. Nothing reads the
+marker or walks the routes, so the subjects are still a registry, now of four tables and
+four hand-listed endpoints. The boundary as it stands is `COVERAGE_BOUNDARY` in
+`apps/api/test/isolation/coverage.ts`, reproduced verbatim into `report.json`; this file
+does not repeat it. **The set of subjects in this wave is a registry**, so `uncovered` is
 structurally `[]` and cannot fail on its own. An earlier version of the harness header
 claimed enumeration where there was a list, and the first audit round measured the
 consequence: a tenant-scoped table nobody registered leaked every row to every tenant, with
@@ -1261,9 +1271,10 @@ production run's judgement reads the value `runCrossTenantAttempts()` returned, 
    serves. **Not yet true in this wave** (added 2026-08-11, F-327): no route and no
    repository exists to walk, the subjects are a registry, and what holds the registry
    honest is the five-arm database cross-check plus `db:check-policies`. **What is owed —
-   TASK-011's decorator, then TASK-056's three discovery mechanisms — is in the ledger under
+   ~~TASK-011's decorator, then~~ TASK-056's three discovery mechanisms (the decorator shipped
+   in TASK-006; amended 2026-08-18) — is in the ledger under
    "What this contract claims that is not yet true". A caller may not rely on this invariant
-   until both land.**
+   until they land.**
 5. ~~Exactly two~~ **Exactly three** exclusions exist (amended 2026-08-14, TASK-002), each justified in-file, and each narrowed by database
    policy.
 6. **The complete set of ways data crosses a tenant boundary is the approved policy set
@@ -1283,8 +1294,8 @@ production run's judgement reads the value `runCrossTenantAttempts()` returned, 
 
 ## What the implementer must guarantee
 
-- TASK-011 makes `@Public()` and `@NoTenantTransaction()` require a non-empty
-  justification string. Both are enumerated and printed.
+- ~~TASK-011~~ TASK-006 (amended 2026-08-18) makes `@Public()` and `@NoTenantTransaction()`
+  require a non-empty justification string. Both are enumerated and printed.
 - **A `@NoTenantTransaction` route may not also carry `@RequireTenantRole` or
   `@RequireWorkspaceRole`.** The suite asserts that combination never exists (F-020):
   the guards need an ambient tenant context the route does not have, and the cheapest
@@ -1388,8 +1399,10 @@ thought of", and items 1 and 2 are the next two nobody thought of.
    rather than as an `OR` arm inside the first is a shape no control carries. PostgreSQL
    ORs permissive policies together, so the second one widens the first without editing it.
    The nearest thing to a check is the suite's hand-derived policy-count assertion, and it
-   covers `tenants` and `rls_fixture_rows` only — **nothing catches an added permissive
-   policy on any future table** until TASK-056's `pg_policies` shape assertion exists.
+   covers `tenants` and `rls_fixture_rows` only (and `tenant_memberships` since TASK-002;
+   `workspaces` has no count assertion, noted 2026-08-18) — **nothing catches an added
+   permissive policy on any future table** until TASK-056's `pg_policies` shape assertion
+   exists.
 
 ## What is load-bearing and unpinned
 

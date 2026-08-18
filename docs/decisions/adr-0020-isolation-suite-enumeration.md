@@ -66,6 +66,10 @@ const undecorated = providers
 expect(undecorated).toEqual([]);
 ```
 
+**Amended 2026-08-18.** The key TASK-006 shipped is `TENANT_SCOPED_REPOSITORY_METADATA`,
+suffixed like the two route keys, in `apps/api/src/tenancy/tenant-context.ts`. The snippet
+above stays as written on 2026-08-04.
+
 A second check asserts every table from `tenantScopedTables()` (ADR-0019) is reachable
 through at least one registered repository, so a table with no repository is a failure
 too. Three independent mechanisms, and defeating all three requires deliberately naming
@@ -180,7 +184,10 @@ that stops a red run publishing a green artifact are declared in `isolation-cove
   `@TenantScopedRepository()`, and the decorator throws `not implemented` (TASK-011). What
   stands in for it in wave 2, and why it is a substitute rather than the thing, is in
   `isolation-coverage.md`, "The registry, and what bounds the covered set before TASK-056
-  exists".
+  exists". **Amended 2026-08-18.** The decorator shipped in TASK-006 with the required
+  justification on `@Public()` and `@NoTenantTransaction()`; `WorkspaceRepository` carries
+  `@TenantScopedRepository()`. Nothing reads the marker yet, so the sentence stays not yet
+  true.
 - Three independent discovery mechanisms mean a single omission is caught by at least
   one. **Two of the three are unbuilt** (same amendment). The one that runs is a database
   cross-check the ADR did not anticipate, and it is independent of the registry rather than
@@ -214,7 +221,8 @@ that stops a red run publishing a green artifact are declared in `isolation-cove
 
 - TASK-006 builds `createTenantFixtures`, `assertNoCrossTenantAccess` and
   `isolationReport` against the surface-descriptor shape in the contract.
-- TASK-011 makes `@Public()` carry a required justification string.
+- TASK-011 makes `@Public()` carry a required justification string. **Amended 2026-08-18:**
+  TASK-006 did, for `@Public()` and `@NoTenantTransaction()` both, at decoration time.
 - Every repository-producing TASK applies `@TenantScopedRepository()`.
 - TASK-056 owns discovery, the three checks, the exclusion list, the AC-95 snapshot
   check, and `report.json`. **Revised 2026-08-11 (F-327):** TASK-006 shipped `report.json`,

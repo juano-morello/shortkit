@@ -104,6 +104,12 @@ export function resolveRateLimitPrincipal(
 ): string | null;
 ```
 
+**Amended 2026-08-18 (TASK-004).** The shipped signature is
+`resolveRateLimitPrincipal(headers: TrustedAddressHeaders, env: Record<string, string | undefined>)`:
+the environment is a parameter, not `process.env` read inside, so the trusted-proxy branch
+and the `TRUSTED_CLIENT_IP_HEADER` fallback are both decided from what the caller passes.
+The rules below are unchanged. The shipped file wins and the divergence is recorded here.
+
 **Revised 2026-08-11 (F-320). The return type was `string` and the fallback branch was
 `Fly-Client-IP`.** ADR-0030 deleted the platform that set and stripped that header, so the
 fallback returned a value any caller could choose, which is what F-009 forbids and what
@@ -306,6 +312,21 @@ outcome was that it never got built.
 | email bucket, `hooks.before` | `apps/api/src/auth/auth.config.ts` | **TASK-009** |
 | `AuthRateLimitPort` and its token | `apps/api/src/auth/ports/auth-rate-limit.port.ts` | **TASK-009** |
 | `LocalAuthRateLimiter` (in-process) | `apps/api/src/auth/ports/local-auth-rate-limiter.ts` | **TASK-009** |
+
+**Amended 2026-08-18 (TASK-004).** The mount shipped under identity-membership's TASK-004,
+not the foundation card TASK-009, and the files landed at these paths, with no `middleware/`
+directory:
+
+| Piece | Shipped file |
+|---|---|
+| `authBodyCap` | `apps/api/src/auth/auth-body-cap.ts` |
+| `authRateLimit` and `LocalAuthRateLimiter` | `apps/api/src/auth/auth-rate-limit.ts` |
+| `AuthRateLimitPort`, `AUTH_RATE_LIMIT_PORT` | `apps/api/src/auth/ports/auth-rate-limit.port.ts` |
+| `resolveRateLimitPrincipal`, `BFF_CLIENT_IP_HEADER`, `BFF_PROXY_AUTH_HEADER` | `apps/api/src/auth/resolve-rate-limit-principal.ts` |
+| `assertBffProxySecretConfigured`, `assertTrustedClientIpHeaderConfigured` | `apps/api/src/auth/boot-assertions.ts` |
+| the `TRUSTED_CLIENT_IP_HEADER` read (`trusted-client-address.md`) | `apps/api/src/common/net/trusted-client-address.ts` |
+
+The rows above stay as written; the shipped file wins and this table records the divergence.
 | `RedisAuthRateLimiter` | `apps/api/src/common/rate-limit/redis-auth-rate-limiter.ts` | **TASK-051** |
 | `RateLimitGuard` and the tenant bucket | `apps/api/src/common/rate-limit/**` | **TASK-051** |
 | binding the Redis implementation to the token | `apps/api/src/app.module.ts` | **TASK-051** |

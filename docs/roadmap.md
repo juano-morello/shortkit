@@ -27,12 +27,23 @@ Each item below needs the one above it.
 
    **Split at the Refine gate, 2026-08-12.** The sentence held two increments.
 
-   - **1a — `identity-membership`, in flight.** Signup, session, tenant membership and
-     workspaces. Better Auth per ADR-0013, `tenant_memberships` per ADR-0015 with its
-     `UNIQUE (user_id)`, a tenant-scoped `workspaces` table, and three screens in `apps/web`.
-     Email verification off as a dated decision, because `MAIL_TRANSPORT` unset binds
-     `NoopMailSender` and requiring verification would make signup uncompletable. This is the
-     first request path in shortkit and the first time SC-1 is testable.
+   - **1a — `identity-membership`, implemented on branch `feat/identity-membership`, PR
+     pending.** Signup, session, tenant membership and workspaces. Better Auth per ADR-0013,
+     `tenant_memberships` per ADR-0015 with its `UNIQUE (user_id)`, a tenant-scoped
+     `workspaces` table, and three screens in `apps/web`. Email verification off as a dated
+     decision, because `MAIL_TRANSPORT` unset binds `NoopMailSender` and requiring
+     verification would make signup uncompletable. This is the first request path in
+     shortkit and the first time SC-1 is testable.
+
+     **Shipped 2026-08-18.** The Better Auth mount at `/api/auth/*` with its body cap and
+     IP buckets; `AuthGuard` over cached JWKS and the revocation store; the tenant
+     transaction interceptor and the three tenancy decorators; the `workspaces` table, its
+     repository, four routes under `/api/workspaces` and the workspaces screen; the signup
+     and sign-in screens and the BFF proxy that holds the session cookies; one request log
+     line per matched request; the isolation suite over four tables and the four endpoints,
+     registered by hand; and the compose stack driving signup, sign-in and workspace
+     creation end to end. Out, by the split above: mail, invitations, `memberships` and
+     `WorkspaceRole` enforcement, all 1b.
    - **1b — invitations.** The second-human path: capability tokens per ADR-0021, mail, the
      accept legs, `memberships` and `WorkspaceRole` enforcement. **F-018, F-300/F-362 and
      F-386/F-401 belong to this entry**, not to 1a, and stay in the carried-forward table
@@ -57,7 +68,8 @@ Each item below needs the one above it.
 
 4. **Operations, safety and compliance.** Link changes are attributable, write abuse is
    bounded per tenant, tenants can export and erase their data, and the isolation suite
-   covers the whole surface instead of the two tables it reaches today.
+   covers the whole surface instead of the four tables and four endpoints it reaches today
+   (two tables when this was written; 1a widened it on 2026-08-18).
 
 5. **Public marketing surface.** Someone lands on the apex domain and works out what
    Shortkit is without creating an account.
@@ -74,7 +86,9 @@ Two things the old plan already knew. Carry them forward, or pay to learn them a
 - **Item 4 carries the suite that backs the tenancy claim.** The harness exists and passes
   today, over two tables: `tenants` and `rls_fixture_rows`, which is every table the
   repository has. It prints that boundary on every run. The claim gets stronger only as the
-  surface it covers grows.
+  surface it covers grows. (Since 2026-08-18: four tables, `tenant_memberships` and
+  `workspaces` added, and the four `/api/workspaces` endpoints; still registered by hand,
+  and the run still prints that.)
 
 ## Carried forward 2026-08-11 — the isolation harness's method, not its coverage
 
@@ -274,3 +288,46 @@ authorised ten deletions.
   lands inside the escape's evaluation **with no edit to that policy**. `check-policies.mts`'s grant
   matrix reports the grant but does not connect it to the escape, and there is no automated control
   that does. Whoever adds the role owns the check.
+
+## Carried forward from `identity-membership`, 2026-08-18
+
+Gaps the wave ledger recorded as real and nothing on the branch closes. Each line carries
+its ledger id.
+
+- **W8-07, W8-02** — a guard-refused 401, and every `DomainError` refusal, leaves no
+  request log line: the interceptor wraps matched handlers only and the filter's
+  `DomainError` branch does not log. Repeated credential failures on the bearer surface are
+  unobservable. Express-level request logging in `main.ts` is the place.
+- **W5-01** — `apiClient` does not normalise a 429's `Retry-After` header or
+  `retryAfterSeconds` body into `ApiError.retryAfterSeconds`; `web-api-client.md` step 4
+  says it does. `mapBetterAuthError` does it on the BFF side, so through the real client the
+  auth screens show a rate-limit message with no seconds. TASK-052 owned it and left the
+  initiative.
+- **W4-13** — the ESLint config has no `eslint-plugin-react-hooks` and no `jsx-a11y`, so
+  `use-session.ts` has no rules-of-hooks or exhaustive-deps coverage. Needs a dependency add
+  and a lockfile change.
+- **W8-06** — `serverApiClient`'s `token_expired` bounce drops the current URL for every
+  protected page. The workspaces page handles it locally in `refresh-bounce.ts` by parsing
+  Next's `NEXT_REDIRECT` digest; the fix belongs in `src/lib`, with `serverApiClient`
+  accepting a `returnTo`.
+- **W3-02** — `203.0.113.60` and its IPv4-mapped form `::ffff:203.0.113.60` key two
+  rate-limit buckets. Reachable only through a trusted proxy that forwards mixed forms.
+  Canonicalise in `readTrustedClientAddress`.
+- **W3-01** — the auth body cap's 413 linger path holds a slow-drip client's connection
+  until Node's default `requestTimeout` (5 min); `main.ts` sets no `server.requestTimeout`
+  and no `headersTimeout`.
+- **W5-04** — a handler returning a non-completing Observable (SSE, a stream) under the
+  tenant transaction interceptor holds a pooled connection; `idle_in_transaction_session_timeout`
+  kills the backend after 5 s but `client().transaction` may never settle. No such route
+  exists. An overall deadline in `withTenantTransaction`, or a rule that forbids streaming
+  handlers under the interceptor.
+- **W4-08** — `AuthGuard` has no refetch on an unknown `kid`; a rotated key 401s until the
+  600 s JWKS TTL passes. That matches `auth-tokens.md`'s key-rolling convention (publish,
+  wait 600 s) and is where a skipped rotation wait shows up.
+- **W8-03 (F-216)** — Better Auth's package-level `onError` logger writes
+  `ERROR [Better Auth]: Invalid JSON in request body` to stderr, coloured, bypassing pino.
+  A fixed string today; the SC-5 scan pins that only it and Nest's bootstrap lines are
+  non-JSON.
+- **W8-01** — the request log line carries no `method`. `logging-and-headers.md`'s
+  "Required fields" table does not name it and ADR-0028 lets no unnamed field through, so
+  the contract amendment comes first.
