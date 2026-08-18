@@ -173,3 +173,184 @@ a {
   margin: 1.5rem 0 0;
   color: var(--muted);
 }
+
+/* ---- Workspaces screen (TASK-013) ------------------------------------------ */
+
+.workspaces-page h2 {
+  font-size: 1.125rem;
+  line-height: 1.3;
+  margin: 0 0 0.5rem;
+}
+
+.workspaces-lede {
+  color: var(--muted);
+  margin: 0 0 1rem;
+}
+
+.workspaces-create {
+  margin: 0 0 2rem;
+}
+
+.workspaces-form {
+  display: grid;
+  gap: 1rem;
+  max-width: 24rem;
+}
+
+.workspaces-form button[type='submit'],
+.workspace-rename button[type='submit'] {
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 0.375rem;
+  padding: 0.625rem 1rem;
+  cursor: pointer;
+  justify-self: start;
+}
+
+@media (prefers-color-scheme: dark) {
+  .workspaces-form button[type='submit'],
+  .workspace-rename button[type='submit'] {
+    color: #111111;
+  }
+}
+
+.workspaces-form button[aria-disabled='true'],
+.workspace-rename button[aria-disabled='true'],
+.workspace-row-actions button[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Secondary controls: bordered, the page's text colour, no colour-only meaning. */
+button.secondary {
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+}
+
+/* The polite live region: reserved height so an announcement is not a layout jump; keeps the ring when focused. */
+.workspaces-status {
+  min-height: 1.5rem;
+  margin: 0 0 1rem;
+  color: var(--notice);
+}
+
+.workspaces-status:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.workspaces-error {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  margin: 0 0 1rem;
+}
+
+.workspace-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.workspace-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Text badge: the word "Archived" carries the state; the border only frames it. */
+.workspace-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+}
+
+.workspace-row-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.workspace-rename {
+  display: grid;
+  gap: 0.5rem;
+  flex: 1 1 100%;
+}
+
+.workspace-rename .field {
+  max-width: 24rem;
+}
+
+/* The two-step archive confirm: the question is text; Confirm is the only sender. */
+.workspace-archive-confirm {
+  display: grid;
+  gap: 0.5rem;
+  flex: 1 1 100%;
+}
+
+.workspace-archive-question {
+  margin: 0;
+}
+
+.workspace-archive-confirm button:not(.secondary) {
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--error);
+  border: 0;
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .workspace-archive-confirm button:not(.secondary) {
+    color: #111111;
+  }
+}
+
+.workspaces-switch {
+  margin: 1.5rem 0 0;
+}
+
+/* Visually hidden, still read: the per-row buttons say which workspace they act on. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
