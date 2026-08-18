@@ -1,5 +1,6 @@
 /**
- * Contract: docs/contracts/error-envelope.md, slug.md, workspace-authorization.md, workspaces.md
+ * Contract: docs/contracts/error-envelope.md, slug.md, workspace-authorization.md, workspaces.md,
+ *           invitation-tokens.md
  * ADR: adr-0005-contract-distribution.md
  * Produced by: TASK-007
  *
@@ -24,7 +25,7 @@ export * from './domains/reserved-hostnames';
 export * from './auth';         // TASK-001
 // export * from './domains';      // TASK-040
 // export * from './gdpr';         // TASK-053
-// export * from './invitations';  // TASK-021
+export * from './invitations';  // TASK-1b-01
 // export * from './links';        // TASK-025
 export * from './members';      // TASK-001
 export * from './workspaces';   // TASK-012; TASK-014, TASK-045 extend it

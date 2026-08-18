@@ -7,8 +7,14 @@
  * `asTenantRole` and `tenantRoleRank` have thrown `not implemented` since `roles.ts`
  * shipped, because nothing had a caller for them. `parseTenantMembership` is that caller
  * (ADR-0048), so TASK-001 implements both — and only both. `asWorkspaceRole` and `roleRank`
- * stay throwing: workspace membership is out of scope and a function with no caller has
- * nothing to assert against, so nothing here pins their stub form either.
+ * stayed throwing through 1a: workspace membership was out of scope and a function with no
+ * caller has nothing to assert against.
+ *
+ * TASK-1b-01 (STORY-1b-01, item 1b) implements the other two. `parseWorkspaceMembership`
+ * (`members/index.ts`) is `asWorkspaceRole`'s first caller and `meetsWorkspaceRole` — every
+ * workspace-role check in 1b — is `roleRank`'s. The workspace tables below mirror the tenant
+ * ones, plus the two inherited-property keys (`toString`, `__proto__`) that a bare
+ * `undefined` check on the rank lookup would let through.
  *
  * ============================================================================
  * TABLE-DRIVEN, BECAUSE A BARE `toThrow()` PASSES AGAINST THE STUB.
@@ -26,7 +32,10 @@ import {
   TENANT_ROLE,
   WORKSPACE_ROLE,
   asTenantRole,
+  asWorkspaceRole,
   meetsTenantRole,
+  meetsWorkspaceRole,
+  roleRank,
   tenantRoleRank,
 } from './roles';
 
@@ -47,6 +56,23 @@ function rankOrThrows(role: TenantRole | 'not-a-role'): number | typeof THROWS {
     // this function in production code, and the unknown-key row is the one place a test has
     // to supply one anyway.
     return tenantRoleRank(role as never);
+  } catch {
+    return THROWS;
+  }
+}
+
+function workspaceBrandedOrThrows(value: string): string {
+  try {
+    return asWorkspaceRole(value);
+  } catch {
+    return THROWS;
+  }
+}
+
+function workspaceRankOrThrows(role: WorkspaceRole | string): number | typeof THROWS {
+  try {
+    // Same `as never` as `rankOrThrows`, for the same reason.
+    return roleRank(role as never);
   } catch {
     return THROWS;
   }
@@ -163,6 +189,112 @@ describe('meetsTenantRole', () => {
     expect([
       meetsTenantRole(TENANT_ROLE.member, TENANT_ROLE.admin),
       meetsTenantRole(TENANT_ROLE.member, TENANT_ROLE.owner),
+    ]).toEqual([false, false]);
+  });
+});
+
+describe('asWorkspaceRole', () => {
+  it('AC-1b-1 (ADR-0048): it brands the three workspace roles and refuses every other value', () => {
+    const cases = [
+      'workspace_admin',
+      'member',
+      'viewer',
+      // In TENANT_ROLES and not in WORKSPACE_ROLES. The mirror of the `viewer` row above: a
+      // validator written against "is a known role name" brands this `workspace`.
+      'owner',
+      'admin',
+      'nonsense',
+      'WORKSPACE_ADMIN',
+      '',
+      // Inherited-property keys. `WORKSPACE_ROLES.includes` refuses them; a lookup-based
+      // guard would not (see `roleRank`).
+      'toString',
+      '__proto__',
+    ];
+
+    expect(cases.map(workspaceBrandedOrThrows)).toEqual([
+      'workspace_admin',
+      'member',
+      'viewer',
+      THROWS,
+      THROWS,
+      THROWS,
+      THROWS,
+      THROWS,
+      THROWS,
+      THROWS,
+    ]);
+  });
+
+  /**
+   * F-090's mechanism, applied to the second cast. The directive is the assertion and it
+   * runs under `pnpm typecheck`; see the tenant twin above for why it is not redundant.
+   */
+  it('AC-1b-1 (ADR-0023, F-090): it refuses an already-branded WorkspaceRole, so a brand cannot be re-applied', () => {
+    const alreadyBranded: WorkspaceRole = WORKSPACE_ROLE.viewer;
+
+    // @ts-expect-error Unbranded<T> is `never` for a branded argument (TS2345). Widening
+    // the parameter to `T` makes this line legal and this directive unused.
+    const rebranded = asWorkspaceRole(alreadyBranded);
+
+    expect(rebranded).toBe('viewer');
+  });
+
+  it('AC-1b-1 (ADR-0023, F-090): it refuses a branded TenantRole — `assert(wsId, asWorkspaceRole(ctx.tenantRole))` is roles.ts:81-85 exactly', () => {
+    const tenantRole: TenantRole = TENANT_ROLE.member;
+
+    // @ts-expect-error Unbranded<T> is `never` for a branded argument (TS2345). This is
+    // the Form B laundering shape roles.ts names, in the direction 1b now has a caller for.
+    const laundered = asWorkspaceRole(tenantRole);
+
+    // And, as with the tenant twin, the runtime guard does not catch it: `member` is a
+    // value in both enums. The parameter type is the only thing in the way.
+    expect(laundered).toBe('member');
+  });
+});
+
+describe('roleRank', () => {
+  it('AC-1b-19: it answers the rank table for each workspace role and throws on an unknown key', () => {
+    const cases = [
+      WORKSPACE_ROLE.viewer,
+      WORKSPACE_ROLE.member,
+      WORKSPACE_ROLE.workspace_admin,
+      'not-a-role',
+    ];
+
+    expect(cases.map(workspaceRankOrThrows)).toEqual([10, 20, 30, THROWS]);
+  });
+
+  it('AC-1b-19: it throws on inherited-property keys rather than returning a function or a prototype', () => {
+    // `WORKSPACE_ROLE_RANK['toString']` is `Object.prototype.toString` and
+    // `WORKSPACE_ROLE_RANK['__proto__']` is `Object.prototype`: neither is `undefined`, so a
+    // guard of the form `if (rank === undefined) throw` lets both through and the caller's
+    // `>=` comparison runs against a function. The membership guard is what closes it; this
+    // is the same reasoning `tenantRoleRank`'s docblock records.
+    expect([workspaceRankOrThrows('toString'), workspaceRankOrThrows('__proto__')]).toEqual([
+      THROWS,
+      THROWS,
+    ]);
+  });
+});
+
+describe('meetsWorkspaceRole', () => {
+  it('AC-1b-19: a member does not meet a minimum of workspace_admin', () => {
+    expect(meetsWorkspaceRole(WORKSPACE_ROLE.member, WORKSPACE_ROLE.workspace_admin)).toBe(false);
+  });
+
+  it('AC-1b-19: a workspace_admin meets a minimum of member', () => {
+    expect(meetsWorkspaceRole(WORKSPACE_ROLE.workspace_admin, WORKSPACE_ROLE.member)).toBe(true);
+  });
+
+  it('AC-1b-19: a role meets itself', () => {
+    expect(meetsWorkspaceRole(WORKSPACE_ROLE.viewer, WORKSPACE_ROLE.viewer)).toBe(true);
+  });
+
+  it('AC-1b-19 (AC-104): a viewer meets neither write minimum, because viewer is the lowest rank', () => {
+    expect([
+      meetsWorkspaceRole(WORKSPACE_ROLE.viewer, WORKSPACE_ROLE.member),
+      meetsWorkspaceRole(WORKSPACE_ROLE.viewer, WORKSPACE_ROLE.workspace_admin),
     ]).toEqual([false, false]);
   });
 });
