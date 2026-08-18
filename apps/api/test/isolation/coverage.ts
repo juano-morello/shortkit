@@ -559,14 +559,17 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-015, wave 9. This run covers FOUR TABLES and FOUR AUTHENTICATED ENDPOINTS, in ' +
-  'TWO ATTEMPT CATEGORIES. ' +
-  'THE FOUR TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
+  'TASK-1b-03, wave 1 of 1b (amending TASK-015, wave 9). This run covers SEVEN TABLES ' +
+  'and FOUR AUTHENTICATED ENDPOINTS, in TWO ATTEMPT CATEGORIES. ' +
+  'THE SEVEN TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
   '`tenants` (the migrated cascade root, four bespoke policies), `rls_fixture_rows` (a ' +
   'FIXTURE TABLE this suite creates and drops per run, built from the production ' +
   'tenantScopedPolicies()), `tenant_memberships` (migrated, TASK-002 — carrying the ' +
-  'token-mint FOR SELECT escape as a third policy), and `workspaces` (migrated, TASK-011 ' +
-  '— attacked both as a table and through the five methods of WorkspaceRepository). Each ' +
+  'token-mint FOR SELECT escape as a third policy), `workspaces` (migrated, TASK-011 ' +
+  '— attacked both as a table and through the five methods of WorkspaceRepository), and ' +
+  '`memberships`, `invitations` and `invitation_workspaces` (migrated, TASK-1b-03, ' +
+  'migration 0003 — the template unchanged, two policies each, attacked as tables only ' +
+  'until InvitationRepository and MembershipRepository register their methods). Each ' +
   'is hit with EIGHT statement shapes in BOTH directions; three of the eight carry NO ' +
   'WHERE CLAUSE (F-302) and one of those assigns the owner column (F-330). ' +
   'THE FOUR ENDPOINTS, attacked as authenticated HTTP requests by a second signed-in ' +
@@ -611,7 +614,8 @@ export const COVERAGE_BOUNDARY =
   'and the token-mint membership lookup — each narrowed by database policy and justified ' +
   'in-file; the LENGTH of that list is the control, so a new exclusion arrives as a ' +
   'one-line diff a reviewer sees. And most of the system is simply unwritten: there are ' +
-  'no `links`, `domains` or `click_events` tables and no other authenticated routes.';
+  'no `links`, `domains` or `click_events` tables, no invitation or membership routes yet ' +
+  '(1b waves 2-4), and no other authenticated routes.';
 
 /* ========================================================================== *
  * The registry. This is the enumeration mechanism.

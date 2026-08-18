@@ -31,6 +31,11 @@
  * eight-shape statement battery every table gets, and `WorkspaceRepository` names the
  * class in `src/workspaces/workspace.repository.ts` and attempts ITS FIVE METHODS, so
  * `repo:WorkspaceRepository.rename` in `report.json` points at a method that exists.
+ *
+ * SINCE TASK-1b-03 THREE MORE TABLES ARE REGISTERED AS BATTERIES: `memberships`,
+ * `invitations` and `invitation_workspaces` (migration 0003, ADR-0062), each the eight
+ * shapes and nothing else until their repositories land (TASK-1b-04, TASK-1b-05) and
+ * register their own methods beside them.
  */
 import { sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
@@ -690,6 +695,83 @@ const WORKSPACE_SEEDED_NAME = 'seeded-workspace';
 
 /**
  * ===========================================================================
+ * THE THREE 1b TABLES (TASK-1b-03, ADR-0062): `memberships`, `invitations`,
+ * `invitation_workspaces`. Migration `0003_*.sql` carries `tenantScopedPolicies()` for
+ * each, hand-appended, template unchanged — two policies per table, no bespoke policy.
+ * ===========================================================================
+ *
+ * Seeded per tenant in `resetTenantFixtures()` below, one row each — except `invitations`,
+ * which gets TWO per tenant, and the second exists for one reason: `invitation_workspaces`
+ * is `UNIQUE (invitation_id, workspace_id)`, each tenant has one seeded workspace, so a
+ * planted `invitation_workspaces` row naming the seeded (invitation, workspace) pair would
+ * collide with the seeded row. Under the shipped policy the RLS refusal comes first and
+ * the collision is never reached; under a WIDENED `WITH CHECK` — the defect the insert
+ * shape exists to name — the row would be admitted and then refused 23505, which the
+ * harness scores `unverified` rather than `fail`. Naming a leak is worth one spare row, so
+ * the planted pair is (the tenant's SPARE invitation, the tenant's seeded workspace) and
+ * collides with nothing. `tenants` and `tenant_memberships` solve the same trap with a
+ * never-seeded id; here the foreign keys need a parent that exists.
+ *
+ * ROWS CROSS THE `"user"` GRANT BOUNDARY AND GO IN THROUGH THE MIGRATOR DSN, exactly as
+ * `tenant_memberships`'s do: `memberships.user_id` and `invitations.invited_by_user_id`
+ * reference `"user"`, which `shortkit_app` cannot read (ADR-0050). The seeded users are
+ * the ones `tenant_memberships` already plants; the planted user is the third one.
+ *
+ * THE COMPOSITE FOREIGN KEY IS A SECOND FLOOR UNDER `reparentAll` (ADR-0062).
+ * `memberships` and `invitation_workspaces` declare `FOREIGN KEY (workspace_id, tenant_id)
+ * REFERENCES workspaces (id, tenant_id)`. Under the shipped policy `UPDATE <t> SET
+ * tenant_id = <actor>` reaches only the actor's own rows and is an identity update. Under
+ * a widened USING it would rewrite the target's row to (target's workspace, actor's tenant),
+ * a pair `workspaces` does not hold, and the FK refuses it 23503 — `unverified`, naming the
+ * surface, which is the F-342 accounting: narrower than a `fail`, still a red run. The
+ * constraint refusing the theft is the property the ADR exists to record, not a gap.
+ */
+const WORKSPACE_MEMBERSHIP_ROW_A = 'a3a3a3a3-a3a3-4a3a-8a3a-a3a3a3a3a3a3';
+const WORKSPACE_MEMBERSHIP_ROW_B = 'b3b3b3b3-b3b3-4b3b-8b3b-b3b3b3b3b3b3';
+const PLANTED_WORKSPACE_MEMBERSHIP_ROW_ID = 'f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6';
+/** Seeded `workspace_admin`, overwritten with `viewer`: an enum, like `tenant_memberships.role`. */
+const WORKSPACE_MEMBERSHIP_SEEDED_ROLE = 'workspace_admin';
+const WORKSPACE_MEMBERSHIP_OVERWRITE_ROLE = 'viewer';
+
+const INVITATION_ROW_A = 'a4a4a4a4-a4a4-4a4a-8a4a-a4a4a4a4a4a4';
+const INVITATION_ROW_B = 'b4b4b4b4-b4b4-4b4b-8b4b-b4b4b4b4b4b4';
+const INVITATION_SPARE_ROW_A = 'a5a5a5a5-a5a5-4a5a-8a5a-a5a5a5a5a5a5';
+const INVITATION_SPARE_ROW_B = 'b5b5b5b5-b5b5-4b5b-8b5b-b5b5b5b5b5b5';
+const PLANTED_INVITATION_ROW_ID = 'f7f7f7f7-f7f7-4f7f-8f7f-f7f7f7f7f7f7';
+/**
+ * `token_digest` is `bytea NOT NULL UNIQUE` (SHA-256 of a secret half, invitation-tokens.md).
+ * Fixed 32-byte constants, hex, one per row that must exist at once, so the unique index
+ * is never what refuses a statement. No raw token corresponds to any of them.
+ */
+const INVITATION_DIGEST_HEX_A = 'a4'.repeat(32);
+const INVITATION_DIGEST_HEX_B = 'b4'.repeat(32);
+const INVITATION_DIGEST_HEX_SPARE_A = 'a5'.repeat(32);
+const INVITATION_DIGEST_HEX_SPARE_B = 'b5'.repeat(32);
+const INVITATION_DIGEST_HEX_PLANTED = 'f7'.repeat(32);
+const INVITATION_SEEDED_EMAIL = 'invitee@example.test';
+
+const INVITATION_WORKSPACE_ROW_A = 'a6a6a6a6-a6a6-4a6a-8a6a-a6a6a6a6a6a6';
+const INVITATION_WORKSPACE_ROW_B = 'b6b6b6b6-b6b6-4b6b-8b6b-b6b6b6b6b6b6';
+const PLANTED_INVITATION_WORKSPACE_ROW_ID = 'f8f8f8f8-f8f8-4f8f-8f8f-f8f8f8f8f8f8';
+const INVITATION_WORKSPACE_SEEDED_ROLE = 'member';
+const INVITATION_WORKSPACE_OVERWRITE_ROLE = 'viewer';
+
+/** The seeded parents a planted 1b row must name, keyed by the tenant that owns them. */
+function seededParentsOf(tenantId: string): { workspaceId: string; spareInvitationId: string } {
+  switch (tenantId) {
+    case TENANT_A:
+      return { workspaceId: WORKSPACE_ROW_A, spareInvitationId: INVITATION_SPARE_ROW_A };
+    case TENANT_B:
+      return { workspaceId: WORKSPACE_ROW_B, spareInvitationId: INVITATION_SPARE_ROW_B };
+    default:
+      throw new Error(
+        `no seeded parents for tenant ${tenantId}; resetTenantFixtures seeds A and B only`,
+      );
+  }
+}
+
+/**
+ * ===========================================================================
  * THE RESET EVERY REGISTRATION IN THIS FILE USES. IT REBUILDS THE WHOLE FIXTURE,
  * NOT ONE SUBJECT'S SHARE OF IT — AND THAT IS F-123.
  * ===========================================================================
@@ -727,6 +809,12 @@ function resetTenantFixtures(): void {
   // already cascaded every workspace row away — seeded and planted alike — so no DELETE
   // is needed for them.
   //
+  // AND THE THREE 1b TABLES (TASK-1b-03), in dependency order under the same flag:
+  // `memberships` (needs the workspace and the user), `invitations` (two per tenant, the
+  // second being the spare parent the docblock above explains), `invitation_workspaces`
+  // (needs the invitation and the workspace). All three carry FORCE ROW LEVEL SECURITY and
+  // all three cascade from `tenants`, so the erase above already cleared them.
+  //
   // Deleting the `"user"` rows cascades their memberships too, which is what clears a row
   // a previous attempt planted. `"user"` carries no row-level security (ADR-0044), so
   // that half needs no tenant context — only the migrator's grant. The membership inserts
@@ -754,12 +842,26 @@ function resetTenantFixtures(): void {
        VALUES (:'row_a', :'tenant_a', :'user_a', :'seeded_role');
      INSERT INTO workspaces (id, tenant_id, name)
        VALUES (:'workspace_a', :'tenant_a', :'workspace_name');
+     INSERT INTO memberships (id, tenant_id, workspace_id, user_id, role)
+       VALUES (:'membership_a', :'tenant_a', :'workspace_a', :'user_a', :'membership_role');
+     INSERT INTO invitations (id, tenant_id, email, token_digest, expires_at, invited_by_user_id, inviter_email) VALUES
+       (:'invitation_a',       :'tenant_a', :'invitee', decode(:'digest_a',       'hex'), now() + interval '7 days', :'user_a', :'email_a'),
+       (:'invitation_spare_a', :'tenant_a', :'invitee', decode(:'digest_spare_a', 'hex'), now() + interval '7 days', :'user_a', :'email_a');
+     INSERT INTO invitation_workspaces (id, tenant_id, invitation_id, workspace_id, role)
+       VALUES (:'invitation_workspace_a', :'tenant_a', :'invitation_a', :'workspace_a', :'invitation_workspace_role');
 
      SELECT set_config('app.tenant_id', :'tenant_b', false) \\g /dev/null
      INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
        VALUES (:'row_b', :'tenant_b', :'user_b', :'seeded_role');
      INSERT INTO workspaces (id, tenant_id, name)
-       VALUES (:'workspace_b', :'tenant_b', :'workspace_name');`,
+       VALUES (:'workspace_b', :'tenant_b', :'workspace_name');
+     INSERT INTO memberships (id, tenant_id, workspace_id, user_id, role)
+       VALUES (:'membership_b', :'tenant_b', :'workspace_b', :'user_b', :'membership_role');
+     INSERT INTO invitations (id, tenant_id, email, token_digest, expires_at, invited_by_user_id, inviter_email) VALUES
+       (:'invitation_b',       :'tenant_b', :'invitee', decode(:'digest_b',       'hex'), now() + interval '7 days', :'user_b', :'email_b'),
+       (:'invitation_spare_b', :'tenant_b', :'invitee', decode(:'digest_spare_b', 'hex'), now() + interval '7 days', :'user_b', :'email_b');
+     INSERT INTO invitation_workspaces (id, tenant_id, invitation_id, workspace_id, role)
+       VALUES (:'invitation_workspace_b', :'tenant_b', :'invitation_b', :'workspace_b', :'invitation_workspace_role');`,
     {
       variables: {
         tenant_a: TENANT_A,
@@ -776,6 +878,21 @@ function resetTenantFixtures(): void {
         workspace_a: WORKSPACE_ROW_A,
         workspace_b: WORKSPACE_ROW_B,
         workspace_name: WORKSPACE_SEEDED_NAME,
+        membership_a: WORKSPACE_MEMBERSHIP_ROW_A,
+        membership_b: WORKSPACE_MEMBERSHIP_ROW_B,
+        membership_role: WORKSPACE_MEMBERSHIP_SEEDED_ROLE,
+        invitation_a: INVITATION_ROW_A,
+        invitation_b: INVITATION_ROW_B,
+        invitation_spare_a: INVITATION_SPARE_ROW_A,
+        invitation_spare_b: INVITATION_SPARE_ROW_B,
+        invitee: INVITATION_SEEDED_EMAIL,
+        digest_a: INVITATION_DIGEST_HEX_A,
+        digest_b: INVITATION_DIGEST_HEX_B,
+        digest_spare_a: INVITATION_DIGEST_HEX_SPARE_A,
+        digest_spare_b: INVITATION_DIGEST_HEX_SPARE_B,
+        invitation_workspace_a: INVITATION_WORKSPACE_ROW_A,
+        invitation_workspace_b: INVITATION_WORKSPACE_ROW_B,
+        invitation_workspace_role: INVITATION_WORKSPACE_SEEDED_ROLE,
       },
     },
   );
@@ -821,6 +938,86 @@ const workspacesAccess: TenantScopedSurfaceRegistration = {
     plantedRow: (ownerId) =>
       sql`insert into ${sql.identifier('workspaces')} (id, tenant_id, name)
           values (${PLANTED_WORKSPACE_ROW_ID}::uuid, ${ownerId}::uuid, ${'planted-by-another-tenant'})`,
+  }),
+};
+
+/**
+ * `memberships`, attacked as a TABLE (TASK-1b-03). Its repository subject —
+ * `MembershipRepository`'s methods, owner-qualified — arrives with the repository
+ * (TASK-1b-05), the F-353 two-subjects-one-table pattern `workspaces` shipped.
+ *
+ * `mutableValue` for the same reason `tenant_memberships` has one: `role` is an enum and
+ * the default free-text literal would fail as an enum error rather than a policy refusal.
+ * The planted row names the TARGET's own workspace and the third user, so under the
+ * shipped policy the only thing standing in its way is the WITH CHECK.
+ */
+const membershipsAccess: TenantScopedSurfaceRegistration = {
+  subject: 'MembershipsTableAccess',
+  table: 'memberships',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'memberships',
+    ownerColumn: 'tenant_id',
+    projection: ['id', 'tenant_id', 'user_id'],
+    mutableColumn: 'role',
+    mutableValue: WORKSPACE_MEMBERSHIP_OVERWRITE_ROLE,
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('memberships')} (id, tenant_id, workspace_id, user_id, role)
+          values (${PLANTED_WORKSPACE_MEMBERSHIP_ROW_ID}::uuid, ${ownerId}::uuid, ${seededParentsOf(ownerId).workspaceId}::uuid, ${MEMBERSHIP_USER_PLANTED}, ${WORKSPACE_MEMBERSHIP_SEEDED_ROLE})`,
+  }),
+};
+
+/**
+ * `invitations`, attacked as a TABLE (TASK-1b-03). `InvitationRepository`'s methods and
+ * the capability-token entry points arrive with them (TASK-1b-04, TASK-1b-10).
+ *
+ * `email` is free text, so the two update shapes keep their default literals. The planted
+ * row's digest is a fifth constant, so the unique index on `token_digest` refuses nothing
+ * here and the WITH CHECK is what answers. `expires_at` is in the future; `state` takes
+ * its default. Nothing about a token is stored or needed: no raw token corresponds to any
+ * digest in this file.
+ */
+const invitationsAccess: TenantScopedSurfaceRegistration = {
+  subject: 'InvitationsTableAccess',
+  table: 'invitations',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'invitations',
+    ownerColumn: 'tenant_id',
+    projection: ['id', 'tenant_id', 'email'],
+    mutableColumn: 'email',
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('invitations')} (id, tenant_id, email, token_digest, expires_at, invited_by_user_id, inviter_email)
+          values (${PLANTED_INVITATION_ROW_ID}::uuid, ${ownerId}::uuid, ${'planted@example.test'}, decode(${INVITATION_DIGEST_HEX_PLANTED}, 'hex'), now() + interval '7 days', ${MEMBERSHIP_USER_PLANTED}, ${'planter@example.test'})`,
+  }),
+};
+
+/**
+ * `invitation_workspaces`, attacked as a TABLE (TASK-1b-03). The planted row names the
+ * target's SPARE invitation and the target's seeded workspace — a pair no seeded row
+ * holds, so `UNIQUE (invitation_id, workspace_id)` refuses nothing and a widened WITH
+ * CHECK would be named as a leak rather than masked as 23505 (see the constants above).
+ * `role` is an enum, hence `mutableValue`.
+ */
+const invitationWorkspacesAccess: TenantScopedSurfaceRegistration = {
+  subject: 'InvitationWorkspacesTableAccess',
+  table: 'invitation_workspaces',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'invitation_workspaces',
+    ownerColumn: 'tenant_id',
+    projection: ['id', 'tenant_id', 'workspace_id'],
+    mutableColumn: 'role',
+    mutableValue: INVITATION_WORKSPACE_OVERWRITE_ROLE,
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('invitation_workspaces')} (id, tenant_id, invitation_id, workspace_id, role)
+          values (${PLANTED_INVITATION_WORKSPACE_ROW_ID}::uuid, ${ownerId}::uuid, ${seededParentsOf(ownerId).spareInvitationId}::uuid, ${seededParentsOf(ownerId).workspaceId}::uuid, ${INVITATION_WORKSPACE_SEEDED_ROLE})`,
   }),
 };
 
@@ -967,6 +1164,9 @@ registerTenantScopedSurfaces(rlsFixtureRowsAccess);
 registerTenantScopedSurfaces(tenantMembershipsAccess);
 registerTenantScopedSurfaces(workspacesAccess);
 registerTenantScopedSurfaces(workspaceRepositoryAccess);
+registerTenantScopedSurfaces(membershipsAccess);
+registerTenantScopedSurfaces(invitationsAccess);
+registerTenantScopedSurfaces(invitationWorkspacesAccess);
 
 const PLANTED_CANARY_ROW_ID = 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2';
 
@@ -1354,6 +1554,33 @@ export async function workspaceEndpointGroup(runtime: SignedInTenants): Promise<
  * sorts before `route:`, so the four route ids come last.
  */
 export const EXPECTED_SURFACE_IDS = [
+  // The three 1b tables (TASK-1b-03): eight shapes each, no repository subject yet —
+  // `InvitationRepository` (TASK-1b-04) and `MembershipRepository` (TASK-1b-05) add theirs.
+  // Uppercase sorts before lowercase, so `InvitationWorkspaces…` precedes `Invitations…`.
+  'repo:InvitationWorkspacesTableAccess.deleteAll',
+  'repo:InvitationWorkspacesTableAccess.deleteOwnedBy',
+  'repo:InvitationWorkspacesTableAccess.findAll',
+  'repo:InvitationWorkspacesTableAccess.findOwnedBy',
+  'repo:InvitationWorkspacesTableAccess.insertOwnedBy',
+  'repo:InvitationWorkspacesTableAccess.reparentAll',
+  'repo:InvitationWorkspacesTableAccess.updateAll',
+  'repo:InvitationWorkspacesTableAccess.updateOwnedBy',
+  'repo:InvitationsTableAccess.deleteAll',
+  'repo:InvitationsTableAccess.deleteOwnedBy',
+  'repo:InvitationsTableAccess.findAll',
+  'repo:InvitationsTableAccess.findOwnedBy',
+  'repo:InvitationsTableAccess.insertOwnedBy',
+  'repo:InvitationsTableAccess.reparentAll',
+  'repo:InvitationsTableAccess.updateAll',
+  'repo:InvitationsTableAccess.updateOwnedBy',
+  'repo:MembershipsTableAccess.deleteAll',
+  'repo:MembershipsTableAccess.deleteOwnedBy',
+  'repo:MembershipsTableAccess.findAll',
+  'repo:MembershipsTableAccess.findOwnedBy',
+  'repo:MembershipsTableAccess.insertOwnedBy',
+  'repo:MembershipsTableAccess.reparentAll',
+  'repo:MembershipsTableAccess.updateAll',
+  'repo:MembershipsTableAccess.updateOwnedBy',
   'repo:RlsFixtureRowsTableAccess.deleteAll',
   'repo:RlsFixtureRowsTableAccess.deleteOwnedBy',
   'repo:RlsFixtureRowsTableAccess.findAll',
