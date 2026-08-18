@@ -30,9 +30,12 @@ export const SIGN_IN_AFTER_SIGNUP_URL = `${SIGN_IN_ROUTE}?${SIGNUP_CREATED_PARAM
 export const INVITATION_ACCEPT_ROUTE = '/invitations/accept';
 
 /**
- * Where an INVITED signup lands (AC-1b-12): the sign-in screen with `?created=1`, then back
- * to the accept page, which re-reads the token from `sessionStorage` (D-04, D-14). The
- * `returnTo` value is a same-origin path, which is what `safeReturnTo` admits. Carries no
+ * Where an INVITED signup lands (AC-1b-12, amended 2026-08-18 by the coordinator's ruling
+ * on TASK-1b-13): the sign-in screen with `?created=1` and NO `returnTo`. The API's signup
+ * hook has already accepted the invitation when the account was created (D-18), so there
+ * is nothing left for the accept page to do; sign-in's default landing, `/workspaces`, is
+ * where the new member belongs. Kept as its own constant so the accept page and its spec
+ * name the journey in one place; today equal to `SIGN_IN_AFTER_SIGNUP_URL`. Carries no
  * credential, no address and no token.
  */
-export const SIGN_IN_AFTER_INVITED_SIGNUP_URL = `${SIGN_IN_AFTER_SIGNUP_URL}&${RETURN_TO_PARAM}=${INVITATION_ACCEPT_ROUTE}`;
+export const SIGN_IN_AFTER_INVITED_SIGNUP_URL = SIGN_IN_AFTER_SIGNUP_URL;

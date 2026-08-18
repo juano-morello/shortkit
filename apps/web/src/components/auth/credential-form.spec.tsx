@@ -215,9 +215,10 @@ describe('CredentialForm: invitationToken rides in the signup body (D-03: a body
 });
 
 describe('the invited-signup landing URL (AC-1b-12)', () => {
-  it('is the sign-in screen with ?created=1 and returnTo=/invitations/accept', () => {
-    expect(SIGN_IN_AFTER_INVITED_SIGNUP_URL).toBe('/sign-in?created=1&returnTo=/invitations/accept');
-    expect(SIGN_IN_AFTER_INVITED_SIGNUP_URL.startsWith(SIGN_IN_AFTER_SIGNUP_URL)).toBe(true);
+  it('is the sign-in screen with ?created=1 and no returnTo: the hook already accepted, sign-in lands on /workspaces', () => {
+    expect(SIGN_IN_AFTER_INVITED_SIGNUP_URL).toBe('/sign-in?created=1');
+    expect(SIGN_IN_AFTER_INVITED_SIGNUP_URL).toBe(SIGN_IN_AFTER_SIGNUP_URL);
+    expect(SIGN_IN_AFTER_INVITED_SIGNUP_URL).not.toContain('returnTo');
   });
 });
 
@@ -256,5 +257,33 @@ describe('SignupForm: invitationToken and successPath pass through (AC-1b-12)', 
       expect(replace).toHaveBeenCalledWith(SIGN_IN_AFTER_INVITED_SIGNUP_URL);
     });
     expect(sentBody().invitationToken).toBe(A_TOKEN);
+  });
+
+  it('runs onSuccess before the navigation, once, and not on a failure', async () => {
+    const order: string[] = [];
+    const onSuccess = vi.fn(() => {
+      order.push('onSuccess');
+    });
+    replace.mockImplementation(() => {
+      order.push('replace');
+    });
+    apiClientMock.mockRejectedValueOnce(new Error('first attempt fails'));
+
+    render(<SignupForm invitationToken={A_TOKEN} onSuccess={onSuccess} />);
+    submitSignup();
+
+    await screen.findByRole('alert');
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+
+    apiClientMock.mockResolvedValue({});
+    submitSignup();
+
+    await vi.waitFor(() => {
+      expect(replace).toHaveBeenCalledTimes(1);
+    });
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['onSuccess', 'replace']);
+    replace.mockReset();
   });
 });

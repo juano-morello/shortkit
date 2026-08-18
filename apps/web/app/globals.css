@@ -342,6 +342,81 @@ button.secondary {
   margin: 1.5rem 0 0;
 }
 
+/* ---- Invitation accept page (TASK-1b-13) ------------------------------------ */
+
+/* The polite live region: reserved height so "checking" → content is not a layout jump. */
+.invitation-status {
+  min-height: 1.5rem;
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.invitation-failed {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+
+.invitation-preview {
+  margin: 0 0 1.5rem;
+}
+
+.invitation-preview h2 {
+  font-size: 1.125rem;
+  line-height: 1.3;
+  margin: 0 0 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.invitation-meta {
+  color: var(--muted);
+  margin: 0 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.invitation-workspaces {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.375rem;
+}
+
+.invitation-workspaces li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.invitation-accept-action {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+}
+
+.invitation-accept-button {
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 0.375rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .invitation-accept-button {
+    color: #111111;
+  }
+}
+
+.invitation-accept-button[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 /* Visually hidden, still read: the per-row buttons say which workspace they act on. */
 .visually-hidden {
   position: absolute;
