@@ -1112,6 +1112,23 @@ which the logger builds itself. A name is matched exactly: adding `requestId` wo
 carries a slug or an id, and the redirect path's concrete paths are the entire click
 stream in plain text.
 
+**Emitted by `apps/api/src/observability/request-log.interceptor.ts` since TASK-016
+(2026-08-18).** The interceptor writes one `info` line per request the Nest router served,
+with `msg` fixed at `request completed` and exactly the five fields above. `tenant_id` is on
+the line only when the guard wrote a `RequestContext`. No `method`, no user identifier, no
+email. `app.module.ts` registers it as `APP_INTERCEPTOR` ahead of
+`TenantTransactionInterceptor`, so `duration_ms` covers the transaction and the handler. It
+reads `status` on the response's `finish` event, after `ApiExceptionFilter` has written on the
+error path; an RxJS `finalize` runs before the filter and reads 200 for a thrown 404 and for a
+thrown 500 (measured). `observability/request-id.ts` is the one reading of `x-request-id`
+for both: the interceptor chooses the id (header, else uuid) and stores it on the request, and
+`ApiExceptionFilter` reads that slot first, so the request line and the error line for one
+failed request share an id with or without a header. It does not see `/api/auth/*` (mounted outside the Nest graph, ADR-0013), a
+request the guard refused, a path no route matched, or a body-parser 400: Nest runs guards
+before interceptors, and an interceptor wraps only a matched handler.
+`test/observability/no-credentials-in-logs.int-spec.ts` scans the whole child process's output
+for that reason.
+
 ## What may never appear in a log line
 
 Normative. GC-9.

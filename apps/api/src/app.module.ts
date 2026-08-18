@@ -4,6 +4,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { ApiExceptionFilter } from './common/errors/exception-filter';
 import { HealthModule } from './health/health.module';
+import { RequestLogInterceptor } from './observability/request-log.interceptor';
 import { TenantTransactionInterceptor } from './tenancy/tenant-transaction.interceptor';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 
@@ -33,11 +34,23 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
  * the interceptor always sees the `RequestContext` the guard wrote — ADR-0002's ordering —
  * and a route that carries `@Public()` is exempt from both while `@NoTenantTransaction()`
  * exempts it from the interceptor alone. `GET /health` is `@Public('platform probe')`.
+ *
+ * `APP_INTERCEPTOR` → `RequestLogInterceptor` (TASK-016) IS REGISTERED BEFORE
+ * `TenantTransactionInterceptor`, AND THE ORDER IS A RULING, NOT AN ACCIDENT. Nest runs global
+ * interceptors in registration order and the first registered wraps the rest, so the request
+ * log line is the OUTERMOST layer: its `duration_ms` covers the tenant transaction and the
+ * handler, and it runs for a `@NoTenantTransaction()` route the other interceptor skips. It
+ * reads `tenant_id` from the `RequestContext` the guard wrote, which is there whatever the
+ * order (guards run before every interceptor), and it exempts nothing: a `@Public()` route
+ * gets its line too, without a `tenant_id`.
  */
 @Module({
   imports: [AuthModule, HealthModule, WorkspacesModule],
   providers: [
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
+    // Outermost first — see the docblock. Swapping these two lines changes what
+    // `duration_ms` measures and is a change to `logging-and-headers.md`'s "Required fields".
+    { provide: APP_INTERCEPTOR, useClass: RequestLogInterceptor },
     { provide: APP_INTERCEPTOR, useClass: TenantTransactionInterceptor },
   ],
 })
