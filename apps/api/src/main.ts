@@ -22,6 +22,7 @@ import {
 } from './auth/boot-assertions';
 import { AUTH_RATE_LIMIT_PORT } from './auth/ports/auth-rate-limit.port';
 import type { AuthRateLimitPort } from './auth/ports/auth-rate-limit.port';
+import { RedisBindingError, assertRedisConfigured } from './cache/redis-client';
 import { assertRuntimeRoleCannotBypassRls } from './db/rls';
 import { readBuildCommitSha } from './health/build-commit';
 import { MailBindingError, assertMailTransportConfigured } from './mail/mail-transport';
@@ -200,6 +201,23 @@ let app: INestApplication | undefined;
  *     a deployment that forgot the variable ever gets. NEVER READS `NODE_ENV`, for the
  *     reason 2b gives.
  *
+ *  2d. The redirect cache — ADR-0012, D-2-09 (TASK-2-03, item 2). Two more `process.env`
+ *     reads and a `new URL()`, so it sits in the class above and ahead of anything that
+ *     opens a connection, and it follows 2c's inverted-absence shape exactly: the VALIDITY
+ *     of `REDIS_URL` is asserted unconditionally, `REDIS_KEY_NAMESPACE` is REQUIRED only
+ *     when a URL is declared (`redirect-cache.md` — a defaulted namespace shares a key space
+ *     with whatever else points at that instance, which is a staging host record served to
+ *     production visitors), and UNSET binds `UnavailableRedirectCache` with ONE warn line
+ *     carrying `boot_precondition: 'redirect_cache'`. Absence is not a refusal here because
+ *     ADR-0012's whole posture is that the redirect serves without Redis: refusing to boot
+ *     on a missing cache would convert a degraded path into an outage. Its refusal is
+ *     `RedisBindingError`, mapped in the catch below. NEVER READS `NODE_ENV`.
+ *
+ *     REACHABILITY IS DELIBERATELY NOT A PRECONDITION. The client is built inside the module
+ *     graph and connects there; an unreachable instance degrades every read to
+ *     `'unavailable'`, which the redirect answers from Postgres (AC-2-29). Nothing here
+ *     waits for it, and no boot budget is spent on it.
+ *
  *  3. `assertRuntimeRoleCannotBypassRls()` — F-116, ADR-0003. One transaction against
  *     `pg_roles` and `pg_class`. TASK-005 built it and disclosed that nothing called it,
  *     so until now a `DATABASE_URL` pointing at a superuser or any `BYPASSRLS` role
@@ -272,6 +290,8 @@ async function assertBootPreconditions(): Promise<void> {
   assertBffProxySecretConfigured(process.env);
 
   assertMailTransportConfigured(process.env);
+
+  assertRedisConfigured(process.env);
 
   // ONE DEADLINE FOR BOTH DATABASE CHECKS. `DATABASE_REACHABLE_BUDGET_MS` is sized as the
   // whole boot's reachability allowance (see its declaration), so the second check inherits
@@ -522,6 +542,12 @@ bootstrap().catch(async (error: unknown) => {
   // module-private here and this file boots on import, so `mail/mail-transport.ts` cannot
   // reach it; the field VALUE is the one `mail-sender.md` fixes and the one the tests read.
   //
+  // `RedisBindingError.binding` is the fifth, always `'redirect_cache'` (item 2, TASK-2-03,
+  // D-2-09), and it is a class of its own for the same reason `MailBindingError` is: this
+  // file boots on import, so `cache/redis-client.ts` cannot reach the module-private class
+  // above. It fires only on a DECLARED binding that is malformed or incomplete; an absent
+  // `REDIS_URL` writes a warn line and boots.
+  //
   // THAT ONLY HOLDS WHILE `auth.config.ts` IS REACHED FROM INSIDE `bootstrap()` (F-210).
   // A static import at this file's module scope evaluates it before `bootstrap()` runs, so
   // the throw never reaches this handler at all: measured, a raw uncaught stack on stderr
@@ -534,6 +560,7 @@ bootstrap().catch(async (error: unknown) => {
         : {}),
       ...(error instanceof AuthBindingError ? { boot_precondition: error.binding } : {}),
       ...(error instanceof MailBindingError ? { boot_precondition: error.binding } : {}),
+      ...(error instanceof RedisBindingError ? { boot_precondition: error.binding } : {}),
       ...errorLogFields(error, { includeMessage: true }),
     },
     'the API failed to start',

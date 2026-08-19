@@ -1,9 +1,9 @@
 # Contract: redirect cache keys, values, TTLs, and invalidation
 
 - **Boundary:** Redis, between the redirect read path and every writer that can invalidate it.
-- **Normative form:** `apps/api/src/cache/redirect-cache.ts`, not yet written. The design stub at `design/stubs/apps/api/src/cache/redirect-cache.ts` stands in until TASK-030 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
-- **Produced by:** TASK-030.
-- **Consumed by:** TASK-027, 031, 032, 034, 045, 046, 051 (client reuse).
+- **Normative form:** `apps/api/src/cache/redirect-cache.ts`. Shipped 2026-08-19 by TASK-2-03 (item 2, wave 1), which is the card TASK-030 became; the design stub is retired with it (ADR-0039). The client and the boot binding live beside it in `apps/api/src/cache/redis-client.ts`, and the token consumers inject is `REDIRECT_CACHE`, bound in `apps/api/src/cache/cache.module.ts`.
+- **Produced by:** TASK-030 (delivered as TASK-2-03).
+- **Consumed by:** TASK-027, 031, 032, 034, 045, 046, 051 (client reuse) — in item 2's numbering, TASK-2-06 and TASK-2-07 (the redirect read path) and TASK-2-08 (invalidation).
 - **ADRs:** ADR-0008, ADR-0009, ADR-0012.
 
 ## Keys
@@ -28,6 +28,16 @@ sk:{env}:domain:work                ZSET, provisioning queue (domain-provisionin
 boot when it is unset rather than defaulting to something that might collide. Values in
 use: `prod`, `staging`, `dev`, and `ci-{run_id}` so two concurrent CI jobs cannot
 collide with each other either.
+
+**Amended 2026-08-19 (TASK-2-03).** "Required" is required *when `REDIS_URL` is set*, and
+the two refusals are separate: a `REDIS_URL` that is not a `redis://` or `rediss://` URL
+refuses **unconditionally**, whatever else is declared (ADR-0040's shape, the one
+`MAIL_TRANSPORT` follows), and `REDIS_KEY_NAMESPACE` is demanded only once a URL has been
+declared. `REDIS_URL` unset is not a refusal at all — it binds `UnavailableRedirectCache`
+and writes one warn line (D-2-09, below). The namespace may not contain a **colon or
+whitespace**: it is the second key segment, so a colon in it redraws the key structure.
+Neither refusal quotes any part of either value (ADR-0029 — a Redis URL carries a
+password).
 
 **CI and local development must not point at the production Upstash instance.** The
 namespace bounds the damage if someone does; it does not make it safe. CI uses a
@@ -110,6 +120,40 @@ export interface RedirectCache {
 request. `'unavailable'` means Redis failed and the caller must query Postgres. Collapsing
 the two would return a 404 during a Redis outage and break AC-52.
 
+### Amended 2026-08-19 (TASK-2-03): what the three values cover, exactly
+
+The interface above has three return values and four things can happen, so the shipped
+mapping is written down rather than inferred.
+
+**An ABSENT key returns `'unavailable'`.** `'miss'` is the SENTINEL and nothing else,
+because `'miss'` answers the request with a 404 and zero Postgres queries — so a key that
+was simply never written must not produce it, or an empty cache would 404 every link in
+the database. Absence therefore joins the failures under the value whose contract is
+already "the caller must query Postgres", which is the correct action for both.
+
+The cost, stated: **`'unavailable'` is not on its own evidence of an outage.** A cold key
+returns it too. Nothing may log a degradation line keyed on this value — that would be one
+line per request on a cold cache. `cacheAvailable()` (status-based, no command) is the
+health signal.
+
+A value that does not decode — a bumped `v`, a truncated write, a key some other process
+wrote — also returns `'unavailable'`. The alternatives are both worse: `'miss'` would 404
+a live link, and a half-built record would 302 somewhere nobody chose.
+
+**Reads never throw and writes never throw; DELETIONS DO.** `getHost`/`getLink` answer
+`'unavailable'` on a rejection, a synchronous throw, a timeout or a disconnected client, and
+`setHost`/`setLink` swallow the same failures — a cache fill that did not happen costs one
+Postgres query on the next request, and the visitor's response is already decided (GC-O).
+`delHost`/`delLink` **reject** when the deletion did not happen, because their caller is the
+invalidation subscriber below, which owns the retry and the log line; swallowing there would
+leave it nothing to retry and nothing to report, and staleness past GC-2 with no signal at
+all. Deletions never run on the visitor's path. The rejection carries **no key, no hostname
+and no slug** (GC-G).
+
+`UnavailableRedirectCache` — the binding when `REDIS_URL` is unset — is the one exception to
+that asymmetry: its deletions RESOLVE, because with no cache there is no stale key and the
+invalidation has genuinely succeeded.
+
 ## Invalidation
 
 Normative. Missing a row here produces stale redirects.
@@ -147,9 +191,17 @@ its host key rather than waiting out the 300-second TTL, or it keeps serving for
 five minutes after its certificate is revoked or its hostname is reassigned.
 
 **On failure:** retry at 200 ms and 1000 ms. Still failing, log
-`cache_invalidation_failed` at error with `{ key, linkId, attempts }` and increment
-`cache_invalidation_failures_total`. Staleness can then exceed GC-2's 5 seconds; the
-log line is the only signal. Recorded as an accepted gap in ADR-0008.
+`cache_invalidation_failed` at error and increment `cache_invalidation_failures_total`.
+Staleness can then exceed GC-2's 5 seconds; the log line is the only signal. Recorded as an
+accepted gap in ADR-0008.
+
+**Amended 2026-08-19 (D-2-15, TASK-2-03).** The line carries `code:
+'cache_invalidation_failed'`, `link_id` and `attempts` — **not the key**, not the hostname,
+not the slug. The key embeds the slug, and GC-G's posture is that an identifier
+reconstructible from an id stays off the line; `LOGGABLE_FIELDS` gains `link_id` and
+`attempts` and nothing else (TASK-2-08 owns that edit). `cache_invalidation_failures_total`
+stays a `code` occurrence on that line: no metrics facility exists in `apps/api/src`, the
+same substitution ADR-0053 records for `auth_revocation_degraded_total`.
 
 ## Invariants a caller may rely on
 
@@ -170,6 +222,31 @@ log line is the only signal. Recorded as an accepted gap in ADR-0008.
   is readable by tests (AC-49, AC-54).
 - `setLink` applies `linkTtlSeconds`. `setHost` uses the flat TTL.
 - Values are written with `SET key value EX ttl`, one command.
+
+## The binding (added 2026-08-19, D-2-09, TASK-2-03)
+
+`REDIS_URL` **set** → one `ioredis` client on ADR-0012's six options, `REDIS_KEY_NAMESPACE`
+required, `RedisRedirectCache` bound to `REDIRECT_CACHE`.
+
+`REDIS_URL` **unset** → no client, `UnavailableRedirectCache` bound (every read
+`'unavailable'`, every write and deletion a resolved no-op), and **one** warn line at boot
+carrying `boot_precondition: 'redirect_cache'` and no other field. Every redirect then
+resolves from Postgres and every response is correct, which is exactly why nothing else
+would notice — the line is the only local evidence a deployment that forgot the variable
+gets. This is the `MAIL_TRANSPORT` posture: absence lands on the thing that can do no harm,
+loudly, and never on `NODE_ENV` (GC-B).
+
+**Reachability is deliberately not a boot precondition.** The client connects when the
+module graph is built; an unreachable instance degrades every read to `'unavailable'`.
+Refusing to boot on it would convert ADR-0012's degraded path into an outage.
+
+Shipped surface: `assertRedisConfigured(env)` (called unconditionally from
+`assertBootPreconditions()`), `RedisBindingError` (`binding: 'redirect_cache'`, mapped in
+`bootstrap().catch`), `cacheAvailable()`, `simulateRedisUnavailable()` /
+`restoreRedisAvailability()`, `closeRedisClient()`, `dbQueryCounter`. The raw client is
+module-private: `cache.module.ts` is its only caller, asserted by a scan in
+`redis-client.spec.ts`, so the limiters and the revocation store cannot acquire a second
+failure posture by import (D-2-01 deferred their rebind; see ADR-0053's 2026-08-19 note).
 
 ## Versioning
 
