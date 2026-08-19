@@ -198,6 +198,19 @@ export interface DiscoveredSurface {
 export interface TenantFixture {
   readonly id: string;
   readonly name: string;
+  /**
+   * THE THIRD OF THE CONTRACT'S SIX FIELDS, AND THE FIRST TO LAND (TASK-2-10). The link this
+   * tenant owns, which is what the six link endpoint attempts address.
+   *
+   * OPTIONAL, because only the endpoint fixtures can honestly hold it. The link is written
+   * ONCE by `POST /api/links` and put back verbatim by every reset
+   * (`registrations.ts`, `plantSignedInLinks`), so the id is stable for the whole run and a
+   * spec that reads it is reading the row the product wrote. The SQL battery's fixtures are
+   * still the two tenants `createRlsFixture()` seeds, whose link is `registrations.ts`'s own
+   * constant and reachable through `seededParentsOf`; giving them this field would mean
+   * `coverage.ts` naming a fixture row id, which is the direction this file does not go.
+   */
+  readonly linkId?: string;
 }
 
 export interface TenantFixtures {
@@ -589,9 +602,10 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-2-02, wave 1 of item 2 (amending TASK-1b-10, TASK-1b-03 and TASK-015). This run ' +
-  'covers TEN TABLES, THREE REPOSITORY CLASSES and TEN ENDPOINTS, in TWO ATTEMPT ' +
-  'CATEGORIES. ' +
+  'TASK-2-10, wave 5 of item 2 (amending TASK-2-02, TASK-1b-10, TASK-1b-03 and TASK-015). ' +
+  'This run covers TEN TABLES, SIX REPOSITORY CLASSES and SIXTEEN ENDPOINTS, in TWO ' +
+  'ATTEMPT CATEGORIES: 117 surfaces, each attempted in BOTH directions, 234 attempts (76 ' +
+  'reads, 158 writes, 60 of the writes carrying no WHERE clause at all). ' +
   'THE TEN TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
   '`tenants` (the migrated cascade root, four bespoke policies), `rls_fixture_rows` (a ' +
   'FIXTURE TABLE this suite creates and drops per run, built from the production ' +
@@ -612,14 +626,29 @@ export const COVERAGE_BOUNDARY =
   'withTenantTransaction grouped by tenant, so click emission is NOT a GC-5 exclusion. ' +
   'Each is hit with EIGHT ' +
   'statement shapes in BOTH directions; three of the eight carry NO WHERE CLAUSE (F-302) ' +
-  'and one of those assigns the owner column (F-330). THREE OF THE TEN ARE ALSO ' +
+  'and one of those assigns the owner column (F-330). FIVE OF THE TEN ARE ALSO ' +
   "ATTACKED THROUGH THEIR REPOSITORY CLASS, called inside the ACTOR's tenant transaction " +
   "with the TARGET's ids: the six methods of WorkspaceRepository (TASK-011, TASK-1b-06), " +
-  'the four of InvitationRepository (create, listForWorkspace, findById, revoke) and the ' +
+  'the four of InvitationRepository (create, listForWorkspace, findById, revoke), the ' +
   'four of MembershipRepository (roleFor, workspaceIdsFor, create, listForWorkspace) ' +
-  "(TASK-1b-10). Every repository method is owner-qualified by the class's own contract; " +
+  '(TASK-1b-10), the five of LinkRepository (createIfSlugFree, findById, listForWorkspace, ' +
+  'update, delete: TASK-2-05) and ONE METHOD EACH on the two click classes, which is the ' +
+  'whole tenant-facing surface on that table: ClickEventWriterRepository.append and ' +
+  'ClickEventReaderRepository.query (TASK-2-09, AC-2-39/AC-60: append-only is enforced by ' +
+  'the ABSENCE of methods, so the registry naming exactly two is part of that claim). SIX ' +
+  "CLASSES. Every repository method is owner-qualified by the class's own contract; " +
   'the unqualified writes on each table come from its sibling TableAccess subject. ' +
-  'THE TEN ENDPOINTS, attacked as HTTP requests by a second signed-in operator against ' +
+  'THE FOUR MUTATING METHODS ON `links` AND `click_events` ARE JUDGED AGAINST THE DATABASE ' +
+  "RATHER THAN AGAINST WHAT THE CLASS RETURNED (TASK-2-10): createIfSlugFree, update and " +
+  'delete each answer their own not-found error for a row the actor cannot see, and append ' +
+  'returns void, so each attempt reads the TARGET\'s rows back through the migrator under ' +
+  "the target's own flag afterwards, and reads exactly what a leak would have left behind: " +
+  "no link on the planted slug, the target's link still " +
+  'carrying the destination the create route wrote, the row still present, no appended ' +
+  'click row. rowsAffected is reported from THAT. append is additionally the one ' +
+  "repository attempt whose expected answer is a REFUSAL: it opens no transaction of its " +
+  'own, so the policy WITH CHECK is what answers, and the harness classifies the 42501. ' +
+  'THE SIXTEEN ENDPOINTS, attacked as HTTP requests by a second signed-in operator against ' +
   'the composition root the child API booted (TASK-014, SC-4): the FIVE workspace routes ' +
   '`POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:workspaceId`, ' +
   '`PATCH /api/workspaces/:workspaceId`, `POST /api/workspaces/:workspaceId/archive` (each ' +
@@ -652,6 +681,32 @@ export const COVERAGE_BOUNDARY =
   'same request in the same run: otherwise the id or the route is wrong, the refusal ' +
   'proves nothing, and the attempt is `unverified` and red. A mutating attempt is verified ' +
   'against the DATABASE, never the response body. ' +
+  'AND THE SIX ITEM-2 ROUTES (TASK-2-10, D-2-12): `POST /api/links` (the body naming the ' +
+  "target's workspace: 404, Form A on a workspace the actor holds no membership in and " +
+  "cannot see), `GET /api/links?workspaceId=` (the target's: 404, the same interceptor " +
+  "refusing before the service lists), `GET /api/links/:linkId`, `PATCH /api/links/:linkId` " +
+  'and `DELETE /api/links/:linkId` (the target\'s link: 404 each, Form B, where ' +
+  'LinkRepository.findById runs inside the actor\'s tenant transaction and answers null ' +
+  'before any role is read) and `GET /api/links/:linkId/clicks` (the same 404, decided on ' +
+  'the LINK before the click reader is reached, which is why that attempt sits in the link ' +
+  'group and brackets `links`). THE LINK EACH TENANT OWNS IS WRITTEN BY THE SHIPPED CREATE ' +
+  'ROUTE, not by an INSERT this suite invented: its domain pair, slug, destination and id ' +
+  'are the product\'s, every reset puts that row back verbatim so the id is stable for the ' +
+  'run, and `TenantFixture` carries it as `linkId`. The two mutating attempts are tied to ' +
+  "the database: after the 404, the target's link must still be present and still carry the " +
+  'destination the create route wrote. ' +
+  'THE REDIRECT SURFACE IS REGISTERED PUBLIC AND DELIBERATELY NOT ATTEMPTED (AC-2-41). ' +
+  '`GET /:slug` carries @Public(\'anonymous visitor redirect\') and is ANONYMOUS AND ' +
+  'CROSS-TENANT BY DESIGN: any visitor resolves any tenant\'s slug, so there is no ' +
+  'cross-tenant attempt to write against it and this file does not pretend otherwise. The ' +
+  'boundary that DOES exist there is what a redirect transaction may READ, and that is the ' +
+  'carried exclusion repo:RedirectReadRepository.resolveByHostAndSlug, narrowed three ways ' +
+  'and all three asserted rather than stated: the FOR SELECT policy PAIR (redirectReadPolicy() ' +
+  'applied to `domains` and `links` and to no other table, read from pg_policies), the READ ' +
+  'ONLY transaction, and the one file that may set app.redirect_context ' +
+  '(`src/redirect/db/redirect-read.ts`, grep clauses A1 and A2 applied to that flag). The ' +
+  'redirect is also outside the rate limiter and outside the tenant interceptor, which is ' +
+  'the same @Public() decision seen from two other angles. ' +
   'ROLE VERSUS TENANT: the isolation suite attacks the TENANT boundary. Role semantics ' +
   'inside one tenant — a `member` on PATCH is 403, a same-tenant non-member on GET ' +
   '/:workspaceId is 404 — are covered by test/workspaces, test/authorization and ' +
@@ -660,7 +715,7 @@ export const COVERAGE_BOUNDARY =
   'tenant B cannot hold a membership in tenant A — composite FK plus policy). ' +
   'THE SET WAS REGISTERED BY HAND, NOT DISCOVERED. There is no route or repository ' +
   'enumeration in this wave: the table and repository subjects are the registry in ' +
-  'registrations.ts and the endpoint subjects are two hand-written lists of ' +
+  'registrations.ts and the endpoint subjects are THREE hand-written lists of ' +
   'EndpointAttemptSpecs. A ROUTE NOBODY REGISTERED IS A ROUTE NOBODY ATTACKED — ' +
   'module-graph route discovery, the @TenantScopedRepository decorator enumeration (which ' +
   'would also surface TenantMembershipRepository.roleFor, unregistered today), the four ' +
@@ -686,7 +741,13 @@ export const COVERAGE_BOUNDARY =
   'to that same bound rather than escaping it. FIVE STATEMENT SHAPES F-341 NAMES ARE NOT ' +
   'BUILT: INSERT ... ON CONFLICT DO UPDATE (the save()/upsert() idiom, reaching the UPDATE ' +
   "policy's USING on conflict — and note the accept path's ON CONFLICT DO NOTHING is the " +
-  'shape chosen precisely to stay clear of it, D-12); MERGE (each WHEN branch a different ' +
+  'shape chosen precisely to stay clear of it, D-12; item 2 makes that absence ' +
+  'LOAD-BEARING IN TWO MORE PLACES, both of which chose a shape that avoids it: ' +
+  'LinkRepository settles the slug collision with a SAVEPOINT redraw rather than an upsert ' +
+  '(slug.md), and the click flush inserts ON CONFLICT (id) DO NOTHING, which is what makes ' +
+  'a retried batch idempotent on client-generated ids (ADR-0010). A later edit reaching for ' +
+  'save() on either puts this repository back inside the gap, and no shape here would ' +
+  'notice); MERGE (each WHEN branch a different ' +
   'policy); eviction, UPDATE <t> SET <owner> = <a tenant the fixture never seeds> (the ' +
   'count rule detects it but the digest cannot name the recipient); cascade and trigger ' +
   'effects on a SIBLING table (bounded today only because tenants has no ordinary DELETE ' +
@@ -697,13 +758,17 @@ export const COVERAGE_BOUNDARY =
   'in-file; the LENGTH of that list is the control (still three), so a new exclusion ' +
   'arrives as a one-line diff a reviewer sees. The invited signup branch is UNENUMERABLE ' +
   '(Better Auth is mounted outside the Nest graph) and is covered by a named integration ' +
-  'test rather than an attempt here. AND WHAT ITEM 2 HAS NOT YET REGISTERED: `links` and ' +
-  '`click_events` have no repository subject beside their batteries (LinkRepository ' +
-  'arrives with TASK-2-05, the click reader and writer with TASK-2-09); no link or clicks ' +
-  'ROUTE has an endpoint attempt yet (TASK-2-10 adds them); and the redirect surface ' +
-  'itself — GET /:slug, anonymous and cross-tenant BY DESIGN — is covered by the carried ' +
-  'exclusion rather than by an attempt. TASK-2-10 rewrites this paragraph when those land; ' +
-  'TASK-2-02 moved only the counts its own literals gate.';
+  'test rather than an attempt here. AND WHAT ITEM 2 STILL DOES NOT REACH, now that every ' +
+  'shipped repository class and every shipped /api route is registered: the redirect READ ' +
+  'PATH itself runs no attempt here (it is the excluded surface above, and what bounds it ' +
+  'is the policy pair, the read-only transaction and the grep, not a statement this harness ' +
+  'issues); the click BUFFER is not a registered surface, because it holds rows in memory ' +
+  'and the boundary is the flush, which is ClickEventWriterRepository.append and is ' +
+  'attempted; `domains` has no repository class in item 2, so its rows are reachable only ' +
+  'through the battery and the seeded system default row (ADR-0063); and the web BFF is ' +
+  'another process with its own suite. The counts in this text are hand-written literals, ' +
+  "by Juano's ruling, and they are what the spec file asserts the run against: a battery " +
+  'that quietly lost a method moves one of them.';
 
 /* ========================================================================== *
  * The registry. This is the enumeration mechanism.

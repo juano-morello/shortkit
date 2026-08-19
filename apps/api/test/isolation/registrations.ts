@@ -42,15 +42,44 @@
  * read only through `InvitationRepository` and the capability-lookup functions — so it
  * stays a battery. The endpoint half gained a second group, the five invitation routes,
  * documented at `INVITATION_ENDPOINTS` below.
+ *
+ * SINCE TASK-2-02 THREE MORE BATTERIES: `domains`, `links` and `click_events` (migration
+ * 0005), and SINCE TASK-2-10 THREE MORE CLASSES BESIDE TWO OF THEM: `LinkRepository`
+ * (createIfSlugFree, findById, listForWorkspace, update, delete) on `links`, and
+ * `ClickEventWriterRepository.append` with `ClickEventReaderRepository.query` on
+ * `click_events`: two subjects on one table, because they are two classes and the registry
+ * is keyed on the subject. `domains` stays a battery: item 2 has no domain repository, and
+ * the only row any link names is the seeded system default domain (ADR-0063). The endpoint
+ * half gained a THIRD group, the five link routes plus `GET /api/links/:linkId/clicks`,
+ * documented at `linkEndpoints()` below.
+ *
+ * TWO THINGS TASK-2-10 ADDED TO THE FIXTURE, both worth knowing before editing a reset.
+ * THE PLATFORM ROWS (`PLATFORM_SEED_SQL`) are seeded by both resets and owned by neither
+ * fixture tenant: every link insert names the system default domain, so without them the
+ * create attempts are refused by a foreign key rather than by a policy. THE SIGNED-IN
+ * TENANTS' LINKS are written once by `POST /api/links` and re-inserted verbatim by every
+ * reset, so `TenantFixture.linkId` names the same row for the whole run.
  */
 import { sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { WORKSPACE_ROLE } from '@shortkit/contracts';
 
+import { ClickEventReaderRepository } from '../../src/clicks/click-event.reader';
+import { ClickEventWriterRepository } from '../../src/clicks/click-event.writer';
+import {
+  PLATFORM_TENANT_ID,
+  PLATFORM_TENANT_NAME,
+  PLATFORM_WORKSPACE_ID,
+  PLATFORM_WORKSPACE_NAME,
+  SYSTEM_DEFAULT_DOMAIN_ID,
+  systemDefaultHostname,
+} from '../../src/db/platform';
 import { InvitationNotFoundError } from '../../src/invitations/errors';
 import { InvitationRepository } from '../../src/invitations/invitation.repository';
 import { issueCapabilityToken } from '../../src/invitations/tokens/capability-token';
+import { LinkNotFoundError } from '../../src/links/errors';
+import { LinkRepository } from '../../src/links/link.repository';
 import { MembershipRepository } from '../../src/memberships/membership.repository';
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
 import { WorkspaceNotFoundError } from '../../src/workspaces/workspace-not-found.error';
@@ -911,6 +940,65 @@ function seededParentsOf(tenantId: string): {
 
 /**
  * ===========================================================================
+ * THE PLATFORM ROWS, SEEDED BY EVERY RESET AND OWNED BY NEITHER FIXTURE TENANT
+ * (TASK-2-10, ADR-0063, D-2-06).
+ * ===========================================================================
+ *
+ * `LinkRepository.createIfSlugFree` writes `domain_id = SYSTEM_DEFAULT_DOMAIN_ID` and
+ * `domain_tenant_id = PLATFORM_TENANT_ID` on every insert, always, so an attempt on that
+ * method against a database with no platform rows is refused 23503 by
+ * `links_domain_tenant_fk` and lands `unverified`: a red run that names no boundary,
+ * exactly the F-295 shape the fixture rules exist to prevent. The same three rows are what
+ * `POST /api/links` needs for its owner-verified 201.
+ *
+ * WHY THE ROWS CANNOT BREAK AN ATTEMPT OR A CENSUS. They belong to the platform tenant, and
+ * the census reads every table through each fixture tenant's OWN transaction, so
+ * `domains_tenant_isolation` hides them from both: no census line, no `findAll` row, no
+ * digest. Referential checks bypass row security (ADR-0062, measured on 1b's 23503
+ * behaviour), which is what lets a customer's link name a domain row it can never read.
+ *
+ * `ON CONFLICT (id) DO NOTHING` rather than a delete-and-reseed, for the reason
+ * `scripts/seed.mts` gives (ADR-0034 rule 1): the ids are frozen, the rows are shared with
+ * every other suite in the same database, and re-inserting them per attempt costs three
+ * statements inside the one psql spawn the reset already pays for. The suite takes them
+ * back out in `afterAll`, the way `test/links/cache-invalidation.int-spec.ts` does.
+ */
+const PLATFORM_SEED_SQL = `SELECT set_config('app.tenant_id', :'platform_tenant', false) \\g /dev/null
+     INSERT INTO tenants (id, name)
+       VALUES (:'platform_tenant', :'platform_tenant_name') ON CONFLICT (id) DO NOTHING;
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'platform_workspace', :'platform_tenant', :'platform_workspace_name')
+       ON CONFLICT (id) DO NOTHING;
+     INSERT INTO domains (id, tenant_id, workspace_id, hostname, state, is_system_default)
+       VALUES (:'system_domain', :'platform_tenant', :'platform_workspace', :'system_hostname', 'active', true)
+       ON CONFLICT (id) DO NOTHING;`;
+
+const PLATFORM_SEED_VARIABLES: Readonly<Record<string, string>> = {
+  platform_tenant: PLATFORM_TENANT_ID,
+  platform_tenant_name: PLATFORM_TENANT_NAME,
+  platform_workspace: PLATFORM_WORKSPACE_ID,
+  platform_workspace_name: PLATFORM_WORKSPACE_NAME,
+  system_domain: SYSTEM_DEFAULT_DOMAIN_ID,
+  // The same read the seed and the API make (`db/platform.ts`), so the hostname this suite
+  // writes is the one a link's `hostname` is denormalised from in the same process.
+  system_hostname: systemDefaultHostname(process.env),
+};
+
+/**
+ * Takes the platform rows back out. `tenants_privileged_erase` is the table's only DELETE
+ * path and it grants no read, so BOTH flags are set: `test/db/seed-platform.int-spec.ts`
+ * records why a delete with only the erase flag reports `DELETE 0` and raises nothing.
+ */
+export function dropPlatformRows(): void {
+  execSql(migrationDsn(), `DELETE FROM tenants WHERE id = :'tenant'::uuid;`, {
+    tenantId: PLATFORM_TENANT_ID,
+    flags: { 'app.privileged_erase': PLATFORM_TENANT_ID },
+    variables: { tenant: PLATFORM_TENANT_ID },
+  });
+}
+
+/**
+ * ===========================================================================
  * THE RESET EVERY REGISTRATION IN THIS FILE USES. IT REBUILDS THE WHOLE FIXTURE,
  * NOT ONE SUBJECT'S SHARE OF IT — AND THAT IS F-123.
  * ===========================================================================
@@ -969,7 +1057,9 @@ function resetTenantFixtures(): void {
   // option has.
   execSql(
     migrationDsn(),
-    `DELETE FROM "user" WHERE id IN (:'user_a', :'user_b', :'user_planted');
+    `${PLATFORM_SEED_SQL}
+
+     DELETE FROM "user" WHERE id IN (:'user_a', :'user_b', :'user_planted');
 
      INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES
        (:'user_a',       'Isolation A', :'email_a', false, now(), now()),
@@ -1064,6 +1154,7 @@ function resetTenantFixtures(): void {
         click_b: CLICK_ROW_B,
         ip_hash: CLICK_IP_HASH,
         user_agent: CLICK_USER_AGENT,
+        ...PLATFORM_SEED_VARIABLES,
       },
     },
   );
@@ -1696,6 +1787,295 @@ const membershipRepositoryAccess: TenantScopedSurfaceRegistration = {
   ],
 };
 
+/**
+ * ===========================================================================
+ * `links` AND `click_events`, ATTACKED THROUGH THEIR REPOSITORIES (TASK-2-10): the five
+ * methods of `LinkRepository`, `ClickEventWriterRepository.append` and
+ * `ClickEventReaderRepository.query`, each called inside the ACTOR's tenant transaction
+ * with the TARGET's ids. The `WorkspaceRepository` shape above, on item 2's three classes.
+ * ===========================================================================
+ *
+ * What is the same as every repository subject before them: every method is
+ * `owner-qualified` by the class's own contract (each statement carries
+ * `tenant_id = currentTenantId()` in its WHERE or sets it on INSERT, which
+ * `link.repository.ts` and the two click classes state and their unit specs compile); the
+ * unqualified writes on both tables live in the sibling `LinksTableAccess` and
+ * `ClickEventsTableAccess` batteries, which is rule 4; reads project the owner column so
+ * the harness judges them on it.
+ *
+ * WHAT IS DIFFERENT, AND IT IS THE CARD'S POINT: EVERY MUTATING ATTEMPT IS JUDGED AGAINST
+ * THE DATABASE, NOT AGAINST A RETURN VALUE. `update` and `delete` answer
+ * `LinkNotFoundError` for a row the actor cannot see, `createIfSlugFree` answers
+ * `WorkspaceNotFoundError` for a grant naming the target's workspace, and `append` is
+ * refused by the policy: all four are the CLASS's account of what happened. So each one
+ * reads the target's rows back through the migrator under the target's own flag afterwards
+ * and reports `rowsAffected` from THAT: the target's link still carrying its seeded
+ * destination, still present, no link on the planted slug, no appended click row. A method
+ * that started swallowing its own error, or answering not-found while writing, is a leak
+ * this reports and a return-value check would not. The per-attempt census over the same
+ * table is the second, independent judgement, and `attempt()` runs it either way.
+ *
+ * `ClickEventWriterRepository.append` IS THE ONE ATTEMPT WHOSE ANSWER IS A REFUSAL. It
+ * opens no transaction of its own (`click-events.md`: the flusher opens one per tenant
+ * group), so calling it inside the actor's transaction with the target's rows reaches
+ * `click_events_tenant_isolation`'s WITH CHECK, and the harness classifies the 42501 as the
+ * row-level security refusal it is. An INSERT policy has no USING clause, so that refusal
+ * is complete evidence for the statement, which is what `owner-qualified` means here
+ * (isolation-coverage.md, "`qualification` is derived from the statement"). If the policy
+ * ever admits it, `append` RESOLVES and the readback below is what names the planted row.
+ */
+const linkRepository = new LinkRepository();
+const clickEventWriter = new ClickEventWriterRepository();
+const clickEventReader = new ClickEventReaderRepository();
+
+/**
+ * The slug `createIfSlugFree` asks for. Different from both seeded slugs and from the
+ * battery's planted one, so a refusal is the composite workspace key's answer and never the
+ * unique index's: a 23505 would be caught by the repository's savepoint and returned as
+ * `null`, which is "the slug was taken" and not "the tenant boundary held".
+ */
+const LINK_REPOSITORY_PLANTED_SLUG = 'isolationRepo';
+/** The id the append attempt asks the database to write under the TARGET. Never lands. */
+const CLICK_APPENDED_ROW_ID = 'fcfcfcfc-fcfc-4fcf-8fcf-fcfcfcfcfcfc';
+/** What `update` would write. Never reaches a row: the readback is what says so. */
+const LINK_REPOSITORY_REWRITTEN_DESTINATION = 'https://example.test/rewritten-by-another-tenant';
+
+/** The target's seeded link, read back under the target's own flag. Absent means removed. */
+function targetLinkRow(target: TenantFixture): { destination_url: string } | undefined {
+  return querySql<{ destination_url: string }>(
+    migrationDsn(),
+    `SELECT destination_url FROM links WHERE id = :'link'::uuid AND tenant_id = :'tenant'::uuid`,
+    {
+      tenantId: target.id,
+      variables: { link: seededParentsOf(target.id).linkId, tenant: target.id },
+    },
+  )[0];
+}
+
+/** One row's worth of counting, under the target's flag: what the target now holds. */
+function countUnderTarget(target: TenantFixture, statement: string, variables: Record<string, string>): number {
+  const [row] = querySql<{ found: number }>(migrationDsn(), statement, {
+    tenantId: target.id,
+    variables: { ...variables, tenant: target.id },
+  });
+
+  return row === undefined ? 0 : Number(row.found);
+}
+
+function linkOwnerProjection(
+  rows: ReadonlyArray<{ id: string; tenantId: string; slug: string }>,
+): CrossTenantAttemptResult {
+  return { rows: rows.map((row) => ({ id: row.id, tenant_id: row.tenantId, slug: row.slug })) };
+}
+
+const linkRepositoryAccess: TenantScopedSurfaceRegistration = {
+  subject: 'LinkRepository',
+  table: 'links',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: [
+    {
+      // The one grant it takes is a workspace id, and the attempt names the TARGET's. The
+      // row it would write is (target's workspace, actor's tenant), a pair `workspaces (id,
+      // tenant_id)` does not hold, so `links_workspace_tenant_fk` refuses it 23503 and the
+      // repository maps that to `WorkspaceNotFoundError` (the route's Form A answered 404
+      // long before; the constraint is the floor). The refusal ABORTS the transaction, so
+      // it is caught OUTSIDE `withTenantTransaction`, which rolls it back.
+      name: 'createIfSlugFree',
+      kind: 'write',
+      reaches: 'new-row',
+      qualification: 'owner-qualified',
+      attempt: async (actor, target) => {
+        try {
+          await withTenantTransaction(actor.id, () =>
+            linkRepository.createIfSlugFree({
+              workspaceId: seededParentsOf(target.id).workspaceId,
+              slug: LINK_REPOSITORY_PLANTED_SLUG,
+              destinationUrl: LINK_DESTINATION,
+              expiresAt: null,
+              activatesAt: null,
+            }),
+          );
+        } catch (error) {
+          if (!(error instanceof WorkspaceNotFoundError)) {
+            throw error;
+          }
+        }
+
+        // The database decides, not the return value: a link on the planted slug anywhere
+        // the TARGET can see it is the row that was planted across the boundary.
+        return {
+          rowsAffected: countUnderTarget(
+            target,
+            `SELECT count(*)::int AS found FROM links WHERE slug = :'slug' AND tenant_id = :'tenant'::uuid`,
+            { slug: LINK_REPOSITORY_PLANTED_SLUG },
+          ),
+        };
+      },
+    },
+    {
+      name: 'findById',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const found = await linkRepository.findById(seededParentsOf(target.id).linkId);
+
+          return linkOwnerProjection(found === null ? [] : [found]);
+        }),
+    },
+    {
+      name: 'listForWorkspace',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () =>
+          linkOwnerProjection(
+            await linkRepository.listForWorkspace(seededParentsOf(target.id).workspaceId, {
+              limit: 50,
+              after: null,
+            }),
+          ),
+        ),
+    },
+    {
+      // `destination_url` is the column the redirect returns verbatim as `Location`, so a
+      // cross-tenant update here rewrites where another tenant's traffic goes. The readback
+      // is on that column for exactly that reason.
+      name: 'update',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: async (actor, target) => {
+        try {
+          await withTenantTransaction(actor.id, () =>
+            linkRepository.update(seededParentsOf(target.id).linkId, {
+              destinationUrl: LINK_REPOSITORY_REWRITTEN_DESTINATION,
+            }),
+          );
+        } catch (error) {
+          if (!(error instanceof LinkNotFoundError)) {
+            throw error;
+          }
+        }
+
+        const row = targetLinkRow(target);
+
+        return { rowsAffected: row !== undefined && row.destination_url === LINK_DESTINATION ? 0 : 1 };
+      },
+    },
+    {
+      name: 'delete',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: async (actor, target) => {
+        try {
+          await withTenantTransaction(actor.id, () =>
+            linkRepository.delete(seededParentsOf(target.id).linkId),
+          );
+        } catch (error) {
+          if (!(error instanceof LinkNotFoundError)) {
+            throw error;
+          }
+        }
+
+        return { rowsAffected: targetLinkRow(target) === undefined ? 1 : 0 };
+      },
+    },
+  ],
+};
+
+const clickEventWriterAccess: TenantScopedSurfaceRegistration = {
+  subject: 'ClickEventWriterRepository',
+  table: 'click_events',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: [
+    {
+      name: 'append',
+      kind: 'write',
+      reaches: 'new-row',
+      qualification: 'owner-qualified',
+      attempt: async (actor, target) => {
+        const parents = seededParentsOf(target.id);
+
+        // The batch is one row belonging to the TARGET, named in the columns the buffer
+        // fills: the class writes what it is handed and checks nothing itself, deliberately
+        // (`click-event.writer.ts`), so the database is the check and this is the statement
+        // that asks it. `ip_hash` is the fixture's constant: no real address corresponds to
+        // it and none is computed from one (GC-R).
+        await withTenantTransaction(actor.id, () =>
+          clickEventWriter.append([
+            {
+              id: CLICK_APPENDED_ROW_ID,
+              tenantId: target.id,
+              linkId: parents.linkId,
+              domainId: parents.domainId,
+              occurredAt: new Date(),
+              ipHash: CLICK_IP_HASH,
+              userAgent: CLICK_USER_AGENT,
+            },
+          ]),
+        );
+
+        // Reached only if the WITH CHECK admitted the row, which is the leak. `append`
+        // returns void, so nothing but the database can say whether it landed.
+        return {
+          rowsAffected: countUnderTarget(
+            target,
+            `SELECT count(*)::int AS found FROM click_events WHERE id = :'click'::uuid AND tenant_id = :'tenant'::uuid`,
+            { click: CLICK_APPENDED_ROW_ID },
+          ),
+        };
+      },
+    },
+  ],
+};
+
+const clickEventReaderAccess: TenantScopedSurfaceRegistration = {
+  subject: 'ClickEventReaderRepository',
+  table: 'click_events',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: [
+    {
+      // `query` returns `{ id, linkId, occurredAt, userAgent }` and no owner column: the
+      // reader names four columns and `ip_hash` and `tenant_id` are not among them (D-2-19,
+      // GC-R), which is a property of the read path rather than an omission. So the
+      // projection is RECONSTRUCTED from the argument, the way `MembershipRepository.roleFor`
+      // is: every row this can return is a click on the TARGET's seeded link, the fixture
+      // gives that link its clicks in the target's tenant only, and the census premise has
+      // just read them there. Reported with `tenant_id: target.id`, which is what makes a
+      // returned row a leak under `judge()`. Under the shipped policy it returns nothing.
+      name: 'query',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const page = await clickEventReader.query({
+            linkId: seededParentsOf(target.id).linkId,
+            from: new Date(0),
+            to: new Date(Date.now() + 60_000),
+            limit: 50,
+            after: null,
+          });
+
+          return {
+            rows: page.items.map((item) => ({
+              id: item.id,
+              tenant_id: target.id,
+              link_id: item.linkId,
+            })),
+          };
+        }),
+    },
+  ],
+};
+
 registerTenantScopedSurfaces(tenantsAccess);
 registerTenantScopedSurfaces(rlsFixtureRowsAccess);
 registerTenantScopedSurfaces(tenantMembershipsAccess);
@@ -1706,11 +2086,18 @@ registerTenantScopedSurfaces(membershipRepositoryAccess);
 registerTenantScopedSurfaces(invitationsAccess);
 registerTenantScopedSurfaces(invitationRepositoryAccess);
 registerTenantScopedSurfaces(invitationWorkspacesAccess);
-// TASK-2-02, migration 0005. Three batteries; the repository subjects that will sit beside
-// `links` and `click_events` arrive with their classes (TASK-2-05, TASK-2-09).
+// TASK-2-02, migration 0005. Three batteries, and since TASK-2-10 the three classes that
+// sit beside two of them: `LinkRepository` on `links` (TASK-2-05), and the click writer and
+// reader on `click_events` (TASK-2-09) as two subjects on one table, because they are two
+// classes with two method sets and the registry is keyed on the subject. `domains` has no
+// repository class of its own in item 2 (the seeded system default domain is the only row
+// any link names, ADR-0063), so it stays a battery.
 registerTenantScopedSurfaces(domainsAccess);
 registerTenantScopedSurfaces(linksAccess);
+registerTenantScopedSurfaces(linkRepositoryAccess);
 registerTenantScopedSurfaces(clickEventsAccess);
+registerTenantScopedSurfaces(clickEventWriterAccess);
+registerTenantScopedSurfaces(clickEventReaderAccess);
 
 const PLANTED_CANARY_ROW_ID = 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2';
 
@@ -2120,8 +2507,11 @@ async function tokenMinter(runtime: SignedInTenants): Promise<(tenantId: string)
 }
 
 /**
- * THE ONE RESET BOTH ENDPOINT GROUPS USE — F-123's rule applied to the signed-in fixture:
- * it leaves the fixture complete for every endpoint subject, whichever ran last.
+ * THE ONE RESET ALL THREE ENDPOINT GROUPS USE. F-123's rule applied to the signed-in
+ * fixture: it leaves the fixture complete for every endpoint subject, whichever ran last.
+ * Since TASK-2-10 that includes the link each tenant owns, put back exactly as the create
+ * route wrote it (see `plantSignedInLinks` below), and the platform rows every link's domain
+ * pair points at.
  *
  * Seeds one workspace per signed-in tenant at a fixed id, under each tenant's own flag;
  * since TASK-1b-06 the signed-in user's `workspace_admin` membership on it, which is what
@@ -2149,6 +2539,8 @@ function resetSignedInFixture(runtime: SignedInTenants): void {
   execSql(
     migrationDsn(),
     `BEGIN;
+     ${PLATFORM_SEED_SQL}
+
      SELECT set_config('app.tenant_id', :'ta', false) \\g /dev/null
      DELETE FROM invitations;
      DELETE FROM workspaces;
@@ -2160,6 +2552,7 @@ function resetSignedInFixture(runtime: SignedInTenants): void {
        VALUES (:'ia'::uuid, :'ta'::uuid, :'invitee', decode(:'digest_a', 'hex'), now() + interval '7 days', :'ua', :'inviter_a');
      INSERT INTO invitation_workspaces (tenant_id, invitation_id, workspace_id, role)
        VALUES (:'ta'::uuid, :'ia'::uuid, :'wa'::uuid, :'invitation_role'::workspace_role);
+     ${plantedLinkRestoreSql(runtime.a.tenantId, 'a')}
 
      SELECT set_config('app.tenant_id', :'tb', false) \\g /dev/null
      DELETE FROM invitations;
@@ -2172,6 +2565,7 @@ function resetSignedInFixture(runtime: SignedInTenants): void {
        VALUES (:'ib'::uuid, :'tb'::uuid, :'invitee', decode(:'digest_b', 'hex'), now() + interval '7 days', :'ub', :'inviter_b');
      INSERT INTO invitation_workspaces (tenant_id, invitation_id, workspace_id, role)
        VALUES (:'tb'::uuid, :'ib'::uuid, :'wb'::uuid, :'invitation_role'::workspace_role);
+     ${plantedLinkRestoreSql(runtime.b.tenantId, 'b')}
      COMMIT;`,
     {
       variables: {
@@ -2191,9 +2585,182 @@ function resetSignedInFixture(runtime: SignedInTenants): void {
         inviter_a: runtime.a.email,
         inviter_b: runtime.b.email,
         invitation_role: ENDPOINT_INVITATION_ROLE,
+        ...PLATFORM_SEED_VARIABLES,
+        ...plantedLinkRestoreVariables(runtime.a.tenantId, 'a'),
+        ...plantedLinkRestoreVariables(runtime.b.tenantId, 'b'),
       },
     },
   );
+}
+
+/**
+ * ===========================================================================
+ * THE LINK EACH SIGNED-IN TENANT OWNS: WRITTEN ONCE BY `POST /api/links`, PUT BACK
+ * VERBATIM BY EVERY RESET (TASK-2-10).
+ * ===========================================================================
+ *
+ * The row the six link attempts address is the ROUTE'S OWN ROW, not an INSERT this file
+ * invented: `plantSignedInLinks()` calls the shipped create route as each operator and reads
+ * the row back, so its domain pair, its slug, its destination and its id are what the
+ * product writes. An invented row can satisfy a GET while the create path is broken, and a
+ * positive control over it would then prove nothing about the surface the card names.
+ *
+ * IT IS PLANTED ONCE AND RESTORED, RATHER THAN RE-PLANTED, AND THE ID IS WHY. Every reset
+ * above issues `DELETE FROM workspaces`, which cascades the link away
+ * (`links_workspace_tenant_fk ON DELETE CASCADE`), and a second call to the route draws a
+ * NEW id, so a fixture field naming the link would go stale between one attempt and the
+ * next, which is the shape this suite files findings about. The reset therefore re-inserts
+ * the captured row, ids and all, and `TenantFixture.linkId` stays true for the whole run.
+ * The restore is also what puts back what a positive control legitimately did to the
+ * ACTOR's own link: `PATCH` rewrote its destination, `DELETE` removed it.
+ *
+ * Nothing is captured before the first plant, so the block is empty on the reset that runs
+ * before it (the one `linkEndpointGroup()` issues to build the workspace it plants into).
+ */
+interface PlantedLinkRow extends Record<string, unknown> {
+  id: string;
+  workspace_id: string;
+  domain_id: string;
+  domain_tenant_id: string;
+  slug: string;
+  destination_url: string;
+}
+
+const plantedLinkRows = new Map<string, PlantedLinkRow>();
+
+const ENDPOINT_LINK_SLUG_A = 'isoEndpointA';
+const ENDPOINT_LINK_SLUG_B = 'isoEndpointB';
+/**
+ * Both tenants' links sit on the ONE system default domain (ADR-0063), whose unique index is
+ * `(domain_id, slug)`, so every slug this file asks the route for is distinct per tenant: a
+ * second create on a slug already taken is 409 `slug_taken`, which the harness would score
+ * `unverified` on a boundary that held.
+ */
+const ENDPOINT_LINK_DESTINATION = 'https://example.test/endpoint-fixture';
+/** What the create attempt asks for, per tenant: a third and fourth slug, for that reason. */
+const ENDPOINT_CREATED_LINK_SLUG_A = 'isoCreatedA';
+const ENDPOINT_CREATED_LINK_SLUG_B = 'isoCreatedB';
+/** What the cross-tenant PATCH would write. The readback is what says it reached no row. */
+const ENDPOINT_LINK_REWRITTEN_DESTINATION = 'https://example.test/rewritten-by-another-tenant';
+
+function endpointLinkSlugOf(runtime: SignedInTenants, tenantId: string): string {
+  return tenantId === runtime.a.tenantId ? ENDPOINT_LINK_SLUG_A : ENDPOINT_LINK_SLUG_B;
+}
+
+function endpointCreatedLinkSlugOf(runtime: SignedInTenants, tenantId: string): string {
+  return tenantId === runtime.a.tenantId ? ENDPOINT_CREATED_LINK_SLUG_A : ENDPOINT_CREATED_LINK_SLUG_B;
+}
+
+/** The captured row for a tenant, or `undefined` before `plantSignedInLinks()` has run. */
+function plantedLinkOf(tenantId: string): PlantedLinkRow | undefined {
+  return plantedLinkRows.get(tenantId);
+}
+
+/** The link id `TenantFixture.linkId` carries, once planted. */
+function seededLinkOf(tenantId: string): string {
+  const planted = plantedLinkOf(tenantId);
+
+  if (planted === undefined) {
+    throw new Error(
+      `no link is planted for tenant ${tenantId}; linkEndpointGroup() plants one per ` +
+        'signed-in tenant through POST /api/links before the group is built',
+    );
+  }
+
+  return planted.id;
+}
+
+/** The restore block for one tenant, empty until the route has written the row. */
+function plantedLinkRestoreSql(tenantId: string, suffix: 'a' | 'b'): string {
+  return plantedLinkOf(tenantId) === undefined
+    ? ''
+    : `INSERT INTO links (id, tenant_id, workspace_id, domain_id, domain_tenant_id, slug, destination_url)
+       VALUES (:'link_${suffix}'::uuid, :'t${suffix}'::uuid, :'link_workspace_${suffix}'::uuid,
+               :'link_domain_${suffix}'::uuid, :'link_domain_tenant_${suffix}'::uuid,
+               :'link_slug_${suffix}', :'link_destination_${suffix}');`;
+}
+
+/** The variables that block reads. Empty, like the block, until the row exists. */
+function plantedLinkRestoreVariables(
+  tenantId: string,
+  suffix: 'a' | 'b',
+): Record<string, string> {
+  const planted = plantedLinkOf(tenantId);
+
+  return planted === undefined
+    ? {}
+    : {
+        [`link_${suffix}`]: planted.id,
+        [`link_workspace_${suffix}`]: planted.workspace_id,
+        [`link_domain_${suffix}`]: planted.domain_id,
+        [`link_domain_tenant_${suffix}`]: planted.domain_tenant_id,
+        [`link_slug_${suffix}`]: planted.slug,
+        [`link_destination_${suffix}`]: planted.destination_url,
+      };
+}
+
+/**
+ * One `POST /api/links` per signed-in tenant, as that tenant, and one readback of the row it
+ * wrote. `connection: close` for the reason `http-attempts.ts` gives at `issue()`: several
+ * seconds pass between one attempt and the next, and undici would otherwise reuse a socket
+ * the child has already closed.
+ */
+async function plantSignedInLinks(
+  runtime: SignedInTenants,
+  tokenFor: (tenantId: string) => Promise<string>,
+): Promise<void> {
+  for (const tenant of [runtime.a, runtime.b]) {
+    const token = await tokenFor(tenant.tenantId);
+
+    const response = await fetch(`${runtime.server.baseUrl}/api/links`, {
+      method: 'POST',
+      headers: {
+        connection: 'close',
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        workspaceId:
+          tenant.tenantId === runtime.a.tenantId ? ENDPOINT_WORKSPACE_A : ENDPOINT_WORKSPACE_B,
+        slug: endpointLinkSlugOf(runtime, tenant.tenantId),
+        destinationUrl: ENDPOINT_LINK_DESTINATION,
+      }),
+    });
+
+    const raw = await response.text();
+
+    if (response.status !== 201) {
+      throw new Error(
+        `planting the fixture link for ${tenant.tenantId} answered ${String(response.status)} ` +
+          `rather than 201, so no endpoint attempt below could prove anything: ${raw}`,
+      );
+    }
+
+    const id = (JSON.parse(raw) as { id?: unknown }).id;
+
+    if (typeof id !== 'string') {
+      throw new Error(`the create route returned no link id for ${tenant.tenantId}: ${raw}`);
+    }
+
+    // The columns the restore re-inserts, read from the row the ROUTE wrote rather than
+    // assumed: the domain pair is the route's choice (ADR-0063) and this file never names it.
+    const [row] = querySql<PlantedLinkRow>(
+      migrationDsn(),
+      `SELECT id::text AS id, workspace_id::text AS workspace_id, domain_id::text AS domain_id,
+              domain_tenant_id::text AS domain_tenant_id, slug, destination_url
+         FROM links WHERE id = :'link'::uuid AND tenant_id = :'tenant'::uuid`,
+      { tenantId: tenant.tenantId, variables: { link: id, tenant: tenant.tenantId } },
+    );
+
+    if (row === undefined) {
+      throw new Error(
+        `the create route answered 201 for ${tenant.tenantId} but no row is readable under ` +
+          `that tenant at ${id}`,
+      );
+    }
+
+    plantedLinkRows.set(tenant.tenantId, row);
+  }
 }
 
 /** Which signed-in operator owns a tenant id, for the specs that need its user or token. */
@@ -2376,6 +2943,157 @@ function invitationEndpoints(runtime: SignedInTenants): readonly EndpointAttempt
 }
 
 /**
+ * ===========================================================================
+ * THE FIVE LINK ROUTES AND THE CLICKS ROUTE (TASK-2-10, AC-2-41; D-2-12,
+ * workspace-authorization.md's link rows).
+ * ===========================================================================
+ *
+ * A's signed-in member against B's ids on all six, with the OWNER's success beside every
+ * refusal in the same attempt, which is what makes a 404 evidence about isolation rather
+ * than about a wrong id or a misspelled route (F-296).
+ *
+ * EVERY ONE IS A `status` REFUSAL, AND EVERY ONE IS 404, because that is the whole status
+ * story on these routes: the two Form A routes are refused by
+ * `WorkspaceAuthorizationInterceptor` on a workspace the actor holds no membership in and
+ * cannot see (D-10, the same body as an id nobody issued), and the four by-id routes are
+ * Form B, where `LinkRepository.findById` runs inside the actor's tenant transaction and
+ * answers `null` before any role is read (AC-2-6). No route offers a parameter or a body
+ * field naming another tenant, so there is no unqualified HTTP shape to declare.
+ *
+ * WHAT EACH ATTEMPT ADDRESSES, AND WHERE THE ID COMES FROM. The by-id four take
+ * `target.linkId`, the field `TenantFixture` gained for this card: the fixture carries the
+ * id of the row the create route wrote for that tenant, so an attempt cannot address a link
+ * this file invented, and a group that stopped populating it fails loudly rather than
+ * quietly addressing something else.
+ *
+ * THE TWO MUTATING ROUTES ARE JUDGED AGAINST THE DATABASE (`targetMutated`), not against
+ * the 404: PATCH must leave the target's destination exactly as the create route wrote it,
+ * and DELETE must leave the row present. A route that answered 404 while writing is a leak
+ * neither the status nor the response body can show, and the per-attempt census over
+ * `links` is the second, independent judgement.
+ *
+ * `GET /api/links/:linkId/clicks` IS IN THIS GROUP RATHER THAN A `click_events` ONE, and
+ * the reason is where its refusal is decided: the route loads the LINK first and answers
+ * 404 for another tenant's id before `ClickEventReaderRepository.query` is reached
+ * (`clicks.service.ts`, Form B). The boundary it measures is the link's, so the group's
+ * table, census and addressed row are `links`. The reader itself is attempted directly as
+ * `repo:ClickEventReaderRepository.query`, where the `click_events` policy is what answers.
+ */
+function linkEndpoints(runtime: SignedInTenants): readonly EndpointAttemptSpec[] {
+  const workspaceOf = (tenantId: string): string =>
+    tenantId === runtime.a.tenantId ? ENDPOINT_WORKSPACE_A : ENDPOINT_WORKSPACE_B;
+
+  /** The row the attempt addresses, from the fixture rather than from a module-level map. */
+  const linkOf = (fixture: TenantFixture): string => {
+    if (fixture.linkId === undefined) {
+      throw new Error(
+        `the fixture for tenant ${fixture.id} carries no linkId, so this attempt would ` +
+          'address nothing; linkEndpointGroup() plants one per signed-in tenant',
+      );
+    }
+
+    return fixture.linkId;
+  };
+
+  /** The target's planted link, read back under the target's own flag after a write. */
+  const targetLink = (target: TenantFixture): { destination_url: string } | undefined =>
+    querySql<{ destination_url: string }>(
+      migrationDsn(),
+      `SELECT destination_url FROM links WHERE id = :'link'::uuid AND tenant_id = :'tenant'::uuid`,
+      { tenantId: target.id, variables: { link: linkOf(target), tenant: target.id } },
+    )[0];
+
+  return [
+    {
+      // Form A on `body.workspaceId`, `member`. The body names the TARGET's workspace: 404.
+      // The positive control is the argument swap, the actor creating in its own workspace
+      // on its own spare slug, which must be 201 (and the next reset takes that row away
+      // with the workspace it hangs from).
+      name: 'create',
+      method: 'POST',
+      route: '/api/links',
+      httpKind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({
+        path: '/api/links',
+        body: {
+          workspaceId: workspaceOf(target.id),
+          slug: endpointCreatedLinkSlugOf(runtime, target.id),
+          destinationUrl: ENDPOINT_LINK_DESTINATION,
+        },
+      }),
+      expectedRefusal: { kind: 'status', status: 404 },
+    },
+    {
+      // Form A on `query.workspaceId`, `viewer`. NOT `absent-from-list`: that shape needs a
+      // 200 with an empty page, and the interceptor refuses before the service lists.
+      name: 'list',
+      method: 'GET',
+      route: '/api/links',
+      httpKind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({
+        path: `/api/links?workspaceId=${workspaceOf(target.id)}`,
+      }),
+      expectedRefusal: { kind: 'status', status: 404 },
+    },
+    {
+      name: 'get',
+      method: 'GET',
+      route: '/api/links/:linkId',
+      httpKind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({ path: `/api/links/${linkOf(target)}` }),
+      expectedRefusal: { kind: 'status', status: 404 },
+    },
+    {
+      name: 'update',
+      method: 'PATCH',
+      route: '/api/links/:linkId',
+      httpKind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({
+        path: `/api/links/${linkOf(target)}`,
+        body: { destinationUrl: ENDPOINT_LINK_REWRITTEN_DESTINATION },
+      }),
+      expectedRefusal: { kind: 'status', status: 404 },
+      targetMutated: (_actor, target) => {
+        const row = targetLink(target);
+
+        return row === undefined || row.destination_url !== ENDPOINT_LINK_DESTINATION;
+      },
+    },
+    {
+      // A hard delete (D-2-03), so the readback is presence: the target's row must still be
+      // there, and its click rows with it.
+      name: 'delete',
+      method: 'DELETE',
+      route: '/api/links/:linkId',
+      httpKind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({ path: `/api/links/${linkOf(target)}` }),
+      expectedRefusal: { kind: 'status', status: 404 },
+      targetMutated: (_actor, target) => targetLink(target) === undefined,
+    },
+    {
+      name: 'clicks',
+      method: 'GET',
+      route: '/api/links/:linkId/clicks',
+      httpKind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({ path: `/api/links/${linkOf(target)}/clicks` }),
+      expectedRefusal: { kind: 'status', status: 404 },
+    },
+  ];
+}
+
+/**
  * The workspace endpoint attempt group: the registration whose methods are the five HTTP
  * attacks on the workspace routes, and the signed-in fixtures they run against. Built at
  * runtime because it needs the booted child and the two live sessions; the surface ids it
@@ -2437,14 +3155,66 @@ export async function invitationEndpointGroup(runtime: SignedInTenants): Promise
 }
 
 /**
+ * The link endpoint attempt group (TASK-2-10): the five link routes and the clicks route
+ * over the SAME two signed-in operators and the same reset, with `links` as the table the
+ * per-attempt census brackets.
+ *
+ * IT RESETS AND PLANTS BEFORE IT BUILDS ANYTHING, and the order is the point: the create
+ * route needs the workspace the reset seeds and the platform rows it seeds beside it, the
+ * fixtures below need the id the route drew, and every later reset restores that row rather
+ * than drawing a new one. So the first `resetSignedInFixture` here runs with nothing
+ * captured (its restore block is empty), `plantSignedInLinks` writes the two rows through
+ * the shipped route, and from then on the fixture id is stable for the whole run.
+ */
+export async function linkEndpointGroup(runtime: SignedInTenants): Promise<AttemptGroup> {
+  const tokenFor = await tokenMinter(runtime);
+
+  resetSignedInFixture(runtime);
+  await plantSignedInLinks(runtime, tokenFor);
+
+  const registration = endpointAccess({
+    subject: 'LinkEndpoints',
+    table: 'links',
+    ownerColumn: 'tenant_id',
+    reset: () => resetSignedInFixture(runtime),
+    baseUrl: runtime.server.baseUrl,
+    tokenFor,
+    seededRowId: seededLinkOf,
+    endpoints: linkEndpoints(runtime),
+  });
+
+  return {
+    registrations: [registration],
+    fixtures: {
+      tenantA: {
+        id: runtime.a.tenantId,
+        name: 'signed-in-tenant-a',
+        linkId: seededLinkOf(runtime.a.tenantId),
+      },
+      tenantB: {
+        id: runtime.b.tenantId,
+        name: 'signed-in-tenant-b',
+        linkId: seededLinkOf(runtime.b.tenantId),
+      },
+    },
+  };
+}
+
+/**
  * Every surface id this wave covers, hand-written so a battery quietly losing a method
  * fails. IN SORTED ORDER: the suite compares it against `covered.sort()`, and `repo:`
- * sorts before `route:`, so the ten route ids come last.
+ * sorts before `route:`, so the sixteen route ids come last.
  */
 export const EXPECTED_SURFACE_IDS = [
-  // The three item-2 tables (TASK-2-02, migration 0005): eight shapes each, no repository
-  // subject yet. `C` and `D` sort before every id below; `Links…` sits between
-  // `InvitationsTableAccess` and `MembershipRepository`.
+  // The two click classes (TASK-2-09, registered by TASK-2-10): two subjects on one table,
+  // one method each, which is the whole tenant-facing surface on `click_events` (AC-2-39,
+  // AC-60: append-only is enforced by the ABSENCE of methods, and this list is where a
+  // third one would have to appear). `Reader` < `Writer` < `sTableAccess` by code unit.
+  'repo:ClickEventReaderRepository.query',
+  'repo:ClickEventWriterRepository.append',
+  // The three item-2 tables (TASK-2-02, migration 0005): eight shapes each. `C` and `D`
+  // sort before every id below; `Links…` sits between `LinkRepository` and
+  // `MembershipRepository`.
   'repo:ClickEventsTableAccess.deleteAll',
   'repo:ClickEventsTableAccess.deleteOwnedBy',
   'repo:ClickEventsTableAccess.findAll',
@@ -2485,7 +3255,13 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:InvitationsTableAccess.reparentAll',
   'repo:InvitationsTableAccess.updateAll',
   'repo:InvitationsTableAccess.updateOwnedBy',
-  // TASK-2-02. `LinkRepository`'s methods join this table as a sibling subject in TASK-2-05.
+  // TASK-2-05's class, registered by TASK-2-10 as the sibling subject on `links`: five
+  // methods, every one owner-qualified, every mutating one judged against the database.
+  'repo:LinkRepository.createIfSlugFree',
+  'repo:LinkRepository.delete',
+  'repo:LinkRepository.findById',
+  'repo:LinkRepository.listForWorkspace',
+  'repo:LinkRepository.update',
   'repo:LinksTableAccess.deleteAll',
   'repo:LinksTableAccess.deleteOwnedBy',
   'repo:LinksTableAccess.findAll',
@@ -2553,17 +3329,31 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:WorkspacesTableAccess.updateOwnedBy',
   // TASK-014/015: the authenticated workspace routes, attacked as HTTP by a second
   // signed-in operator — four, plus `GET /api/workspaces/:workspaceId` and the `:id` →
-  // `:workspaceId` rename (TASK-1b-06, D-07) — and since TASK-1b-10 the five invitation
-  // routes, one of them `@Public()`. `route:` ids sort after every `repo:` id, and among
+  // `:workspaceId` rename (TASK-1b-06, D-07), since TASK-1b-10 the five invitation
+  // routes, one of them `@Public()`, and since TASK-2-10 the five link routes and the
+  // clicks read (D-2-12). SIXTEEN. `route:` ids sort after every `repo:` id, and among
   // them by method then path (`DELETE` < `GET` < `PATCH` < `POST`).
+  //
+  // `route:GET /:slug` IS DELIBERATELY ABSENT AND THAT IS NOT AN OMISSION. The redirect is
+  // anonymous and cross-tenant BY DESIGN: any visitor resolves any tenant's slug, so there
+  // is no cross-tenant attempt to write against it. What it may READ is the boundary that
+  // exists, and that is the carried exclusion `repo:RedirectReadRepository.resolveByHostAndSlug`,
+  // narrowed by the FOR SELECT policy pair, the READ ONLY transaction and the one-file
+  // grep, all three asserted in `cross-tenant-isolation.int-spec.ts` (AC-2-41).
   'route:DELETE /api/invitations/:id',
+  'route:DELETE /api/links/:linkId',
   'route:GET /api/invitations',
+  'route:GET /api/links',
+  'route:GET /api/links/:linkId',
+  'route:GET /api/links/:linkId/clicks',
   'route:GET /api/workspaces',
   'route:GET /api/workspaces/:workspaceId',
+  'route:PATCH /api/links/:linkId',
   'route:PATCH /api/workspaces/:workspaceId',
   'route:POST /api/invitations',
   'route:POST /api/invitations/accept',
   'route:POST /api/invitations/lookup',
+  'route:POST /api/links',
   'route:POST /api/workspaces',
   'route:POST /api/workspaces/:workspaceId/archive',
 ] as const;
