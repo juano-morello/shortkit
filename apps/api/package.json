@@ -36,7 +36,7 @@
     "@types/node": "24.13.3",
     "@types/pg": "8.20.4",
     "drizzle-kit": "0.31.10",
-    "eslint": "9.39.5",
+    "eslint": "10.8.1",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "unplugin-swc": "1.5.10",
