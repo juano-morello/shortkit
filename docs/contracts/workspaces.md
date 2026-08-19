@@ -199,6 +199,21 @@ There is no `DELETE`; archive is the retirement path. There is no member-managem
 1b (`workspace-authorization.md` lists them as not built); a second member arrives through
 an invitation (`invitation-tokens.md`) and, in tests, through a seeded `memberships` row.
 
+### What archiving stops, and what it does not (2026-08-19, TASK-2-05, AC-2-8)
+
+**ARCHIVE GATES MANAGEMENT, NOT VISITORS. An archived workspace's existing links keep
+serving.** `POST /api/links` naming an archived workspace and `PATCH /api/links/:linkId` on a
+link inside one are both 400 `validation_failed`; the rows are untouched, and
+`GET /:slug` resolves them exactly as before: the redirect reads `links` and `domains` and
+consults no workspace at all (`redirect-resolution.md`'s decision order has no archive step,
+and the hot path may not acquire one). An operator who wants a link to stop resolving deletes
+the link.
+
+`DELETE /api/links/:linkId` therefore stays OPEN on an archived workspace, deliberately: the
+gate is on "create or edit" (AC-2-8's words), and closing the delete too would leave a live
+redirect with no management path at all. Recorded here because the asymmetry looks like an
+oversight from either side.
+
 ### Who sees and does what (2026-08-18, TASK-1b-06, D-10)
 
 - **The creator becomes `workspace_admin`.** `POST` inserts the workspace and then the caller's

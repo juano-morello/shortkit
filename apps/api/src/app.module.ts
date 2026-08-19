@@ -8,6 +8,7 @@ import { ApiExceptionFilter } from './common/errors/exception-filter';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { HealthModule } from './health/health.module';
 import { InvitationsModule } from './invitations/invitations.module';
+import { LinksModule } from './links/links.module';
 import { RequestLogInterceptor } from './observability/request-log.interceptor';
 import { TenantTransactionInterceptor } from './tenancy/tenant-transaction.interceptor';
 import { WorkspacesModule } from './workspaces/workspaces.module';
@@ -77,7 +78,22 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
  */
 @Module({
   // `RateLimitModule` after `AuthModule` — see the docblock; swapping them changes the guard order.
-  imports: [AuthModule, HealthModule, WorkspacesModule, InvitationsModule, RateLimitModule, AuthorizationModule],
+  //
+  // ⚠ `RedirectModule` (TASK-2-06) MUST BE THE LAST ENTRY IN THIS LIST WHEN IT LANDS.
+  // Express matches in registration order and the redirect's `:slug` route is excluded from
+  // the `/api` prefix, so it matches at the root: a module registered after it would be
+  // shadowed by a one-segment path that resolves to a link (ADR-0006's "last matching
+  // route", D-2-13). `app.module.spec.ts` pins the position the way it pins the guard order.
+  // Every other feature module goes ABOVE this comment.
+  imports: [
+    AuthModule,
+    HealthModule,
+    WorkspacesModule,
+    InvitationsModule,
+    LinksModule,
+    RateLimitModule,
+    AuthorizationModule,
+  ],
   providers: [
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
     // Outermost first — see the docblock. Swapping these two lines changes what

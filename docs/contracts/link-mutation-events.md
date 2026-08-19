@@ -1,9 +1,9 @@
 # Contract: the `onLinkMutated` hook
 
 - **Boundary:** the link mutation transaction, and every subscriber that must react to it.
-- **Normative form:** `apps/api/src/links/link-mutation.events.ts`, not yet written. The design stub at `design/stubs/apps/api/src/links/link-mutation.events.ts` stands in until TASK-025 lands the file and is retired then (ADR-0039). It is a design-gate scaffold, not a normative form.
-- **Produced by:** TASK-025.
-- **Consumed by:** TASK-027, TASK-031 (cache invalidation), TASK-048 (audit).
+- **Normative form:** `apps/api/src/links/link-mutation.events.ts`. ~~Not yet written. The design stub at `design/stubs/apps/api/src/links/link-mutation.events.ts` stands in until TASK-025 lands the file and is retired then (ADR-0039).~~ **Amended 2026-08-19 (TASK-2-05, item 2's renumbering of TASK-025): the file is written and the stub is retired under ADR-0039.** It exports the types below verbatim, plus three functions the types above do not name: `clearLinkMutationSubscribers()` (tests only), and the two dispatchers the link service calls, `runInTransactionSubscribers(mutation, db)`, which lets a throw propagate, and `runAfterCommitSubscribers(mutation)`, which logs one and continues. Splitting the dispatch out of the registry is what lets both phases be measured with no database (`apps/api/src/links/link-mutation.events.spec.ts`); the service is still the only caller, as "dispatched by the link service" requires.
+- **Produced by:** TASK-025, **renumbered TASK-2-05 at delivery (2026-08-19)**.
+- **Consumed by:** TASK-027, TASK-031 (cache invalidation), **renumbered TASK-2-08 at delivery**; TASK-048 (audit).
 - **ADRs:** ADR-0008, ADR-0002.
 
 ## Normative types
@@ -55,6 +55,17 @@ export declare function onLinkMutated(subscriber: LinkMutationSubscriber): void;
 Both phases are dispatched by the link service, in registration order within a phase.
 `in-transaction` subscribers run before `COMMIT`; `after-commit` subscribers run from
 `withTenantTransaction`'s `afterCommit` (`tenant-context.md`).
+
+> **Added 2026-08-19 (TASK-2-05), three properties the shipped registry has that the types
+> above do not state.** (a) Subscriber NAMES are unique: a second registration under a name
+> already held throws, because two registrations of the invalidator would delete the same
+> key twice and hide the second failure. (b) Within a phase the subscribers run one at a
+> time, awaited in order, never `Promise.all`: the first phase's subscribers share the
+> transaction's one connection. (c) A throw in `after-commit` is logged as `code:
+> 'link_mutation_subscriber_failed'` WITHOUT the error's message (`includeMessage: false`;
+> a cache failure's message names an internal host) and the subscribers registered after it
+> still run; the subscriber with something specific to say (`cache_invalidation_failed`
+> with `link_id` and `attempts`, D-2-15) says it itself before throwing.
 
 ## Firing rules
 

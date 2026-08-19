@@ -204,9 +204,24 @@ Normative. A TASK adding a route adds a row here in the same commit.
 | `POST /api/invitations/lookup` | `@Public()`; the token travels in the body (D-03) |
 | `POST /api/invitations/accept` | authenticated, **no role decorator** — the token authorises; a token for another tenant is 409 `invitation_tenant_conflict` (D-04) |
 | ~~`GET /api/invitations/:token`, `POST /api/invitations/:token/accept`~~ | ~~`@Public()`~~ — superseded 2026-08-18 by the two rows above (D-03, D-04): the raw token never travels in a URL path |
-| `GET /api/links`, `GET /api/links/:id` | `viewer` |
-| `POST`/`PATCH`/`DELETE /api/links` | `member` |
-| `GET /api/links/:id/audit` | `member` |
+| ~~`GET /api/links`, `GET /api/links/:id`~~ | ~~`viewer`~~. Superseded 2026-08-19 by the five rows below (TASK-2-05, D-2-12) |
+| ~~`POST`/`PATCH`/`DELETE /api/links`~~ | ~~`member`~~. Superseded, same |
+| **`POST /api/links`** | `member`, **Form A on `body.workspaceId`** (TASK-2-05). 201 `linkContract`. An ARCHIVED workspace is 400 `validation_failed` under `workspaceId`; a supplied slug's violation is 400 under `slug`; a taken one is 409 `slug_taken` |
+| **`GET /api/links?workspaceId=<uuid>&limit=&cursor=`** | `viewer`, **Form A on `query.workspaceId`** (TASK-2-05). 200 `paginated(linkContract)`, newest first, keyset `(created_at DESC, id DESC)`, `paginationQueryContract` bounds. A cursor this endpoint did not issue is 400 under `cursor` |
+| **`GET /api/links/:linkId`** | `viewer`, **Form B in the service** (TASK-2-05). 200 `linkContract` |
+| **`PATCH /api/links/:linkId`** | `member`, **Form B**. 200 `linkContract`; an empty patch is valid and still fires `onLinkMutated` |
+| **`DELETE /api/links/:linkId`** | `member`, **Form B**. 200 `linkContract` carrying the row it removed (hard delete; the link's `click_events` cascade). Not 204: `packages/contracts/src/links/link.ts`'s route table, `DELETE /api/invitations/:id`'s precedent and TASK-2-13's response narrowing all name a body |
+| `GET /api/links/:id/audit` | `member`, **not built in item 2** (item 4's) |
+
+> **Why the three by-id rows are Form B and carry no decorator (2026-08-19, TASK-2-05).**
+> Form A resolves the workspace id from `params.workspaceId`, then `body.workspaceId`, then
+> `query.workspaceId`. A link route carries the LINK's id and the workspace nowhere, so
+> `@RequireWorkspaceRole` there resolves nothing and answers 400 `workspace_id_required` on
+> every request. This contract already names the case as Form B's ("resource routes such as
+> `/api/links/:id`, where the workspace is a property of the resource"), and the shipped
+> handlers do exactly what it prescribes: load through `LinkRepository`, which answers
+> `null` for another tenant's id, an id nobody issued and a non-uuid alike (404 before any
+> role is read, AC-2-6), then `authorizer.assert(link.workspaceId, min)`.
 | `GET /api/domains` | `viewer` |
 | `POST`/`DELETE /api/domains`, `POST /api/domains/:id/verify`, `.../retry-certificate` | `workspace_admin` |
 | `GET /api/workspaces/:id/branding` | `viewer` |

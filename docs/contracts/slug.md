@@ -1,7 +1,7 @@
 # Contract: short-code alphabet, validation, and reserved slugs
 
 - **Boundary:** slug generation, slug validation on the API, and client-side pre-validation in the web app.
-- **Normative form:** `packages/contracts/src/slug.ts`. **`validateSlug` and `isReservedSlug` are implemented there as of 2026-08-19 (TASK-2-01); neither throws any more.** The design stub was retired 2026-08-11 under ADR-0039, TASK-007 having closed.
+- **Normative form:** `packages/contracts/src/slug.ts`. **`validateSlug` and `isReservedSlug` are implemented there as of 2026-08-19 (TASK-2-01); neither throws any more.** The design stub was retired 2026-08-11 under ADR-0039, TASK-007 having closed. **The GENERATOR's normative form is `apps/api/src/links/codes/slug-generator.ts` (TASK-2-05, 2026-08-19): `RandomSource`, the `RANDOM_SOURCE` injection token, `cryptoRandomSource`, `SlugGenerator`, and `symbolForByte`, which is exported so the uniformity of the mapping is measured over all 256 byte values rather than inferred from samples.** It lives in `apps/api` rather than in `packages/contracts` because it needs `node:crypto`, which ADR-0005 forbids that package (`apps/web` imports its source with no build step).
 - **Produced by:** TASK-2-01 (`validateSlug`, `isReservedSlug`), TASK-2-05 (the generator); the constants ship in `packages/contracts` from TASK-007.
 - **Consumed by:** TASK-2-02 (unique index), TASK-2-05 (400/409 mapping), TASK-2-13 (inline validation in the web app).
 - **Card ids:** item 2's plan renumbered the foundation's TASK-0xx cards. The originals appear below in quoted history; the live owners are TASK-2-01 (this file's functions), TASK-2-02 (schema), TASK-2-05 (generator and routes) and TASK-2-13 (web).
@@ -73,6 +73,20 @@ collision handling gets a deterministic test.
 
 Rejection sampling: 256 is not a multiple of 57, so a byte at or above 228 is discarded
 and redrawn. Using modulo without it biases the first 28 symbols.
+
+> **Shipped 2026-08-19 (TASK-2-05).** `RandomSource` is a Nest provider under the token
+> `RANDOM_SOURCE`, bound to `cryptoRandomSource` in `links.module.ts`; the integration suite
+> overrides that one token and nothing else, so `AC-2-10`'s collisions are real INSERTs
+> meeting the real unique index rather than a stubbed error.
+>
+> **The reserved redraw is NOT charged to `SLUG_GENERATION_MAX_ATTEMPTS`.** That budget
+> bounds DATABASE round trips (a `23505` costs a statement and a savepoint rollback), and
+> spending one of the five on a purely local condition would make 500
+> `slug_generation_exhausted` reachable with no collision anywhere. `next()` therefore loops
+> on `isReservedSlug` under its own bound (`RESERVED_REDRAW_LIMIT`, 8), which exists only so
+> a malfunctioning source (a scripted one, a stub returning a constant) throws loudly
+> instead of hanging a request. `validateSlug(generator.next())` is `{ ok: true }`
+> unconditionally as a result, which is what invariant 1 claims.
 
 ## Uniqueness and collision
 
@@ -153,9 +167,12 @@ unwrapping.
   TASK-2-05 and TASK-2-13 do not redeclare the alphabet or the reserved list.
 - `docs/architecture/short-codes.md` states the alphabet, length, exclusions and
   reserved list, which is what AC-2-13 tests against. **Written 2026-08-19 (TASK-2-01).**
-- Rejection sampling is implemented. Plain `byte % 57` is a defect.
+- Rejection sampling is implemented. Plain `byte % 57` is a defect. **Done 2026-08-19
+  (TASK-2-05); `slug-generator.spec.ts` walks all 256 bytes and asserts the 228 accepted
+  ones map four apiece onto the 57 symbols, with the other 28 redrawn.**
 - The generator calls `isReservedSlug` on each candidate and redraws when it is true —
-  see the correction under invariant 1.
+  see the correction under invariant 1. **Done 2026-08-19 (TASK-2-05); a scripted source
+  that draws `support` and then `privacy` proves both are discarded.**
 
 ## Versioning
 
