@@ -44,7 +44,8 @@ import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixtu
  *
  * ============================================================================
  * THE SAME TWO-PROCESS SHAPE AS `test/workspaces/workspaces.int-spec.ts`, PLUS A PROBE
- * CONTROLLER CARRYING THE DECORATORS — THE ROUTES 1b-06 WILL DECORATE ARE NOT DECORATED YET.
+ * CONTROLLER CARRYING THE DECORATORS (written before 1b-06 decorated the real routes; kept
+ * because it exercises minima and a no-transaction chain the real routes cannot).
  * ============================================================================
  *
  * The child booted by `api-server.ts` signs users up, signs them in and mints real tokens
@@ -221,13 +222,17 @@ async function createWorkspace(principal: Principal, name: string): Promise<stri
 /**
  * Seeds a `memberships` row through the migrator under the tenant's flag: FORCE ROW LEVEL
  * SECURITY subjects the owner to the policy too, and the composite key needs the workspace
- * to be that tenant's. No route grants a membership yet (TASK-1b-06 adds the creator's).
+ * to be that tenant's. Since TASK-1b-06 `POST /api/workspaces` writes the creator's
+ * `workspace_admin` row itself, so for the creator this is an UPSERT that sets the role the
+ * test wants (`ON CONFLICT (workspace_id, user_id) DO UPDATE` — a fixture statement through
+ * the migrator, not the app's path; D-12's `DO NOTHING` rule is about the accept path).
  */
 function seedMembership(tenantId: string, workspaceId: string, userId: string, role: string): void {
   execSql(
     migrationDsn(),
     `INSERT INTO memberships (tenant_id, workspace_id, user_id, role)
-     VALUES (:'tenant_id'::uuid, :'workspace_id'::uuid, :'user_id', :'role'::workspace_role)`,
+     VALUES (:'tenant_id'::uuid, :'workspace_id'::uuid, :'user_id', :'role'::workspace_role)
+     ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
     { tenantId, variables: { tenant_id: tenantId, workspace_id: workspaceId, user_id: userId, role } },
   );
 }
@@ -382,6 +387,8 @@ describe('AC-1b-19: rank enforcement on a real membership row', () => {
   it('no membership in a same-tenant workspace is 404 not_found with the same body as an id nobody issued and as a malformed id', async () => {
     const a = await principalFor(EMAIL_A);
     const unjoined = await createWorkspace(a, 'Not a member');
+    // The creator's own row (TASK-1b-06 writes it) is removed: this test is about NO membership.
+    deleteMembership(a.tenantId, unjoined, a.userId);
 
     for (const path of [
       `/api/authz-probe/workspaces/${unjoined}`,
@@ -505,8 +512,8 @@ describe('AC-1b-20: no tenant transaction, no pass', () => {
   });
 });
 
-describe('the undecorated routes are untouched', () => {
-  it('the shipped workspace routes answer as before with the third interceptor in the chain: create, list, rename', async () => {
+describe('the shipped workspace routes through the same chain', () => {
+  it('create, list, rename answer through the third interceptor: the creator holds the one membership row (TASK-1b-06) and rename passes on it', async () => {
     const a = await principalFor(EMAIL_A);
     const workspaceId = await createWorkspace(a, 'Untouched');
 
@@ -514,10 +521,10 @@ describe('the undecorated routes are untouched', () => {
     expect(listed.status, listed.raw).toBe(200);
     expect((listed.body as { items: Array<{ id: string }> }).items.map((item) => item.id)).toEqual([workspaceId]);
 
-    // No membership seeded: the route is not decorated in this wave (TASK-1b-06 does that),
-    // so no membership is required of it yet.
+    // No membership seeded here: since TASK-1b-06 the create route writes the creator's
+    // `workspace_admin` row itself, and the (now decorated) rename passes on that row.
     const renamed = await api(`/api/workspaces/${workspaceId}`, { method: 'PATCH', token: a.token, body: { name: 'Still untouched' } });
     expect(renamed.status, renamed.raw).toBe(200);
-    expect(membershipCountFor(a.tenantId)).toBe(0);
+    expect(membershipCountFor(a.tenantId)).toBe(1);
   });
 });

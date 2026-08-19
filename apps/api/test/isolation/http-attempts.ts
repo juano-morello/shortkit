@@ -31,9 +31,9 @@
  * A REFUSAL IS NOT A PASS, AND OVER HTTP THAT IS EASIER TO GET WRONG (F-296, F-342)
  * ===========================================================================
  *
- * A 404 from `PATCH /api/workspaces/:id` proves the row was invisible to the policy, OR
- * that the id was wrong, OR that the route was misspelled — and only the first is
- * isolation. So every write attempt runs a POSITIVE CONTROL in the same attempt: the OWNER
+ * A 404 from `PATCH /api/workspaces/:workspaceId` proves the row was invisible to the
+ * policy, OR that the id was wrong, OR that the route was misspelled, OR (since TASK-1b-06)
+ * that the actor holds no membership on its own row — and only the first is isolation. So every write attempt runs a POSITIVE CONTROL in the same attempt: the OWNER
  * of the addressed row issues the SAME request and must get a 2xx. If the owner's request
  * does not succeed, the route or the id is wrong, the cross-tenant refusal proves nothing,
  * and the attempt is scored `unverified` (it THROWS, which the runner classifies as a
@@ -202,12 +202,12 @@ export interface EndpointAttemptSpec {
   /** The method name in the surface id's log form and the run log. */
   readonly name: string;
   readonly method: HttpMethod;
-  /** The route PATTERN, e.g. `/api/workspaces/:id` — never a concrete path (log-safe). */
+  /** The route PATTERN, e.g. `/api/workspaces/:workspaceId` — never a concrete path (log-safe). */
   readonly route: string;
   readonly httpKind: 'read' | 'write';
   readonly reaches: 'existing-row' | 'new-row';
   /**
-   * REQUIRED, like every registered method. All four workspace routes are owner-qualified:
+   * REQUIRED, like every registered method. All five workspace routes are owner-qualified:
    * every statement the endpoint issues carries `tenant_id = currentTenantId()` or sets it
    * on insert, and the route offers no parameter or body field by which a caller names
    * another tenant — so the endpoint enforces owner-qualification whatever the request says.
@@ -326,7 +326,7 @@ export function endpointAccess(config: EndpointAccessConfig): TenantScopedSurfac
       // per-row digest — would report the re-seed itself as a cross-tenant change (measured).
       // ======================================================================
       if (spec.expectedRefusal.kind === 'status') {
-        // Rename/archive: the actor operates on its own row. `buildRequest` addresses its
+        // Get/rename/archive: the actor operates on its own row. `buildRequest` addresses its
         // second argument's row, so swapping the arguments builds the actor-on-own request.
         const own = spec.buildRequest(target, actor, ctx);
         const positive = await issue(config.baseUrl, spec.method, own, actorToken);

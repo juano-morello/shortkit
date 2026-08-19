@@ -1073,6 +1073,20 @@ function seededWorkspaceOf(tenant: TenantFixture): string {
   }
 }
 
+/** The user `resetTenantFixtures` gives a `memberships` row on the tenant's seeded workspace. */
+function seededMembershipUserOf(tenant: TenantFixture): string {
+  switch (tenant.id) {
+    case TENANT_A:
+      return MEMBERSHIP_USER_A;
+    case TENANT_B:
+      return MEMBERSHIP_USER_B;
+    default:
+      throw new Error(
+        `no seeded membership user for tenant ${tenant.id}; resetTenantFixtures seeds A and B only`,
+      );
+  }
+}
+
 function ownerProjection(
   rows: ReadonlyArray<{ id: string; tenantId: string; name: string }>,
 ): CrossTenantAttemptResult {
@@ -1120,6 +1134,24 @@ const workspaceRepositoryAccess: TenantScopedSurfaceRegistration = {
       attempt: (actor) =>
         withTenantTransaction(actor.id, async () =>
           ownerProjection(await workspaceRepository.list({ includeArchived: true })),
+        ),
+    },
+    {
+      // TASK-1b-06: the membership join `GET /api/workspaces` answers. Attempted FOR THE
+      // TARGET'S seeded user (who holds a `memberships` row on the target's seeded workspace)
+      // under the actor's context: the join must surface nothing, because both tables'
+      // predicates and both policies name the actor's tenant and the target's rows are in
+      // the other. The endpoint attempt (`route:GET /api/workspaces`) is the same statement
+      // through the composition root, as a signed-in operator listing its own.
+      name: 'listForUser',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () =>
+          ownerProjection(
+            await workspaceRepository.listForUser(seededMembershipUserOf(target), { includeArchived: true }),
+          ),
         ),
     },
     {
@@ -1395,7 +1427,9 @@ export const guardedLeakBoundValueCanaryAccess = controlAccess(
 
 /**
  * ===========================================================================
- * THE FOUR WORKSPACE ROUTES, ATTACKED AS AUTHENTICATED HTTP (TASK-014, TASK-015).
+ * THE FIVE WORKSPACE ROUTES, ATTACKED AS AUTHENTICATED HTTP (TASK-014, TASK-015; the
+ * fifth, `GET /api/workspaces/:workspaceId`, and the memberships the routes now require,
+ * TASK-1b-06).
  * ===========================================================================
  *
  * SC-4's clause: "one negative control per endpoint, IN THE ISOLATION HARNESS rather than
@@ -1418,10 +1452,20 @@ export const guardedLeakBoundValueCanaryAccess = controlAccess(
  * ("Endpoints"): a cross-tenant reference is answered 404 `not_found`, indistinguishable
  * from a malformed or missing id. There is no unqualified HTTP shape to declare, because
  * the endpoint offers no way to express one.
+ *
+ * SINCE TASK-1b-06 EVERY ROUTE BUT CREATE IS GATED OR FILTERED BY A `memberships` ROW
+ * (workspace-authorization.md, D-10), so the fixture below seeds each signed-in user a
+ * `workspace_admin` membership on ITS OWN tenant's seeded workspace: that is what keeps the
+ * positive controls green (A renaming, archiving, reading and listing A's row is 2xx) while
+ * the cross-tenant attempt stays 404 — twice over now: no membership row for A on B's
+ * workspace, and B's rows invisible under the policy. A positive control that failed for
+ * want of a membership would score every workspace route `unverified` (F-296).
  */
 const ENDPOINT_WORKSPACE_A = 'e1e1e1e1-e1e1-4e1e-8e1e-e1e1e1e1e1e1';
 const ENDPOINT_WORKSPACE_B = 'e2e2e2e2-e2e2-4e2e-8e2e-e2e2e2e2e2e2';
 const ENDPOINT_WORKSPACE_NAME = 'signed-in-seeded-workspace';
+/** The signed-in user's role on its own seeded workspace: enough for every route's minimum. */
+const ENDPOINT_MEMBERSHIP_ROLE = 'workspace_admin';
 
 const WORKSPACE_ENDPOINTS: readonly EndpointAttemptSpec[] = [
   {
@@ -1451,9 +1495,25 @@ const WORKSPACE_ENDPOINTS: readonly EndpointAttemptSpec[] = [
     expectedRefusal: { kind: 'absent-from-list' },
   },
   {
+    // TASK-1b-06 (D-07): the read by id, `RequireWorkspaceRole(viewer)`. The actor reads its
+    // own seeded row (200, it holds the seeded membership) and the target's (404: no
+    // membership, and the row is invisible under the policy — the interceptor's lookup
+    // runs inside the tenant transaction). Same 404 body as an id nobody issued.
+    name: 'get',
+    method: 'GET',
+    route: '/api/workspaces/:workspaceId',
+    httpKind: 'read',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    buildRequest: (_actor, target, ctx) => ({
+      path: `/api/workspaces/${ctx.seededRowId(target.id)}`,
+    }),
+    expectedRefusal: { kind: 'status', status: 404 },
+  },
+  {
     name: 'rename',
     method: 'PATCH',
-    route: '/api/workspaces/:id',
+    route: '/api/workspaces/:workspaceId',
     httpKind: 'write',
     reaches: 'existing-row',
     qualification: 'owner-qualified',
@@ -1466,7 +1526,7 @@ const WORKSPACE_ENDPOINTS: readonly EndpointAttemptSpec[] = [
   {
     name: 'archive',
     method: 'POST',
-    route: '/api/workspaces/:id/archive',
+    route: '/api/workspaces/:workspaceId/archive',
     httpKind: 'write',
     reaches: 'existing-row',
     qualification: 'owner-qualified',
@@ -1492,7 +1552,15 @@ async function tokenMinter(runtime: SignedInTenants): Promise<(tenantId: string)
   };
 }
 
-/** Seeds one workspace per signed-in tenant at a fixed id, under each tenant's own flag. */
+/**
+ * Seeds one workspace per signed-in tenant at a fixed id, under each tenant's own flag —
+ * and, since TASK-1b-06, the signed-in user's `workspace_admin` membership on it, which is
+ * what the routes now require of a caller (see the docblock above). `DELETE FROM workspaces`
+ * cascades the previous attempt's memberships away (`ON DELETE CASCADE` on the composite
+ * key), the create attempt's row and creator membership among them. Through the migrator
+ * DSN, like every seed: `memberships.user_id` references `"user"`, which `shortkit_app`
+ * cannot read, and both tables carry FORCE ROW LEVEL SECURITY, so the flag is set per tenant.
+ */
 function resetSignedInWorkspaces(runtime: SignedInTenants): void {
   execSql(
     migrationDsn(),
@@ -1500,25 +1568,32 @@ function resetSignedInWorkspaces(runtime: SignedInTenants): void {
      DELETE FROM workspaces;
      INSERT INTO workspaces (id, tenant_id, name)
        VALUES (:'wa'::uuid, :'ta'::uuid, :'name');
+     INSERT INTO memberships (tenant_id, workspace_id, user_id, role)
+       VALUES (:'ta'::uuid, :'wa'::uuid, :'ua', :'role'::workspace_role);
 
      SELECT set_config('app.tenant_id', :'tb', false) \\g /dev/null
      DELETE FROM workspaces;
      INSERT INTO workspaces (id, tenant_id, name)
-       VALUES (:'wb'::uuid, :'tb'::uuid, :'name');`,
+       VALUES (:'wb'::uuid, :'tb'::uuid, :'name');
+     INSERT INTO memberships (tenant_id, workspace_id, user_id, role)
+       VALUES (:'tb'::uuid, :'wb'::uuid, :'ub', :'role'::workspace_role);`,
     {
       variables: {
         ta: runtime.a.tenantId,
         tb: runtime.b.tenantId,
+        ua: runtime.a.userId,
+        ub: runtime.b.userId,
         wa: ENDPOINT_WORKSPACE_A,
         wb: ENDPOINT_WORKSPACE_B,
         name: ENDPOINT_WORKSPACE_NAME,
+        role: ENDPOINT_MEMBERSHIP_ROLE,
       },
     },
   );
 }
 
 /**
- * The endpoint attempt group: the registration whose methods are the four HTTP attacks,
+ * The endpoint attempt group: the registration whose methods are the five HTTP attacks,
  * and the signed-in fixtures they run against. Built at runtime because it needs the booted
  * child and the two live sessions; the surface ids it contributes are pinned in
  * `EXPECTED_SURFACE_IDS`.
@@ -1551,7 +1626,7 @@ export async function workspaceEndpointGroup(runtime: SignedInTenants): Promise<
 /**
  * Every surface id this wave covers, hand-written so a battery quietly losing a method
  * fails. IN SORTED ORDER: the suite compares it against `covered.sort()`, and `repo:`
- * sorts before `route:`, so the four route ids come last.
+ * sorts before `route:`, so the five route ids come last.
  */
 export const EXPECTED_SURFACE_IDS = [
   // The three 1b tables (TASK-1b-03): eight shapes each, no repository subject yet —
@@ -1609,12 +1684,14 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:TenantsTableAccess.reparentAll',
   'repo:TenantsTableAccess.updateAll',
   'repo:TenantsTableAccess.updateOwnedBy',
-  // The fourth table (TASK-011): the five methods of the first real repository,
-  // attempted through the class itself, and the eight shapes on `workspaces`.
+  // The fourth table (TASK-011): the methods of the first real repository, attempted
+  // through the class itself — five, plus `listForUser` (TASK-1b-06, the membership join) —
+  // and the eight shapes on `workspaces`.
   'repo:WorkspaceRepository.archive',
   'repo:WorkspaceRepository.create',
   'repo:WorkspaceRepository.findById',
   'repo:WorkspaceRepository.list',
+  'repo:WorkspaceRepository.listForUser',
   'repo:WorkspaceRepository.rename',
   'repo:WorkspacesTableAccess.deleteAll',
   'repo:WorkspacesTableAccess.deleteOwnedBy',
@@ -1624,10 +1701,12 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:WorkspacesTableAccess.reparentAll',
   'repo:WorkspacesTableAccess.updateAll',
   'repo:WorkspacesTableAccess.updateOwnedBy',
-  // TASK-014/015: the four authenticated workspace routes, attacked as HTTP by a second
-  // signed-in operator. `route:` ids sort after every `repo:` id.
+  // TASK-014/015: the authenticated workspace routes, attacked as HTTP by a second
+  // signed-in operator — four, plus `GET /api/workspaces/:workspaceId` and the `:id` →
+  // `:workspaceId` rename (TASK-1b-06, D-07). `route:` ids sort after every `repo:` id.
   'route:GET /api/workspaces',
-  'route:PATCH /api/workspaces/:id',
+  'route:GET /api/workspaces/:workspaceId',
+  'route:PATCH /api/workspaces/:workspaceId',
   'route:POST /api/workspaces',
-  'route:POST /api/workspaces/:id/archive',
+  'route:POST /api/workspaces/:workspaceId/archive',
 ] as const;

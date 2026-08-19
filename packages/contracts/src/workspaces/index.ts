@@ -2,22 +2,35 @@
  * Contract: docs/contracts/workspaces.md ("Endpoints"), error-envelope.md
  * ADR: adr-0005-contract-distribution.md, adr-0006-http-surface-partitioning.md,
  *      adr-0025-zod-error-recognition-in-contracts.md
- * Produced by: TASK-012
+ * Produced by: TASK-012; TASK-1b-06 (`workspaceRole`, `GET /api/workspaces/:workspaceId`)
  *
- * The four workspace endpoints, declared once and read by both deployables:
+ * The five workspace endpoints, declared once and read by both deployables:
  *
- *   POST  /api/workspaces               createWorkspaceRequestContract  -> 201 workspaceContract
- *   GET   /api/workspaces               listWorkspacesQueryContract     -> 200 workspaceListResponseContract
- *   PATCH /api/workspaces/:id           renameWorkspaceRequestContract  -> 200 workspaceContract
- *   POST  /api/workspaces/:id/archive   (no body)                       -> 200 workspaceContract
+ *   POST  /api/workspaces                        createWorkspaceRequestContract  -> 201 workspaceContract
+ *   GET   /api/workspaces                        listWorkspacesQueryContract     -> 200 workspaceListResponseContract
+ *   GET   /api/workspaces/:workspaceId           (no body)                       -> 200 workspaceContract
+ *   PATCH /api/workspaces/:workspaceId           renameWorkspaceRequestContract  -> 200 workspaceContract
+ *   POST  /api/workspaces/:workspaceId/archive   (no body)                       -> 200 workspaceContract
  *
  * THIS PACKAGE MAY IMPORT `zod` AND NOTHING ELSE (ADR-0005).
  *
- * `workspaceContract` MIRRORS THE REPOSITORY ROW MINUS `tenantId`. The caller is inside
- * their own tenant — the guard put them there and the transaction interceptor bound every
- * statement to it — so returning the id tells them nothing they can act on and puts a
- * tenant id on the wire for no reason. The three timestamps are ISO strings because they
- * crossed JSON; in the row they are `Date`, in the database `timestamptz`.
+ * `workspaceContract` MIRRORS THE REPOSITORY ROW MINUS `tenantId`, PLUS THE CALLER'S ROLE.
+ * The caller is inside their own tenant — the guard put them there and the transaction
+ * interceptor bound every statement to it — so returning the id tells them nothing they
+ * can act on and puts a tenant id on the wire for no reason. The three timestamps are ISO
+ * strings because they crossed JSON; in the row they are `Date`, in the database
+ * `timestamptz`.
+ *
+ * `workspaceRole` (TASK-1b-06, D-07/D-10) IS THE CALLER'S OWN ROLE IN THAT WORKSPACE —
+ * `workspace_admin` for the creator on `POST`, the joined `memberships.role` on the list,
+ * the role the authorization interceptor found on the single-row routes. Named
+ * `workspaceRole` and never `role`, per `workspace-authorization.md` (a wire field naming a
+ * role says which enum). Unbranded on the wire (`z.enum(WORKSPACE_ROLES)`, ADR-0048); a
+ * consumer that needs the brand goes through `asWorkspaceRole`. The API sends it on every
+ * response; the schema admits its absence for the one reason `Versioning` in
+ * `workspaces.md` gives — an additive field must not break a client parsing the pre-1b
+ * shape (the web's workspaces screen and its fixtures, rewritten by TASK-1b-14) — and the
+ * `.optional()` is what that card removes.
  *
  * `archivedAt` null means active (docs/contracts/workspaces.md, "Rulings"). AC-23's
  * observable — leaves the default list, present with the archived state set when archived
@@ -31,6 +44,7 @@
 import { z } from 'zod';
 
 import { idContract } from '../pagination';
+import { WORKSPACE_ROLES } from '../roles';
 
 /**
  * The name rule: trimmed, then 1 to 100 characters. THE TRIM RUNS FIRST, so `'   '` is
@@ -48,13 +62,18 @@ export const workspaceNameContract = z
   .min(WORKSPACE_NAME_MIN_LENGTH)
   .max(WORKSPACE_NAME_MAX_LENGTH);
 
-/** The client shape of one workspace. `tenantId` is absent by decision (see the header). */
+/**
+ * The client shape of one workspace. `tenantId` is absent by decision (see the header);
+ * `workspaceRole` is the caller's own role in it, sent on every response, admitted absent
+ * for the additive-versioning reason the header gives (TASK-1b-14 removes the `.optional()`).
+ */
 export const workspaceContract = z.object({
   id: idContract,
   name: z.string(),
   archivedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  workspaceRole: z.enum(WORKSPACE_ROLES).optional(),
 });
 
 export type Workspace = z.infer<typeof workspaceContract>;
@@ -66,7 +85,7 @@ export const createWorkspaceRequestContract = z.object({
 
 export type CreateWorkspaceRequest = z.infer<typeof createWorkspaceRequestContract>;
 
-/** `PATCH /api/workspaces/:id`. Same name rule as create; the id is a path parameter. */
+/** `PATCH /api/workspaces/:workspaceId`. Same name rule as create; the id is a path parameter. */
 export const renameWorkspaceRequestContract = z.object({
   name: workspaceNameContract,
 });

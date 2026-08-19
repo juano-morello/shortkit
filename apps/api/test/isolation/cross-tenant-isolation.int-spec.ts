@@ -506,20 +506,22 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       judged().attempts.map(() => 'pass'),
     );
 
-    // SIXTY-FIVE surfaces, each attempted in both directions (F-293). SIXTY-ONE are SQL
+    // SIXTY-SEVEN surfaces, each attempted in both directions (F-293). SIXTY-TWO are SQL
     // table subjects — the same eight shapes on all SEVEN tables, since r4 withdrew the one
     // decline (F-342), TASK-002 registered `tenant_memberships`, TASK-011 registered
     // `workspaces` and TASK-1b-03 registered `memberships`, `invitations` and
-    // `invitation_workspaces`; plus the FIVE methods of `WorkspaceRepository`. FOUR are the
-    // authenticated workspace ROUTES, attacked as HTTP by a second signed-in operator
-    // (TASK-014). 65 x 2 = 130. Reads and writes are both exercised: AC-94 covers the reads
-    // and AC-95 the writes, and a battery that had lost all of one kind would still satisfy
-    // the total. Per table, two of the eight shapes read (7 x 2 x 2 = 28); the repository
-    // reads twice (list, findById: 4); the endpoints add two read attempts (GET list, both
-    // directions) and six write attempts (POST create, PATCH rename, POST archive, both
-    // directions). 28 + 4 + 2 = 34 reads; 130 - 34 = 96 writes.
-    expect(judged().attempts).toHaveLength(130);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(34);
+    // `invitation_workspaces`; plus the SIX methods of `WorkspaceRepository` (five, and
+    // `listForUser` since TASK-1b-06). FIVE are the authenticated workspace ROUTES, attacked
+    // as HTTP by a second signed-in operator (TASK-014; `GET /api/workspaces/:workspaceId`
+    // since TASK-1b-06). 67 x 2 = 134. Reads and writes are both exercised: AC-94 covers the
+    // reads and AC-95 the writes, and a battery that had lost all of one kind would still
+    // satisfy the total. Per table, two of the eight shapes read (7 x 2 x 2 = 28); the
+    // repository reads three times (list, listForUser, findById: 6); the endpoints add four
+    // read attempts (GET list, GET by id, both directions) and six write attempts (POST
+    // create, PATCH rename, POST archive, both directions). 28 + 6 + 4 = 38 reads;
+    // 134 - 38 = 96 writes.
+    expect(judged().attempts).toHaveLength(134);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(38);
     expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(96);
 
     // F-302, F-330, F-342. Forty-two writes carry NO WHERE CLAUSE — three shapes, on each
@@ -589,7 +591,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   });
 
   it('AC-29/AC-30: every authenticated workspace endpoint is attempted in both directions and reports pass', () => {
-    // SC-4. The four shipped routes, attacked as HTTP by a SECOND signed-in operator against
+    // SC-4. The five shipped routes, attacked as HTTP by a SECOND signed-in operator against
     // the composition root the child API booted — the real guard, tenant interceptor, filter,
     // repository and policies. A refusal is a pass only because the OWNER's positive control
     // succeeded on the same request in the same run (F-296); otherwise the attempt is
@@ -599,14 +601,15 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
     expect([...new Set(endpoints.map((outcome) => outcome.id))].sort()).toEqual([
       'route:GET /api/workspaces',
-      'route:PATCH /api/workspaces/:id',
+      'route:GET /api/workspaces/:workspaceId',
+      'route:PATCH /api/workspaces/:workspaceId',
       'route:POST /api/workspaces',
-      'route:POST /api/workspaces/:id/archive',
+      'route:POST /api/workspaces/:workspaceId/archive',
     ]);
-    // Four routes, both directions — and each direction's actor was the other signed-in
+    // Five routes, both directions — and each direction's actor was the other signed-in
     // operator, which is what "both directions" means for an HTTP attempt (F-293).
-    expect(endpoints.filter((outcome) => outcome.direction === 'A->B')).toHaveLength(4);
-    expect(endpoints.filter((outcome) => outcome.direction === 'B->A')).toHaveLength(4);
+    expect(endpoints.filter((outcome) => outcome.direction === 'A->B')).toHaveLength(5);
+    expect(endpoints.filter((outcome) => outcome.direction === 'B->A')).toHaveLength(5);
     expect(endpoints.filter((outcome) => outcome.outcome !== 'pass')).toEqual([]);
   });
 
@@ -1641,7 +1644,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
     // ...and it is not an empty marker: the attempts are this run's and were judged, so a
     // process killed here strands the evidence without stranding a verdict.
-    expect(inFlight.attempts).toHaveLength(130);
+    expect(inFlight.attempts).toHaveLength(134);
     expect(inFlight.attemptVerdict).toBe('pass');
     expect(inFlight.incompleteBecause).toContain('had not finished');
 
@@ -1680,7 +1683,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // and recorded in the round's report.
     const afterTheAttempts = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
 
-    expect(afterTheAttempts.attempts).toHaveLength(130);
+    expect(afterTheAttempts.attempts).toHaveLength(134);
     expect(afterTheAttempts.runAt).not.toBe(marker.runAt);
   });
 

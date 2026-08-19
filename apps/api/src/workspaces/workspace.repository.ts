@@ -2,7 +2,7 @@
  * Contract: docs/contracts/workspaces.md, tenant-context.md, isolation-coverage.md
  * ADR: adr-0002-tenant-context-binding.md, adr-0003-rls-policy-template-and-roles.md,
  *      adr-0020-isolation-suite-enumeration.md
- * Produced by: TASK-011
+ * Produced by: TASK-011; TASK-1b-06 (`listForUser`, the membership join)
  *
  * The first repository class in `apps/api/src`, and the shape every later one copies.
  *
@@ -36,11 +36,22 @@
  * ARCHIVE IS IDEMPOTENT. `archived_at` records the FIRST archival and a second call
  * leaves it where it was: `coalesce(archived_at, now())`. Renaming an archived workspace
  * is permitted here; whether a route allows it is TASK-012's contract, not this class's.
+ *
+ * `listForUser` (TASK-1b-06, D-10) IS THE MEMBERSHIP-FILTERED LIST `GET /api/workspaces`
+ * ANSWERS: an inner join on `memberships` for one user, carrying the caller's role out with
+ * each row. It is owner-qualified on BOTH tables — `workspaces.tenant_id = current` and
+ * `memberships.tenant_id = current` in the WHERE, and the join itself pairs
+ * `(workspace_id, tenant_id)` — so a membership row and a workspace row have to agree on
+ * the tenant AND both be the current one, over and above the two tables' policies. `list`
+ * stays: the isolation suite attempts it as a repository subject and nothing in the routes
+ * calls it any more.
  */
 import { Injectable } from '@nestjs/common';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { asWorkspaceRole } from '@shortkit/contracts';
+import type { WorkspaceRole } from '@shortkit/contracts';
 
-import { workspaces } from '../db/schema';
+import { memberships, workspaces } from '../db/schema';
 import { currentTenantId, tenantDb, TenantScopedRepository } from '../tenancy/tenant-context';
 
 import { WorkspaceNotFoundError } from './workspace-not-found.error';
@@ -56,6 +67,11 @@ export interface Workspace {
   readonly archivedAt: Date | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
+}
+
+/** A row of `listForUser`: the workspace and the listed user's role in it, branded. */
+export interface WorkspaceWithRole extends Workspace {
+  readonly role: WorkspaceRole;
 }
 
 export interface CreateWorkspaceInput {
@@ -109,6 +125,42 @@ export class WorkspaceRepository {
       // Creation order, then id, so two workspaces created in one transaction — which
       // share a `now()` — still list deterministically.
       .orderBy(asc(workspaces.createdAt), asc(workspaces.id));
+  }
+
+  /**
+   * The workspaces `userId` holds a membership in, with the role, in `list`'s order. What
+   * `GET /api/workspaces` answers (D-10). A user with no memberships lists nothing, whatever
+   * the tenant holds; a membership naming another tenant's workspace cannot exist (the
+   * composite foreign key) and would be invisible here if it did (both predicates, both
+   * policies).
+   */
+  async listForUser(userId: string, options: ListWorkspacesOptions): Promise<WorkspaceWithRole[]> {
+    const tenantId = currentTenantId();
+    const owned = and(
+      eq(workspaces.tenantId, tenantId),
+      eq(memberships.tenantId, tenantId),
+      eq(memberships.userId, userId),
+    );
+
+    const rows = await tenantDb()
+      .select({
+        id: workspaces.id,
+        tenantId: workspaces.tenantId,
+        name: workspaces.name,
+        archivedAt: workspaces.archivedAt,
+        createdAt: workspaces.createdAt,
+        updatedAt: workspaces.updatedAt,
+        role: memberships.role,
+      })
+      .from(workspaces)
+      .innerJoin(
+        memberships,
+        and(eq(memberships.workspaceId, workspaces.id), eq(memberships.tenantId, workspaces.tenantId)),
+      )
+      .where(options.includeArchived ? owned : and(owned, isNull(workspaces.archivedAt)))
+      .orderBy(asc(workspaces.createdAt), asc(workspaces.id));
+
+    return rows.map((row) => ({ ...row, role: asWorkspaceRole(row.role) }));
   }
 
   async findById(id: string): Promise<Workspace | null> {

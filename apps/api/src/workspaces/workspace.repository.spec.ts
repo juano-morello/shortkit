@@ -1,5 +1,6 @@
 /**
  * TASK-011 — WorkspaceRepository, the parts decidable without a database.
+ * TASK-1b-06 — `listForUser`: the membership join is owner-qualified on BOTH tables.
  *
  * Contract: docs/contracts/workspaces.md ("What the implementer must guarantee"),
  * tenant-context.md invariant 4, isolation-coverage.md ("qualification is derived from
@@ -52,6 +53,7 @@ vi.mock('../tenancy/tenant-context', async (importOriginal) => {
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const USER = 'user_01';
 
 interface RecordedStatement {
   readonly text: string;
@@ -72,13 +74,16 @@ const DRIVER_ROW = [
   '2026-08-17T10:00:00.000Z',
 ];
 
-function installFakeDatabase(): RecordedStatement[] {
+/** `listForUser` selects seven columns: the six above, then `memberships.role`. */
+const DRIVER_ROW_WITH_ROLE = [...DRIVER_ROW, 'member'];
+
+function installFakeDatabase(row: readonly unknown[] = DRIVER_ROW): RecordedStatement[] {
   const recorded: RecordedStatement[] = [];
   const client = {
     query: (config: { text: string }, params: readonly unknown[]) => {
       recorded.push({ text: config.text, params });
 
-      return Promise.resolve({ rows: [DRIVER_ROW], rowCount: 1, fields: [] });
+      return Promise.resolve({ rows: [row], rowCount: 1, fields: [] });
     },
   };
 
@@ -99,6 +104,8 @@ const EVERY_METHOD: ReadonlyArray<[string, () => Promise<unknown>]> = [
   ['create', () => repository.create({ name: 'Acme' })],
   ['list', () => repository.list({ includeArchived: false })],
   ['list (includeArchived)', () => repository.list({ includeArchived: true })],
+  ['listForUser', () => repository.listForUser(USER, { includeArchived: false })],
+  ['listForUser (includeArchived)', () => repository.listForUser(USER, { includeArchived: true })],
   ['findById', () => repository.findById(WORKSPACE)],
   ['rename', () => repository.rename(WORKSPACE, 'Acme Group')],
   ['archive', () => repository.archive(WORKSPACE)],
@@ -151,6 +158,36 @@ describe('WorkspaceRepository', () => {
       expect(recorded[1]?.text).not.toMatch(/where .*archived_at/);
     });
 
+    it('listForUser joins memberships on (workspace_id, tenant_id) and qualifies on tenant_id of BOTH tables and on user_id', async () => {
+      const recorded = installFakeDatabase(DRIVER_ROW_WITH_ROLE);
+
+      const listed = await repository.listForUser(USER, { includeArchived: false });
+      await repository.listForUser(USER, { includeArchived: true });
+
+      expect(recorded).toHaveLength(2);
+      for (const statement of recorded) {
+        expect(statement.text).toMatch(/^select .* from "workspaces" inner join "memberships" on \("memberships"\."workspace_id" = "workspaces"\."id" and "memberships"\."tenant_id" = "workspaces"\."tenant_id"\)/);
+        expect(statement.text).toMatch(/where \(.*"workspaces"\."tenant_id" = \$1 and "memberships"\."tenant_id" = \$2 and "memberships"\."user_id" = \$3/);
+        expect(statement.text).toMatch(/order by "workspaces"\."created_at" asc, "workspaces"\."id" asc/);
+        expect(statement.params).toEqual([TENANT, TENANT, USER]);
+      }
+      expect(recorded[0]?.text).toMatch(/"workspaces"\."archived_at" is null/);
+      expect(recorded[1]?.text).not.toMatch(/archived_at is null/);
+
+      // The row comes back with the role branded, beside the six workspace columns.
+      expect(listed).toEqual([
+        {
+          id: WORKSPACE,
+          tenantId: TENANT,
+          name: 'Acme',
+          archivedAt: null,
+          createdAt: new Date('2026-08-17T10:00:00.000Z'),
+          updatedAt: new Date('2026-08-17T10:00:00.000Z'),
+          role: 'member',
+        },
+      ]);
+    });
+
     it('findById qualifies on id AND tenant_id', async () => {
       const recorded = installFakeDatabase();
 
@@ -193,7 +230,7 @@ describe('WorkspaceRepository', () => {
     });
 
     it('no statement the repository issues lacks tenant_id', async () => {
-      const recorded = installFakeDatabase();
+      const recorded = installFakeDatabase(DRIVER_ROW_WITH_ROLE);
 
       for (const [, call] of EVERY_METHOD) {
         await call();

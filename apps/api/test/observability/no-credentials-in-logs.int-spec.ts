@@ -395,8 +395,9 @@ describe('AC-33: the request path emits lines, and no credential is among their 
 
     const routes = lines.map((line) => line.record.route);
     expect(routes).toContain('/api/workspaces');
-    expect(routes).toContain('/api/workspaces/:id');
-    expect(routes).toContain('/api/workspaces/:id/archive');
+    // `:workspaceId` since TASK-1b-06 (D-07): the log-safe pattern, never a concrete id.
+    expect(routes).toContain('/api/workspaces/:workspaceId');
+    expect(routes).toContain('/api/workspaces/:workspaceId/archive');
 
     for (const line of lines) {
       expect(line.record.level, line.raw).toBe('info');
