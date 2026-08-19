@@ -111,11 +111,74 @@ export class RedirectReadRepository {
     });
   }
 
+  /**
+   * Statement 1, and statement 2 in the SAME transaction ONLY when the domain that resolved is
+   * not `keptDomainId`. One `withRedirectRead`, one preamble, either way.
+   *
+   * THIS EXISTS SO THAT VALIDATING A CACHED LINK RECORD AGAINST A FRESHLY RESOLVED HOST NEVER
+   * OPENS A SECOND TRANSACTION. The caller holds a `rdr:` record and a cold `hst:` key; the
+   * record is usable only if it names the domain the hostname resolves to now, and that is not
+   * knowable before statement 1 runs. Resolving the host and then reading the link through a
+   * second call would pay the two-statement preamble twice, which is the outcome reading both
+   * cache keys up front exists to avoid.
+   *
+   * `link` IS NULL FOR TWO DIFFERENT REASONS and the caller can tell them apart with the
+   * comparison it already made: when `host.domainId === keptDomainId` the statement was never
+   * issued and the caller keeps its own record; otherwise null means the row does not exist.
+   */
+  async resolveHostKeepingLinkOn(
+    hostname: string,
+    slug: string,
+    keptDomainId: string,
+  ): Promise<RedirectRead> {
+    return withRedirectRead(async (db: RedirectReadDb): Promise<RedirectRead> => {
+      const domain = await db.activeDomainByHostname(hostname);
+
+      if (domain === undefined) {
+        return { host: null, link: null };
+      }
+
+      const host = toHost(domain);
+
+      if (host.domainId === keptDomainId) {
+        return { host, link: null };
+      }
+
+      const link = await db.linkByDomainAndSlug(host.domainId, slug);
+
+      return { host, link: link === undefined ? null : toLink(link) };
+    });
+  }
+
   async resolveHost(hostname: string): Promise<ResolvedHost | null> {
     return withRedirectRead(async (db: RedirectReadDb): Promise<ResolvedHost | null> => {
       const domain = await db.activeDomainByHostname(hostname);
 
       return domain === undefined ? null : toHost(domain);
+    });
+  }
+
+  /**
+   * Statement 2 on its own (TASK-2-07), for the other ordinary state the two TTLs produce:
+   * the HOST record cached and the link key not: a link that was just edited, a negative
+   * entry that has run out its 60 seconds, or a key nobody has asked for yet.
+   *
+   * NO NEW STATEMENT SHAPE AND NO NEW EXCLUSION. The text is `LINK_BY_DOMAIN_AND_SLUG`, the
+   * same module constant the combined read issues, so `redirect-isolation.spec.ts`'s "exactly
+   * these SELECT literals" comparison is untouched; the escape stays two tables, two shapes,
+   * one READ ONLY transaction, one file. `resolveHost` shipped on the same terms in TASK-2-06.
+   *
+   * `domainId` COMES FROM A RESOLVED HOST AND NEVER FROM THE REQUEST (statement 1's result on
+   * this request, or the cached record that statement 1 wrote), which is what keeps invariant
+   * 5 true by construction on this path too. The caller additionally refuses a cached record
+   * whose `dm` is not the domain that resolved, so a hostname that changed hands cannot serve
+   * the previous owner's link out of a surviving key.
+   */
+  async resolveLinkOnDomain(domainId: string, slug: string): Promise<ResolvedLink | null> {
+    return withRedirectRead(async (db: RedirectReadDb): Promise<ResolvedLink | null> => {
+      const link = await db.linkByDomainAndSlug(domainId, slug);
+
+      return link === undefined ? null : toLink(link);
     });
   }
 }

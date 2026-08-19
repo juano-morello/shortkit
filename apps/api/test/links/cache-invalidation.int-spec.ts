@@ -16,7 +16,11 @@ import { LINK_MISS_TTL_S, LINK_TTL_S, REDIRECT_CACHE } from '../../src/cache/red
 import type { CachedLink, RedirectCache } from '../../src/cache/redirect-cache';
 import { closeDatabase } from '../../src/db/client';
 import { PLATFORM_TENANT_ID } from '../../src/db/platform';
-import { CACHE_INVALIDATION_FAILED_CODE } from '../../src/links/cache-invalidation.subscriber';
+import {
+  CACHE_INVALIDATION_FAILED_CODE,
+  INVALIDATION_SECOND_PASS_DELAY_MS,
+  cancelScheduledInvalidationPasses,
+} from '../../src/links/cache-invalidation.subscriber';
 import { logger } from '../../src/observability/logger';
 import { startScratchRedis } from '../cache/scratch-redis';
 import type { ScratchRedis } from '../cache/scratch-redis';
@@ -339,6 +343,12 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // The delayed second deletion (TASK-2-07's stale-set mitigation) is scheduled a second after
+  // every successful invalidation. Left pending, one test's pass fires inside the next one,
+  // where AC-2-25 has deliberately configured the server to refuse writes, and writes a
+  // failure line into that test's `toHaveBeenCalledOnce`. The test that MEASURES the pass
+  // waits for it inside its own body.
+  cancelScheduledInvalidationPasses();
   // Whatever a test did to the server's configuration, the next one starts from a Redis that
   // accepts writes. `config set` is idempotent and cheap; leaving it to a test's own cleanup
   // is how one failed assertion takes the rest of the file down with it.
@@ -346,6 +356,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  cancelScheduledInvalidationPasses();
   await app?.close();
   await closeRedisClient();
   await closeDatabase();
@@ -402,6 +413,81 @@ describe('AC-2-21: a destination edit deletes the rdr key, with the shipped TTL 
 
     expect(edited.status, edited.raw).toBe(200);
     await goneWithin(link.slug);
+  }, 120_000);
+});
+
+/**
+ * ============================================================================
+ * THE STALE SET RACE, ON A LIVE SERVER (TASK-2-07 review).
+ * ============================================================================
+ *
+ * A redirect that read the pre-edit row before the commit writes it into Redis AFTER this
+ * subscriber deleted the key. Nothing on the read path corrects it, so without the delayed
+ * second deletion the record serves with a fresh 3600 s TTL, on the one surface with no rate
+ * limit. The fill below stands in for that redirect, and it is written through the SHIPPED
+ * cache with the shipped TTL, so what the second pass removes is a real record and not a
+ * marker.
+ */
+describe('the delayed second deletion sweeps a fill that landed after the first', () => {
+  it('removes a record written between the two deletions, within the budget', async () => {
+    const link = await createLink({ slug: slugFor('race') });
+
+    await warm(link);
+    // THE CREATE SCHEDULED A PASS OF ITS OWN (delete-on-create is a mutation like any other),
+    // and it would remove the fill below on its own schedule. Dropped, so the only sweep that
+    // can explain the assertion is the edit's.
+    cancelScheduledInvalidationPasses();
+
+    const edited = await api(`/api/links/${link.id}`, {
+      method: 'PATCH',
+      body: { destinationUrl: EDITED_DESTINATION },
+    });
+
+    expect(edited.status, edited.raw).toBe(200);
+    // The first pass runs inside the request, so the key is already gone here.
+    expect(exists(link.slug)).toBe(false);
+
+    // The racing redirect finally writes what it read before the commit.
+    await warm(link);
+    expect(ttlOf(link.slug)).toBeGreaterThan(LINK_TTL_S - 60);
+
+    const started = Date.now();
+
+    await goneWithin(link.slug);
+
+    const elapsed = Date.now() - started;
+
+    // IT WAS THE SECOND PASS. The key was present after the first deletion and after the
+    // fill, and it went away most of a second later rather than instantly, which nothing else
+    // in this process was going to do before the 3600 s TTL.
+    expect(elapsed).toBeGreaterThan(INVALIDATION_SECOND_PASS_DELAY_MS / 2);
+    expect(elapsed).toBeLessThan(PROPAGATION_BUDGET_MS);
+  }, 120_000);
+
+  /**
+   * The residual, measured rather than described: a fill that lands after the second pass
+   * survives it, and the TTL is the only bound left. `redirect-cache.md` says so under
+   * "Invalidation"; this is the assertion behind the sentence.
+   */
+  it('does not sweep a fill that lands after the second pass', async () => {
+    const link = await createLink({ slug: slugFor('late') });
+
+    await warm(link);
+    cancelScheduledInvalidationPasses();
+
+    const edited = await api(`/api/links/${link.id}`, {
+      method: 'PATCH',
+      body: { destinationUrl: EDITED_DESTINATION },
+    });
+
+    expect(edited.status, edited.raw).toBe(200);
+
+    // Past the schedule, then fill: nothing is coming to remove this one.
+    await sleep(INVALIDATION_SECOND_PASS_DELAY_MS + 500);
+    await warm(link);
+    await sleep(INVALIDATION_SECOND_PASS_DELAY_MS + 500);
+
+    expect(exists(link.slug)).toBe(true);
   }, 120_000);
 });
 
@@ -482,6 +568,12 @@ describe('AC-2-25: a Redis that refuses writes retries, logs once, and never rea
     const link = await createLink({ slug: slugFor('fail') });
 
     await warm(link);
+    // The CREATE's delayed second pass is dropped before the server is made to refuse writes.
+    // Left pending it would fire inside the 1.2 s this PATCH spends on its retry schedule,
+    // fail against that configuration, and write a second `cache_invalidation_failed` line
+    // about a different mutation into the assertion below. The failing-second-pass line has
+    // its own test in `cache-invalidation.subscriber.spec.ts`.
+    cancelScheduledInvalidationPasses();
 
     const error = vi.spyOn(logger, 'error').mockReturnValue(undefined);
 

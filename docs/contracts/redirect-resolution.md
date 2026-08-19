@@ -3,7 +3,7 @@
 - **Boundary:** the anonymous visitor's `GET /:slug`; the one deliberate GC-5 exception.
 - **Normative form:** `apps/api/src/redirect/redirect.types.ts`, **written 2026-08-19 (TASK-2-06)**. The design stub the previous line pointed at is retired with it (ADR-0039); the shipped module is normative for the types, `redirect.service.ts` for the decision order, `db/redirect-read.ts` for the two statements, and `not-found-page.ts` for the page and its CSP.
 - **Produced by:** TASK-029, delivered as TASK-2-06 (item 2, wave 3).
-- **Consumed by:** TASK-2-07 (the cache in front of the same decision), TASK-2-09 (the click sink), TASK-030, 032, 034, 043, 046. Audited by TASK-056.
+- **Consumed by:** TASK-2-07 (the cache in front of the same decision, shipped 2026-08-19; `redirect.service.ts` remains normative for the order and now carries the read-through), TASK-2-09 (the click sink), TASK-030, 032, 034, 043, 046. Audited by TASK-056.
 - **ADRs:** ADR-0003, ADR-0006, ADR-0008, ADR-0009, ADR-0011, ADR-0018, ADR-0063.
 
 ## Normative types
@@ -69,6 +69,15 @@ Normative. Each step names the ACs it satisfies.
 2. `resolveHost(hostname)`, **which resolves only a domain in state `active`**. Null
    yields the **default** 404 (no branding available).
 
+   **Read through the cache as of 2026-08-19 (TASK-2-07).** `getHost` first: a record is the
+   host, the MISS sentinel is the default 404 with **no query and no second cache call** (the
+   link key is not even looked up), and `'unavailable'` (a cold key, a failure, an outage)
+   goes to Postgres. What comes back is written to `hst:` either way, the record for a domain
+   that resolved and the sentinel for one that did not, which is where "`resolveHost` is the
+   only writer of a positive `hst:` record" is enforced: the statement carries
+   `AND state = 'active'`, so a host it returns is an active one and every other state caches
+   as MISS (F-003 through the cache).
+
    Revised 2026-08-04 (F-003). Without the state predicate, any signed-up user could
    `POST /api/domains {hostname: "<fly-app>.fly.dev"}`, land a row in
    `pending_verification`, and the redirect path would resolve every unmatched path on
@@ -80,6 +89,27 @@ Normative. Each step names the ACs it satisfies.
    serving someone's traffic is justified. The seeded system default domain
    (`is_system_default`) is created directly in `active`.
 3. `resolveLink(hostname, slug)`. Null yields step 6 (AC-50, AC-53).
+
+   **The same read-through, with two rules the host key does not need** (TASK-2-07). A cached
+   record is served only if its `dm` is the domain step 2 resolved: the `rdr:` key is keyed on
+   the hostname, and a hostname that changed hands between two domain rows while its link key
+   survived would otherwise serve the previous owner's destination (invariant 5, from the
+   cache side). And the **host is always resolved first**, because a `rdr:` key says nothing
+   about the state of the domain behind it and **nothing deletes a host key today**: the
+   shipped subscriber deletes `rdr:` keys only, and the `hst:` rows of the invalidation table
+   belong to later cards, so the 300 s host TTL is the only bound on a stale host record.
+   Resolving the host first keeps that bound at 300 s rather than the link key's 3600.
+
+   **What each state costs, and the bound.** Both keys cached: zero statements. Host cached,
+   link cold: `resolveLinkOnDomain(domainId, slug)`, statement 2 on its own. Host cold, link
+   negative: `resolveHost`, statement 1 on its own. Host cold, link record:
+   `resolveHostKeepingLinkOn(hostname, slug, keptDomainId)`, which issues statement 1 and then
+   statement 2 **in the same transaction** only when the record names another domain, so
+   validating a record never opens a second transaction. Neither cached: **one**
+   `resolveByHostAndSlug`, the four statements the resolve cost before the cache existed.
+   None of these introduces a new statement shape. A miss may cost the cold resolve and no
+   more, so the two cache reads both happen before either Postgres read is chosen, and every
+   branch opens at most one transaction; anything else pays the two-statement preamble twice.
 4. `isLinkActive(link, now)` false yields step 6 (AC-44, AC-45, AC-46). ADR-0009: the
    validity window is evaluated on every read, cache hit included, and an inactive link
    on a cache hit does **not** fall through to Postgres.
@@ -175,6 +205,15 @@ fallback 302 both belong to the host rather than to the link), so returning only
 would force a second lookup for the commonest 404 there is. `resolveHost` is the same first
 statement on its own, for the state TASK-2-07 makes ordinary: the link key cached and the
 host key expired, which the two TTLs (3600 and 300) guarantee will happen.
+`resolveLinkOnDomain` (TASK-2-07) is the second statement on its own, for the other ordinary
+state: the host record cached and the link key deleted by an edit or run out as a negative.
+`resolveHostKeepingLinkOn` (TASK-2-07) is statement 1 followed by statement 2 in the SAME
+transaction, and only when the resolved domain is not the one a cached record names: the
+state where the host key is cold and a record has to be validated, which would otherwise cost
+two transactions and two preambles. All three reuse the module constants, so the permitted
+shapes stay two and
+`redirect-isolation.spec.ts`'s literal comparison is untouched; the escape's justification is
+unchanged and no exclusion was added.
 
 **`domain_id` in the second statement comes from the first statement's result and never
 from the request**, which is what makes invariant 5 true by construction. Since 2026-08-19
@@ -213,9 +252,12 @@ are the `SurfaceId`, so renaming either breaks the exclusion loudly.
 level. Branding arrives through `RedirectBrandingPort`, and the click buffer through
 `REDIRECT_CLICK_SINK`, both declared inside the redirect module (`branding.md`, D-2-10).
 
-Asserted twice: a module-graph test on `RedirectModule.imports` (empty as of TASK-2-06,
-one entry, `CacheModule`, from TASK-2-07) and a static scan of import specifiers under
-`apps/api/src/redirect/**`.
+Asserted twice: a module-graph test on `RedirectModule.imports` (**exactly `[CacheModule]`**
+as of TASK-2-07, empty before it) and a static scan of import specifiers under
+`apps/api/src/redirect/**`. `CacheModule` is not one of GC-N's five and is not a port
+either: the cache is infrastructure reached through the `REDIRECT_CACHE` token, it knows
+nothing about links, hosts or branding, and the binding it hands over is whichever one boot
+chose (D-2-09).
 
 `RedirectModule` also carries no `AuthGuard`, no `WorkspaceGuard`, no
 `RateLimitGuard` (AC-86) and no `TenantTransactionInterceptor`. It is registered

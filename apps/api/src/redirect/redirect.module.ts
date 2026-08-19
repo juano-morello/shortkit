@@ -1,12 +1,13 @@
 /**
  * Contract: docs/contracts/redirect-resolution.md ("Module isolation (AC-55)"),
  *           branding.md invariant 1
- * ADR: adr-0006-http-surface-partitioning.md, adr-0011-branding-port.md; D-2-13
- * Produced by: TASK-2-06. TASK-2-07 adds `CacheModule` to `imports`; TASK-2-09's
+ * ADR: adr-0006-http-surface-partitioning.md, adr-0011-branding-port.md,
+ *      adr-0012-redis-client-and-rate-limit-degradation.md; D-2-09, D-2-13
+ * Produced by: TASK-2-06. TASK-2-07 added `CacheModule` to `imports`; TASK-2-09's
  *              `ClicksModule` binds `REDIRECT_CLICK_SINK` from ITS side, not from here.
  *
  * ============================================================================
- * `imports` IS EMPTY, AND THAT IS THE ASSERTION (GC-N, AC-2-20).
+ * `imports` IS EXACTLY ONE ENTRY, AND THAT IS THE ASSERTION (GC-N, AC-2-20).
  * ============================================================================
  *
  * Nothing from the management API, at the module level or the file level: no links, no
@@ -16,6 +17,17 @@
  * graph and scans every import specifier under this directory, because neither catches what
  * the other does.
  *
+ * `CacheModule` IS NOT ONE OF THE FIVE, AND IT IS NOT A PORT EITHER. GC-N names the
+ * management API's modules; the cache is infrastructure this module consumes through the
+ * `REDIRECT_CACHE` token, exactly as it consumes the pool through `db/redirect-read.ts`.
+ * (Naming the transaction helper here instead would fail a grep in `redirect-isolation.spec.ts`
+ * that asserts ONE file under this module reaches it, comments included, deliberately.)
+ * There is nothing to invert: the cache knows nothing about links, hosts or branding (it
+ * moves two records and a sentinel), so the dependency points at a leaf and stays acyclic.
+ * The binding it hands over is whichever one boot chose (D-2-09): Redis-backed when
+ * `REDIS_URL` is declared, `UnavailableRedirectCache` when it is not, and the redirect
+ * resolves correctly either way.
+ *
  * The module carries no guard and no interceptor of its own. The global enhancers still
  * wrap the route: `@Public()` on the controller exempts it from `AuthGuard` and
  * `TenantTransactionInterceptor`, `RateLimitGuard` skips it by path, and
@@ -23,6 +35,8 @@
  * the concrete path.
  */
 import { Module, RequestMethod } from '@nestjs/common';
+
+import { CacheModule } from '../cache/cache.module';
 
 import { RedirectController } from './redirect.controller';
 import { RedirectReadRepository } from './redirect-read.repository';
@@ -58,6 +72,7 @@ export const REDIRECT_ROUTE_PREFIX_EXCLUSION = {
 } as const;
 
 @Module({
+  imports: [CacheModule],
   controllers: [RedirectController],
   providers: [RedirectService, RedirectReadRepository],
 })

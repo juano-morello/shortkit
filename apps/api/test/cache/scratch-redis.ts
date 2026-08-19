@@ -45,6 +45,14 @@ const REDIS_TEST_IMAGE = process.env.REDIS_TEST_IMAGE ?? 'redis:7-alpine';
  */
 const HOST_PORT = Number(process.env.REDIS_TEST_PORT ?? 56_381);
 
+/**
+ * TASK-2-07 added the `hostPort` parameter below rather than a second copy of this file: the
+ * redirect's own degradation suites break a server too, and two suites cannot share one
+ * container when one of them stops it. They pass 56382. Files run one at a time
+ * (`fileParallelism: false`), so today the ports need only differ from the two compose ones;
+ * pinning one per suite is what keeps that true if the setting ever changes.
+ */
+
 const READY_ATTEMPTS = 120;
 const READY_INTERVAL_MS = 250;
 
@@ -74,7 +82,7 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-export function startScratchRedis(label: string): ScratchRedis {
+export function startScratchRedis(label: string, hostPort: number = HOST_PORT): ScratchRedis {
   const container = `shortkit-scratch-redis-${label}-${String(process.pid)}-${Date.now().toString(36)}`;
 
   const started = docker([
@@ -83,7 +91,7 @@ export function startScratchRedis(label: string): ScratchRedis {
     '--name',
     container,
     '-p',
-    `127.0.0.1:${String(HOST_PORT)}:6379`,
+    `127.0.0.1:${String(hostPort)}:6379`,
     REDIS_TEST_IMAGE,
   ]);
 
@@ -93,13 +101,13 @@ export function startScratchRedis(label: string): ScratchRedis {
         `${started.error?.message ?? started.stderr.trim()}. ` +
         'This suite stops and pauses its own server, so it cannot run against a shared ' +
         'instance. Make Docker available to the test run, or free 127.0.0.1:' +
-        `${String(HOST_PORT)}.`,
+        `${String(hostPort)}.`,
     );
   }
 
   const handle: ScratchRedis = {
     container,
-    url: `redis://127.0.0.1:${String(HOST_PORT)}`,
+    url: `redis://127.0.0.1:${String(hostPort)}`,
 
     cli(...args: readonly string[]): string {
       const result = docker(['exec', container, 'redis-cli', ...args]);

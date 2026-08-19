@@ -25,8 +25,10 @@ import {
   CACHE_INVALIDATION_FAILED_CODE,
   CACHE_INVALIDATOR_NAME,
   CacheInvalidationSubscriber,
+  cancelScheduledInvalidationPasses,
   forgetCacheInvalidatorRegistration,
   INVALIDATION_RETRY_DELAYS_MS,
+  INVALIDATION_SECOND_PASS_DELAY_MS,
   keysToInvalidate,
 } from './cache-invalidation.subscriber';
 import {
@@ -114,9 +116,81 @@ function subscriberOver(cache: RedirectCache): CacheInvalidationSubscriber {
   return new CacheInvalidationSubscriber(cache);
 }
 
+/**
+ * A cache that MODELS A STORE rather than only counting calls: `setLink` writes and `delLink`
+ * removes. That is what lets the stale set race be driven rather than described, since the
+ * property under test is which of two writers touched the key last.
+ */
+function storeCache(): RedirectCache & { readonly held: Set<string>; deletions: number } {
+  const held = new Set<string>();
+  const state = { held, deletions: 0 };
+
+  return {
+    ...state,
+    get deletions(): number {
+      return state.deletions;
+    },
+    async getHost(): Promise<CachedHost | 'miss' | 'unavailable'> {
+      return 'unavailable';
+    },
+    async setHost(): Promise<void> {
+      return undefined;
+    },
+    async delHost(): Promise<void> {
+      return undefined;
+    },
+    async getLink(): Promise<CachedLink | 'miss' | 'unavailable'> {
+      return 'unavailable';
+    },
+    async setLink(hostname: string, slug: string): Promise<void> {
+      held.add(`${hostname}:${slug}`);
+    },
+    async delLink(hostname: string, slug: string): Promise<void> {
+      state.deletions += 1;
+      held.delete(`${hostname}:${slug}`);
+    },
+  };
+}
+
+/** Succeeds `successes` times and rejects afterwards: the second pass's own failure path. */
+function cacheFailingAfter(successes: number): RedirectCache & DeletionLog {
+  const calls: Array<{ hostname: string; slug: string; at: number }> = [];
+  let seen = 0;
+
+  return {
+    calls,
+    async getHost(): Promise<CachedHost | 'miss' | 'unavailable'> {
+      return 'unavailable';
+    },
+    async setHost(): Promise<void> {
+      return undefined;
+    },
+    async delHost(): Promise<void> {
+      return undefined;
+    },
+    async getLink(): Promise<CachedLink | 'miss' | 'unavailable'> {
+      return 'unavailable';
+    },
+    async setLink(): Promise<void> {
+      return undefined;
+    },
+    async delLink(hostname: string, slug: string): Promise<void> {
+      calls.push({ hostname, slug, at: Date.now() });
+      seen += 1;
+
+      if (seen > successes) {
+        throw new RedirectCacheUnavailableError('the redirect cache is not connected');
+      }
+    },
+  };
+}
+
 beforeEach(() => {
   clearLinkMutationSubscribers();
   forgetCacheInvalidatorRegistration();
+  // A pass scheduled by the test before this one would otherwise delete against its cache in
+  // the middle of this one, which is exactly what the export exists for.
+  cancelScheduledInvalidationPasses();
   vi.restoreAllMocks();
 });
 
@@ -411,5 +485,168 @@ describe('registration', () => {
         handle: () => Promise.resolve(),
       });
     }).toThrow(CACHE_INVALIDATOR_NAME);
+  });
+});
+
+/**
+ * ============================================================================
+ * THE STALE SET RACE (TASK-2-07 review): A FILL THAT LANDS AFTER THE DELETION.
+ * ============================================================================
+ *
+ * A redirect that read the pre-edit row before the commit can write it into Redis after this
+ * subscriber deleted the key. The read path cannot cheaply notice, and the record would then
+ * serve with a fresh TTL, up to an hour for a link with no window, on the surface that is
+ * never rate limited. The mitigation is here rather than on the hot path: one more deletion
+ * of the same keys, `INVALIDATION_SECOND_PASS_DELAY_MS` later, unconditionally.
+ *
+ * What is measured below is the whole of it, including what it does not do: a fill landing
+ * after the second pass still wins, and is bounded only by the TTL.
+ */
+describe('the delayed second deletion (the stale set race)', () => {
+  it('is the same 1000 ms the retry schedule ends on', () => {
+    expect(INVALIDATION_SECOND_PASS_DELAY_MS).toBe(1000);
+  });
+
+  it('deletes the same key set again after the delay, on a deletion that already succeeded', async () => {
+    vi.useFakeTimers();
+    const cache = fakeCache(0);
+    const started = Date.now();
+
+    await subscriberOver(cache).handle(mutation('updated', SNAPSHOT, SNAPSHOT), null);
+
+    // THE MUTATION DOES NOT WAIT FOR IT. The handler has settled and exactly one deletion has
+    // happened; the second is scheduled, and an implementation that awaited it would put a
+    // second on the operator's PATCH.
+    expect(cache.calls.map(({ at }) => at - started)).toEqual([0]);
+
+    await vi.advanceTimersByTimeAsync(INVALIDATION_SECOND_PASS_DELAY_MS);
+
+    expect(cache.calls.map(({ hostname, slug, at }) => ({ hostname, slug, at: at - started }))).toEqual([
+      { hostname: HOSTNAME, slug: SNAPSHOT.slug, at: 0 },
+      { hostname: HOSTNAME, slug: SNAPSHOT.slug, at: 1000 },
+    ]);
+  });
+
+  /** A slug change moves the pair, so BOTH keys are swept again, not just the one that moved. */
+  it('sweeps the whole key set, including keys the first pass deleted first', async () => {
+    vi.useFakeTimers();
+    const cache = fakeCache(0);
+    const moved = { ...SNAPSHOT, slug: 'summer7' };
+
+    await subscriberOver(cache).handle(mutation('updated', SNAPSHOT, moved), null);
+    await vi.advanceTimersByTimeAsync(INVALIDATION_SECOND_PASS_DELAY_MS);
+
+    expect(cache.calls.map(({ slug }) => slug)).toEqual([
+      SNAPSHOT.slug,
+      moved.slug,
+      SNAPSHOT.slug,
+      moved.slug,
+    ]);
+  });
+
+  /**
+   * THE RACE, DRIVEN. The fill lands between the two deletions, exactly where a redirect's
+   * pre-commit read would put it, and the key is gone afterwards. Without the second pass this
+   * assertion fails with the record still held, which is the defect the review found.
+   */
+  it('removes a record written between the two deletions', async () => {
+    vi.useFakeTimers();
+    const cache = storeCache();
+
+    await cache.setLink(HOSTNAME, SNAPSHOT.slug, 'miss');
+    await subscriberOver(cache).handle(mutation('updated', SNAPSHOT, SNAPSHOT), null);
+
+    expect(cache.held.has(`${HOSTNAME}:${SNAPSHOT.slug}`)).toBe(false);
+
+    // The redirect that read Postgres before the commit finally writes what it read.
+    await cache.setLink(HOSTNAME, SNAPSHOT.slug, 'miss');
+    expect(cache.held.has(`${HOSTNAME}:${SNAPSHOT.slug}`)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(INVALIDATION_SECOND_PASS_DELAY_MS);
+
+    expect({ held: [...cache.held], deletions: cache.deletions }).toEqual({
+      held: [],
+      deletions: 2,
+    });
+  });
+
+  /**
+   * The residual, stated as a test so it is not mistaken for a closed hole: a fill landing
+   * after the second pass survives, and the TTL is what bounds it.
+   */
+  it('does not remove a record written after the second pass: the TTL is the only bound then', async () => {
+    vi.useFakeTimers();
+    const cache = storeCache();
+
+    await subscriberOver(cache).handle(mutation('updated', SNAPSHOT, SNAPSHOT), null);
+    await vi.advanceTimersByTimeAsync(INVALIDATION_SECOND_PASS_DELAY_MS);
+    await cache.setLink(HOSTNAME, SNAPSHOT.slug, 'miss');
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect([...cache.held]).toEqual([`${HOSTNAME}:${SNAPSHOT.slug}`]);
+  });
+
+  it('a failing second pass logs the same fixed shape once and does not retry', async () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(logger, 'error').mockReturnValue(undefined);
+    // One success (the first pass), rejections afterwards.
+    const cache = cacheFailingAfter(1);
+
+    await subscriberOver(cache).handle(mutation('created', null, SNAPSHOT), null);
+    await vi.advanceTimersByTimeAsync(INVALIDATION_SECOND_PASS_DELAY_MS);
+
+    expect(error).toHaveBeenCalledOnce();
+
+    const [record] = error.mock.calls[0];
+
+    expect(record).toEqual({
+      code: CACHE_INVALIDATION_FAILED_CODE,
+      link_id: SNAPSHOT.id,
+      attempts: 1,
+    });
+    expect(
+      Object.keys(record as object).every((field) => field === 'code' || LOGGABLE_FIELDS.has(field)),
+    ).toBe(true);
+
+    // No schedule of its own: five more seconds produce no further deletion and no second line.
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect({ calls: cache.calls.length, lines: error.mock.calls.length }).toEqual({
+      calls: 2,
+      lines: 1,
+    });
+  });
+
+  it('schedules nothing when the first pass exhausted its retries and already reported', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(logger, 'error').mockReturnValue(undefined);
+    const cache = fakeCache(Number.POSITIVE_INFINITY);
+
+    const settled = subscriberOver(cache).handle(mutation('deleted', SNAPSHOT, null), null);
+    const outcome = settled.then(
+      () => 'resolved' as const,
+      () => 'rejected' as const,
+    );
+
+    await vi.advanceTimersByTimeAsync(1200);
+
+    expect(await outcome).toBe('rejected');
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // Three attempts and no fourth: the operator has the line, and a fourth deletion against a
+    // server that refused three would only write a second one.
+    expect(cache.calls).toHaveLength(3);
+  });
+
+  it('cancelScheduledInvalidationPasses drops a pass that has not run yet', async () => {
+    vi.useFakeTimers();
+    const cache = fakeCache(0);
+
+    await subscriberOver(cache).handle(mutation('created', null, SNAPSHOT), null);
+    cancelScheduledInvalidationPasses();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(cache.calls).toHaveLength(1);
   });
 });

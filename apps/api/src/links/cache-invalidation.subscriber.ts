@@ -41,6 +41,32 @@
  * The cost of the phase is that a failure has nowhere to propagate to: the operator's write
  * committed and answered before this ran. So the failure path is a retry and a log line, and
  * NOT a 500 (invariant 5, AC-2-25).
+ *
+ * ============================================================================
+ * THE STALE SET RACE, AND THE DELAYED SECOND DELETION THAT BOUNDS IT (TASK-2-07 review).
+ * ============================================================================
+ *
+ * A redirect request that read the PRE-EDIT row from Postgres, before the editor's commit,
+ * can write that record into Redis AFTER the deletion below has run. Nothing on the read path
+ * corrects it, so the pre-edit or pre-deletion record would then serve with a fresh TTL:
+ * up to `LINK_TTL_S` for a link with no window, on the one surface that is never rate
+ * limited, and an editor cannot even observe it. That is GC-2's five seconds defeated by a
+ * window nobody can close from the fill side without putting a check on the hot path, which
+ * is the one thing the read-through card must not spend.
+ *
+ * So the deletion runs TWICE: once now, and once more after
+ * `INVALIDATION_SECOND_PASS_DELAY_MS`, unconditionally rather than only on failure. It is
+ * SCHEDULED AND NOT AWAITED, so it adds nothing to the mutation the operator is waiting on,
+ * and its timer is `unref`ed so a pending pass never holds the process open. A second-pass
+ * failure writes the same fixed line shape and stops; retrying it forever would be a per-
+ * mutation log loop for a key the first pass already reported on.
+ *
+ * WHAT THIS DOES NOT CLOSE, STATED PLAINLY: a fill that lands after the SECOND deletion still
+ * wins, and is then bounded only by the TTL. The race is narrowed from "any request in flight
+ * across the commit" to "a request whose Postgres read predates the commit and whose cache
+ * write lands more than a second after it", which is a request that spent longer between its
+ * own two steps than the whole schedule. `redirect-cache.md` records the residual beside the
+ * retry-exhaustion one.
  */
 import { Inject, Injectable } from '@nestjs/common';
 import type { OnModuleInit } from '@nestjs/common';
@@ -72,6 +98,16 @@ export const CACHE_INVALIDATOR_NAME = 'cacheInvalidator';
 export const INVALIDATION_RETRY_DELAYS_MS: readonly number[] = [200, 1000];
 
 /**
+ * How long after a SUCCESSFUL deletion the same key set is deleted again, to remove a record
+ * a redirect filled from a pre-commit read (see the file docblock). The same 1000 ms as the
+ * schedule's last step, and for the same reason it was chosen there: it is long enough to be
+ * past an in-flight request's own round trip and short enough that 200 + 1000 + 1000 still
+ * sits inside GC-2's five seconds, so the bound the contract promises holds even when the
+ * first pass needed its whole retry schedule.
+ */
+export const INVALIDATION_SECOND_PASS_DELAY_MS = 1000;
+
+/**
  * The `code` an operator greps for. It also stands in for the metric
  * `cache_invalidation_failures_total` the contract names: there is no metrics facility in
  * `apps/api/src`, and ADR-0053 records the same substitution for
@@ -82,6 +118,15 @@ export const CACHE_INVALIDATION_FAILED_CODE = 'cache_invalidation_failed';
 /** The fixed context string. It names what is now wrong, and no identifier of any kind. */
 const CACHE_INVALIDATION_FAILED_MESSAGE =
   'the redirect cache still holds a key this link mutation should have deleted, so the redirect may serve the pre-edit record until the key expires';
+
+/**
+ * The second pass's own context string. SAME FIELDS, SAME `code` (an operator greps for one
+ * thing), different sentence: what failed here is the sweep that removes a record a redirect
+ * filled from a pre-commit read, so the first pass may well have succeeded and the key may
+ * well be absent.
+ */
+const CACHE_INVALIDATION_SECOND_PASS_FAILED_MESSAGE =
+  'the delayed second deletion failed, so a redirect that filled the cache from a pre-commit read may keep serving the pre-edit record until the key expires';
 
 /** A `rdr:` key as this file knows it: the pair, never the built string (GC-G). */
 export interface InvalidatedLinkKey {
@@ -169,6 +214,27 @@ export function forgetCacheInvalidatorRegistration(): void {
 }
 
 /**
+ * The second passes that have been scheduled and have not run yet. Held so a test can drop
+ * them; shipped code never cancels one.
+ */
+const scheduledPasses = new Set<NodeJS.Timeout>();
+
+/**
+ * Drops every scheduled second pass. FOR TESTS, and for a reason the timers themselves
+ * create: a pass scheduled by one test fires during the next one, where it would delete
+ * against a cache that suite has already closed, or against a server another test has just
+ * configured to refuse writes, and write a failure line into somebody else's assertion.
+ * Shipped code never calls this: the whole point of the pass is that it runs.
+ */
+export function cancelScheduledInvalidationPasses(): void {
+  for (const timer of scheduledPasses) {
+    clearTimeout(timer);
+  }
+
+  scheduledPasses.clear();
+}
+
+/**
  * Registers `subscriber` when this process has registered none, and otherwise returns the
  * instance that IS registered, so its caller can hand that one its own cache.
  *
@@ -225,7 +291,8 @@ export class CacheInvalidationSubscriber implements LinkMutationSubscriber, OnMo
    * calls it.
    */
   async handle(mutation: LinkMutation, _db: TenantDb | null = null): Promise<void> {
-    let pending = keysToInvalidate(mutation);
+    const keys = keysToInvalidate(mutation);
+    let pending = keys;
     let attempts = 0;
     let failure: unknown;
 
@@ -235,6 +302,11 @@ export class CacheInvalidationSubscriber implements LinkMutationSubscriber, OnMo
       const round = await this.deleteEach(pending);
 
       if (round.failed.length === 0) {
+        // THE WHOLE KEY SET, not `pending`: the second pass is about a record a redirect
+        // wrote after a deletion succeeded, so the keys that succeeded early are exactly the
+        // ones it has to revisit. Scheduled, never awaited (see the file docblock).
+        this.scheduleSecondPass(keys, mutation.linkId);
+
         return;
       }
 
@@ -269,6 +341,53 @@ export class CacheInvalidationSubscriber implements LinkMutationSubscriber, OnMo
     // and no message, runs the subscribers registered after this one, and swallows it there.
     // The operator's write is already committed and already answered.
     throw failure;
+  }
+
+  /**
+   * Schedules the one repeat deletion. Nothing is scheduled when the first pass exhausted its
+   * retries: that path has already told the operator the key is still there, and a pass that
+   * failed three times in 1.2 seconds against a refusing server has no better prospect a
+   * second later than the line it already wrote.
+   *
+   * `unref` so a pending pass never keeps the process (or a test run) alive: the mutation is
+   * committed and answered, and a sweep that a shutdown skips costs the TTL, which is the
+   * bound this whole mechanism narrows rather than removes.
+   */
+  private scheduleSecondPass(keys: readonly InvalidatedLinkKey[], linkId: string): void {
+    const timer = setTimeout(() => {
+      scheduledPasses.delete(timer);
+
+      void this.secondPass(keys, linkId);
+    }, INVALIDATION_SECOND_PASS_DELAY_MS);
+
+    timer.unref();
+    scheduledPasses.add(timer);
+  }
+
+  /**
+   * ONE more deletion of the same keys, with no retry schedule of its own. Deleting a key that
+   * is not there is not a failure (Redis answers `0`), so the ordinary outcome of this pass is
+   * a no-op that says nothing, and the interesting outcome is the one it exists for: a record
+   * a redirect wrote between the commit and now is gone.
+   */
+  private async secondPass(keys: readonly InvalidatedLinkKey[], linkId: string): Promise<void> {
+    const round = await this.deleteEach(keys);
+
+    if (round.failed.length === 0) {
+      return;
+    }
+
+    // The same three fields (`redirect-cache.md`, D-2-15): `LOGGABLE_FIELDS` names `link_id`
+    // and `attempts` and nothing else, and a key, a hostname or a slug stays off the line.
+    // `attempts: 1` is the truth here, since this pass makes exactly one.
+    logger.error(
+      {
+        code: CACHE_INVALIDATION_FAILED_CODE,
+        link_id: linkId,
+        attempts: 1,
+      },
+      CACHE_INVALIDATION_SECOND_PASS_FAILED_MESSAGE,
+    );
   }
 
   /**

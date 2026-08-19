@@ -3,7 +3,7 @@
 - **Boundary:** Redis, between the redirect read path and every writer that can invalidate it.
 - **Normative form:** `apps/api/src/cache/redirect-cache.ts`. Shipped 2026-08-19 by TASK-2-03 (item 2, wave 1), which is the card TASK-030 became; the design stub is retired with it (ADR-0039). The client and the boot binding live beside it in `apps/api/src/cache/redis-client.ts`, and the token consumers inject is `REDIRECT_CACHE`, bound in `apps/api/src/cache/cache.module.ts`.
 - **Produced by:** TASK-030 (delivered as TASK-2-03).
-- **Consumed by:** TASK-027, 031, 032, 034, 045, 046, 051 (client reuse) — in item 2's numbering, TASK-2-06 and TASK-2-07 (the redirect read path) and TASK-2-08 (invalidation).
+- **Consumed by:** TASK-027, 031, 032, 034, 045, 046, 051 (client reuse); in item 2's numbering, TASK-2-06 and TASK-2-07 (the redirect read path; the read-through shipped 2026-08-19, see "The read-through" below) and TASK-2-08 (invalidation).
 - **ADRs:** ADR-0008, ADR-0009, ADR-0012.
 
 ## Keys
@@ -203,6 +203,47 @@ when it did not HAPPEN, never because the key was already gone.
 The same ordering rule applies to any later cache: the writer that deletes a namespace's keys
 ships no later than the reader that fills them.
 
+### The read-through, shipped 2026-08-19 (TASK-2-07)
+
+`apps/api/src/redirect/redirect.service.ts` is the only reader. Steps 2 and 3 of
+`redirect-resolution.md` each consult their key first and fall through to Postgres on
+`'unavailable'`; the write-back is `setHost` (the record for a domain that resolved, the
+sentinel for one that did not) and `setLink` (the record, or the sentinel for a slug that
+matched nothing). Nothing else writes a positive `hst:` record, and no key is written at
+`rdr:` for a hostname that resolved to nothing, since the host key answers the next request
+before the link key is read.
+
+**Both keys are read before either Postgres read is chosen**, and that is what makes the
+per-state cost the following rather than something larger. Measured in STATEMENTS by
+`dbQueryCounter` (`test/redirect/redirect-cache.int-spec.ts`), which counts the two-statement
+preamble as well:
+
+| Cache state | Statements | Read issued |
+|---|---|---|
+| both records | **0** | none: invariant 4, expiry and the click ids included |
+| host record, link sentinel | 0 | none |
+| host sentinel | 0 | none, and the link key is not read at all |
+| host record, link cold | 3 | `resolveLinkOnDomain`, on the CACHED domain id |
+| host cold, link sentinel | 3 | `resolveHost` |
+| host cold, link record | 3 | `resolveHostKeepingLinkOn`: statement 2 is skipped while the record names the domain that resolved |
+| host cold, link record naming another domain | 4 | the same call, both statements, ONE transaction |
+| both cold | **4** | one `resolveByHostAndSlug`, the cold resolve's own cost, unchanged |
+| Redis unavailable | 4 every request | as above; write-backs are no-ops until it returns |
+
+Every branch opens **at most one transaction**. That is the same rule as reading both keys
+first: a validation that resolved the host and then read the link through a second call would
+pay the two-statement preamble twice.
+
+A cached link record is served only when its `dm` is the domain the host resolved to, so a
+hostname that changed hands cannot serve the previous owner's link out of a surviving key.
+A record whose `ea` or `aa` could not be read is not cached at all: it would fail this
+module's own decoder and hold a key that reads `'unavailable'` for an hour.
+
+`CachedHost.b` is the branding ANSWER on a hit, not a hint (ADR-0011's "on a cache miss
+only"), so a cache hit renders its 404 from `b` and never asks `REDIRECT_BRANDING_PORT`. The
+card that binds the port owes the other half: `resolveHost` must fill the branding before the
+record is written, or a branded host caches as unbranded for the host TTL.
+
 ## Only an `active` domain is cached
 
 Moved here 2026-08-04. This rule was stated only in the `resolveHost` stub, and it
@@ -245,10 +286,39 @@ subscriber then RETHROWS, which is how `runAfterCommitSubscribers` comes to add 
 subscribers registered after this one; the operator's write is already committed and already
 answered, and `LOGGABLE_FIELDS` names `link_id` and `attempts` as of the same commit.
 
+### The stale set race, and the delayed second deletion (2026-08-19, TASK-2-07 review)
+
+**The race.** A redirect request that read the pre-edit row from Postgres, before the editor's
+commit, can write that record into Redis **after** the deletion above has run. Nothing on the
+read path corrects it, so the pre-edit or pre-deletion record then serves with a fresh TTL:
+up to `LINK_TTL_S` for a link with no window, on the surface that is never rate limited, and
+invisible to the operator who made the edit. Someone who wants a takedown to keep serving can
+raise the odds by flooding requests at the moment of the edit.
+
+**The mitigation.** The subscriber deletes the same key set a second time,
+`INVALIDATION_SECOND_PASS_DELAY_MS` (1000 ms) after a deletion that succeeded, unconditionally
+rather than only on failure. It is scheduled and not awaited, so the mutation the operator is
+waiting on is not extended, and its timer is `unref`ed. A second-pass failure writes one line
+in the same shape (`code: 'cache_invalidation_failed'`, `link_id`, `attempts: 1`) and stops.
+Nothing is scheduled when the first pass exhausted its retries: that path has already
+reported. The read path pays nothing for any of this, which is why the mitigation is here and
+not in front of the fill.
+
+**The residual, which this does NOT close.** A fill that lands after the SECOND deletion still
+wins, and is then bounded only by the TTL, exactly as the retry-exhaustion case above is. What
+narrows is the window: from "any request in flight across the commit" to "a request whose
+Postgres read predates the commit and whose cache write lands more than a second after it".
+Both halves are measured in `cache-invalidation.subscriber.spec.ts` and, against a live Redis,
+in `test/links/cache-invalidation.int-spec.ts`: a fill between the two deletions is swept, and
+a fill after them is not.
+
 ## Invariants a caller may rely on
 
 1. A destination edit is visible on the redirect path within 5 seconds of commit
-   (GC-2, AC-51), by deletion rather than by expiry, with the TTL at 3600 s.
+   (GC-2, AC-51), by deletion rather than by expiry, with the TTL at 3600 s. Two recorded
+   residuals sit under this: a deletion that failed its whole retry schedule (logged), and a
+   fill that lands after the delayed second deletion (silent, bounded by the TTL). Both are
+   above, under "Invalidation".
 2. `'unavailable'` never causes a 404. It causes a Postgres read (AC-52, AC-53).
 3. Every read is bounded at 50 ms (ADR-0012).
 4. A cache hit performs zero Postgres queries (AC-49), including for expiry evaluation,

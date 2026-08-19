@@ -3,8 +3,12 @@ import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Test } from '@nestjs/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TestingModule } from '@nestjs/testing';
+
+import { CacheModule } from '../cache/cache.module';
+import { REDIRECT_CACHE } from '../cache/redirect-cache';
+import { UnavailableRedirectCache } from '../cache/unavailable-redirect-cache';
 
 import { RedirectController } from './redirect.controller';
 import { RedirectModule } from './redirect.module';
@@ -77,6 +81,7 @@ describe('the redirect module reads no shipped file (the premise, not the subjec
    */
   it('scans the files this card ships', () => {
     expect(files.map((file) => file.path).sort()).toEqual([
+      'apps/api/src/redirect/cache-records.ts',
       'apps/api/src/redirect/db/redirect-read.ts',
       'apps/api/src/redirect/not-found-page.ts',
       'apps/api/src/redirect/ports/branding.port.ts',
@@ -243,21 +248,30 @@ describe('the module graph (AC-2-20, ADR-0011)', () => {
   });
 
   /**
-   * `RedirectModule.imports` is EMPTY, and that is the strongest form of the assertion:
-   * there is no module it could import that GC-N permits and it needs. The cache arrives
-   * in TASK-2-07 as one entry (`CacheModule`), which will edit this expectation in the
-   * same commit that makes it true.
+   * `RedirectModule.imports` IS EXACTLY `[CacheModule]` as of TASK-2-07, and the list is the
+   * assertion: not "no forbidden module", which a reviewer would have to check by reading,
+   * but this one entry and nothing beside it. `CacheModule` is infrastructure (two records
+   * and a sentinel over Redis), and it is neither one of the five GC-N names nor a module
+   * that could reach one.
    */
-  it('imports no Nest module at all', () => {
-    expect(Reflect.getMetadata('imports', RedirectModule) ?? []).toEqual([]);
+  it('imports exactly one Nest module, the cache', () => {
+    expect(Reflect.getMetadata('imports', RedirectModule) ?? []).toEqual([CacheModule]);
   });
 
-  it('compiles standalone, with both ports unbound', async () => {
+  it('compiles standalone, with both ports unbound and the degraded cache bound', async () => {
+    // Empty is unset (`readRedisBinding`), so the factory selects `UnavailableRedirectCache`
+    // and no socket is opened by a unit run. Stubbed rather than assumed: a developer with
+    // `REDIS_URL` exported would otherwise build a real client here and leave it open.
+    vi.stubEnv('REDIS_URL', '');
+
     moduleRef = await Test.createTestingModule({ imports: [RedirectModule] }).compile();
 
     expect(moduleRef.get(RedirectController)).toBeInstanceOf(RedirectController);
     expect(moduleRef.get(RedirectService)).toBeInstanceOf(RedirectService);
     expect(moduleRef.get(RedirectReadRepository)).toBeInstanceOf(RedirectReadRepository);
+    // ADR-0011's lesson, applied to the one token that is NOT optional: an unbound cache
+    // would degrade this module to a Postgres-only redirect with nothing saying so.
+    expect(moduleRef.get(REDIRECT_CACHE)).toBeInstanceOf(UnavailableRedirectCache);
   });
 
   /**
