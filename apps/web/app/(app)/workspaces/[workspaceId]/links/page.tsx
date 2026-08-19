@@ -1,0 +1,141 @@
+/**
+ * TASK-2-14 (STORY-2-10, AC-2-48/49/51). The links list for one workspace, at
+ * `/workspaces/[workspaceId]/links` (D-2-18), the operator's daily screen.
+ *
+ * Contract: docs/contracts/workspace-authorization.md ("Minimum role per surface":
+ *   `GET /api/workspaces/:workspaceId` any membership, `GET /api/links?workspaceId=`
+ *   viewer, `POST /api/links` member), docs/contracts/web-api-client.md
+ *   (`serverApiClient`, the server leg, direct to the API with the `sk_at` cookie).
+ * ADR: adr-0014 (server components skip the proxy; the browser goes through the BFF),
+ *   adr-0006 (the redirect is the API's own origin, which is why the short-link origin is
+ *   a separate variable and not this app's).
+ * Decision: D-2-02 (short links are `${SHORT_LINK_ORIGIN}/<slug>`), D-2-12, D-2-18.
+ *
+ * ============================================================================
+ * DESIGN, RECORDED. The two shipped pages' rulings, restated where they differ.
+ * ============================================================================
+ *
+ * 1. PROTECTION IS SERVER-SIDE AND COMES FIRST. `await requireAuth()` is the first thing
+ *    this page does: a visitor with no session is redirected to `/sign-in` before any
+ *    workspace or link data is fetched. Never render-then-hide.
+ *
+ * 2. THE WORKSPACE, THEN ITS LINKS, ON THE SERVER, sequentially: a workspace the caller
+ *    cannot read ends the page before the list is asked for, and the order is assertable.
+ *    The route param is checked against `idContract` first, so a value that is not a uuid
+ *    is not-found without a request.
+ *
+ * 3. THE WORKSPACE FETCH SUPPLIES THE RENDER GATE. `workspaceRole` comes back on it
+ *    (TASK-1b-06), and `canManageLinks` turns it into "form or no form". A viewer sees the
+ *    list and no form; the API enforces the same thing with a 403 (hiding is not
+ *    enforcement).
+ *
+ * 4. NOT-FOUND FOR "CANNOT READ", ONE RENDERING. `not_found` (no membership, another
+ *    tenant's id, unknown id) and the two 403 codes both `notFound()`, so the page never
+ *    says which of the two happened. Nothing of the workspace reaches that output: it is
+ *    rendered by `app/not-found.tsx`, which knows nothing of this page.
+ *
+ * 5. `SHORT_LINK_ORIGIN` IS READ HERE AND PASSED DOWN AS A PROP. It carries no
+ *    `NEXT_PUBLIC_` prefix by design, so it exists only on the server; `shortLinkOrigin()`
+ *    THROWS when it is unset rather than composing `undefined/<slug>` beside a copy
+ *    button. That throw is the intended failure of a misconfigured deployment, and it
+ *    happens after `requireAuth` so it is never an anonymous visitor's answer.
+ *
+ * 6. THE REST OF THE FAILURES are the sibling pages': `unauthenticated` from the API
+ *    redirects to sign-in with a `returnTo` to THIS page; the `token_expired` refresh
+ *    bounce is re-issued with the same `returnTo`; anything else is not swallowed.
+ *
+ * 7. NOTHING HERE READS A COOKIE OR HOLDS A TOKEN. `requireAuth` and `serverApiClient`
+ *    read `sk_at` inside `src/lib`; the client component uses `apiClient` through the BFF.
+ *
+ * 8. THE PAGE `metadata` IS STATIC, so no workspace name and no destination reaches a
+ *    `<title>`. The `h1` names the workspace; the destinations are rendered as text in the
+ *    list and never as an `href` (`link-list.tsx`).
+ */
+import type { Metadata } from 'next';
+import { notFound, redirect } from 'next/navigation';
+import type { ReactElement } from 'react';
+
+import { idContract } from '@shortkit/contracts';
+import type { Link as LinkRow, Paginated, Workspace } from '@shortkit/contracts';
+
+import { getWorkspaceRequest } from '../../../../../src/components/invitations/invitations-api';
+import { signInAfterExpiryUrl } from '../../../../../src/components/links/links-view';
+import { ApiError, serverApiClient } from '../../../../../src/lib/api/client';
+import { LINKS_ROUTE, listLinksRequest } from '../../../../../src/lib/links/links-api';
+import { requireAuth } from '../../../../../src/lib/session/session';
+import { shortLinkOrigin } from '../../../../../src/lib/short-url';
+import { isRefreshBounce, refreshBounceUrl } from '../../refresh-bounce';
+import { LinksScreen } from './links-screen';
+
+export const metadata: Metadata = {
+  title: 'Links · Shortkit',
+  description: 'The short links in a workspace.',
+};
+
+/** Reads cookies on every request; never prerendered, never cached. */
+export const dynamic = 'force-dynamic';
+
+interface LinksPageProps {
+  params: Promise<{ workspaceId: string }>;
+}
+
+/**
+ * The three codes that mean "not yours to see": one not-found rendering (design point 4).
+ * Not exported: a Next page module may export only Next's own fields.
+ */
+function isNotFoundForLinks(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.code === 'not_found' ||
+      error.code === 'insufficient_workspace_role' ||
+      error.code === 'insufficient_tenant_role')
+  );
+}
+
+export default async function LinksPage({ params }: LinksPageProps): Promise<ReactElement> {
+  // Design point 1: redirect before any data fetch. `redirect()` throws, so nothing below
+  // runs for a visitor with no session.
+  await requireAuth();
+
+  const { workspaceId: rawWorkspaceId } = await params;
+  const parsedId = idContract.safeParse(rawWorkspaceId);
+
+  if (!parsedId.success) {
+    notFound();
+  }
+
+  const workspaceId = parsedId.data;
+  const ownPath = LINKS_ROUTE(workspaceId);
+  // Design point 5: read before the fetches, so a misconfigured origin fails on its own
+  // terms rather than after two round trips.
+  const origin = shortLinkOrigin();
+
+  let workspace: Workspace;
+  let page: Paginated<LinkRow>;
+
+  try {
+    workspace = await serverApiClient(getWorkspaceRequest(workspaceId));
+    page = await serverApiClient(listLinksRequest(workspaceId));
+  } catch (error: unknown) {
+    if (isNotFoundForLinks(error)) {
+      notFound();
+    }
+
+    if (error instanceof ApiError && error.code === 'unauthenticated') {
+      redirect(signInAfterExpiryUrl(ownPath));
+    }
+
+    if (isRefreshBounce(error)) {
+      redirect(refreshBounceUrl(ownPath));
+    }
+
+    throw error;
+  }
+
+  return (
+    <main className="workspaces-page links-page">
+      <h1>Links in {workspace.name}</h1>
+      <LinksScreen workspace={workspace} initialPage={page} shortLinkOrigin={origin} />
+    </main>
+  );
+}

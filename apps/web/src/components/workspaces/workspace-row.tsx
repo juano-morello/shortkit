@@ -40,6 +40,19 @@
  * workspace, and the row does not offer what would be refused. HIDING IS NOT ENFORCEMENT —
  * the API is (workspace-authorization.md, "Minimum role per surface"). Rename and archive
  * are left as they were (shown on every active row; the API refuses a non-admin with 403).
+ *
+ * THE "LINKS" LINK (TASK-2-14, D-2-18: "Row on `/workspaces` links to it for any
+ * membership; viewer sees the list"). It sits BESIDE the Invite link and is gated
+ * differently on purpose: `GET /api/links?workspaceId=` is `viewer`, and every row in this
+ * list is a workspace the caller belongs to, which is what the list returns, so the link
+ * always leads somewhere useful and the links screen itself decides whether to render a
+ * form. It is first in the row's actions because it is the daily one.
+ *
+ * An ARCHIVED row still gets no link, which is this component's existing rule rather than a
+ * new one (the archived row is read-only, and the whole action block below is inside that
+ * branch). The cost is stated rather than hidden: an archived workspace's links keep
+ * redirecting (D-2-12) and its screen is still reachable at `/workspaces/<id>/links` by
+ * URL, so nothing becomes unmanageable. The shortcut saves one navigation, for active rows.
  */
 import Link from 'next/link';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -49,6 +62,7 @@ import { WORKSPACE_NAME_MAX_LENGTH } from '@shortkit/contracts';
 import type { Workspace } from '@shortkit/contracts';
 
 import { apiClient } from '../../lib/api/client';
+import { LINKS_ROUTE } from '../../lib/links/links-api';
 import { INVITATIONS_ROUTE } from '../invitations/invitations-api';
 import {
   WORKSPACE_MESSAGES,
@@ -266,6 +280,9 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
       {isArchived ? null : (
         <>
           <div className="workspace-row-actions">
+            <Link className="workspace-row-link" href={LINKS_ROUTE(workspace.id)}>
+              Links <span className="visually-hidden">in {workspace.name}</span>
+            </Link>
             {canInvite ? (
               <Link className="workspace-row-link" href={INVITATIONS_ROUTE(workspace.id)}>
                 Invite <span className="visually-hidden">to {workspace.name}</span>
