@@ -73,8 +73,20 @@ const BUCKET_EMAILS = [
 /** A fourth sign-up from a DIFFERENT address, so the buckets are shown to be per key. */
 const OTHER_KEY_EMAIL = 'wave3-bucket-other@example.com';
 
-/** Never registered. Sign-ins for it are 401s that cost the sign-in bucket one each. */
-const UNREGISTERED_EMAIL = 'wave3-never-registered@example.com';
+/**
+ * Never registered. Sign-ins for it are 401s that cost the IP-keyed sign-in bucket one each.
+ *
+ * ONE ADDRESS PER ATTEMPT SINCE 2026-08-18 (TASK-1b-09, D-15). The email-keyed sign-in bucket
+ * — 5 per 15 min per address, charged INSIDE Better Auth by `emailRateLimitHook` whether or
+ * not a client header is declared — would refuse the sixth attempt for one address before the
+ * IP bucket's eleventh was ever reached, and the two tests below would then be measuring the
+ * wrong limiter. Varying the address keeps every attempt on a fresh email allowance so the
+ * only bucket that can fire is the one under test. `test/auth/sign-in-email-bucket.int-spec.ts`
+ * measures the email bucket on its own.
+ */
+function unregisteredEmail(attempt: number): string {
+  return `wave3-never-registered-${String(attempt)}@example.com`;
+}
 
 const ADDRESSES = [SIGNUP_EMAIL, BOUNDARY_EMAIL, OVERSIZED_EMAIL, CHUNKED_EMAIL, ...BUCKET_EMAILS, OTHER_KEY_EMAIL] as const;
 
@@ -356,7 +368,7 @@ describe('the IP-keyed buckets (rate-limit.md)', () => {
     for (let attempt = 0; attempt < 11; attempt += 1) {
       const response = await authFetch('POST', '/sign-in/email', {
         headers: { [TRUSTED_HEADER]: IP.signIn },
-        body: { email: UNREGISTERED_EMAIL, password: POLICY_COMPLIANT_PASSWORD },
+        body: { email: unregisteredEmail(attempt), password: POLICY_COMPLIANT_PASSWORD },
       });
       statuses.push(response.status);
       refused = response;
@@ -415,12 +427,14 @@ describe('the IP-keyed buckets (rate-limit.md)', () => {
     const statuses: number[] = [];
 
     for (let attempt = 0; attempt < 11; attempt += 1) {
+      // Two addresses per iteration, distinct from the IP test's, so the email bucket never
+      // binds here either (see `unregisteredEmail`).
       const bare = await authFetch('POST', '/sign-in/email', {
-        body: { email: UNREGISTERED_EMAIL, password: POLICY_COMPLIANT_PASSWORD },
+        body: { email: unregisteredEmail(100 + attempt), password: POLICY_COMPLIANT_PASSWORD },
       });
       const forwarded = await authFetch('POST', '/sign-in/email', {
         headers: { 'x-forwarded-for': '203.0.113.99' },
-        body: { email: UNREGISTERED_EMAIL, password: POLICY_COMPLIANT_PASSWORD },
+        body: { email: unregisteredEmail(200 + attempt), password: POLICY_COMPLIANT_PASSWORD },
       });
       statuses.push(bare.status, forwarded.status);
     }

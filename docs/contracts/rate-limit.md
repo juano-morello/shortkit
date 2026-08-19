@@ -322,7 +322,7 @@ implementer would have built.
 | Route | Key | Limit | Enforced by | Key format |
 |---|---|---|---|---|
 | `POST /api/auth/sign-in/email` | client IP | 10 / 5 min | Express middleware | `sk:{env}:arl:v1:ip:{ip}:signin:{window}` |
-| `POST /api/auth/sign-in/email` | email | 5 / 15 min | **Better Auth `hooks.before`** | `sk:{env}:arl:v1:em:{sha256(email)}:signin:{window}` |
+| `POST /api/auth/sign-in/email` | email | 5 **failed** / 15 min (a success releases its charge — 2026-08-18) | **Better Auth `hooks.before`** charges, **`hooks.after`** releases | `sk:{env}:arl:v1:em:{sha256(email)}:signin:{window}` |
 | `POST /api/auth/sign-up/email` | client IP | 3 / hour | Express middleware | `sk:{env}:arl:v1:ip:{ip}:signup:{window}` |
 | everything else under `/api/auth/*` | client IP | 60 / min | Express middleware | `sk:{env}:arl:v1:ip:{ip}:other:{window}` |
 
@@ -368,6 +368,55 @@ directory:
 | the `TRUSTED_CLIENT_IP_HEADER` read (`trusted-client-address.md`) | `apps/api/src/common/net/trusted-client-address.ts` |
 
 The rows above stay as written; the shipped file wins and this table records the divergence.
+
+**Amended 2026-08-18 (TASK-1b-09, item 1b wave 3; D-15).** The email bucket shipped, in
+`apps/api/src/auth/email-rate-limit-hook.ts` rather than inside `auth.config.ts` (which
+`push`es it as the FIRST `beforeHooks` entry — the ordering ADR-0013 fixes so invitation
+probing cannot bypass it):
+
+| Piece | Shipped file | Produced by |
+|---|---|---|
+| `emailRateLimitHook`, `normaliseEmailForKey`, `emailRateLimitKey` (hex SHA-256), `bindEmailRateLimitPort`, `EMAIL_RATE_LIMITED_MESSAGE` | `apps/api/src/auth/email-rate-limit-hook.ts` | **TASK-1b-09** |
+| `AUTH_RATE_LIMIT_BUCKETS.signInPerEmail = { limit: 5, windowSeconds: 900 }` | `apps/api/src/auth/ports/auth-rate-limit.port.ts` | **TASK-1b-09** |
+| the `push` and its order; `bindEmailRateLimitPort(authRateLimitPort)` beside the mount | `apps/api/src/auth/auth.config.ts`, `apps/api/src/main.ts` | **TASK-1b-09** |
+| the four integration tests below, plus the F-027 header probe and the SC-5 scan | `apps/api/test/auth/sign-in-email-bucket.int-spec.ts` | **TASK-1b-09** |
+
+The hook charges the SAME `AuthRateLimitPort` instance the Express middleware charges —
+`main.ts` resolves `AUTH_RATE_LIMIT_PORT` once and hands it to both — so there is one
+`LocalAuthRateLimiter`, one memory bound, and TASK-051's Redis rebinding reaches the email
+bucket for free. Unbound (the unit tier composes `auth.config.ts` without `main.ts`) the hook
+degrades OPEN with a fixed warn line once a minute, the posture invariant 5 fixes; bound, a
+store rejection that is not the refusal degrades open with the same warn the middleware
+writes.
+
+**The bucket counts FAILED sign-ins; a success releases its charge (architect ruling,
+2026-08-18, same card).** The consequence below already said "five failed attempts per
+fifteen minutes", and charging successes locked out a legitimate operator who signed in six
+times in a window. The before hook still charges every string-addressed attempt (it cannot
+know the outcome), and `emailRateLimitReleaseHook` — the one entry of `auth.config.ts`'s
+`afterHooks` registry, appended-never-assigned like `beforeHooks` — calls the port's new
+`release(bucket, key, charge)` on `/sign-in/email` under the same hashed normalised key when
+the endpoint returned WITHOUT an `APIError`. `check` now resolves with the charge it made
+(`AuthRateLimitCharge = { windowStart }`); the before hook carries it to the after hook of the
+same request (a `WeakMap` keyed on the per-request `ctx.context`), and `release` acts ONLY on
+that window — a release computed from "now" could refund an unrelated attempt's charge in a
+newer window when the window rolled in between (review of TASK-1b-09; unit-tested). Measured on 1.6.26 (`api/dispatch.mjs`): the
+dispatcher stores the endpoint's return value on `ctx.context.returned`, or the thrown
+`APIError` itself, then runs the after hooks; the numeric status is not on the context, so
+"returned without an `APIError`" is the success signal. A 401, a 400 (including a padded
+address) and a 403 stay charged; a 429 from the before hook never reaches the after hooks.
+`release` is idempotent, floors at zero (six successes then exactly five failures are
+admitted), and a store failure there degrades open with a warn — the un-released charge
+expires with the window. **The sixth attempt after five failures is refused whatever the
+password is**: the address is locked for the rest of the window, which is the DoS cost stated
+under "Accepted costs" and is now literally true of failures only.
+
+A consequence for the integration suites, measured: the bucket binds in the child whether or
+not a client header is declared (it is keyed on the body, not on a principal), so a suite that
+FAILS sign-in for one address more than five times per child process meets a 429 on the
+sixth; successful sign-ins no longer accumulate. `auth-mount.int-spec.ts` varies the address
+per attempt in its IP-bucket tests (its attempts are deliberate 401s); every other suite signs
+in successfully and is unaffected.
 | `RedisAuthRateLimiter` | `apps/api/src/common/rate-limit/redis-auth-rate-limiter.ts` | **TASK-051** |
 | `RateLimitGuard` and the tenant bucket | `apps/api/src/common/rate-limit/**` | **TASK-051** |
 | binding the Redis implementation to the token | `apps/api/src/app.module.ts` | **TASK-051** |
@@ -563,6 +612,17 @@ A fourth, added 2026-08-07 (F-228):
 No AC covers pre-auth limiting, so these tests are the only thing standing between this
 design and F-019's original failure. TASK-009 owns them.
 
+**Shipped 2026-08-18 (TASK-1b-09; AC-1b-39 covers them now).** All four exist in
+`apps/api/test/auth/sign-in-email-bucket.int-spec.ts`, against the child with
+`CLIENT_TRUST_BOUNDARY=proxy` and `TRUSTED_CLIENT_IP_HEADER=x-test-client-ip` so the six
+attempts really come from six principals and the IP bucket cannot be the limiter that fires.
+Two facts the run pinned: (a) the case-varied test's sixth spelling is whitespace-PADDED,
+which Better Auth's own validation would answer 400 — the hook charged it first and answered
+429, which is what makes the trim half of the normalisation observable; (b) an object-typed
+`email` is the endpoint's `400 VALIDATION_ERROR`, never a 500, and a following five attempts
+for a real address are all still admitted before the sixth is refused, so the malformed one
+was not charged.
+
 A body cap, `authBodyCap`, sits ahead of the Express limiter at **32 KiB**. It does not
 parse: it rejects with 413 when `Content-Length` exceeds the cap, and for a chunked
 request with no or an understated `Content-Length` it counts bytes as they pass and
@@ -584,7 +644,10 @@ destroys the socket once the cap is crossed, without a response body.
   knows an address can keep it at five failed attempts per fifteen minutes. The window is
   short and the account stays reachable between windows. Accepting this is the standard
   trade for binding distributed credential stuffing, and it is why the window is fifteen
-  minutes rather than a day.
+  minutes rather than a day. *Confirmed 2026-08-18: "failed" is load-bearing — the shipped
+  bucket releases a successful sign-in's charge, so an operator's own sign-ins never count
+  toward the five, and the sixth attempt after five failures is 429 with the right password
+  too (`sign-in-email-bucket.int-spec.ts`).*
 
 ## Response on limit
 
@@ -625,7 +688,7 @@ throw new APIError(429, {
 |---|---|---|
 | Nest routes | yes | `ErrorEnvelope` |
 | `/api/auth/*` IP buckets | yes | `{ code: 'rate_limited', message, retryAfterSeconds }` |
-| `/api/auth/*` email bucket | best effort | `{ code: 'rate_limited', message, retryAfterSeconds }` |
+| `/api/auth/*` email bucket | best effort — **measured PRESENT on 1.6.26** (2026-08-18, TASK-1b-09: the hook passes `{ 'Retry-After': <n> }` as the `APIError`'s headers and `sign-in-email-bucket.int-spec.ts` asserts header = body field; a release that drops it fails that test, not the contract) | `{ code: 'rate_limited', message, retryAfterSeconds }` |
 
 **`apiClient` normalises all three** into `ApiError.retryAfterSeconds`, preferring the
 header and falling back to the body field (`web-api-client.md`). TASK-052's central 429

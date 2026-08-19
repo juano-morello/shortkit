@@ -49,7 +49,7 @@ import type { RequestHandler } from 'express';
 import { TRUSTED_CLIENT_IP_HEADER_ENV, TRUSTED_CLIENT_IP_UNRESOLVED_COUNTER } from '../common/net/trusted-client-address';
 import { errorLogFields, logger } from '../observability/logger';
 import { AUTH_RATE_LIMIT_BUCKETS, AuthRateLimitExceededError } from './ports/auth-rate-limit.port';
-import type { AuthRateLimitBucket, AuthRateLimitPort, AuthRateLimitRule } from './ports/auth-rate-limit.port';
+import type { AuthRateLimitBucket, AuthRateLimitCharge, AuthRateLimitPort, AuthRateLimitRule } from './ports/auth-rate-limit.port';
 import { resolveRateLimitPrincipal } from './resolve-rate-limit-principal';
 
 /**
@@ -212,7 +212,7 @@ export class LocalAuthRateLimiter implements AuthRateLimitPort, OnModuleDestroy 
     this.sweep.unref();
   }
 
-  async check(bucket: AuthRateLimitBucket, key: string): Promise<void> {
+  async check(bucket: AuthRateLimitBucket, key: string): Promise<AuthRateLimitCharge> {
     const rule = AUTH_RATE_LIMIT_BUCKETS[bucket];
     const entries = this.entries(bucket);
     const now = Date.now();
@@ -245,6 +245,31 @@ export class LocalAuthRateLimiter implements AuthRateLimitPort, OnModuleDestroy 
 
       throw new AuthRateLimitExceededError(bucket, retryAfterSeconds);
     }
+
+    return { windowStart };
+  }
+
+  /**
+   * One charge back, in THE CHARGE'S window only. If the key's entry belongs to another
+   * window — the window rolled between the charge and the release, and an unrelated attempt
+   * may already have opened the new one — nothing is touched: decrementing there would refund
+   * somebody else's failure. A count that reaches zero drops the entry so the map does not
+   * hold keys that owe nothing. Floors at zero by construction.
+   */
+  async release(bucket: AuthRateLimitBucket, key: string, charge: AuthRateLimitCharge): Promise<void> {
+    const entries = this.entries(bucket);
+    const entry = entries.get(key);
+
+    if (entry === undefined || entry.windowStart !== charge.windowStart) {
+      return;
+    }
+
+    if (entry.count <= 1) {
+      entries.delete(key);
+      return;
+    }
+
+    entry.count -= 1;
   }
 
   /** How many principals a bucket currently holds. For the spec's bounding assertions. */

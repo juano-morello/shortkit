@@ -10,6 +10,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { authBodyCap } from './auth/auth-body-cap';
 import { authRateLimit } from './auth/auth-rate-limit';
+import { bindEmailRateLimitPort } from './auth/email-rate-limit-hook';
 import {
   AuthBindingError,
   assertAuthRoleSeparation,
@@ -458,6 +459,11 @@ async function bootstrap(): Promise<void> {
   // NestJS 11 ships Express 5, whose wildcard syntax is `{*splat}`, not `*`.
   const { auth } = await import('./auth/auth.config');
   const authRateLimitPort = app.get<AuthRateLimitPort>(AUTH_RATE_LIMIT_PORT);
+  // The email-keyed sign-in bucket runs INSIDE Better Auth (`hooks.before`, F-019) and can
+  // inject nothing, so it is handed the SAME port instance the Express middleware charges —
+  // one limiter, one map (TASK-1b-09, D-15). Bound before the mount so no request can reach
+  // the hook unbound; unbound it would degrade open with a warn line rather than 5xx.
+  bindEmailRateLimitPort(authRateLimitPort);
   const server: express.Express = app.getHttpAdapter().getInstance();
 
   server.all(

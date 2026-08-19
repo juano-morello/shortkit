@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -328,6 +331,62 @@ describe('the composed Better Auth configuration', () => {
     const { options } = await composed(BETTER_AUTH_URL_HTTP);
 
     expect((options.hooks as { before?: unknown } | undefined)?.before).toBeTypeOf('function');
+  });
+
+  it('TASK-1b-09 / D-15: beforeHooks holds exactly [emailRateLimitHook, invitationValidationHook], in that order, by identity', async () => {
+    // The registry is exported, and the two appenders are separate modules, so the order is
+    // a fact about this file's one `push` and nothing else. The email bucket runs FIRST so an
+    // attacker cannot use invitation-token probing to bypass it (ADR-0013's ordering rule).
+    // Same `vi.resetModules()` cycle as `composed`, so the three modules are one instance set.
+    vi.stubEnv('BETTER_AUTH_SECRET', DECLARED_SECRET);
+    vi.stubEnv('BETTER_AUTH_URL', BETTER_AUTH_URL_HTTP);
+    vi.stubEnv('WEB_APP_ORIGINS', WEB_APP_ORIGIN);
+    vi.stubEnv('DATABASE_AUTH_URL', UNREACHABLE_AUTH_DSN);
+
+    const [config, emailHook, invitationHook] = await Promise.all([
+      import('./auth.config'),
+      import('./email-rate-limit-hook'),
+      import('./invitation-signup'),
+    ]);
+
+    expect(config.beforeHooks).toHaveLength(2);
+    expect(config.beforeHooks[0]).toBe(emailHook.emailRateLimitHook);
+    expect(config.beforeHooks[1]).toBe(invitationHook.invitationValidationHook);
+
+    // And the after registry holds exactly the release hook, so a successful sign-in gives
+    // its charge back (the bucket counts failed attempts — architect ruling, 2026-08-18).
+    expect(config.afterHooks).toHaveLength(1);
+    expect(config.afterHooks[0]).toBe(emailHook.emailRateLimitReleaseHook);
+    expect((config.auth as { options: { hooks?: { after?: unknown } } }).options.hooks?.after).toBeTypeOf('function');
+  });
+
+  it('F-054: auth.config.ts declares beforeHooks once and never assigns it again — it pushes', () => {
+    // A text rule, because the failure it guards against is silent: a later author who writes
+    // `beforeHooks = [myHook]` deletes every earlier hook and every test that reads the
+    // composed instance still sees "a function". The declaration is the one `=`; every other
+    // mention is a `.push(` or a read.
+    const source = readFileSync(fileURLToPath(new URL('./auth.config.ts', import.meta.url)), 'utf8');
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    const assignments = code.match(/\b(?:before|after)Hooks\s*=[^=]/g) ?? [];
+    expect(assignments).toEqual([]);
+    expect(code).toMatch(/export const beforeHooks: AuthBeforeHook\[\] = \[\];/);
+    expect(code).toMatch(/beforeHooks\.push\(emailRateLimitHook, invitationValidationHook\);/);
+    expect(code).toMatch(/export const afterHooks: AuthAfterHook\[\] = \[\];/);
+    expect(code).toMatch(/afterHooks\.push\(emailRateLimitReleaseHook\);/);
+    expect(code).not.toMatch(/(?:before|after)Hooks\.(splice|unshift|length\s*=|fill|reverse|sort)\b/);
+  });
+
+  it('TASK-1b-09: databaseHooks.user.create.after takes the endpoint context as its second argument, so the invited branch can read the body', async () => {
+    const { options } = await composed(BETTER_AUTH_URL_HTTP);
+    const after = (options.databaseHooks as { user?: { create?: { after?: unknown } } } | undefined)?.user?.create?.after;
+
+    expect(after).toBeTypeOf('function');
+    // `createTenant(user, ctx)`: two declared parameters. `provisionForNewUser` reads
+    // `ctx?.body`; a one-parameter hook could not branch and would create a tenant for every
+    // invitee (AC-1b-7's "no new tenant" would fail in the integration tier, which is where
+    // the branch itself is proved).
+    expect((after as (...args: unknown[]) => unknown).length).toBe(2);
   });
 
   it('ADR-0059: the resolved session cookie is HttpOnly, SameSite=Lax and Path=/', async () => {
