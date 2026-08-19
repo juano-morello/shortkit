@@ -73,7 +73,16 @@ export function WorkspaceList({ initialItems, includeArchived }: WorkspaceListPr
   const alertRef = useRef<HTMLParagraphElement>(null);
 
   const [items, setItems] = useState<Workspace[]>(initialItems);
-  const [status, setStatus] = useState('');
+  /**
+   * The announcement carries a nonce bumped on every SET, not on every change: React writes
+   * no DOM text node when the string is unchanged, so archiving one stale row and then
+   * another announced "That workspace no longer exists." once and acted twice. The `<p
+   * role="status">` itself stays mounted (a live region must be in the accessibility tree
+   * before its contents change, or assistive technology may never announce it at all) and
+   * the keyed span inside it is what is removed and re-inserted. Same mechanism as the
+   * links screens'.
+   */
+  const [status, setStatus] = useState<{ message: string; nonce: number }>({ message: '', nonce: 0 });
   const [error, setError] = useState<string | null>(null);
   // Bumped when an announcement must also take focus; a counter rather than a
   // reset-in-effect boolean, so the effect below only reads it (react-hooks/set-state-in-effect).
@@ -120,6 +129,11 @@ export function WorkspaceList({ initialItems, includeArchived }: WorkspaceListPr
     }
   }, [includeArchived, router]);
 
+  /** Every write to the live region goes through here, so no caller can forget the nonce. */
+  function announce(message: string): void {
+    setStatus((current) => ({ message, nonce: current.nonce + 1 }));
+  }
+
   /**
    * Re-fetches, then announces. A standing "could not be refreshed" alert stays up UNTIL the
    * re-fetch succeeds (its "Reload the list" control has to stay mounted while it runs), and
@@ -128,7 +142,7 @@ export function WorkspaceList({ initialItems, includeArchived }: WorkspaceListPr
   async function announceAfter(message: string, moveFocusToStatus: boolean): Promise<void> {
     if (await refresh()) {
       setError(null);
-      setStatus(message);
+      announce(message);
 
       if (moveFocusToStatus) {
         setFocusStatus((n) => n + 1);
@@ -190,7 +204,7 @@ export function WorkspaceList({ initialItems, includeArchived }: WorkspaceListPr
   return (
     <div className="workspaces">
       <p ref={statusRef} role="status" aria-live="polite" tabIndex={-1} className="workspaces-status">
-        {status}
+        <span key={status.nonce}>{status.message}</span>
       </p>
 
       {error === null ? null : (

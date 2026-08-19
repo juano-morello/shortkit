@@ -559,6 +559,59 @@ describe('invitations page: revoke', () => {
     expect(screen.getByRole('status').textContent).toBe(INVITATIONS_SCREEN_MESSAGES.gone);
   });
 
+  it('the same announcement twice mutates the region twice, so the repeat is announced too', async () => {
+    // Two revocable rows whose revokes both 404, so both announce the IDENTICAL `gone`
+    // line. React writes no DOM node for an unchanged string, so a region holding a bare
+    // string sits silent the second time: the operator acts, hears nothing back, and cannot
+    // tell whether the action was received at all. What is asserted here is the MUTATION,
+    // not the text, because the text reads correctly either way.
+    signedIn();
+    const second = invitation({ id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', email: 'second@client.test' });
+    serverApiClientMock.mockImplementation((req: unknown) =>
+      Promise.resolve((req as { path: string }).path === '/workspaces/:workspaceId' ? ACME : { items: [PENDING, second] }),
+    );
+    routeFetch({
+      [`DELETE /api/bff/invitations/${PENDING.id}`]: () => jsonResponse(404, { code: 'not_found', message: 'x' }),
+      [`DELETE /api/bff/invitations/${second.id}`]: () => jsonResponse(404, { code: 'not_found', message: 'x' }),
+      [`GET ${INVITATIONS_URL}`]: () => jsonResponse(200, { items: [PENDING, second] }),
+    });
+    await renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: `Revoke ${PENDING.email}` }));
+    fireEvent.click(screen.getByRole('button', { name: `Confirm revoking ${PENDING.email}` }));
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toBe(INVITATIONS_SCREEN_MESSAGES.gone);
+    });
+
+    const region = screen.getByRole('status');
+    let mutations = 0;
+    const observer = new MutationObserver((records) => {
+      mutations += records.length;
+    });
+    observer.observe(region, { childList: true, characterData: true, subtree: true });
+
+    fireEvent.click(screen.getByRole('button', { name: `Revoke ${second.email}` }));
+    fireEvent.click(screen.getByRole('button', { name: `Confirm revoking ${second.email}` }));
+    await waitFor(() => {
+      expect(fetchCalls()).toHaveLength(4);
+    });
+
+    try {
+      await waitFor(() => {
+        expect(mutations).toBeGreaterThan(0);
+      });
+    } finally {
+      observer.disconnect();
+    }
+
+    // The region itself must NOT be what changed. A live region has to be in the tree
+    // before its contents change or assistive technology may never announce it at all, so
+    // keying the <p> would trade a dropped repeat for a dropped announcement. Only what is
+    // inside the region may be replaced.
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region.textContent).toBe(INVITATIONS_SCREEN_MESSAGES.gone);
+  });
+
   it('403 says this account cannot revoke here, and the row stays', async () => {
     signedIn();
     routeFetch({
