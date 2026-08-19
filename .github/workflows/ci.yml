@@ -1,7 +1,9 @@
 # The merge gate.
 #
 # ADR: adr-0018-ci-performance-gate.md, adr-0001-test-framework.md
-# Produced by: TASK-002 (AC-5, AC-113, AC-114; F-039, F-055, F-064, F-084, F-091, F-122)
+# Produced by: TASK-002 (AC-5, AC-113, AC-114; F-039, F-055, F-064, F-084, F-091, F-122).
+#              The `integration` job's redis service container and item 2's declared
+#              environment: TASK-2-04 (AC-2-45).
 #
 # `performance` and `performance-full` are ADR-0018's Layer 1 and Layer 2 and belong to
 # TASK-037, not here. The ADR's title covers all four jobs; its Follow-ups section is what
@@ -191,6 +193,29 @@ jobs:
       # shortkit_auth (ADR-0050). No fallback to DATABASE_URL — see docker-compose.test.yml's
       # header, which this block stays identical to.
       DATABASE_AUTH_URL: postgres://shortkit_auth:auth@127.0.0.1:55433/shortkit_test
+      # Redis, on the port docker-compose.test.yml publishes, WITHOUT the fixture password
+      # that file's service carries — and the difference is a limitation, not a choice.
+      # GitHub's `services:` has no `command:` (the same shape as its missing `configs:`,
+      # noted at the postgres provisioning step below), so a service container cannot be
+      # given `redis-server --requirepass`. What makes that acceptable here and not in a
+      # compose file is that this container is job-local: it exists inside one runner VM,
+      # its port is reachable from nothing but the steps of this job, and it is destroyed
+      # with the runner. The committed fixture password stays compose-only, so no line here
+      # is one a deployment could copy into an authenticated topology.
+      REDIS_URL: redis://127.0.0.1:56380
+      # `ci-<run_id>`, the collision rule redirect-cache.md fixes: every key this job writes
+      # begins `sk:ci-<run_id>:`, so two concurrent CI jobs — and CI and anything else that
+      # ever shared an instance — cannot read each other's records. Never `dev` and never
+      # `prod`. The variable is REQUIRED whenever REDIS_URL is set; boot refuses naming it.
+      REDIS_KEY_NAMESPACE: ci-${{ github.run_id }}
+      # The hostname the seeded system default domain carries (D-2-02). Portless: hostname
+      # normalisation strips the port, and nothing in this job serves a browser.
+      SYSTEM_DEFAULT_DOMAIN: localhost
+      # The HMAC key that pseudonymises visitor addresses into `click_events.ip_hash`
+      # (docs/contracts/click-events.md, D-2-17). 32 bytes base64url. A fixture, and the
+      # only data it ever hashes is the fixture addresses this job's own suite invents.
+      # Not the compose value being reused as a secret — there is no secret here to reuse.
+      CLICK_IP_HASH_KEY: local-fixture-click-ip-hash-key-fake-values
     services:
       postgres:
         image: postgres:17-alpine
@@ -221,6 +246,26 @@ jobs:
           --health-timeout 3s
           --health-retries 30
           --health-start-period 10s
+      # The cache half of the integration environment (ADR-0012, redirect-cache.md), added
+      # by TASK-2-04. 56380 to match docker-compose.test.yml's published port, so the DSN
+      # above reads the same here as it does locally but for the password this container
+      # cannot be given (see the REDIS_URL comment in the job env).
+      #
+      # `redis-cli ping` with no password is a REAL probe against this container precisely
+      # because it has none: an unauthenticated PING against a `--requirepass` server is
+      # answered `NOAUTH Authentication required.` and redis-cli still exits 0, which is why
+      # the compose files pipe their probe through `grep -q PONG`. Here there is no
+      # authentication to get wrong, so the exit code carries the whole claim.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 56380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 5s
     steps:
       # persist-credentials: false — see the note on the same step in `quality`.
       - uses: actions/checkout@v7

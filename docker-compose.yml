@@ -2,9 +2,10 @@
 #
 # Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
 # ADR: adr-0030 .. adr-0037; adr-0040, adr-0050, adr-0051, adr-0059 (the api and web environment);
-#      adr-0017 (MAIL_TRANSPORT)
-# Produced by: TASK-059. Environment blocks extended by TASK-018, TASK-003, TASK-009 and
-#              TASK-1b-11 (MAIL_TRANSPORT, D-02).
+#      adr-0017 (MAIL_TRANSPORT); adr-0012 (the redis client), adr-0008 (the cache it holds)
+# Produced by: TASK-059. Environment blocks extended by TASK-018, TASK-003, TASK-009,
+#              TASK-1b-11 (MAIL_TRANSPORT, D-02) and TASK-2-04 (the `redis` service, the
+#              cache and short-link variables, D-2-02, D-2-09, D-2-16, D-2-17).
 # Measured by: scripts/check-compose-stack.sh
 #
 #   docker compose up                                                  # AC-115's command
@@ -158,6 +159,68 @@ services:
       retries: 30
       start_period: 10s
 
+  # The cache, and the only datastore here that is not Postgres (ADR-0012,
+  # docs/contracts/redirect-cache.md). Pinned to a major line, the way `postgres:17-alpine`
+  # above is; `redis:7-alpine` is the tag ADR-0018 and redirect-cache.md both name.
+  #
+  # NO VOLUME AND NO TMPFS, unlike `postgres`. Every key here has a TTL and a Postgres row
+  # behind it, so losing all of it on `down` is correct rather than a cost — and a cache
+  # that survived a reset would let a stale record outlive the data it was derived from,
+  # which is the one failure `docker compose down -v` is supposed to end. The image's
+  # default RDB snapshots land in the container's own writable layer and go with it.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # ---------------------------------------------------------------------------
+    # `redis-fixture` IS A FIXTURE, IN THE SAME SENSE AS THE FOUR ROLE PASSWORDS ABOVE
+    # AND FOR THE SAME REASON (ADR-0031, F-131). DO NOT ADAPT THIS INTO A PRODUCTION
+    # REDIS.
+    # ---------------------------------------------------------------------------
+    # It is committed, `docker compose config` and `docker inspect` print it, and the port
+    # below is bound to 127.0.0.1 — so what it protects is this machine's own loopback and
+    # nothing else. No password at all is the tempting shape and is worse in one specific
+    # way: `api`'s REDIS_URL would then carry no credential, and the first deployment to
+    # copy that line would point a real API at a real Redis with authentication never
+    # configured on either side.
+    #
+    # A LITERAL, NOT `${REDIS_PASSWORD:-redis-fixture}`, and that is the one place this
+    # service departs from the role passwords above. The value appears exactly twice — here
+    # and inside `api`'s REDIS_URL two blocks down — and a DSN has no escaping mechanism the
+    # way psql's `:'variable'` does, so an overridden `@`, `:` or `/` would break the URL
+    # and not the server. Two literals cannot disagree; two interpolations can.
+    command: ['redis-server', '--requirepass', 'redis-fixture']
+    ports:
+      # 127.0.0.1 explicitly, the file-wide rule (ADR-0031). 56379 rather than 6379 so a
+      # Redis already running on this machine is neither shadowed nor connected to by
+      # accident, and it sits beside docker-compose.test.yml's 56380 exactly as 55432 sits
+      # beside 55433. Published for inspectability — `redis-cli -p 56379 -a redis-fixture`
+      # from the host is how you read a cached record while debugging a redirect.
+      - '127.0.0.1:56379:6379'
+    healthcheck:
+      # AUTHENTICATES, and the `grep` is what makes that true. With `--requirepass` set, an
+      # unauthenticated `PING` is answered `NOAUTH Authentication required.` — and redis-cli
+      # exits 0 on a server ERROR reply, so an exit code alone would report a server whose
+      # password nothing in this stack knows as healthy. Reading PONG off stdout is the same
+      # property ADR-0036 gave the Postgres probe: this container is healthy only when the
+      # credential in this file is the credential the server has.
+      #
+      # `--no-auth-warning` drops redis-cli's own stderr line about `-a` on a command line.
+      # The password is already in this container's process list (the `command:` above) and
+      # this stack is loopback-only, so the warning has nothing to protect here.
+      #
+      # There is no `$` in this string, so there is no `$$` (ADR-0036: adding the escape
+      # where there is no dollar is cargo cult).
+      test:
+        - 'CMD-SHELL'
+        - 'redis-cli --no-auth-warning -a redis-fixture ping | grep -q PONG'
+      # The Postgres probe's cadence (ADR-0036), with a shorter start period: Redis has no
+      # equivalent of the initdb window that one is riding out, and a Redis that is not
+      # answering within five seconds is not slow, it is broken.
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
   # One-shot. Applies every migration the database has not seen, as shortkit_migrator,
   # from the `migrator` image stage — which is NOT the deployed image and carries
   # drizzle-kit, a devDependency the runtime stage deliberately does not install
@@ -201,6 +264,13 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
+      # The hostname the seeded platform tenant's system default domain row carries
+      # (D-2-02, D-2-06). The seed normalises it and stores it; `api` reads the same
+      # variable to denormalise it back onto every link it returns, so the two must be the
+      # same value and are written out in both places rather than shared. `migrate` does
+      # NOT carry it: a migration is SQL run by drizzle-kit and can read no environment
+      # variable, so a copy there would be a line nothing reads.
+      SYSTEM_DEFAULT_DOMAIN: localhost
     command: ['node', 'apps/api/scripts/seed.mts']
 
   api:
@@ -229,6 +299,15 @@ services:
     depends_on:
       seed:
         condition: service_completed_successfully
+      # ORDERING ONLY, NOT A RUNTIME COUPLING (D-2-16). The API is required to boot and to
+      # serve every redirect with Redis absent or gone — an unset REDIS_URL binds the
+      # unavailable cache and warns once, and a Redis that dies mid-run degrades every
+      # lookup to Postgres (ADR-0012, docs/contracts/redirect-cache.md). Waiting for it
+      # here buys determinism for a stack that is about to be measured, nothing more, and
+      # `docker compose stop redis` with redirects still answering 302 is the clause that
+      # proves the difference (check-compose-stack.sh, TASK-2-12).
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
       # shortkit_auth, never shortkit_app: ADR-0050's second pool, reached only through
@@ -341,6 +420,55 @@ services:
       # RESEND_API_KEY and MAIL_FROM and refuses boot without them.
       MAIL_TRANSPORT: ${MAIL_TRANSPORT:-console}
       # ---------------------------------------------------------------------------
+      # THE CACHE. PRESENCE IS THE DECLARATION; ABSENCE BINDS THE DEGRADED CACHE, LOUDLY.
+      # ---------------------------------------------------------------------------
+      # Both variables or neither (D-2-09, docs/contracts/redirect-cache.md). REDIS_URL set
+      # creates the one ioredis client ADR-0012 specifies, and REDIS_KEY_NAMESPACE is then
+      # REQUIRED — boot refuses naming it rather than defaulting to a namespace that might
+      # collide. REDIS_URL unset binds the unavailable cache: every read answers
+      # `unavailable`, every write is a no-op, redirects resolve from Postgres, and boot
+      # writes one warn line (`boot_precondition: 'redirect_cache'`). That is the
+      # MAIL_TRANSPORT shape above, applied to the other absence, and neither reads NODE_ENV.
+      #
+      # The password here is the `redis` service's literal, and the two are written out
+      # rather than interpolated for the reason stated there. The empty user before the `:`
+      # is Redis's default AUTH form (no username; `requirepass` sets the password of the
+      # implicit `default` user).
+      REDIS_URL: redis://:redis-fixture@redis:6379
+      # `dev` is one of the four values redirect-cache.md fixes (`prod`, `staging`, `dev`,
+      # `ci-{run_id}`). Every key this process writes begins `sk:dev:`, which is what keeps
+      # a laptop's records from being read by anything else that ever shares an instance —
+      # and CI uses `ci-<run_id>` so two concurrent jobs cannot collide either.
+      REDIS_KEY_NAMESPACE: dev
+      # ---------------------------------------------------------------------------
+      # THE SHORT-LINK IDENTITY AND THE PSEUDONYMISATION KEY.
+      # ---------------------------------------------------------------------------
+      # The hostname the seeded system default domain carries, and the hostname the API
+      # denormalises onto every link it returns (D-2-02, ruled 2026-08-19). `localhost`,
+      # because the redirect is served by this same process on this same port (ADR-0006):
+      # `curl http://localhost:3001/<slug>` just works, with no /etc/hosts entry and no
+      # second listener. Hostname normalisation strips the port, so the stored value is
+      # portless and the port lives only in the origin the web app displays
+      # (SHORT_LINK_ORIGIN, on the `web` service below). `seed` sets the same value, and a
+      # deployment sets both to its real short domain — no code keys on the value.
+      SYSTEM_DEFAULT_DOMAIN: localhost
+      # ---------------------------------------------------------------------------
+      # A FIXTURE, LIKE THE ROLE PASSWORDS AND THE REDIS ONE (ADR-0031, F-131). NOT A KEY
+      # ANY DEPLOYMENT MAY COPY.
+      # ---------------------------------------------------------------------------
+      # 32 bytes, base64url, and it is the HMAC key that pseudonymises visitor IP addresses
+      # into `click_events.ip_hash` (docs/contracts/click-events.md, D-2-17). A committed
+      # value means every clone hashes identically, which is exactly why it may only ever
+      # hash data that never leaves the machine that produced it. Rotating it breaks
+      # continuity of `ip_hash`, so a real deployment generates its own once and rotates
+      # only on suspected compromise:
+      #
+      #   node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))'
+      #
+      # Required at boot from TASK-2-09 (`boot_precondition: 'click_ip_hash_key'`); until
+      # that lands nothing reads it, which is what makes declaring it this early free.
+      CLICK_IP_HASH_KEY: local-fixture-click-ip-hash-key-fake-values
+      # ---------------------------------------------------------------------------
       # THE FOUR TRUST DECLARATIONS ARE ABSENT, AND ABSENT ON PURPOSE (ADR-0040, TASK-009).
       # ---------------------------------------------------------------------------
       # Two boundaries, declared independently, each with the same shape: a named hop or
@@ -433,6 +561,17 @@ services:
       # healthcheck and a 502 from every proxied call. No value from the host is right
       # inside this network, so none is read. apps/web/.env.example documents the same value.
       API_BASE_URL: http://api:3001/api
+      # The origin a short link is DISPLAYED and copied under (D-2-02). It is the API's
+      # published port, because the redirect is served by the API process outside the `/api`
+      # prefix (ADR-0006) — one deployable, one listener — so a copied link is
+      # `http://localhost:3001/<slug>` and pasting it into a browser on this machine works.
+      #
+      # A LITERAL, for the reason API_BASE_URL above is one, with the direction reversed:
+      # this value is for a HUMAN's browser, so it must be the published port and never the
+      # compose network's `http://api:3001`, which no browser can resolve. It is the one
+      # short-link variable that carries a port; `SYSTEM_DEFAULT_DOMAIN` on `api` and `seed`
+      # is portless because hostname normalisation strips the port.
+      SHORT_LINK_ORIGIN: http://localhost:3001
       # BFF_PROXY_SECRET IS NOT SET, and its absence is paired with the `api` service's:
       # with no secret the route forwards NEITHER x-shortkit-client-ip NOR
       # x-shortkit-proxy-auth, and `api` declares no BFF_TRUST_BOUNDARY, so no assertion
