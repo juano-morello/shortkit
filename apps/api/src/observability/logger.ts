@@ -51,12 +51,14 @@ import pino from 'pino';
  */
 export const LOGGABLE_FIELDS: ReadonlySet<string> = new Set([
   'attempt', // main.ts, boot retry
+  'attempts', // links/cache-invalidation.subscriber.ts, deletions tried (D-2-15)
   'boot_precondition', // main.ts, F-245
   'code', // exception-filter.ts, a DomainError code (error-envelope.md)
   'duration_ms', // logging-and-headers.md, Required fields
   'err_message', // ErrorLogFields, spread into records by logError and main.ts
   'err_name', // ErrorLogFields
   'err_stack', // ErrorLogFields
+  'link_id', // links/cache-invalidation.subscriber.ts, a link id (redirect-cache.md)
   'msg', // pino's messageKey, when a call site supplies its own
   'request_id', // logging-and-headers.md, Required fields
   'retry_in_ms', // main.ts, boot retry

@@ -160,17 +160,48 @@ Normative. Missing a row here produces stale redirects.
 
 | Event | Keys deleted | Owner |
 |---|---|---|
-| link created | `rdr:v1:{host}:{slug}` (removes the negative entry; without this a new link is invisible for up to 60 s) | TASK-031 |
-| destination changed | `rdr:v1:{host}:{slug}` | TASK-031 |
-| slug changed | both old and new `rdr:` keys | TASK-031 |
-| `expires_at` or `activates_at` changed | `rdr:v1:{host}:{slug}` | TASK-031 |
-| link deleted | `rdr:v1:{host}:{slug}` | TASK-031 |
+| link created | `rdr:v1:{host}:{slug}` (removes the negative entry; without this a new link is invisible for up to 60 s) | TASK-031 (delivered as TASK-2-08) |
+| destination changed | `rdr:v1:{host}:{slug}` | TASK-031 (delivered as TASK-2-08) |
+| slug changed | both old and new `rdr:` keys | TASK-031 (delivered as TASK-2-08) |
+| `expires_at` or `activates_at` changed | `rdr:v1:{host}:{slug}` | TASK-031 (delivered as TASK-2-08) |
+| link deleted | `rdr:v1:{host}:{slug}` | TASK-031 (delivered as TASK-2-08) |
 | branding changed | `hst:v1:{h}` for **every** hostname on the workspace | TASK-045 |
 | domain deleted | `hst:v1:{hostname}` | TASK-040 |
 | **domain leaves `active`** (state change, certificate revoked, hostname reassigned) | `hst:v1:{hostname}` | TASK-042 |
 
 Invalidation runs from the `onLinkMutated` subscriber (`link-mutation-events.md`), in
 `afterCommit`, never inside the mutation transaction.
+
+**The five `rdr:` rows are shipped by `apps/api/src/links/cache-invalidation.subscriber.ts`,
+2026-08-19 (TASK-2-08).** It is registered by `LinksModule` under the name `cacheInvalidator`
+and holds the injected `REDIRECT_CACHE`, so the binding it deletes through is whichever one
+boot chose. **Registration is once per PROCESS, not once per Nest application context.** A
+production process builds one context and an integration suite may build several
+(`test/invitations/invitations-mail.int-spec.ts` builds two to compare mail transports); the
+registry admits one subscriber per name and refuses the second, so the first context registers
+and each later one hands the registration its own cache. That keeps one deletion per key,
+which is the property the registry's refusal exists to protect.
+
+The key set it computes is the **deduplicated union of the two snapshot images'
+`(hostname, slug)` pairs**, which is the table above with no per-action branching: `created`
+has no before image, `deleted` has no after image, and an `updated` produces one key or two
+according to whether the pair moved. A **no-op PATCH still deletes its key**: the audit
+writer is the subscriber that skips one, and this one does not.
+
+### Invalidation ships before the read-through fill, and the order is not an accident
+
+Stated 2026-08-19 (TASK-2-08), because nothing recorded it and the waves alone do not carry
+an invariant. The subscriber lands in wave 3; `resolveLink`'s read-through fill (TASK-2-07)
+lands in wave 4. **A positive `rdr:` record may not exist before the thing that deletes it
+does.** With `LINK_TTL_S` at 3600 in every environment, a cache filled first would serve a
+pre-edit record for up to an hour on every edit made in the interval, and invariant 1 would be
+false for a whole wave with the suite green. The intermediate state this order produces is the
+harmless one: an invalidator with nothing yet to invalidate deletes keys that are not there,
+which Redis answers `0` to and this subscriber treats as success. A deletion rejects only
+when it did not HAPPEN, never because the key was already gone.
+
+The same ordering rule applies to any later cache: the writer that deletes a namespace's keys
+ships no later than the reader that fills them.
 
 ## Only an `active` domain is cached
 
@@ -202,6 +233,17 @@ reconstructible from an id stays off the line; `LOGGABLE_FIELDS` gains `link_id`
 `attempts` and nothing else (TASK-2-08 owns that edit). `cache_invalidation_failures_total`
 stays a `code` occurrence on that line: no metrics facility exists in `apps/api/src`, the
 same substitution ADR-0053 records for `auth_revocation_degraded_total`.
+
+**Shipped 2026-08-19 (TASK-2-08), with three details the sentence above leaves open.**
+`attempts` is the number of deletion rounds made, so a line that reports the exhausted
+schedule reports `attempts: 3` (the first try, then 200 ms, then 1000 ms). The line is written
+**once per mutation**, not once per key: two lines carrying one link id and no key would be
+indistinguishable from each other. And a round retries **only the keys that failed**, so a
+slug change whose new key was deleted on the first attempt does not delete it again. The
+subscriber then RETHROWS, which is how `runAfterCommitSubscribers` comes to add its own
+`link_mutation_subscriber_failed` line (with no error message on it) and to run the
+subscribers registered after this one; the operator's write is already committed and already
+answered, and `LOGGABLE_FIELDS` names `link_id` and `attempts` as of the same commit.
 
 ## Invariants a caller may rely on
 

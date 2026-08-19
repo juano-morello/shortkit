@@ -19,25 +19,37 @@
  * `LinkRepository` is EXPORTED: TASK-2-09's clicks module reads a link to answer
  * `GET /api/links/:linkId/clicks`, and importing this module is how it gets the class
  * rather than registering a second copy.
+ *
+ * `CacheModule` IS IMPORTED FOR ONE PROVIDER'S ONE DEPENDENCY, AND THAT IS THE WHOLE
+ * INVALIDATION WIRING (TASK-2-08). `CacheInvalidationSubscriber` injects `REDIRECT_CACHE`
+ * and registers itself with `onLinkMutated` from its own `onModuleInit`; nothing in
+ * `links.service.ts` or in the five handlers learns that a cache exists, which is the reason
+ * `link-mutation-events.md` put a registry between them in the first place. Registering from
+ * the lifecycle rather than at file import is what lets the subscriber hold an INJECTED
+ * cache: the binding is chosen when the module compiles (Redis or `UnavailableRedirectCache`,
+ * D-2-09), and an import-time registration would have had to reach for the client itself.
  */
 import { Module } from '@nestjs/common';
 
+import { CacheModule } from '../cache/cache.module';
 import { AuthorizationModule } from '../common/authorization/authorization.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 
+import { CacheInvalidationSubscriber } from './cache-invalidation.subscriber';
 import { cryptoRandomSource, RANDOM_SOURCE, SlugGenerator } from './codes/slug-generator';
 import { LinkRepository } from './link.repository';
 import { LinksController } from './links.controller';
 import { LinksService } from './links.service';
 
 @Module({
-  imports: [AuthorizationModule, WorkspacesModule],
+  imports: [AuthorizationModule, CacheModule, WorkspacesModule],
   controllers: [LinksController],
   providers: [
     { provide: RANDOM_SOURCE, useValue: cryptoRandomSource },
     SlugGenerator,
     LinkRepository,
     LinksService,
+    CacheInvalidationSubscriber,
   ],
   exports: [LinkRepository],
 })
