@@ -7,6 +7,7 @@ import { WorkspaceAuthorizationInterceptor } from './common/authorization/worksp
 import { ApiExceptionFilter } from './common/errors/exception-filter';
 import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import { HealthModule } from './health/health.module';
+import { InvitationsModule } from './invitations/invitations.module';
 import { RequestLogInterceptor } from './observability/request-log.interceptor';
 import { TenantTransactionInterceptor } from './tenancy/tenant-transaction.interceptor';
 import { WorkspacesModule } from './workspaces/workspaces.module';
@@ -76,7 +77,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
  */
 @Module({
   // `RateLimitModule` after `AuthModule` — see the docblock; swapping them changes the guard order.
-  imports: [AuthModule, HealthModule, WorkspacesModule, RateLimitModule, AuthorizationModule],
+  imports: [AuthModule, HealthModule, WorkspacesModule, InvitationsModule, RateLimitModule, AuthorizationModule],
   providers: [
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
     // Outermost first — see the docblock. Swapping these two lines changes what
