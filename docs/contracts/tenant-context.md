@@ -391,6 +391,13 @@ already forbids that, and this section is the reason it matters more than it loo
   (TASK-029) and `privileged-eraser.ts` (TASK-054) both land before TASK-056's wave, so
   set equality holds when the suite first runs and is not assertable earlier.
 
+  **`redirect-read.ts` has landed (TASK-2-06, 2026-08-19).** Its row above is no longer a
+  reservation: `withRedirectRead` exists at the path the table names, opens the transaction
+  `READ ONLY`, sets `app.redirect_context` and issues the two permitted statements. Half of
+  the timing note is therefore spent; `privileged-eraser.ts` is the half still outstanding,
+  and it is what still stops clause A1's exactly-one direction and this set equality from
+  being assertable today.
+
   **Corrected 2026-08-14 (F-122). "Those four paths" was written when the table had four
   rows, was not touched when F-126 made it five or when ADR-0045 made it a fifth consumer,
   and named a number the table above it contradicted.** The sentence now derives from the

@@ -207,12 +207,14 @@ import pino from 'pino';
  */
 export const LOGGABLE_FIELDS: ReadonlySet<string> = new Set([
   'attempt', // main.ts, boot retry
+  'attempts', // links/cache-invalidation.subscriber.ts, deletions tried (D-2-15)
   'boot_precondition', // main.ts, F-245
   'code', // exception-filter.ts, a DomainError code (error-envelope.md)
   'duration_ms', // logging-and-headers.md, Required fields
   'err_message', // ErrorLogFields, spread into records by logError and main.ts
   'err_name', // ErrorLogFields
   'err_stack', // ErrorLogFields
+  'link_id', // links/cache-invalidation.subscriber.ts, a link id (redirect-cache.md)
   'msg', // pino's messageKey, when a call site supplies its own
   'request_id', // logging-and-headers.md, Required fields
   'retry_in_ms', // main.ts, boot retry
@@ -562,7 +564,9 @@ who owns changing it". It returns `err_name`, an `err_stack` of frames with the
 
 ### Why each mechanism is here
 
-**`LOGGABLE_FIELDS` decides which keys may carry a value.** Fourteen names since item 1b added `template` (TASK-1b-02, 2026-08-18), and every other
+**`LOGGABLE_FIELDS` decides which keys may carry a value.** Sixteen names since item 2 added
+`link_id` and `attempts` (TASK-2-08, 2026-08-19; D-2-15 fixes what the invalidation-failure
+line carries), and every other
 key is `[redacted]` whatever it holds. It is consulted by `formatters.log` and by both
 bindings wrappers, and by nothing else. There is no `redact` option to describe here any
 more; what used to cover "fields you can name" now covers every field nobody named.
@@ -1291,7 +1295,8 @@ one that is enforced.** The rejected alternative was to keep `'self'` and re-lab
 **`frame-ancestors` does not fall back to `default-src`.** A response that replaces this CSP
 with its own — the branded 404 below is the one that does — carries no framing policy at all
 unless its own directive list names `frame-ancestors`. That is a requirement on
-`redirect-resolution.md`, not on this file.
+`redirect-resolution.md`, not on this file, and it was met there on 2026-08-19 (D-2-14,
+TASK-2-06); the exception table below quotes the corrected list.
 
 `preload` is **not** set on HSTS: submission is close to irreversible and the apex domain
 is unregistered.
@@ -1311,15 +1316,18 @@ Both already normative in `redirect-resolution.md`. They override the defaults a
 | Response | Header | Value | Why |
 |---|---|---|---|
 | redirect 302 | `Referrer-Policy` | `unsafe-url` | passing the short URL to the destination is the point of an attribution referrer, and the link is public |
-| branded 404 | `Content-Security-Policy` | `default-src 'none'; img-src https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'` | tighter than helmet's default; the page interpolates tenant-controlled branding (F-006) |
+| branded 404 | `Content-Security-Policy` | `default-src 'none'; img-src https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` | tighter than helmet's default; the page interpolates tenant-controlled branding (F-006), and it carries its own `frame-ancestors` because a per-response CSP replaces helmet's |
 
-**Open against `redirect-resolution.md`, raised 2026-08-10 and not decided here (F-280).**
-That directive list names no `frame-ancestors`, and `frame-ancestors` is not covered by
-`default-src`. A response that replaces helmet's CSP with this one therefore replaces
-`frame-ancestors 'none'` with nothing and falls back to `X-Frame-Options`, which is the
-weaker of the two mechanisms and the one this contract has stopped relying on. The directive
-belongs in that list. `redirect-resolution.md` is normative for that response and this row
-quotes it, so the fix is made there and copied here, not the other way round.
+**~~Open against `redirect-resolution.md`, raised 2026-08-10 and not decided here
+(F-280).~~ CLOSED 2026-08-19 (D-2-14, TASK-2-06).** The open half was this: the directive
+list named no `frame-ancestors`, and `frame-ancestors` is not covered by `default-src`, so
+a response replacing helmet's CSP with this one replaced `frame-ancestors 'none'` with
+nothing and fell back to `X-Frame-Options`, the weaker of the two mechanisms and the one
+this contract has stopped relying on. The directive is now in the list. The fix was made in
+`redirect-resolution.md`, which is normative for that response, and this row quotes it, the
+direction that file's own instruction fixes. The served header is asserted in
+`apps/api/test/redirect/redirect.int-spec.ts`, and the constant it compares against is
+`REDIRECT_404_CSP` in `apps/api/src/redirect/not-found-page.ts`.
 
 ## Invariants a caller may rely on
 

@@ -27,6 +27,7 @@ import { assertRuntimeRoleCannotBypassRls } from './db/rls';
 import { readBuildCommitSha } from './health/build-commit';
 import { MailBindingError, assertMailTransportConfigured } from './mail/mail-transport';
 import { errorLogFields, logger } from './observability/logger';
+import { REDIRECT_ROUTE_PREFIX_EXCLUSION } from './redirect/redirect.module';
 
 const DEFAULT_PORT = 3001;
 const MIN_PORT = 1;
@@ -500,8 +501,17 @@ async function bootstrap(): Promise<void> {
 
   // ADR-0006: every controller answers under /api. GET /health stays at the
   // root so the platform health check never depends on the API surface.
+  //
+  // AND SINCE TASK-2-06, SO DOES THE REDIRECT'S `GET /:slug`. The visitor surface is a
+  // public URL a person pastes into a browser, so it cannot carry an `/api` segment
+  // (ADR-0006, D-2-13). The exclusion is IMPORTED rather than written out: its path is not
+  // the obvious `':slug'` but an escaped literal, because Nest matches an exclusion against
+  // every route's DECLARED path and the unescaped parameter pattern matches every
+  // one-segment GET route in the application, `GET /api/links` included.
+  // `redirect/redirect.module.ts` records the measurement; `app.module.spec.ts` pins both
+  // directions of it.
   app.setGlobalPrefix('api', {
-    exclude: [{ path: 'health', method: RequestMethod.GET }],
+    exclude: [{ path: 'health', method: RequestMethod.GET }, REDIRECT_ROUTE_PREFIX_EXCLUSION],
   });
 
   await app.listen(resolvePort(process.env.PORT));
