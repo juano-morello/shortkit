@@ -417,6 +417,163 @@ button.secondary {
   cursor: progress;
 }
 
+/* ---- Workspace invitations screen (TASK-1b-14) ------------------------------ */
+
+.invitations-back {
+  margin: 0 0 1rem;
+}
+
+.workspace-row-link {
+  align-self: center;
+  padding: 0.375rem 0.25rem;
+}
+
+.invite {
+  margin: 0 0 2rem;
+}
+
+.invite-lede {
+  color: var(--muted);
+  margin: 0 0 1rem;
+}
+
+.invite-form {
+  display: grid;
+  gap: 1rem;
+  max-width: 24rem;
+}
+
+.invite-form select {
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.invite-form button[type='submit'] {
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 0.375rem;
+  padding: 0.625rem 1rem;
+  cursor: pointer;
+  justify-self: start;
+}
+
+@media (prefers-color-scheme: dark) {
+  .invite-form button[type='submit'] {
+    color: #111111;
+  }
+}
+
+.invite-form button[aria-disabled='true'],
+.invitation-row-actions button[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.invitations-empty,
+.invitations-archived {
+  color: var(--muted);
+  margin: 0 0 1rem;
+}
+
+.invitation-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.invitation-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.invitation-row-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.invitation-email {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.invitation-more {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+/* Text badge: the word carries the state; the border only frames it, no colour-only meaning. */
+.invitation-state {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+}
+
+.invitation-state[data-state='pending'] {
+  color: var(--notice);
+  border-color: currentColor;
+}
+
+.invitation-times {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.invitation-row-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* The two-step revoke confirm: the question is text; Confirm is the only sender. */
+.invitation-revoke-confirm {
+  display: grid;
+  gap: 0.5rem;
+  flex: 1 1 100%;
+}
+
+.invitation-revoke-question {
+  margin: 0;
+}
+
+.invitation-revoke-confirm button:not(.secondary) {
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--error);
+  border: 0;
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .invitation-revoke-confirm button:not(.secondary) {
+    color: #111111;
+  }
+}
+
 /* Visually hidden, still read: the per-row buttons say which workspace they act on. */
 .visually-hidden {
   position: absolute;
