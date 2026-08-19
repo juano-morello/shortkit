@@ -1,9 +1,10 @@
 # Contract: short-code alphabet, validation, and reserved slugs
 
 - **Boundary:** slug generation, slug validation on the API, and client-side pre-validation in the web app.
-- **Normative form:** `packages/contracts/src/slug.ts`. The file exists; `validateSlug` is declared there and throws `not implemented` until TASK-024 fills it. The design stub was retired 2026-08-11 under ADR-0039, TASK-007 having closed.
-- **Produced by:** TASK-024 (generator); the constants ship in `packages/contracts` from TASK-007.
-- **Consumed by:** TASK-023 (unique index), TASK-025 (400/409 mapping), TASK-026 (inline validation).
+- **Normative form:** `packages/contracts/src/slug.ts`. **`validateSlug` and `isReservedSlug` are implemented there as of 2026-08-19 (TASK-2-01); neither throws any more.** The design stub was retired 2026-08-11 under ADR-0039, TASK-007 having closed.
+- **Produced by:** TASK-2-01 (`validateSlug`, `isReservedSlug`), TASK-2-05 (the generator); the constants ship in `packages/contracts` from TASK-007.
+- **Consumed by:** TASK-2-02 (unique index), TASK-2-05 (400/409 mapping), TASK-2-13 (inline validation in the web app).
+- **Card ids:** item 2's plan renumbered the foundation's TASK-0xx cards. The originals appear below in quoted history; the live owners are TASK-2-01 (this file's functions), TASK-2-02 (schema), TASK-2-05 (generator and routes) and TASK-2-13 (web).
 - **ADRs:** ADR-0007, ADR-0006.
 
 ## Normative constants
@@ -42,11 +43,19 @@ export type SlugValidation =
   | { ok: true; slug: string }
   | { ok: false; violation: SlugViolation };
 
-export declare function validateSlug(input: string): SlugValidation;
+export function validateSlug(input: string): SlugValidation;
+export function isReservedSlug(input: string): boolean;
 ```
 
 Violation order is fixed so the reported message is deterministic: `too_short`,
 `too_long`, `invalid_characters`, `leading_or_trailing_separator`, `reserved`.
+
+`validateSlug` returns the input **verbatim** on the accepting branch — no trim, no
+lower-casing, no normalisation — because the unique index is case-sensitive and a
+normalising validator would store a value the operator did not type. Four `RESERVED_SLUGS`
+entries never report `reserved`: `robots.txt`, `favicon.ico` and `.well-known` are
+`invalid_characters` and `_static` is `leading_or_trailing_separator`, each refused a rung
+earlier by the fixed order. All sixteen are refused.
 
 ## Generation
 
@@ -80,7 +89,7 @@ On insert, `23505` on that constraint means:
 - **user-supplied slug:** 409 `slug_taken` (AC-38).
 
 **The retry runs inside a savepoint.** A unique violation aborts the enclosing
-transaction, so TASK-025 wraps each insert attempt in `SAVEPOINT slug_try` and
+transaction, so TASK-2-05 wraps each insert attempt in `SAVEPOINT slug_try` and
 `ROLLBACK TO SAVEPOINT slug_try` before redrawing. Omitting this produces
 `current transaction is aborted` on the second attempt.
 
@@ -120,6 +129,18 @@ unwrapping.
 1. `validateSlug(generateSlug())` is always `{ ok: true }`. The generated alphabet is a
    strict subset of `SLUG_PATTERN`'s and no generated slug can be reserved: every
    reserved slug contains a character outside `SLUG_ALPHABET` or a length other than 7.
+
+   **Corrected 2026-08-19 (TASK-2-01). The second clause is false for two entries.**
+   `support` and `privacy` are each exactly `GENERATED_SLUG_LENGTH` characters and drawn
+   entirely from `SLUG_ALPHABET`, so a draw can produce either — at 2/57^7, roughly one in
+   a trillion. The reasoning offered above ("every reserved slug contains a character
+   outside `SLUG_ALPHABET` or a length other than 7") held for the other fourteen and was
+   never checked against these two. The invariant is restored by the GENERATOR, not by the
+   alphabet: **TASK-2-05 redraws while `isReservedSlug(candidate)` is true**, on the
+   attempt loop it already runs for `23505`, and `slug.spec.ts` pins the drawable set to
+   exactly `['support', 'privacy']` so a future reserved entry cannot grow it unnoticed.
+   Without that redraw, one draw in a trillion puts a live link on a brand-protected slug
+   that `validateSlug` then rejects.
 2. Two links on two different domains may hold the same slug (AC-39, SC-5).
 3. Nothing about a generated slug reveals creation time, creation order, or how many
    links a domain holds.
@@ -128,11 +149,13 @@ unwrapping.
 
 ## What the implementer must guarantee
 
-- The constants are imported from `@shortkit/contracts`. TASK-024 and TASK-026 do not
-  redeclare the alphabet or the reserved list.
+- The constants are imported from `@shortkit/contracts`, root specifier only (F-045).
+  TASK-2-05 and TASK-2-13 do not redeclare the alphabet or the reserved list.
 - `docs/architecture/short-codes.md` states the alphabet, length, exclusions and
-  reserved list, which is what AC-40 tests against.
+  reserved list, which is what AC-2-13 tests against. **Written 2026-08-19 (TASK-2-01).**
 - Rejection sampling is implemented. Plain `byte % 57` is a defect.
+- The generator calls `isReservedSlug` on each candidate and redraws when it is true —
+  see the correction under invariant 1.
 
 ## Versioning
 

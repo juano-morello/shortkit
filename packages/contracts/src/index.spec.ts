@@ -40,7 +40,9 @@ import { describe, expect, it } from 'vitest';
 import { signUpRequestContract } from './auth';
 import * as entryPoint from './index';
 import { createInvitationRequestContract } from './invitations';
+import { isLinkActive, linkContract } from './links';
 import { parseTenantMembership, parseWorkspaceMembership } from './members';
+import { validateSlug } from './slug';
 import { workspaceContract } from './workspaces';
 
 describe('package entry point', () => {
@@ -74,6 +76,23 @@ describe('package entry point', () => {
     }).toEqual({
       'invitations: createInvitationRequestContract': true,
       'members: parseWorkspaceMembership': true,
+    });
+  });
+
+  it('AC-2-4/AC-2-27 (ADR-0005, TASK-2-01): the link contracts and the implemented slug rules are reachable through src/index.ts', () => {
+    // The line TASK-2-01 uncommented (`export * from './links'`), plus the two `slug.ts`
+    // functions that stopped throwing `not implemented` on this card. `isLinkActive` is
+    // the identity that matters most here: ADR-0009 requires the API and the redirect
+    // path to share ONE function, and a barrel that handed them different objects would
+    // satisfy presence while letting the two diverge (F-099's whole point).
+    expect({
+      'links: linkContract': entryPoint.linkContract === linkContract,
+      'links: isLinkActive': entryPoint.isLinkActive === isLinkActive,
+      'slug: validateSlug': entryPoint.validateSlug === validateSlug,
+    }).toEqual({
+      'links: linkContract': true,
+      'links: isLinkActive': true,
+      'slug: validateSlug': true,
     });
   });
 });
