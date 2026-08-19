@@ -270,6 +270,20 @@ wrapped in whitespace is accepted, and what is stored and returned is the trimme
 `create` and `rename` apply the same rule; the table stores `text` and enforces nothing
 (the "Rulings" table above).
 
+> **Amended 2026-08-19 (debt sweep, ledger 1b-W1-09): control characters are refused.** A
+> `.refine` after the bounds rejects any name containing a code point below U+0020 or U+007F
+> (DEL), with the fixed message `NAME_CONTROL_CHARACTERS_MESSAGE` — `'Control characters are
+> not allowed in a name.'` — keyed under `name` in `validation_failed` details like every
+> other name issue. The finding: a newline in a stored name forges the console mail
+> transport's block boundary. The refine runs on the TRIMMED value, so leading and trailing
+> `\n`/`\t` never trip it (the trim already removed them); only interior control characters
+> refuse. Ordinary unicode — accents, CJK, emoji — is untouched. The same rule and message
+> apply to the signup `name` (`signUpRequestContract`, which also gained
+> `SIGNUP_NAME_MAX_LENGTH = 200`), and through `on-user-created.ts`'s verbatim copy that
+> covers `tenants.name` — the ledger's "workspace and tenant names" both. Rows written
+> before this date may still hold control characters; nothing rewrites them, and the API
+> refuses only new writes.
+
 ### `includeArchived`
 
 Only the two query-string spellings `true` and `false` are parsed, explicitly, into the

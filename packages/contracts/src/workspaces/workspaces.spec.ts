@@ -20,6 +20,7 @@ import { isZodError, toValidationDetails } from '../errors';
 import { WORKSPACE_ROLES } from '../roles';
 
 import {
+  NAME_CONTROL_CHARACTERS_MESSAGE,
   WORKSPACE_NAME_MAX_LENGTH,
   WORKSPACE_NAME_MIN_LENGTH,
   createWorkspaceRequestContract,
@@ -89,6 +90,50 @@ describe('workspaceNameContract', () => {
     expect(workspaceNameContract.safeParse(nameOfLength(WORKSPACE_NAME_MIN_LENGTH - 1)).success).toBe(false);
     expect(workspaceNameContract.safeParse(nameOfLength(WORKSPACE_NAME_MAX_LENGTH)).success).toBe(true);
     expect(workspaceNameContract.safeParse(nameOfLength(WORKSPACE_NAME_MAX_LENGTH + 1)).success).toBe(false);
+  });
+
+  describe('control characters are refused (debt sweep 2026-08-19, ledger 1b-W1-09)', () => {
+    it.each([
+      ['a newline', 'line\nbreak'],
+      ['a carriage return', 'line\rbreak'],
+      ['a tab', 'tab\tbed'],
+      ['an escape (0x1b)', 'esc\u001bape'],
+      ['DEL (0x7f)', 'del\u007fete'],
+      ['NUL (0x00)', 'nu\u0000ll'],
+      ['the 0x1f boundary', 'unit\u001fsep'],
+    ])('%s inside a name is refused with the fixed message', (_label, name) => {
+      const outcome = workspaceNameContract.safeParse(name);
+
+      expect(outcome.success).toBe(false);
+
+      if (!outcome.success) {
+        expect(outcome.error.issues.map((issue) => issue.message)).toContain(NAME_CONTROL_CHARACTERS_MESSAGE);
+      }
+    });
+
+    it('the fixed message is pinned: it reaches clients through validation_failed details', () => {
+      expect(NAME_CONTROL_CHARACTERS_MESSAGE).toBe('Control characters are not allowed in a name.');
+    });
+
+    it('the 0x20 boundary holds: an interior space and a tilde (0x7e) are admitted', () => {
+      expect(workspaceNameContract.safeParse('two words').success).toBe(true);
+      expect(workspaceNameContract.safeParse('tilde~name').success).toBe(true);
+    });
+
+    it('ordinary unicode is untouched: accents, CJK and emoji pass', () => {
+      for (const name of ['Caf\u00e9 Chaud', '\u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9', 'Launch \ud83d\ude80 Team']) {
+        expect(workspaceNameContract.safeParse(name).success).toBe(true);
+      }
+    });
+
+    it('leading and trailing control-whitespace is admitted because the trim removes it first', () => {
+      expect(workspaceNameContract.parse('\nAcme\t')).toBe('Acme');
+    });
+
+    it('keys the refusal under name on both request contracts', () => {
+      expect(nameIssues(createWorkspaceRequestContract, 'line\nbreak')).toContain(NAME_CONTROL_CHARACTERS_MESSAGE);
+      expect(nameIssues(renameWorkspaceRequestContract, 'esc\u001bape')).toContain(NAME_CONTROL_CHARACTERS_MESSAGE);
+    });
   });
 });
 

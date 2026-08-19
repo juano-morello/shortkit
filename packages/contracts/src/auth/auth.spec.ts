@@ -29,9 +29,12 @@ import { describe, expect, it } from 'vitest';
 
 import { isZodError, toValidationDetails } from '../errors';
 
+import { NAME_CONTROL_CHARACTERS_MESSAGE } from '../workspaces';
+
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  SIGNUP_NAME_MAX_LENGTH,
   authSessionContract,
   shortkitJwtClaimsContract,
   signInRequestContract,
@@ -242,5 +245,61 @@ describe('shortkitJwtClaimsContract', () => {
     // GC-D: `tid` is in every token. An optional `tid` would let a token with no tenant
     // claim past the guard's claim-shape check.
     expect(shortkitJwtClaimsContract.safeParse(withoutTid).success).toBe(false);
+  });
+});
+
+
+describe('signUpRequestContract.name (debt sweep 2026-08-19, ledger 1b-W1-09)', () => {
+  /** A body valid in every field but `name`, so each refusal below is `name`'s alone. */
+  function nameOutcome(name: unknown) {
+    return signUpRequestContract.safeParse({
+      email: 'operator@example.com',
+      password: VALID_PASSWORD,
+      name,
+    });
+  }
+
+  function issuesUnderName(name: unknown): string[] {
+    const outcome = nameOutcome(name);
+
+    if (outcome.success) {
+      return [];
+    }
+
+    expect(isZodError(outcome.error)).toBe(true);
+
+    return toValidationDetails(outcome.error).fieldErrors.name ?? [];
+  }
+
+  it.each([
+    ['a newline', 'line\nbreak'],
+    ['an escape (0x1b)', 'esc\u001bape'],
+    ['DEL (0x7f)', 'del\u007fete'],
+    ['the 0x1f boundary', 'unit\u001fsep'],
+  ])('%s inside the name is refused, keyed under name with the fixed message', (_label, name) => {
+    expect(issuesUnderName(name)).toContain(NAME_CONTROL_CHARACTERS_MESSAGE);
+  });
+
+  it('the tenant name is this field: `on-user-created` copies `user.name` verbatim into `tenants.name` (F-198), so this refusal covers ledger 1b-W1-09\'s "tenant names" too', () => {
+    // The assertion is the same refusal; the test exists so the coverage claim is stated
+    // where a rename of either side would surface it.
+    expect(nameOutcome('Tenant\nForger').success).toBe(false);
+  });
+
+  it('ordinary unicode passes: accents, CJK and emoji are not control characters', () => {
+    for (const name of ['Jos\u00e9 P\u00e9rez', '\u5c71\u7530\u592a\u90ce', 'Ada \ud83d\ude80']) {
+      expect(nameOutcome(name).success).toBe(true);
+    }
+  });
+
+  it('a 200-character name is accepted and a 201-character one is refused, from the exported bound', () => {
+    expect(nameOutcome('a'.repeat(200)).success).toBe(true);
+    expect(nameOutcome('a'.repeat(201)).success).toBe(false);
+    expect(nameOutcome('a'.repeat(SIGNUP_NAME_MAX_LENGTH)).success).toBe(true);
+    expect(nameOutcome('a'.repeat(SIGNUP_NAME_MAX_LENGTH + 1)).success).toBe(false);
+  });
+
+  it('an empty name is still refused: the pre-existing floor is untouched', () => {
+    expect(issuesUnderName('').length).toBeGreaterThan(0);
   });
 });

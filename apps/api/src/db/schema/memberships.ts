@@ -57,7 +57,7 @@
  * F-236's shape. There is no deploy target (ADR-0030); a compose volume carrying 1a rows is
  * reset (`docker compose down -v`, ADR-0032).
  */
-import { foreignKey, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { foreignKey, index, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { WORKSPACE_ROLES } from '@shortkit/contracts';
 
 import { authUser } from './auth';
@@ -88,5 +88,10 @@ export const memberships = pgTable(
       columns: [table.workspaceId, table.tenantId],
       foreignColumns: [workspaces.id, workspaces.tenantId],
     }).onDelete('cascade'),
+    // Added 2026-08-19 (debt sweep, ledger 1b-W1-11, migration 0004): `user_id` leads no
+    // index — it is only the SECOND column of the UNIQUE above — so `listForUser`'s join
+    // (`m.user_id = $user`, TASK-1b-06) and the `ON DELETE CASCADE` walk from `"user"`
+    // both scan. `tenant_id` already has its hand-appended index in migration 0003.
+    index('memberships_user_id_idx').on(table.userId),
   ],
 );
