@@ -487,11 +487,29 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       force_row_security: true,
       policies: 3,
     });
-    // TWO on each of the three 1b tables (TASK-1b-03): `tenantScopedPolicies()` unchanged,
-    // no bespoke policy — the @Public() invitation lookup reads `invitations` under the
-    // ordinary isolation policy inside a tenant transaction opened from the token's prefix
-    // (ADR-0021), so nothing here needs a third policy and nothing joins the exclusions.
-    for (const table of ['memberships', 'invitations', 'invitation_workspaces']) {
+    // THREE on `domains` and on `links` (TASK-2-02, migration 0005), and the third is the
+    // FIRST APPLIED INSTANCE of `redirectReadPolicy()` — ADR-0003's `FOR SELECT` redirect
+    // escape, exclusion 1 of exactly 3, which until this migration had no applied instance
+    // anywhere. No attempt in this file can reach it: `withTenantTransaction` sets
+    // `app.tenant_id` and never `app.redirect_context`, so the policy reads NULL through its
+    // `nullif` and admits nothing. That is exactly why the count is read from the CATALOGUE
+    // — a migration that never emitted the policy, or one that dropped it, would leave the
+    // carried `repo:RedirectReadRepository.resolveByHostAndSlug` exclusion justified by a
+    // policy the database does not have, and every attempt below would still be green.
+    for (const table of ['domains', 'links']) {
+      expect(protectionOf(table)).toEqual({
+        row_security: true,
+        force_row_security: true,
+        policies: 3,
+      });
+    }
+    // TWO on each of the three 1b tables (TASK-1b-03) and on `click_events` (TASK-2-02):
+    // `tenantScopedPolicies()` unchanged, no bespoke policy — the @Public() invitation lookup
+    // reads `invitations` under the ordinary isolation policy inside a tenant transaction
+    // opened from the token's prefix (ADR-0021), and the click flush writes `click_events`
+    // inside `withTenantTransaction` grouped by tenant (AC-2-35), so neither needs a third
+    // policy and neither joins the exclusions.
+    for (const table of ['memberships', 'invitations', 'invitation_workspaces', 'click_events']) {
       expect(protectionOf(table)).toEqual({
         row_security: true,
         force_row_security: true,
@@ -514,29 +532,32 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       judged().attempts.map(() => 'pass'),
     );
 
-    // EIGHTY surfaces, each attempted in both directions (F-293). SEVENTY are SQL subjects:
-    // the same eight shapes on all SEVEN tables (56), since r4 withdrew the one decline
-    // (F-342), TASK-002 registered `tenant_memberships`, TASK-011 registered `workspaces` and
-    // TASK-1b-03 registered `memberships`, `invitations` and `invitation_workspaces`; plus
-    // the SIX methods of `WorkspaceRepository` (five, and `listForUser` since TASK-1b-06),
-    // the FOUR of `InvitationRepository` and the FOUR of `MembershipRepository` (TASK-1b-10).
-    // TEN are ROUTES attacked as HTTP by a second signed-in operator: the five workspace
-    // routes (TASK-014; `GET /api/workspaces/:workspaceId` since TASK-1b-06) and the five
-    // invitation routes (TASK-1b-10, one of them `@Public()` and attacked anonymously).
-    // 80 x 2 = 160. Reads and writes are both exercised: AC-94 covers the reads and AC-95 the
+    // ONE HUNDRED AND FOUR surfaces, each attempted in both directions (F-293). NINETY-FOUR
+    // are SQL subjects: the same eight shapes on all TEN tables (80), since r4 withdrew the
+    // one decline (F-342) — TASK-002 registered `tenant_memberships`, TASK-011 `workspaces`,
+    // TASK-1b-03 `memberships`, `invitations` and `invitation_workspaces`, and TASK-2-02
+    // `domains`, `links` and `click_events` (migration 0005); plus the SIX methods of
+    // `WorkspaceRepository` (five, and `listForUser` since TASK-1b-06), the FOUR of
+    // `InvitationRepository` and the FOUR of `MembershipRepository` (TASK-1b-10). TEN are
+    // ROUTES attacked as HTTP by a second signed-in operator: the five workspace routes
+    // (TASK-014; `GET /api/workspaces/:workspaceId` since TASK-1b-06) and the five invitation
+    // routes (TASK-1b-10, one of them `@Public()` and attacked anonymously). Item 2 adds no
+    // route here — the five link routes and the clicks read arrive with TASK-2-05/2-09 and
+    // their endpoint attempts with TASK-2-10.
+    // 104 x 2 = 208. Reads and writes are both exercised: AC-94 covers the reads and AC-95 the
     // writes, and a battery that had lost all of one kind would still satisfy the total. Per
-    // table, two of the eight shapes read (7 x 2 x 2 = 28); `WorkspaceRepository` reads three
+    // table, two of the eight shapes read (10 x 2 x 2 = 40); `WorkspaceRepository` reads three
     // times (list, listForUser, findById: 6), `InvitationRepository` twice (listForWorkspace,
     // findById: 4), `MembershipRepository` three times (roleFor, workspaceIdsFor,
     // listForWorkspace: 6); the workspace endpoints add four read attempts (GET list, GET by
     // id, both directions) and the invitation endpoints four (GET list, POST lookup, both
-    // directions). 28 + 6 + 4 + 6 + 4 + 4 = 52 reads; 160 - 52 = 108 writes.
-    expect(judged().attempts).toHaveLength(160);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(52);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(108);
+    // directions). 40 + 6 + 4 + 6 + 4 + 4 = 64 reads; 208 - 64 = 144 writes.
+    expect(judged().attempts).toHaveLength(208);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(64);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(144);
 
-    // F-302, F-330, F-342. Forty-two writes carry NO WHERE CLAUSE — three shapes, on each
-    // of seven tables, in each of two directions. Hand-derived, because a battery that
+    // F-302, F-330, F-342. SIXTY writes carry NO WHERE CLAUSE — three shapes, on each
+    // of ten tables, in each of two directions. Hand-derived, because a battery that
     // silently lost them is a battery that cannot see a wide-open UPDATE policy, and the
     // counts above would not move if `updateAll` were quietly replaced by a second
     // owner-qualified statement. The three repositories and the HTTP endpoints contribute
@@ -556,12 +577,21 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
         .map((outcome) => `${outcome.direction ?? '?'} ${outcome.id}`)
         .sort(),
     ).toEqual([
+      'A->B repo:ClickEventsTableAccess.deleteAll',
+      'A->B repo:ClickEventsTableAccess.reparentAll',
+      'A->B repo:ClickEventsTableAccess.updateAll',
+      'A->B repo:DomainsTableAccess.deleteAll',
+      'A->B repo:DomainsTableAccess.reparentAll',
+      'A->B repo:DomainsTableAccess.updateAll',
       'A->B repo:InvitationWorkspacesTableAccess.deleteAll',
       'A->B repo:InvitationWorkspacesTableAccess.reparentAll',
       'A->B repo:InvitationWorkspacesTableAccess.updateAll',
       'A->B repo:InvitationsTableAccess.deleteAll',
       'A->B repo:InvitationsTableAccess.reparentAll',
       'A->B repo:InvitationsTableAccess.updateAll',
+      'A->B repo:LinksTableAccess.deleteAll',
+      'A->B repo:LinksTableAccess.reparentAll',
+      'A->B repo:LinksTableAccess.updateAll',
       'A->B repo:MembershipsTableAccess.deleteAll',
       'A->B repo:MembershipsTableAccess.reparentAll',
       'A->B repo:MembershipsTableAccess.updateAll',
@@ -577,12 +607,21 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       'A->B repo:WorkspacesTableAccess.deleteAll',
       'A->B repo:WorkspacesTableAccess.reparentAll',
       'A->B repo:WorkspacesTableAccess.updateAll',
+      'B->A repo:ClickEventsTableAccess.deleteAll',
+      'B->A repo:ClickEventsTableAccess.reparentAll',
+      'B->A repo:ClickEventsTableAccess.updateAll',
+      'B->A repo:DomainsTableAccess.deleteAll',
+      'B->A repo:DomainsTableAccess.reparentAll',
+      'B->A repo:DomainsTableAccess.updateAll',
       'B->A repo:InvitationWorkspacesTableAccess.deleteAll',
       'B->A repo:InvitationWorkspacesTableAccess.reparentAll',
       'B->A repo:InvitationWorkspacesTableAccess.updateAll',
       'B->A repo:InvitationsTableAccess.deleteAll',
       'B->A repo:InvitationsTableAccess.reparentAll',
       'B->A repo:InvitationsTableAccess.updateAll',
+      'B->A repo:LinksTableAccess.deleteAll',
+      'B->A repo:LinksTableAccess.reparentAll',
+      'B->A repo:LinksTableAccess.updateAll',
       'B->A repo:MembershipsTableAccess.deleteAll',
       'B->A repo:MembershipsTableAccess.reparentAll',
       'B->A repo:MembershipsTableAccess.updateAll',
@@ -813,7 +852,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   });
 
   it('F-295: each tenant sees exactly its own row in every registered table before anything is attempted', async () => {
-    // The positive control. Twenty-six lines, hand-derived from the fixture: seven tables,
+    // The positive control. Thirty lines, hand-derived from the fixture: ten tables,
     // two tenants, one row each — `invitations` two each, the spare parent
     // `registrations.ts` explains — read once per SUBJECT, and each tenant seeing only its own. If `app.tenant_id`
     // were never set, set under a mistyped name, or set to a value no row matches, this
@@ -835,6 +874,15 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // `f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4`, so a census line naming any id but the two
     // seeded ones is a row that survived an attempt. A count would not say that.
     expect(await tenantOwnershipCensus(registeredSubjects(), fixtures)).toEqual([
+      // TASK-2-02's three tables, one row per tenant, one subject each — so one line each,
+      // unlike the doubled tables above. The ids are written out for the same reason the
+      // `tenant_memberships` ones are: the rows these attempts try to plant are
+      // `f9f9…`/`fafa…`/`fbfb…`, so a census line naming any id but the six seeded ones is
+      // a row that survived an attempt, which a count would not say.
+      `click_events seen-by=${a} id=a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a9a9a9 owner=${a}`,
+      `click_events seen-by=${b} id=b9b9b9b9-b9b9-4b9b-8b9b-b9b9b9b9b9b9 owner=${b}`,
+      `domains seen-by=${a} id=a7a7a7a7-a7a7-4a7a-8a7a-a7a7a7a7a7a7 owner=${a}`,
+      `domains seen-by=${b} id=b7b7b7b7-b7b7-4b7b-8b7b-b7b7b7b7b7b7 owner=${b}`,
       `invitation_workspaces seen-by=${a} id=a6a6a6a6-a6a6-4a6a-8a6a-a6a6a6a6a6a6 owner=${a}`,
       `invitation_workspaces seen-by=${b} id=b6b6b6b6-b6b6-4b6b-8b6b-b6b6b6b6b6b6 owner=${b}`,
       `invitations seen-by=${a} id=a4a4a4a4-a4a4-4a4a-8a4a-a4a4a4a4a4a4 owner=${a}`,
@@ -845,6 +893,8 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       `invitations seen-by=${b} id=b4b4b4b4-b4b4-4b4b-8b4b-b4b4b4b4b4b4 owner=${b}`,
       `invitations seen-by=${b} id=b5b5b5b5-b5b5-4b5b-8b5b-b5b5b5b5b5b5 owner=${b}`,
       `invitations seen-by=${b} id=b5b5b5b5-b5b5-4b5b-8b5b-b5b5b5b5b5b5 owner=${b}`,
+      `links seen-by=${a} id=a8a8a8a8-a8a8-4a8a-8a8a-a8a8a8a8a8a8 owner=${a}`,
+      `links seen-by=${b} id=b8b8b8b8-b8b8-4b8b-8b8b-b8b8b8b8b8b8 owner=${b}`,
       `memberships seen-by=${a} id=a3a3a3a3-a3a3-4a3a-8a3a-a3a3a3a3a3a3 owner=${a}`,
       `memberships seen-by=${a} id=a3a3a3a3-a3a3-4a3a-8a3a-a3a3a3a3a3a3 owner=${a}`,
       `memberships seen-by=${b} id=b3b3b3b3-b3b3-4b3b-8b3b-b3b3b3b3b3b3 owner=${b}`,
@@ -927,6 +977,16 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // `WorkspaceNotFoundError` before the runner sees it — zero rows, not a refusal — and
     // `MembershipRepository.create` writes under the actor. The endpoint attempts never
     // throw on an expected status either.
+    //
+    // TEN per direction since TASK-2-02: `domains`, `links` and `click_events` each have
+    // their `insertOwnedBy` refused by the same WITH CHECK, from the same builder, applied
+    // by migration 0005. Each planted row names the TARGET's own parents — its workspace,
+    // its domain, its link — and a hostname and slug that collide with nothing, so the
+    // policy is the ONLY thing that can refuse it. Note what does NOT happen here: the WITH
+    // CHECK is evaluated before the foreign keys fire, so a 23503 or a 23505 in this roster
+    // would mean the fixture, not the policy, answered — and the invariant above verifies
+    // all twenty are owner-qualified `row-level-security` refusals saying "violates
+    // row-level security policy".
     expect(labelled(refused)).toEqual([
       'A->B insertOwnedBy',
       'A->B insertOwnedBy',
@@ -935,6 +995,12 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       'A->B insertOwnedBy',
       'A->B insertOwnedBy',
       'A->B insertOwnedBy',
+      'A->B insertOwnedBy',
+      'A->B insertOwnedBy',
+      'A->B insertOwnedBy',
+      'B->A insertOwnedBy',
+      'B->A insertOwnedBy',
+      'B->A insertOwnedBy',
       'B->A insertOwnedBy',
       'B->A insertOwnedBy',
       'B->A insertOwnedBy',
@@ -1770,7 +1836,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
     // ...and it is not an empty marker: the attempts are this run's and were judged, so a
     // process killed here strands the evidence without stranding a verdict.
-    expect(inFlight.attempts).toHaveLength(160);
+    expect(inFlight.attempts).toHaveLength(208);
     expect(inFlight.attemptVerdict).toBe('pass');
     expect(inFlight.incompleteBecause).toContain('had not finished');
 
@@ -1809,7 +1875,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // and recorded in the round's report.
     const afterTheAttempts = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
 
-    expect(afterTheAttempts.attempts).toHaveLength(160);
+    expect(afterTheAttempts.attempts).toHaveLength(208);
     expect(afterTheAttempts.runAt).not.toBe(marker.runAt);
   });
 

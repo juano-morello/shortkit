@@ -767,13 +767,141 @@ const PLANTED_INVITATION_WORKSPACE_ROW_ID = 'f8f8f8f8-f8f8-4f8f-8f8f-f8f8f8f8f8f
 const INVITATION_WORKSPACE_SEEDED_ROLE = 'member';
 const INVITATION_WORKSPACE_OVERWRITE_ROLE = 'viewer';
 
-/** The seeded parents a planted 1b row must name, keyed by the tenant that owns them. */
-function seededParentsOf(tenantId: string): { workspaceId: string; spareInvitationId: string } {
+/**
+ * ===========================================================================
+ * THE THREE ITEM-2 TABLES (TASK-2-02): `domains`, `links`, `click_events`. Migration
+ * `0005_*.sql` carries `tenantScopedPolicies()` for each, hand-appended — AND
+ * `redirectReadPolicy()` on `domains` and `links`, the FIRST APPLIED INSTANCES of the
+ * redirect escape (ADR-0003's approved set, exclusion 1 of exactly 3).
+ * ===========================================================================
+ *
+ * `domains` AND `links` ARE THE SECOND AND THIRD TABLES CARRYING A THIRD POLICY, after
+ * `tenant_memberships`'s token-mint lookup. Every attempt below runs through
+ * `withTenantTransaction`, which sets `app.tenant_id` and never `app.redirect_context`, so
+ * `<t>_redirect_read` reads NULL through its `nullif` and admits nothing here — the property
+ * this registration incidentally proves on every run. If it ever admitted something,
+ * `findAll` would return the other tenant's row and the harness would name it. That matters
+ * more than it did for the lookup policy: nothing sets `app.redirect_context` at all until
+ * TASK-2-06 lands `withRedirectRead`, so these attempts are the only thing standing between
+ * a mis-written escape and a table every anonymous visitor can read across tenants.
+ *
+ * `click_events` TAKES THE TEMPLATE AND NOTHING ELSE, and that is the AC-2-35 claim made
+ * mechanical: the redirect never READS this table, the flush runs inside
+ * `withTenantTransaction` grouped by tenant, and click emission is NOT a GC-5 exclusion.
+ * A `click_events_redirect_read` policy appearing here would be a fourth exclusion arriving
+ * without a diff to `ISOLATION_EXCLUSIONS`.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT EACH FIXTURE ROW HAS TO AVOID COLLIDING WITH, AND WHY EACH CHOICE IS FORCED
+ * ---------------------------------------------------------------------------
+ *
+ * THE SEEDED DOMAINS ARE `pending_verification`, NOT `active`. `domains_hostname_owned_unique`
+ * is a PARTIAL unique index over `WHERE state IN ('verified','provisioning','active')`, and
+ * `updateAll` issues `UPDATE domains SET hostname = <one constant>` with no WHERE clause.
+ * Under the shipped policy that reaches one row; under a WIDENED USING it reaches both, and
+ * with `active` rows the second write would be refused 23505 by the index — which the harness
+ * scores `unverified` rather than `fail`. The leak would be named as "something went wrong on
+ * this surface" instead of "tenant A rewrote tenant B's row". Outside the predicate the index
+ * is not consulted at all, so the leak is reported as a leak. Same trap `invitation_workspaces`
+ * solves with a spare parent and `tenants` with a never-seeded id; here the state column is
+ * the cheaper lever, and it costs nothing because item 2 has no state machine.
+ *
+ * HOSTNAMES AND SLUGS ARE DISTINCT PER TENANT. Each tenant's link points at ITS OWN domain
+ * row, so `links_domain_id_slug_unique` could not collide even with equal slugs — but a later
+ * fixture change that pointed both at one domain would then turn `insertOwnedBy` into a 23505
+ * indistinguishable from the 42501 the policy owes us. Distinct values make the policy the
+ * only thing that can refuse, today and after that edit.
+ *
+ * THE PLANTED ROWS NAME THE TARGET'S OWN PARENTS. A planted `links` row carries the target's
+ * workspace and the target's domain; a planted `click_events` row carries the target's link
+ * and the target's domain. So under the shipped policy the only thing standing in the way is
+ * the WITH CHECK, which is what `insertOwnedBy` exists to exercise — and a widened WITH CHECK
+ * is reported as a leak rather than masked by a foreign key.
+ *
+ * THE COMPOSITE FOREIGN KEY IS A SECOND FLOOR UNDER `reparentAll` FOR TWO OF THE THREE
+ * (ADR-0062). `domains` and `links` declare `FOREIGN KEY (workspace_id, tenant_id) REFERENCES
+ * workspaces (id, tenant_id)`, so `UPDATE <t> SET tenant_id = <actor>` under a widened USING
+ * would rewrite the target's row to a (workspace, tenant) pair `workspaces` does not hold and
+ * be refused 23503 — `unverified`, naming the surface, the F-342 accounting. `click_events`
+ * has NO composite key (its parents are `links` and `domains`, neither carrying `tenant_id`
+ * in the reference), so its `reparentAll` reaches the count rule directly and a leak there is
+ * a named `fail`. The three tables between them exercise both outcomes.
+ *
+ * `links` NAMES ITS DOMAIN AS A PAIR (ADR-0063 as amended 2026-08-19). The columns are
+ * `(domain_id, domain_tenant_id)`, keyed against `domains (id, tenant_id)` and narrowed by
+ * `links_domain_owner_check` to the row's own tenant or the platform default. The fixture
+ * does not seed the platform tenant, since the isolation fixtures never mint it as an actor,
+ * so each tenant here owns its own domain and every seeded and planted link writes its own
+ * tenant id into `domain_tenant_id`. That is the first of the two legitimate cases; the
+ * second, a link on the shared system default domain, is measured in
+ * `test/db/migration-0005.int-spec.ts` along with the four refusals, because it needs the
+ * platform rows this fixture deliberately does not create.
+ *
+ * WHAT THE CHECK CHANGES FOR `reparentAll` ON THIS TABLE, since the answer moved. The seeded
+ * links carry `domain_tenant_id = tenant_id`, so under the shipped policy the owner-column
+ * write is an identity update and the check holds. Under a WIDENED USING it would rewrite the
+ * target's row to the actor's `tenant_id` while `domain_tenant_id` still named the target,
+ * and the check refuses it 23514 before the composite workspace key gets a chance at 23503.
+ * Either way the attempt lands `unverified` rather than as a named leak, which is the same
+ * F-342 accounting `memberships` and `invitation_workspaces` already carry, and narrower
+ * than a `fail`. `click_events` is the battery whose `reparentAll` still reaches the count
+ * rule directly.
+ */
+const DOMAIN_ROW_A = 'a7a7a7a7-a7a7-4a7a-8a7a-a7a7a7a7a7a7';
+const DOMAIN_ROW_B = 'b7b7b7b7-b7b7-4b7b-8b7b-b7b7b7b7b7b7';
+const PLANTED_DOMAIN_ROW_ID = 'f9f9f9f9-f9f9-4f9f-8f9f-f9f9f9f9f9f9';
+/** Distinct per tenant, and OUTSIDE the partial unique index's predicate — see the docblock. */
+const DOMAIN_HOSTNAME_A = 'tenant-a.isolation.test';
+const DOMAIN_HOSTNAME_B = 'tenant-b.isolation.test';
+const DOMAIN_HOSTNAME_PLANTED = 'planted.isolation.test';
+const DOMAIN_SEEDED_STATE = 'pending_verification';
+
+const LINK_ROW_A = 'a8a8a8a8-a8a8-4a8a-8a8a-a8a8a8a8a8a8';
+const LINK_ROW_B = 'b8b8b8b8-b8b8-4b8b-8b8b-b8b8b8b8b8b8';
+const PLANTED_LINK_ROW_ID = 'fafafafa-fafa-4faf-8faf-fafafafafafa';
+const LINK_SLUG_A = 'isolationA';
+const LINK_SLUG_B = 'isolationB';
+const LINK_SLUG_PLANTED = 'isolationP';
+const LINK_DESTINATION = 'https://example.test/isolation';
+
+const CLICK_ROW_A = 'a9a9a9a9-a9a9-4a9a-8a9a-a9a9a9a9a9a9';
+const CLICK_ROW_B = 'b9b9b9b9-b9b9-4b9b-8b9b-b9b9b9b9b9b9';
+const PLANTED_CLICK_ROW_ID = 'fbfbfbfb-fbfb-4fbf-8fbf-fbfbfbfbfbfb';
+/**
+ * 22 base64url characters, the shape `click-events.md` fixes. NO REAL ADDRESS CORRESPONDS TO
+ * ANY OF THEM and none is computed from one: `ip_hash` is HMAC-derived from a key this
+ * process does not hold, and a fixture that hashed a literal IP would put a raw address in
+ * this file for no gain (GC-R).
+ */
+const CLICK_IP_HASH = 'AAAAAAAAAAAAAAAAAAAAAA';
+const CLICK_USER_AGENT = 'isolation-fixture/1.0';
+
+/**
+ * The seeded parents a planted row must name, keyed by the tenant that owns them. A planted
+ * row that named ANOTHER tenant's parent would be refused by a foreign key rather than by the
+ * WITH CHECK, and the harness scores that `unverified` — a red run that names no boundary.
+ */
+function seededParentsOf(tenantId: string): {
+  workspaceId: string;
+  spareInvitationId: string;
+  domainId: string;
+  linkId: string;
+} {
   switch (tenantId) {
     case TENANT_A:
-      return { workspaceId: WORKSPACE_ROW_A, spareInvitationId: INVITATION_SPARE_ROW_A };
+      return {
+        workspaceId: WORKSPACE_ROW_A,
+        spareInvitationId: INVITATION_SPARE_ROW_A,
+        domainId: DOMAIN_ROW_A,
+        linkId: LINK_ROW_A,
+      };
     case TENANT_B:
-      return { workspaceId: WORKSPACE_ROW_B, spareInvitationId: INVITATION_SPARE_ROW_B };
+      return {
+        workspaceId: WORKSPACE_ROW_B,
+        spareInvitationId: INVITATION_SPARE_ROW_B,
+        domainId: DOMAIN_ROW_B,
+        linkId: LINK_ROW_B,
+      };
     default:
       throw new Error(
         `no seeded parents for tenant ${tenantId}; resetTenantFixtures seeds A and B only`,
@@ -860,6 +988,12 @@ function resetTenantFixtures(): void {
        (:'invitation_spare_a', :'tenant_a', :'invitee', decode(:'digest_spare_a', 'hex'), now() + interval '7 days', :'user_a', :'email_a');
      INSERT INTO invitation_workspaces (id, tenant_id, invitation_id, workspace_id, role)
        VALUES (:'invitation_workspace_a', :'tenant_a', :'invitation_a', :'workspace_a', :'invitation_workspace_role');
+     INSERT INTO domains (id, tenant_id, workspace_id, hostname, state)
+       VALUES (:'domain_a', :'tenant_a', :'workspace_a', :'hostname_a', :'domain_state'::domain_state);
+     INSERT INTO links (id, tenant_id, workspace_id, domain_id, domain_tenant_id, slug, destination_url)
+       VALUES (:'link_a', :'tenant_a', :'workspace_a', :'domain_a', :'tenant_a', :'slug_a', :'destination');
+     INSERT INTO click_events (id, tenant_id, link_id, domain_id, occurred_at, ip_hash, user_agent)
+       VALUES (:'click_a', :'tenant_a', :'link_a', :'domain_a', now(), :'ip_hash', :'user_agent');
 
      SELECT set_config('app.tenant_id', :'tenant_b', false) \\g /dev/null
      INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
@@ -872,7 +1006,13 @@ function resetTenantFixtures(): void {
        (:'invitation_b',       :'tenant_b', :'invitee', decode(:'digest_b',       'hex'), now() + interval '7 days', :'user_b', :'email_b'),
        (:'invitation_spare_b', :'tenant_b', :'invitee', decode(:'digest_spare_b', 'hex'), now() + interval '7 days', :'user_b', :'email_b');
      INSERT INTO invitation_workspaces (id, tenant_id, invitation_id, workspace_id, role)
-       VALUES (:'invitation_workspace_b', :'tenant_b', :'invitation_b', :'workspace_b', :'invitation_workspace_role');`,
+       VALUES (:'invitation_workspace_b', :'tenant_b', :'invitation_b', :'workspace_b', :'invitation_workspace_role');
+     INSERT INTO domains (id, tenant_id, workspace_id, hostname, state)
+       VALUES (:'domain_b', :'tenant_b', :'workspace_b', :'hostname_b', :'domain_state'::domain_state);
+     INSERT INTO links (id, tenant_id, workspace_id, domain_id, domain_tenant_id, slug, destination_url)
+       VALUES (:'link_b', :'tenant_b', :'workspace_b', :'domain_b', :'tenant_b', :'slug_b', :'destination');
+     INSERT INTO click_events (id, tenant_id, link_id, domain_id, occurred_at, ip_hash, user_agent)
+       VALUES (:'click_b', :'tenant_b', :'link_b', :'domain_b', now(), :'ip_hash', :'user_agent');`,
     {
       variables: {
         tenant_a: TENANT_A,
@@ -904,6 +1044,26 @@ function resetTenantFixtures(): void {
         invitation_workspace_a: INVITATION_WORKSPACE_ROW_A,
         invitation_workspace_b: INVITATION_WORKSPACE_ROW_B,
         invitation_workspace_role: INVITATION_WORKSPACE_SEEDED_ROLE,
+        // TASK-2-02. In dependency order under the same flag: `domains` (needs the
+        // workspace), `links` (needs the workspace and the domain), `click_events` (needs
+        // the link and the domain). All three carry FORCE ROW LEVEL SECURITY and all three
+        // cascade from `tenants`, so the erase above already cleared them — planted rows
+        // included. The state is cast explicitly because psql's `:'name'` interpolates a
+        // text literal and `domain_state` takes no implicit cast from one.
+        domain_a: DOMAIN_ROW_A,
+        domain_b: DOMAIN_ROW_B,
+        hostname_a: DOMAIN_HOSTNAME_A,
+        hostname_b: DOMAIN_HOSTNAME_B,
+        domain_state: DOMAIN_SEEDED_STATE,
+        link_a: LINK_ROW_A,
+        link_b: LINK_ROW_B,
+        slug_a: LINK_SLUG_A,
+        slug_b: LINK_SLUG_B,
+        destination: LINK_DESTINATION,
+        click_a: CLICK_ROW_A,
+        click_b: CLICK_ROW_B,
+        ip_hash: CLICK_IP_HASH,
+        user_agent: CLICK_USER_AGENT,
       },
     },
   );
@@ -1029,6 +1189,99 @@ const invitationWorkspacesAccess: TenantScopedSurfaceRegistration = {
     plantedRow: (ownerId) =>
       sql`insert into ${sql.identifier('invitation_workspaces')} (id, tenant_id, invitation_id, workspace_id, role)
           values (${PLANTED_INVITATION_WORKSPACE_ROW_ID}::uuid, ${ownerId}::uuid, ${seededParentsOf(ownerId).spareInvitationId}::uuid, ${seededParentsOf(ownerId).workspaceId}::uuid, ${INVITATION_WORKSPACE_SEEDED_ROLE})`,
+  }),
+};
+
+/**
+ * `domains`, attacked as a TABLE (TASK-2-02). No repository subject: item 2 ships no
+ * `DomainRepository` — `POST /api/domains` and the reconciler are item 3's — and naming one
+ * would put a surface id in `report.json` pointing at nothing.
+ *
+ * `hostname` is free text, so the two update shapes keep their default literals (and stay
+ * different from each other, which `isolation_masked_refusal_canary` depends on). The
+ * planted row names the TARGET's own workspace and a third hostname, so neither the
+ * composite foreign key nor the partial unique index refuses it and the WITH CHECK is what
+ * answers.
+ */
+const domainsAccess: TenantScopedSurfaceRegistration = {
+  subject: 'DomainsTableAccess',
+  table: 'domains',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'domains',
+    ownerColumn: 'tenant_id',
+    projection: ['id', 'tenant_id', 'hostname'],
+    mutableColumn: 'hostname',
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('domains')} (id, tenant_id, workspace_id, hostname, state)
+          values (${PLANTED_DOMAIN_ROW_ID}::uuid, ${ownerId}::uuid, ${seededParentsOf(ownerId).workspaceId}::uuid, ${DOMAIN_HOSTNAME_PLANTED}, ${DOMAIN_SEEDED_STATE}::domain_state)`,
+  }),
+};
+
+/**
+ * `links`, attacked as a TABLE (TASK-2-02). `LinkRepository`'s methods arrive with the
+ * repository (TASK-2-05) as a sibling subject on this same table — the F-353
+ * two-subjects-one-table pattern `workspaces` shipped and `memberships`/`invitations`
+ * repeated. Until then the three unqualified writes on this table come from here and
+ * nowhere else, which is rule 4.
+ *
+ * `destination_url` is free text, so the update shapes keep their default literals. It is
+ * ALSO the column the redirect returns verbatim as `Location`, which is why the two
+ * unqualified writes assigning a constant to it are the shape that matters most on this
+ * table: a wide-open UPDATE policy here rewrites where another tenant's traffic goes.
+ */
+const linksAccess: TenantScopedSurfaceRegistration = {
+  subject: 'LinksTableAccess',
+  table: 'links',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'links',
+    ownerColumn: 'tenant_id',
+    // `slug` rather than the destination: it is the column the redirect looks a link up by,
+    // so a row that crossed a boundary is named by the path that would serve it — and the
+    // projection stays free of a URL the log scans would rather never see (GC-G).
+    projection: ['id', 'tenant_id', 'slug'],
+    mutableColumn: 'destination_url',
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('links')} (id, tenant_id, workspace_id, domain_id, domain_tenant_id, slug, destination_url)
+          values (${PLANTED_LINK_ROW_ID}::uuid, ${ownerId}::uuid, ${seededParentsOf(ownerId).workspaceId}::uuid, ${seededParentsOf(ownerId).domainId}::uuid, ${ownerId}::uuid, ${LINK_SLUG_PLANTED}, ${LINK_DESTINATION})`,
+  }),
+};
+
+/**
+ * `click_events`, attacked as a TABLE (TASK-2-02). The click reader and writer arrive as
+ * repository subjects with TASK-2-09.
+ *
+ * `user_agent` is `varchar(512)` free text and both default literals fit, so no
+ * `mutableValue` is needed. `ip_hash` is deliberately NOT the mutable column and NOT the
+ * projection: it is pseudonymous per tenant and never leaves the database (GC-R), and the
+ * harness's job here is the boundary, not the column.
+ *
+ * ITS `reparentAll` IS THE ONE THAT REACHES THE COUNT RULE DIRECTLY. `domains` and `links`
+ * both carry a composite key to `workspaces`, so an owner-column theft on them is refused
+ * 23503 and lands `unverified`; `click_events` references `links(id)` and `domains(id)`,
+ * neither of which carries `tenant_id`, so a widened USING here produces `UPDATE 2` against
+ * one visible own row and the digest names the victim. Between the three tables both
+ * outcomes are exercised (F-342's accounting).
+ */
+const clickEventsAccess: TenantScopedSurfaceRegistration = {
+  subject: 'ClickEventsTableAccess',
+  table: 'click_events',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'click_events',
+    ownerColumn: 'tenant_id',
+    projection: ['id', 'tenant_id', 'link_id'],
+    mutableColumn: 'user_agent',
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('click_events')} (id, tenant_id, link_id, domain_id, occurred_at, ip_hash, user_agent)
+          values (${PLANTED_CLICK_ROW_ID}::uuid, ${ownerId}::uuid, ${seededParentsOf(ownerId).linkId}::uuid, ${seededParentsOf(ownerId).domainId}::uuid, now(), ${CLICK_IP_HASH}, ${CLICK_USER_AGENT})`,
   }),
 };
 
@@ -1453,6 +1706,11 @@ registerTenantScopedSurfaces(membershipRepositoryAccess);
 registerTenantScopedSurfaces(invitationsAccess);
 registerTenantScopedSurfaces(invitationRepositoryAccess);
 registerTenantScopedSurfaces(invitationWorkspacesAccess);
+// TASK-2-02, migration 0005. Three batteries; the repository subjects that will sit beside
+// `links` and `click_events` arrive with their classes (TASK-2-05, TASK-2-09).
+registerTenantScopedSurfaces(domainsAccess);
+registerTenantScopedSurfaces(linksAccess);
+registerTenantScopedSurfaces(clickEventsAccess);
 
 const PLANTED_CANARY_ROW_ID = 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2';
 
@@ -2184,6 +2442,25 @@ export async function invitationEndpointGroup(runtime: SignedInTenants): Promise
  * sorts before `route:`, so the ten route ids come last.
  */
 export const EXPECTED_SURFACE_IDS = [
+  // The three item-2 tables (TASK-2-02, migration 0005): eight shapes each, no repository
+  // subject yet. `C` and `D` sort before every id below; `Links…` sits between
+  // `InvitationsTableAccess` and `MembershipRepository`.
+  'repo:ClickEventsTableAccess.deleteAll',
+  'repo:ClickEventsTableAccess.deleteOwnedBy',
+  'repo:ClickEventsTableAccess.findAll',
+  'repo:ClickEventsTableAccess.findOwnedBy',
+  'repo:ClickEventsTableAccess.insertOwnedBy',
+  'repo:ClickEventsTableAccess.reparentAll',
+  'repo:ClickEventsTableAccess.updateAll',
+  'repo:ClickEventsTableAccess.updateOwnedBy',
+  'repo:DomainsTableAccess.deleteAll',
+  'repo:DomainsTableAccess.deleteOwnedBy',
+  'repo:DomainsTableAccess.findAll',
+  'repo:DomainsTableAccess.findOwnedBy',
+  'repo:DomainsTableAccess.insertOwnedBy',
+  'repo:DomainsTableAccess.reparentAll',
+  'repo:DomainsTableAccess.updateAll',
+  'repo:DomainsTableAccess.updateOwnedBy',
   // The three 1b tables (TASK-1b-03): eight shapes each — and since TASK-1b-10 the two
   // repository subjects beside them: `InvitationRepository` on `invitations` and
   // `MembershipRepository` on `memberships` (`invitation_workspaces` has no class of its own).
@@ -2208,6 +2485,15 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:InvitationsTableAccess.reparentAll',
   'repo:InvitationsTableAccess.updateAll',
   'repo:InvitationsTableAccess.updateOwnedBy',
+  // TASK-2-02. `LinkRepository`'s methods join this table as a sibling subject in TASK-2-05.
+  'repo:LinksTableAccess.deleteAll',
+  'repo:LinksTableAccess.deleteOwnedBy',
+  'repo:LinksTableAccess.findAll',
+  'repo:LinksTableAccess.findOwnedBy',
+  'repo:LinksTableAccess.insertOwnedBy',
+  'repo:LinksTableAccess.reparentAll',
+  'repo:LinksTableAccess.updateAll',
+  'repo:LinksTableAccess.updateOwnedBy',
   'repo:MembershipRepository.create',
   'repo:MembershipRepository.listForWorkspace',
   'repo:MembershipRepository.roleFor',

@@ -113,9 +113,23 @@ export function tenantScopedPolicies(table: string): PolicySet {
  *
  * Exclusion 1 of exactly 3 recorded by the SC-1 suite.
  *
- * `domains` and `links` do not exist yet (TASK-023), so this policy has no applied
+ * ~~`domains` and `links` do not exist yet (TASK-023), so this policy has no applied
  * instance and migration `0001` carries no statement for it: the ADR-0049 repair is to
- * this function alone and every table that later applies it inherits the wrapped form.
+ * this function alone and every table that later applies it inherits the wrapped form.~~
+ *
+ * AMENDED 2026-08-19 (TASK-2-02). BOTH INSTANCES ARE APPLIED. `apps/api/drizzle/0005_*.sql`
+ * creates `domains` and `links` and hand-appends `redirectReadPolicy('domains')` and
+ * `redirectReadPolicy('links')` beside each table's `tenantScopedPolicies()` block, in the
+ * SAME migration and the same commit — the amended GC-A, because a policy appended in a
+ * later migration is a second F-239 window. The ADR-0049 repair the struck paragraph
+ * described was to this function alone and both applied instances inherited the wrapped
+ * form, which `db:check-policies` now counts over two real `pg_policies` rows rather than
+ * over none. `rls-policy-template.md` carried the same sentence and is corrected with it.
+ *
+ * NOTHING SETS `app.redirect_context` YET. `withRedirectRead` is TASK-2-06's, so until it
+ * lands the flag is never set, `nullif(current_setting(...), '')` is NULL on every backend,
+ * the predicate is NULL, and both policies admit nothing — which is what the isolation
+ * suite's `domains` and `links` batteries incidentally prove on every run.
  */
 export function redirectReadPolicy(table: 'domains' | 'links'): PolicySet {
   const t = assertTableName(table);

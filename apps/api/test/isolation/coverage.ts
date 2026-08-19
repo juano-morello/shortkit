@@ -589,17 +589,30 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-1b-10, wave 4 of 1b (amending TASK-1b-03 and TASK-015). This run covers SEVEN ' +
-  'TABLES, THREE REPOSITORY CLASSES and TEN ENDPOINTS, in TWO ATTEMPT CATEGORIES. ' +
-  'THE SEVEN TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
+  'TASK-2-02, wave 1 of item 2 (amending TASK-1b-10, TASK-1b-03 and TASK-015). This run ' +
+  'covers TEN TABLES, THREE REPOSITORY CLASSES and TEN ENDPOINTS, in TWO ATTEMPT ' +
+  'CATEGORIES. ' +
+  'THE TEN TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
   '`tenants` (the migrated cascade root, four bespoke policies), `rls_fixture_rows` (a ' +
   'FIXTURE TABLE this suite creates and drops per run, built from the production ' +
   'tenantScopedPolicies()), `tenant_memberships` (migrated, TASK-002 — carrying the ' +
   'token-mint FOR SELECT escape as a third policy), `workspaces` (migrated, TASK-011), ' +
-  'and `memberships`, `invitations` and `invitation_workspaces` (migrated, TASK-1b-03, ' +
-  'migration 0003 — the template unchanged, two policies each). Each is hit with EIGHT ' +
+  '`memberships`, `invitations` and `invitation_workspaces` (migrated, TASK-1b-03, ' +
+  'migration 0003 — the template unchanged, two policies each), and `domains`, `links` ' +
+  'and `click_events` (migrated, TASK-2-02, migration 0005). `domains` and `links` carry ' +
+  'a THIRD policy each: the FIRST APPLIED INSTANCES of redirectReadPolicy(), the FOR ' +
+  'SELECT redirect escape ADR-0003 approves for those two tables and no others, which had ' +
+  'no applied instance anywhere until that migration. NO ATTEMPT HERE CAN REACH IT — ' +
+  'withTenantTransaction sets app.tenant_id and never app.redirect_context, so the policy ' +
+  'reads NULL through its nullif and admits nothing — and its PRESENCE is asserted from ' +
+  'pg_policies rather than assumed, because a migration that never emitted it would leave ' +
+  'the carried repo:RedirectReadRepository.resolveByHostAndSlug exclusion justified by a ' +
+  'policy the database does not have while every attempt below stayed green. ' +
+  '`click_events` takes the template and nothing else: the click flush runs inside ' +
+  'withTenantTransaction grouped by tenant, so click emission is NOT a GC-5 exclusion. ' +
+  'Each is hit with EIGHT ' +
   'statement shapes in BOTH directions; three of the eight carry NO WHERE CLAUSE (F-302) ' +
-  'and one of those assigns the owner column (F-330). THREE OF THE SEVEN ARE ALSO ' +
+  'and one of those assigns the owner column (F-330). THREE OF THE TEN ARE ALSO ' +
   "ATTACKED THROUGH THEIR REPOSITORY CLASS, called inside the ACTOR's tenant transaction " +
   "with the TARGET's ids: the six methods of WorkspaceRepository (TASK-011, TASK-1b-06), " +
   'the four of InvitationRepository (create, listForWorkspace, findById, revoke) and the ' +
@@ -684,8 +697,13 @@ export const COVERAGE_BOUNDARY =
   'in-file; the LENGTH of that list is the control (still three), so a new exclusion ' +
   'arrives as a one-line diff a reviewer sees. The invited signup branch is UNENUMERABLE ' +
   '(Better Auth is mounted outside the Nest graph) and is covered by a named integration ' +
-  'test rather than an attempt here. And most of the system is simply unwritten: there are ' +
-  'no `links`, `domains` or `click_events` tables and no other authenticated routes.';
+  'test rather than an attempt here. AND WHAT ITEM 2 HAS NOT YET REGISTERED: `links` and ' +
+  '`click_events` have no repository subject beside their batteries (LinkRepository ' +
+  'arrives with TASK-2-05, the click reader and writer with TASK-2-09); no link or clicks ' +
+  'ROUTE has an endpoint attempt yet (TASK-2-10 adds them); and the redirect surface ' +
+  'itself — GET /:slug, anonymous and cross-tenant BY DESIGN — is covered by the carried ' +
+  'exclusion rather than by an attempt. TASK-2-10 rewrites this paragraph when those land; ' +
+  'TASK-2-02 moved only the counts its own literals gate.';
 
 /* ========================================================================== *
  * The registry. This is the enumeration mechanism.

@@ -36,6 +36,13 @@
       "when": 1787148003105,
       "tag": "0004_previous_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787157024038,
+      "tag": "0005_right_nick_fury",
+      "breakpoints": true
     }
   ]
 }

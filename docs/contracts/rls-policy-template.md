@@ -206,9 +206,23 @@ ADR-0049.
 runs over every row of `pg_policies` in schema `public`, not over a list of repaired names, so
 a policy nobody thought of fails it rather than being skipped by it.
 
-`<t>_redirect_read` has no applied instance: `domains` and `links` do not exist yet, so the
+~~`<t>_redirect_read` has no applied instance: `domains` and `links` do not exist yet, so the
 change is to `redirectReadPolicy()` in `apps/api/src/db/rls.ts` and `0001` carries no
-statement for it.
+statement for it.~~
+
+*Amended 2026-08-19 (TASK-2-02).* **Both instances are applied.** Migration `0005` creates
+`domains` and `links` and hand-appends `redirectReadPolicy('domains')` and
+`redirectReadPolicy('links')` beside each table's `tenantScopedPolicies()` block, in the same
+migration and the same commit (GC-A as amended for item 2: a policy appended later is a
+second F-239 window). The struck sentence stays true of `0001`, which still carries no
+statement for the policy — the ADR-0049 repair was to the builder alone and both applied
+instances inherited the wrapped form, so `db:check-policies` now counts the wrappers over two
+real `pg_policies` rows rather than over none.
+
+**Nothing sets `app.redirect_context` yet.** `withRedirectRead` is TASK-2-06's, so until it
+lands the flag is never set, `nullif(current_setting(...), '')` is NULL on every backend, and
+both policies admit nothing — which the isolation suite's `domains` and `links` batteries
+prove incidentally on every run.
 
 ```sql
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
@@ -273,9 +287,9 @@ existing table.
 | `memberships` | yes | no | ~~016~~ 1b-03 (invitations; note below) |
 | `invitations` | yes | no | ~~020~~ 1b-03 (invitations; note below) |
 | `invitation_workspaces` | yes | no | ~~020~~ 1b-03 (invitations; note below) |
-| `domains` | yes | **yes** | 023, extended 038 |
-| `links` | yes | **yes** | 023, extended 027 |
-| `click_events` | yes | no | 033 |
+| `domains` | yes | **yes** | ~~023~~ 2-02 (links/redirect; note below), extended 038 |
+| `links` | yes | **yes** | ~~023~~ 2-02 (links/redirect; note below) |
+| `click_events` | yes | no | ~~033~~ 2-02 (links/redirect; note below) |
 | `audit_entries` | yes | no | 048 |
 | `user`, `session`, `account`, `verification` | **no** (no `tenant_id`, no RLS) | n/a | 009 |
 
@@ -291,6 +305,15 @@ identity-membership TASK-002 (migration `0001`), `workspaces` in TASK-011 (`0002
 (`0003`, `tenantScopedPolicies()` for all three, ADR-0062). The four rows below them —
 `domains`, `links`, `click_events`, `audit_entries` — are not built and keep the old ids
 until their initiatives open.
+
+*Amended 2026-08-19 (TASK-2-02, links and the redirect hot path).* Three of those four are
+now built. `domains`, `links` and `click_events` shipped together in migration `0005` under
+one card, each with `tenantScopedPolicies()` hand-appended and a
+`registerTenantScopedSurfaces()` entry in the same commit (GC-A); `domains` and `links`
+additionally carry `redirectReadPolicy()`, the first applied instances of the redirect
+escape. The seeded system default domain — one `domains` row owned by a seeded platform
+tenant, written by `scripts/seed.mts` and never by the migration (F-236) — is ADR-0063's.
+`audit_entries` is still unbuilt and keeps `048`.
 
 ## Invariants a caller may rely on
 
