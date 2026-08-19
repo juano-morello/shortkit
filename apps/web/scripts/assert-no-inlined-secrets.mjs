@@ -3,7 +3,7 @@
  *
  * Contract: TASK-004.md (F-078's AC-113, F-084's split, and the round 1-6 fixes:
  * F-154/F-155/F-156/F-160/F-161/F-163/F-164/F-165/F-167/F-171/F-172/F-173/F-175), ADR-0014,
- * design/contracts/web-api-client.md
+ * docs/contracts/web-api-client.md
  * Produced by: TASK-004
  *
  * WHY THIS EXISTS. `BFF_PROXY_SECRET` is a required, server-only Vercel project variable
@@ -454,9 +454,10 @@ async function main() {
         `\`${POSITIVE_CONTROL_REFERENCE}\`) and no value for it were found anywhere under ` +
         `${POSITIVE_CONTROL_SCAN_ROOT.name} (excluding cache/). No compiled read means this run ` +
         'has no evidence either way, not evidence of a mismatch (F-171) — the positive control ' +
-        'is inactive, and this run does NOT prove build/check environment agreement. It ' +
-        'activates automatically the first time a module reachable from an entrypoint reads ' +
-        `${POSITIVE_CONTROL_VAR} (TASK-008).`,
+        'is inactive, and this run does NOT prove build/check environment agreement. That ' +
+        'is by design today: no non-test module reads the variable, because the browser ' +
+        'reaches the API through the same-origin BFF proxy. It activates automatically the ' +
+        `first time a module reachable from an entrypoint reads ${POSITIVE_CONTROL_VAR}.`,
     );
     return;
   }

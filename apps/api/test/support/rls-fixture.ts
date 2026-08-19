@@ -2,7 +2,7 @@
  * The two-tenant fixture STORY-003's acceptance criteria are stated against:
  * tenants A and B, each owning exactly one row in an RLS-protected table.
  *
- * Contracts: design/contracts/rls-policy-template.md, design/contracts/tenant-context.md
+ * Contracts: docs/contracts/rls-policy-template.md, docs/contracts/tenant-context.md
  * ADRs: ADR-0002, ADR-0003
  *
  * Two decisions worth knowing before you change anything here.
@@ -110,7 +110,9 @@ function dsn(variable: 'DATABASE_URL' | 'DATABASE_MIGRATION_URL'): string {
     throw new Error(
       `${variable} is not set. The integration suite needs a live Postgres: ` +
         'start it with `docker compose -f docker-compose.test.yml up -d` and export ' +
-        'DATABASE_URL (shortkit_app) and DATABASE_MIGRATION_URL (shortkit_migrator).',
+        'DATABASE_URL (shortkit_app), DATABASE_MIGRATION_URL (shortkit_migrator) and ' +
+        "DATABASE_AUTH_URL (shortkit_auth) — see that file's header for the exact " +
+        'export lines.',
     );
   }
 

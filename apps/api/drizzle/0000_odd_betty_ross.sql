@@ -5,7 +5,7 @@ CREATE TABLE "tenants" (
 );
 --> statement-breakpoint
 -- Appended by hand (TASK-005). Drizzle Kit generates no policy DDL, so every
--- statement below comes from design/contracts/rls-policy-template.md, section
+-- statement below comes from docs/contracts/rls-policy-template.md, section
 -- "The cascade root: tenants", and lands in the same commit as the table.
 --
 -- `tenants` carries `id`, not `tenant_id`, so tenantScopedPolicies() does not apply:

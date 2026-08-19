@@ -1,7 +1,3 @@
-# juano-sdlc: scratch space for in-flight phase work. Everything else under
-# .sdlc/ is tracked — the state is the record.
-.sdlc/*/work/
-
 node_modules/
 .pnpm-store/
 dist/

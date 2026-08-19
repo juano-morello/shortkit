@@ -1,0 +1,359 @@
+'use client';
+
+/**
+ * TASK-013 (STORY-004, AC-22, AC-23 as the screen sees them). One workspace in the list:
+ * its name, an "Archived" text badge when it is archived, and — for an active workspace —
+ * the inline rename control and the archive control.
+ *
+ * Contract: docs/contracts/workspaces.md ("Endpoints": `PATCH /api/workspaces/:id`,
+ *   `POST /api/workspaces/:id/archive`, 404 `not_found` for a stale/foreign/malformed id).
+ *
+ * RENAME IS INLINE. "Rename <name>" is a disclosure button (`aria-expanded`, `aria-controls`
+ * the form; it stays rendered while the form is open, so the state is announced) and
+ * reveals a small form prefilled with the current name; Enter or Save sends the PATCH,
+ * Escape or Cancel closes it. Focus goes to the field when it opens and back to the
+ * Rename button when it closes, whichever way it closed. The field is labelled "New name for
+ * <name>", so a screen reader hears which workspace it is renaming. A failed save moves
+ * focus to the field every time, including a second identical failure (`attempt`).
+ *
+ * ARCHIVE IS A TWO-STEP INLINE CONFIRM (the architect's ruling). There is no unarchive route
+ * in this initiative (workspaces.md, "Route policy on archived workspaces"), so a mis-click
+ * would be permanent: "Archive <name>" only reveals "Archive <name>? [Confirm] [Cancel]" in
+ * the row, with focus on Confirm; only Confirm sends the POST; Escape or Cancel closes it
+ * and returns focus to the Archive button. The API call itself is idempotent.
+ *
+ * An archived row shows the badge and NO rename or archive controls: the API allows renaming
+ * an archived workspace, but the screen keeps the archived row read-only — there is nothing
+ * to do with an archived client here yet, and a control on a row that reads "Archived" is
+ * an invitation to confusion. That is a screen decision, not a contract one.
+ *
+ * The row owns its two requests and the field-level rename message; the list owns what
+ * happens next (`onChanged` re-fetches and announces; `onFailure` handles `not_found`, the
+ * session expiry and the generic message).
+ */
+import { useEffect, useId, useRef, useState } from 'react';
+import type { FormEvent, KeyboardEvent, ReactElement } from 'react';
+
+import { WORKSPACE_NAME_MAX_LENGTH } from '@shortkit/contracts';
+import type { Workspace } from '@shortkit/contracts';
+
+import { apiClient } from '../../lib/api/client';
+import {
+  WORKSPACE_MESSAGES,
+  archiveWorkspaceRequest,
+  classifyWorkspaceError,
+  parseWorkspaceName,
+  renameWorkspaceRequest,
+} from './workspaces-api';
+import type { WorkspaceFailure } from './workspaces-api';
+
+export type WorkspaceChange = { kind: 'renamed'; workspace: Workspace } | { kind: 'archived'; workspace: Workspace };
+
+export interface WorkspaceRowProps {
+  workspace: Workspace;
+  /** After the API answered 200: the list re-fetches and announces. */
+  onChanged: (change: WorkspaceChange) => void | Promise<void>;
+  /** Failures the row does not render itself: `not_found`, `unauthenticated`, `generic`. */
+  onFailure: (failure: WorkspaceFailure) => void;
+}
+
+type RowMode = 'idle' | 'renaming' | 'confirming-archive';
+type FocusTarget = 'rename-input' | 'rename-button' | 'archive-button' | 'confirm-button' | null;
+
+export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowProps): ReactElement {
+  const idBase = useId();
+  const renameButtonRef = useRef<HTMLButtonElement>(null);
+  const archiveButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inFlight = useRef(false);
+
+  const [mode, setMode] = useState<RowMode>('idle');
+  const [draft, setDraft] = useState(workspace.name);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  // Bumped per failed rename attempt so an identical failure still moves focus to the field.
+  const [attempt, setAttempt] = useState(0);
+  const [busy, setBusy] = useState<'rename' | 'archive' | null>(null);
+  // Focus is moved in an effect, once the target is actually mounted.
+  const [focusTarget, setFocusTarget] = useState<FocusTarget>(null);
+
+  useEffect(() => {
+    switch (focusTarget) {
+      case 'rename-input':
+        inputRef.current?.focus();
+        inputRef.current?.select();
+        break;
+      case 'rename-button':
+        renameButtonRef.current?.focus();
+        break;
+      case 'archive-button':
+        archiveButtonRef.current?.focus();
+        break;
+      case 'confirm-button':
+        confirmButtonRef.current?.focus();
+        break;
+      case null:
+        return;
+    }
+
+    setFocusTarget(null);
+  }, [focusTarget]);
+
+  useEffect(() => {
+    if (fieldError !== null) {
+      inputRef.current?.focus();
+    }
+  }, [fieldError, attempt]);
+
+  function openRename(): void {
+    setDraft(workspace.name);
+    setFieldError(null);
+    setMode('renaming');
+    setFocusTarget('rename-input');
+  }
+
+  function closeRename(): void {
+    setMode('idle');
+    setFieldError(null);
+    setFocusTarget('rename-button');
+  }
+
+  function openArchiveConfirm(): void {
+    setMode('confirming-archive');
+    setFocusTarget('confirm-button');
+  }
+
+  function closeArchiveConfirm(): void {
+    setMode('idle');
+    setFocusTarget('archive-button');
+  }
+
+  async function handleRename(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+
+    if (inFlight.current) {
+      return;
+    }
+
+    setFieldError(null);
+
+    const body = parseWorkspaceName(draft, 'rename');
+
+    if (body === null) {
+      setFieldError(WORKSPACE_MESSAGES.nameRule);
+      setAttempt((n) => n + 1);
+
+      return;
+    }
+
+    inFlight.current = true;
+    setBusy('rename');
+
+    let renamed: Workspace;
+
+    try {
+      renamed = await apiClient(renameWorkspaceRequest(workspace.id, body));
+    } catch (error: unknown) {
+      inFlight.current = false;
+      setBusy(null);
+      setAttempt((n) => n + 1);
+
+      const failure = classifyWorkspaceError(error);
+
+      switch (failure.kind) {
+        case 'field':
+          setFieldError(failure.message);
+          break;
+        case 'validation':
+          setFieldError(WORKSPACE_MESSAGES.validationFailed);
+          break;
+        case 'aborted':
+          break;
+        case 'not_found':
+        case 'unauthenticated':
+        case 'generic':
+          onFailure(failure);
+          break;
+      }
+
+      return;
+    }
+
+    inFlight.current = false;
+    setBusy(null);
+    setMode('idle');
+    setFocusTarget('rename-button');
+
+    await onChanged({ kind: 'renamed', workspace: renamed });
+  }
+
+  async function handleArchiveConfirmed(): Promise<void> {
+    if (inFlight.current) {
+      return;
+    }
+
+    inFlight.current = true;
+    setBusy('archive');
+
+    let archived: Workspace;
+
+    try {
+      archived = await apiClient(archiveWorkspaceRequest(workspace.id));
+    } catch (error: unknown) {
+      inFlight.current = false;
+      setBusy(null);
+
+      const failure = classifyWorkspaceError(error);
+
+      if (failure.kind !== 'aborted') {
+        // The row stays as it was; the confirm closes and the list shows the message.
+        setMode('idle');
+        setFocusTarget('archive-button');
+        onFailure(failure);
+      }
+
+      return;
+    }
+
+    inFlight.current = false;
+    setBusy(null);
+    setMode('idle');
+
+    await onChanged({ kind: 'archived', workspace: archived });
+  }
+
+  function handleRenameKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeRename();
+    }
+  }
+
+  function handleConfirmKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeArchiveConfirm();
+    }
+  }
+
+  const isArchived = workspace.archivedAt !== null;
+  const renameFormId = `${idBase}-rename-form`;
+  const inputId = `${idBase}-rename`;
+  const errorId = `${inputId}-error`;
+  const confirmId = `${idBase}-archive-confirm`;
+  const confirmLabelId = `${confirmId}-label`;
+
+  return (
+    <li className="workspace-row" data-workspace-id={workspace.id}>
+      <div className="workspace-row-main">
+        <span className="workspace-name">{workspace.name}</span>
+        {isArchived ? <span className="workspace-badge">Archived</span> : null}
+      </div>
+
+      {isArchived ? null : (
+        <>
+          <div className="workspace-row-actions">
+            <button
+              ref={renameButtonRef}
+              type="button"
+              className="secondary"
+              aria-expanded={mode === 'renaming'}
+              aria-controls={renameFormId}
+              onClick={mode === 'renaming' ? closeRename : openRename}
+            >
+              Rename <span className="visually-hidden">{workspace.name}</span>
+            </button>
+            <button
+              ref={archiveButtonRef}
+              type="button"
+              className="secondary"
+              aria-expanded={mode === 'confirming-archive'}
+              aria-controls={confirmId}
+              onClick={mode === 'confirming-archive' ? closeArchiveConfirm : openArchiveConfirm}
+            >
+              Archive <span className="visually-hidden">{workspace.name}</span>
+            </button>
+          </div>
+
+          {mode === 'renaming' ? (
+            <form
+              id={renameFormId}
+              className="workspace-rename"
+              method="post"
+              noValidate
+              aria-busy={busy === 'rename'}
+              onSubmit={(event) => {
+                void handleRename(event);
+              }}
+            >
+              <div className="field">
+                <label htmlFor={inputId}>New name for {workspace.name}</label>
+                <input
+                  ref={inputRef}
+                  id={inputId}
+                  name="name"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  required
+                  maxLength={WORKSPACE_NAME_MAX_LENGTH}
+                  value={draft}
+                  onChange={(event) => {
+                    setDraft(event.currentTarget.value);
+                  }}
+                  onKeyDown={handleRenameKeyDown}
+                  aria-invalid={fieldError === null ? undefined : true}
+                  aria-describedby={fieldError === null ? undefined : errorId}
+                />
+                {fieldError === null ? null : (
+                  <p id={errorId} className="field-error">
+                    {fieldError}
+                  </p>
+                )}
+              </div>
+              <div className="workspace-row-actions">
+                <button type="submit" aria-disabled={busy === 'rename'}>
+                  {busy === 'rename' ? 'Saving…' : 'Save'}
+                </button>
+                <button type="button" className="secondary" onClick={closeRename}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : null}
+
+          {mode === 'confirming-archive' ? (
+            <div
+              id={confirmId}
+              className="workspace-archive-confirm"
+              role="group"
+              aria-labelledby={confirmLabelId}
+              aria-busy={busy === 'archive'}
+              onKeyDown={handleConfirmKeyDown}
+            >
+              <p id={confirmLabelId} className="workspace-archive-question">
+                Archive {workspace.name}? This cannot be undone here.
+              </p>
+              <div className="workspace-row-actions">
+                <button
+                  ref={confirmButtonRef}
+                  type="button"
+                  aria-disabled={busy === 'archive'}
+                  onClick={() => {
+                    void handleArchiveConfirmed();
+                  }}
+                >
+                  {busy === 'archive' ? 'Archiving…' : 'Confirm'}{' '}
+                  <span className="visually-hidden">archiving {workspace.name}</span>
+                </button>
+                <button type="button" className="secondary" onClick={closeArchiveConfirm}>
+                  Cancel <span className="visually-hidden">archiving {workspace.name}</span>
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+    </li>
+  );
+}

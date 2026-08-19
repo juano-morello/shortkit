@@ -26,7 +26,7 @@ The reason is what the value is used *for* on each side. On Vercel it is real: t
 **required to** perform a constant-time match on it before honouring a forwarded
 `x-shortkit-client-ip`, so publishing it would let anyone forge that header and collapse
 every IP-keyed rate-limit bucket into one shared by the whole product (ADR-0014,
-`.sdlc/foundation/design/contracts/web-api-client.md`).
+`docs/contracts/web-api-client.md`).
 
 That match is **not implemented yet** — it is TASK-012's, and
 `grep -rn "timingSafeEqual\|BFF_PROXY_SECRET" apps/api/src` currently returns nothing.

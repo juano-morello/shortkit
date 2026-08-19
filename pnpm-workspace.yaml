@@ -14,3 +14,18 @@ engineStrict: true
 allowBuilds:
   '@swc/core': true
   esbuild: true
+
+# GHSA-2v37-7h3g-55p8, high: a custom generator with size zero loops forever in
+# nanoid < 3.3.18. It reaches the production graph as `apps/web > next > postcss >
+# nanoid`, so `pnpm audit --prod --no-optional --audit-level moderate` — the
+# `quality` gate — exits 1 on it.
+#
+# AN OVERRIDE AND NOT A REGISTER ROW. `docs/security/known-advisories.md` is for
+# advisories with no fix available; this one has a patch that needs no range
+# widening, because postcss asks for `^3.3.16` and 3.3.18 satisfies it. Nothing is
+# pinned back and nothing is ignored: `pnpm audit` still gets no `--ignore`.
+#
+# Remove this when postcss's own floor moves past 3.3.18 and the resolved version
+# comes from the graph rather than from here.
+overrides:
+  nanoid: '^3.3.18'

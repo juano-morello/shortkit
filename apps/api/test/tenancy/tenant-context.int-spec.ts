@@ -8,8 +8,8 @@
  * fixture refuses to run otherwise, because an exempt role makes all of it vacuous.
  *
  * Nothing here reaches for `tenantStorage`, the pool, or any other internal: the
- * subject is the contract in design/contracts/tenant-context.md plus the policy
- * template in design/contracts/rls-policy-template.md.
+ * subject is the contract in docs/contracts/tenant-context.md plus the policy
+ * template in docs/contracts/rls-policy-template.md.
  *
  * ---------------------------------------------------------------------------
  * Round 1 rework, 2026-08-05. Everything below the six AC suites covers a finding:
@@ -289,7 +289,7 @@ describe('tenant-scoped persistence', () => {
  * and every bound value.
  *
  * The caller this exists to protect is TASK-025's collision loop, whose shape is
- * fixed by design/contracts/slug.md: `SAVEPOINT slug_try`, insert, catch `23505` on a
+ * fixed by docs/contracts/slug.md: `SAVEPOINT slug_try`, insert, catch `23505` on a
  * named constraint, `ROLLBACK TO SAVEPOINT`, redraw. The catch is inside `fn`, so the
  * loop cannot tell a collision it must retry from a failure it must surface.
  *

@@ -5,8 +5,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 /**
  * ADR-0028 — a log field reaches the line only if its key is named.
  *
- * Decision: `.sdlc/foundation/design/adr-0028-log-field-allowlist.md`. Contract:
- * `design/contracts/logging-and-headers.md`, "What may never appear in a log line" and
+ * Decision: `docs/decisions/adr-0028-log-field-allowlist.md`. Contract:
+ * `docs/contracts/logging-and-headers.md`, "What may never appear in a log line" and
  * invariant 1. Enforces GC-9 — no PII in log bodies.
  *
  * Findings: F-261, F-262, F-266.
@@ -101,13 +101,14 @@ const UNNAMED_FIELD_MARKER = 'unnamed-field-marker';
 
 /**
  * The four IP spellings F-262 measured, one distinct literal each so a failure names WHICH
- * key leaked rather than only that one did. Hand-copied from
- * `.sdlc/foundation/audits/TASK-003-sdlc-security-auditor-r5.md` § F-262, which measured
- * them against this same singleton, and they are TEST-NET-1 addresses (RFC 5737) so nothing
- * here resembles a real client.
+ * key leaked rather than only that one did. Hand-copied from the TASK-003 round-5 security
+ * audit § F-262, which measured them against this same singleton, and they are TEST-NET-1
+ * addresses (RFC 5737) so nothing here resembles a real client. That audit was one of the
+ * process artifacts deleted on 2026-08-17; it is in git history at `c617ebd` and earlier,
+ * under `.sdlc/foundation/audits/`.
  *
- * `trustedClientIp` is the one that matters most: it is the accessor already named in
- * `design/stubs/apps/api/src/auth/resolve-rate-limit-principal.ts:28`, so the spelling this
+ * `trustedClientIp` is the one that matters most: it is the accessor the retired design stub
+ * `apps/api/src/auth/resolve-rate-limit-principal.ts` already named, so the spelling this
  * system will actually hold is one of the uncensored ones.
  */
 const CLIENT_IP = '203.0.113.9';
@@ -351,6 +352,25 @@ const REQUEST_NEAR_MISS_CONTEXT = 'the same record with no socket';
 const RESPONSE_SNIFF_CONTEXT = 'a record pino reads as an HTTP response';
 
 /**
+ * TASK-016 (STORY-006 AC-34). The request-log line `RequestLogInterceptor` writes, in the exact
+ * shape it builds — the five "Required fields" and the fixed `msg` — with two fields added
+ * beside them under names the allowlist does NOT carry:
+ *
+ *   - `email`, the field TASK-016's card names as the one to watch and the one that may never
+ *     be added under any spelling (GC-G, ADR-0052). It is the identifier a request-log call
+ *     site is most tempted to add, and it must render as `[redacted]` rather than as itself.
+ *   - `method`, the field a request logger conventionally carries and the contract's table
+ *     does not name. Same fate, so adding it is a contract amendment first.
+ *
+ * The five named fields on the same record must keep their values, or the interceptor's line
+ * would be five `[redacted]`s with every gate green — ADR-0028's own stated cost.
+ */
+const REQUEST_LOG_EMAIL = 'operator-on-a-request-log-line@example.com';
+const REQUEST_LOG_METHOD = 'PATCH';
+const REQUEST_LOG_DURATION_MS = 7;
+const REQUEST_LOG_CONTEXT = 'request completed';
+
+/**
  * Lines are addressed by ORDINAL, not by `msg`: an ordinal still addresses the right line
  * when a regression changes what `msg` says, and `msg` is itself a field this decision
  * governs.
@@ -383,6 +403,8 @@ const LINE = {
   requestShapedRecordWithNamedFields: 20,
   theSameRecordWithNoSocket: 21,
   responseShapedRecordWithNamedFields: 22,
+  // TASK-016: the request-log line's exact shape, with `email` and `method` beside it.
+  requestLogLineWithAnEmailBesideIt: 23,
 } as const;
 
 const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
@@ -674,6 +696,23 @@ logger.info(
     },
   },
   '${RESPONSE_SNIFF_CONTEXT}',
+);
+
+// 23. TASK-016. THE REQUEST-LOG LINE AS \`RequestLogInterceptor\` BUILDS IT — the five
+//     "Required fields", the fixed context string, \`info\` — with \`email\` and \`method\`
+//     added beside them. Neither is named. The five must survive with their values; the two
+//     must be \`[redacted]\`, and the address must not be on the line's bytes anywhere.
+logger.info(
+  {
+    request_id: '${REQUEST_ID}',
+    route: '${ROUTE_PATTERN}',
+    status: 200,
+    duration_ms: ${String(REQUEST_LOG_DURATION_MS)},
+    tenant_id: '${TENANT_ID}',
+    email: '${REQUEST_LOG_EMAIL}',
+    method: '${REQUEST_LOG_METHOD}',
+  },
+  '${REQUEST_LOG_CONTEXT}',
 );
 `;
 }
@@ -1049,6 +1088,42 @@ describe('what the allowlist may not censor, so that a line still says something
     // beside it so this cannot pass against a line that carries nothing at all.
     expect(lines[LINE.undefinedUnderAnUnnamedKey].record).not.toHaveProperty('notNamed');
     expect(lines[LINE.undefinedUnderAnUnnamedKey].record.request_id).toBe(REQUEST_ID);
+  });
+
+  it('AC-34 (TASK-016): the request-log line keeps its five named fields, and an `email` or `method` beside them renders as `[redacted]`', () => {
+    // The shape `RequestLogInterceptor` writes, plus the two fields it must not grow. `email`
+    // is the field TASK-016's card names as the one to watch: a user identifier is a Design
+    // decision reserved for the architect, and an email address may not join the allowlist
+    // under any spelling. The five named fields have to survive on the SAME record — a scan
+    // that censored the whole line would satisfy the second half and fail the first.
+    const line = lines[LINE.requestLogLineWithAnEmailBesideIt];
+
+    expect(
+      fields(LINE.requestLogLineWithAnEmailBesideIt, [
+        'request_id',
+        'route',
+        'status',
+        'duration_ms',
+        'tenant_id',
+        'email',
+        'method',
+        'msg',
+        'level',
+      ]),
+    ).toEqual({
+      request_id: REQUEST_ID,
+      route: ROUTE_PATTERN,
+      status: 200,
+      duration_ms: REQUEST_LOG_DURATION_MS,
+      tenant_id: TENANT_ID,
+      email: CENSOR,
+      method: CENSOR,
+      msg: REQUEST_LOG_CONTEXT,
+      level: 'info',
+    });
+    // Byte-level: the address is nowhere on the line, not only absent from the `email` field.
+    expect(line.raw).not.toContain(REQUEST_LOG_EMAIL);
+    expect(line.raw).not.toContain(REQUEST_LOG_METHOD);
   });
 });
 

@@ -1,14 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# AC-115, measured. STORY-002 Amendment A-8, TASK-059.
+# AC-115, measured. STORY-002 Amendment A-8, TASK-059. Text narrowed 2026-08-14
+# (identity-membership F-145, ADR-0051) to name the one variable this harness now supplies.
 #
-#   AC-115: Given a machine with only Docker and a clone of this repository, when
-#   `docker compose up` is run at the repository root, then Postgres, the API and the
-#   web app all reach a healthy state, the migrations have been applied, the seed has
-#   run, and `GET /health` on the composed API returns 200 with `status` equal to "ok".
+#   AC-115: Given a machine with only Docker and a clone of this repository, and
+#   `BETTER_AUTH_SECRET` supplied in the environment, when `docker compose up` is run at
+#   the repository root, then Postgres, the API and the web app all reach a healthy
+#   state, the migrations have been applied, the seed has run, and `GET /health` on the
+#   composed API returns 200 with `status` equal to "ok".
 #
-# ADR: adr-0030 .. adr-0037. Contract: design/contracts/rls-policy-template.md.
+# AC-28 (STORY-004, TASK-017), measured on the same stack, after AC-115's clauses and before
+# the second `up`; its first clause is also AC-20's (STORY-003) sentence "a signup request
+# issued through the web app answers 200":
+#
+#   AC-28: Given a machine with only Docker and a clone of this repository, when the
+#   composed stack is driven through signup, then sign-in, then workspace creation, in that
+#   order and through the web app, then all three succeed against a database with no seed
+#   data and with no manual step between them.
+#
+# ADR: adr-0030 .. adr-0037, adr-0050, adr-0051, adr-0059. Contract:
+# docs/contracts/rls-policy-template.md, docs/contracts/web-api-client.md.
 #
 #   ./scripts/check-compose-stack.sh
 #
@@ -18,10 +30,10 @@ set -euo pipefail
 #
 # EXIT CODES, AND THE DISTINCTION IS THE POINT:
 #   0  every clause passed.
-#   1  at least one AC-115 clause is red. The clause table says which and why.
+#   1  at least one AC-115 or AC-28 clause is red. The clause table says which and why.
 #   2  the CHECK could not run — no Docker, no node, or a machine that is not the
 #      machine AC-115 describes. Nothing was measured, and nothing may be concluded
-#      about AC-115 from a 2.
+#      about AC-115 or AC-28 from a 2.
 #
 # WHAT IT ASSERTS, AND WHAT IT DELIBERATELY DOES NOT:
 #
@@ -62,10 +74,49 @@ set -euo pipefail
 #   `POSTGRES_HOST_AUTH_METHOD=trust`, named in ADR-0036 as the one repair that is a
 #   security defect.
 #
+#   GUARD-1 authenticates as `shortkit_auth` too (TASK-017, F-032): ADR-0050 splits Better
+#   Auth's role out of `shortkit_app`, and a check that authenticated one runtime role would
+#   go green against a stack whose init script never created the other -- the failure it
+#   would miss is the one where `api` boots and the whole split is silently absent. Both
+#   roles, one clause, and the reason string names the one that failed.
+#
+# THREE FLOW CLAUSES, AC-28's SENTENCE END TO END (TASK-017):
+#   signup, sign-in and workspace creation, in that order, through the WEB APP at its
+#   published port and never against the API directly, because AC-28's subject is an
+#   operator with a browser and the web app's BFF route (apps/web/app/api/bff/[...path]/
+#   route.ts, ADR-0014) is the transport a browser uses. The only inputs are HTTP requests
+#   of the kind a browser makes: no fixture is inserted, and the address signed up has no
+#   row in Better Auth's `user` table before the request (asserted) and one after (asserted),
+#   so a 200 that Better Auth answers for a DUPLICATE address under `autoSignIn: false`
+#   (ADR-0061) cannot pass this clause. Two things a browser does that `node -e` has to be
+#   told to do: send an `Origin` header on state-changing requests -- the BFF answers 403
+#   without one and `better-auth@1.6.26` answers `403 MISSING_OR_NULL_ORIGIN` -- and keep
+#   the `HttpOnly` cookies sign-in sets and send them back. Over `http://` the cookies carry
+#   no `Secure`, which is the only way they survive that origin (request-origin.ts).
+#
+#   `http://localhost:3000`, NOT `http://127.0.0.1:3000`, and the difference is two origin
+#   checks: the BFF compares the request's `Origin` with the origin the request arrived on,
+#   and forwards it to the API, whose `WEB_APP_ORIGINS` default in docker-compose.yml is
+#   `http://localhost:3000` (ADR-0059). A request to 127.0.0.1 with a 127.0.0.1 origin passes
+#   the first check and fails the second with `403 INVALID_ORIGIN`, which reads like an auth
+#   defect and is not one.
+#
+#   These are transport-level. No tier in this repository drives a browser, and that
+#   residual is stated in STORY-004 rather than closed here.
+#
 # ENVIRONMENT KNOBS:
-#   SHORTKIT_CHECK_KEEP_STACK=1    leave the stack up after the run (default: tear down)
+#   SHORTKIT_CHECK_KEEP_STACK=1    leave the stack up after the run (default: tear down).
+#                                  The generated BETTER_AUTH_SECRET dies with this process
+#                                  and is never printed (F-379), so it cannot be recovered.
+#                                  Any further `docker compose` command against the kept
+#                                  stack needs one exported: any value unblocks `ps`/`logs`,
+#                                  but a DIFFERENT value plus `up` cannot decrypt the
+#                                  existing jwks rows — run `docker compose down -v` first
+#                                  if you need the stack running again.
 #   SHORTKIT_CHECK_UP_TIMEOUT=900  seconds allowed for each `up` (a cold first build)
 #   SHORTKIT_CHECK_HEALTH_URL      default http://127.0.0.1:3001/health (ADR-0031)
+#   SHORTKIT_CHECK_WEB_URL         default http://localhost:3000 (ADR-0031's web port; the
+#                                  hostname is load-bearing, see the flow clauses above)
 
 # ---------------------------------------------------------------------------
 # Clause register. Every clause is declared up front with the result BLOCKED, so a run
@@ -108,20 +159,23 @@ declare_clause 'AC-115.1' 'the stack comes up from a clean state with one comman
 declare_clause 'AC-115.2' 'Postgres reaches a healthy state'
 declare_clause 'AC-115.3' 'the API reaches a healthy state'
 declare_clause 'AC-115.4' 'the web app reaches a healthy state'
-declare_clause 'GUARD-1'  'shortkit_app authenticates over TCP with the fixture password'
+declare_clause 'GUARD-1'  'shortkit_app and shortkit_auth authenticate over TCP with the fixture passwords'
 declare_clause 'GUARD-2'  'shortkit_app is refused over TCP with a wrong password'
 declare_clause 'AC-115.5' 'the migrations have been applied: the schema they define is present'
 declare_clause 'AC-115.6' 'every migration file in apps/api/drizzle is recorded as applied'
 declare_clause 'AC-115.7' 'the seed has run: the demo tenant is present and the runtime role can read it'
 declare_clause 'AC-115.8' 'GET /health on the composed API returns 200'
 declare_clause 'AC-115.9' "GET /health on the composed API returns a body whose status is \"ok\""
+declare_clause 'AC-28.1'  'signup through the web app succeeds for an address with no account, against a database with no seed data'
+declare_clause 'AC-28.2'  'sign-in through the web app with those credentials returns a session'
+declare_clause 'AC-28.3'  'a workspace created through the web app appears in the workspace list'
 declare_clause 'DOD-1'    'docker compose up a second time succeeds'
 declare_clause 'DOD-2'    'the second up did not double the seeded data'
 declare_clause 'DOD-3'    'data survives docker compose restart'
 
 summarise_and_exit() {
   local i worst=0
-  printf '\n== AC-115 clause table ==\n'
+  printf '\n== clause table (AC-115, AC-28) ==\n'
   for i in "${!CLAUSE_IDS[@]}"; do
     printf '%-10s %-6s %s\n           %s\n' \
       "${CLAUSE_IDS[$i]}" "${CLAUSE_RESULT[$i]}" "${CLAUSE_TEXT[$i]}" "-> ${CLAUSE_REASON[$i]}"
@@ -129,9 +183,9 @@ summarise_and_exit() {
   done
   printf '\n'
   if [ "$worst" -eq 0 ]; then
-    printf 'AC-115: GREEN. Every clause passed.\n'
+    printf 'AC-115 and AC-28: GREEN. Every clause passed.\n'
   else
-    printf 'AC-115: RED. See the clause table above; each line fails on its own.\n'
+    printf 'AC-115 or AC-28: RED. See the clause table above; each line fails on its own.\n'
   fi
   exit "$worst"
 }
@@ -164,7 +218,7 @@ docker info >/dev/null 2>&1 || refuse 'the Docker daemon is not reachable.'
 # depending on jq or curl being installed. It is used for JSON and for one HTTP request.
 command -v node >/dev/null 2>&1 || refuse \
   'node is not on PATH.' \
-  'It is used to make one HTTP request and to parse two JSON documents.' \
+  'It is used to make the HTTP requests and to parse the JSON they answer.' \
   'The repository already requires node >= 24.13.0 in package.json engines.'
 
 # "A machine with only Docker and a clone of this repository." Three kinds of local
@@ -177,7 +231,13 @@ command -v node >/dev/null 2>&1 || refuse \
 # a developer who happens to have that variable exported gets a working stack and AC-115's
 # own machine gets two passwordless roles. Exporting it hides exactly the defect the
 # design pass measured twice.
-for contaminant in POSTGRES_USER SHORTKIT_MIGRATOR_PASSWORD SHORTKIT_APP_PASSWORD; do
+#
+# SHORTKIT_AUTH_PASSWORD is the fourth (F-037): ADR-0050's role, created by the same init
+# script with the same `$$` escape, and left out of this list it is the one exported value
+# that silently repairs a missing escape for that role -- an empty-password shortkit_auth is
+# not loginable externally, so this is availability rather than exposure, and it is still the
+# class of hole this guard exists to close, one variable wide.
+for contaminant in POSTGRES_USER SHORTKIT_MIGRATOR_PASSWORD SHORTKIT_APP_PASSWORD SHORTKIT_AUTH_PASSWORD; do
   if [ -n "${!contaminant:-}" ]; then
     refuse "\$${contaminant} is exported in this shell." \
       'AC-115 describes a machine with only Docker and a clone, where it is unset.' \
@@ -281,6 +341,26 @@ if [ -n "${COMPOSE_FILE:-}" ]; then
   unset COMPOSE_FILE
 fi
 
+# ADR-0051: `docker-compose.yml:295` carries no default for BETTER_AUTH_SECRET any more,
+# so this harness generates one and exports it for the duration of this run. It must land
+# before `trap cleanup EXIT` below, not merely before the first `docker compose config` --
+# `cleanup()` itself runs `docker compose down -v`, which parses the file. One value for
+# the whole run: DOD-1's second `up` and DOD-3's `restart` share the volume, and a second
+# value mid-run would fail to decrypt the previous run's `jwks.privateKey`. It overrides
+# anything inherited, the same idiom as APP_PASSWORD below, so a developer's own export
+# cannot turn AC-115.3 red for their shell. Never written to disk, never printed (F-379):
+# only the name may appear in a message here, never the value.
+BETTER_AUTH_SECRET="$(node -e '
+  console.log(require("node:crypto").randomBytes(32).toString("base64url"));
+')" || refuse 'could not generate a BETTER_AUTH_SECRET value.' \
+     'node -e failed generating 32 random bytes as base64url; see the error above.'
+[ -n "$BETTER_AUTH_SECRET" ] || refuse 'node produced an empty BETTER_AUTH_SECRET value.'
+[ "${#BETTER_AUTH_SECRET}" -ge 32 ] || refuse \
+  'the generated BETTER_AUTH_SECRET is shorter than the 32 characters ADR-0051 requires.' \
+  '43 characters is what 32 base64url-encoded bytes should produce; something upstream' \
+  'of this check changed shape. Name only, never the value (F-379).'
+export BETTER_AUTH_SECRET
+
 TMPDIR_CHECK="$(mktemp -d)"
 STACK_OWNED=0
 
@@ -299,6 +379,8 @@ trap cleanup EXIT
 
 UP_TIMEOUT="${SHORTKIT_CHECK_UP_TIMEOUT:-900}"
 HEALTH_URL="${SHORTKIT_CHECK_HEALTH_URL:-http://127.0.0.1:3001/health}"
+WEB_URL="${SHORTKIT_CHECK_WEB_URL:-http://localhost:3000}"
+WEB_URL="${WEB_URL%/}"
 
 # ADR-0031's fixture defaults, and they are literals here on purpose: the harness refuses
 # to run with the override exported, so this is the password the stack must have set. A
@@ -306,6 +388,8 @@ HEALTH_URL="${SHORTKIT_CHECK_HEALTH_URL:-http://127.0.0.1:3001/health}"
 # no password at all.
 APP_ROLE='shortkit_app'
 APP_PASSWORD='app'
+AUTH_ROLE='shortkit_auth'   # ADR-0050: Better Auth's role, and nothing else connects as it
+AUTH_PASSWORD='auth'
 APP_DATABASE='shortkit'
 SUPERUSER='postgres'
 DEMO_TENANT_ID='00000000-0000-4000-8000-000000000001'  # frozen by ADR-0034
@@ -339,6 +423,9 @@ if [ -z "$COMPOSE_FILE_FOUND" ]; then
   blocked 'AC-115.7' 'no compose file: no database to inspect for the seeded demo tenant'
   blocked 'AC-115.8' 'no compose file: nothing is serving /health'
   blocked 'AC-115.9' 'no compose file: nothing is serving /health'
+  blocked 'AC-28.1'  'no compose file: no web app to sign up through'
+  blocked 'AC-28.2'  'no compose file: no web app to sign in through'
+  blocked 'AC-28.3'  'no compose file: no web app to create a workspace through'
   blocked 'DOD-1'    'no compose file: a second up cannot be attempted'
   blocked 'DOD-2'    'no compose file: there is no seeded data to count'
   blocked 'DOD-3'    'no compose file: there is nothing to restart'
@@ -505,6 +592,13 @@ psql_app() { # sql -> stdout, non-zero on any psql error
     psql -v ON_ERROR_STOP=1 -h "$PG_CONTAINER_IP" -p 5432 -U "$APP_ROLE" -d "$APP_DATABASE" -tAc "$1"
 }
 
+# The same exchange as shortkit_auth (ADR-0050). Used by GUARD-1 and by nothing after it:
+# no clause reads Better Auth's tables as this role, the API does that.
+psql_auth() { # sql -> stdout, non-zero on any psql error
+  docker compose exec -T -e "PGPASSWORD=$AUTH_PASSWORD" postgres \
+    psql -v ON_ERROR_STOP=1 -h "$PG_CONTAINER_IP" -p 5432 -U "$AUTH_ROLE" -d "$APP_DATABASE" -tAc "$1"
+}
+
 # The superuser over the unix socket, which the postgres image's generated pg_hba trusts.
 # Needed for exactly two things `shortkit_app` cannot do and must not be able to do:
 # read `drizzle.__drizzle_migrations` (no USAGE on schema drizzle) and count every row in
@@ -527,12 +621,17 @@ if [ -z "$PG_CONTAINER_IP" ]; then
   APP_AUTH_OK=0
   fail 'GUARD-1' "the postgres container's own address could not be determined, so no authenticated connection could be made"
   fail 'GUARD-2' "the postgres container's own address could not be determined, so nothing was established"
-elif psql_app 'select 1' >"$TMPDIR_CHECK/guard1.out" 2>"$TMPDIR_CHECK/guard1.err"; then
-  pass 'GUARD-1' "$APP_ROLE authenticated over TCP with the fixture password"
-  APP_AUTH_OK=1
-else
+elif ! psql_app 'select 1' >"$TMPDIR_CHECK/guard1.out" 2>"$TMPDIR_CHECK/guard1.err"; then
   APP_AUTH_OK=0
   fail 'GUARD-1' "$APP_ROLE could not authenticate over TCP with the fixture password: $(one_line <"$TMPDIR_CHECK/guard1.err")${INTERP_HINT}"
+elif ! psql_auth 'select 1' >"$TMPDIR_CHECK/guard1-auth.out" 2>"$TMPDIR_CHECK/guard1-auth.err"; then
+  # shortkit_app is fine, so the clauses that read as it still run; the third role is what
+  # is missing, and that is the ADR-0050 split silently absent (F-032).
+  APP_AUTH_OK=1
+  fail 'GUARD-1' "$APP_ROLE authenticated, but $AUTH_ROLE could not authenticate over TCP with the fixture password (ADR-0050's role is missing or has no password): $(one_line <"$TMPDIR_CHECK/guard1-auth.err")${INTERP_HINT}"
+else
+  pass 'GUARD-1' "$APP_ROLE and $AUTH_ROLE authenticated over TCP with the fixture passwords"
+  APP_AUTH_OK=1
 fi
 
 if [ -n "$PG_CONTAINER_IP" ]; then
@@ -691,6 +790,203 @@ if [ -s "$TMPDIR_CHECK/health.body" ] && [ "$HTTP_STATUS" != 'TRANSPORT-ERROR' ]
   esac
 else
   blocked 'AC-115.9' 'no response body to read'
+fi
+
+# ---------------------------------------------------------------------------
+# AC-28.1 / .2 / .3 — signup, sign-in, workspace creation, through the web app (TASK-017)
+#
+# Every request goes to WEB_URL, the web app's published port, and reaches the API only
+# through apps/web/app/api/bff/[...path]/route.ts -- the leg a browser takes (ADR-0014).
+# `bff` below is the browser: it sends `Origin` on every request (the BFF's CSRF check and
+# better-auth's origin check both refuse a state-changing request without one), keeps every
+# `Set-Cookie` in a jar under $TMPDIR_CHECK and sends the jar back as `Cookie`, exactly as
+# a browser does with the two HttpOnly cookies sign-in sets (`sk_at`, `sk_rt`).
+#
+# Placed here, after /health and BEFORE the second `up` and the `restart`, because these
+# three need `api` and `web` healthy and DOD-3's `restart` puts both through a boot the
+# script only waits out for postgres. DOD-2's census is taken after this block, so the tenant
+# signup provisions (ADR-0054) is inside both of its counts and does not read as a doubling.
+#
+# NO SEED DATA, ASSERTED RATHER THAN ASSUMED: the address is generated by this run, and
+# Better Auth's `user` table is counted for it before the request (must be 0) and after
+# (must be 1), read by the superuser over the unix socket because that table is
+# `shortkit_auth`'s (ADR-0050) and `shortkit_app` holds no grant on it. The count after is
+# what makes the 200 mean something: under `autoSignIn: false` better-auth answers 200 for
+# an address that already exists (ADR-0061), so the status alone would pass a stack whose
+# signup wrote nothing. The address is bound as a psql variable, never pasted (the rule the
+# AC-115.7 comment states for a value that is not a frozen literal).
+#
+# NOTHING FROM THESE REQUESTS IS PRINTED BUT STATUS CODES AND ERROR BODIES. The password is
+# generated, used twice and dropped; no reason string carries it (F-379).
+# ---------------------------------------------------------------------------
+
+# bff METHOD PATH [JSON-BODY] -> $TMPDIR_CHECK/bff.status, bff.body; the jar in bff.jar
+# is read before the request and rewritten after it. Never fails the script: a transport
+# error is a status of TRANSPORT-ERROR with the message as the body, like the /health probe.
+bff() {
+  node -e '
+const fs = require("node:fs");
+const [method, url, body, jarFile, statusFile, bodyFile] = process.argv.slice(1);
+let jar = {};
+try { jar = JSON.parse(fs.readFileSync(jarFile, "utf8")); } catch { jar = {}; }
+const headers = { origin: new URL(url).origin };
+if (body !== "") headers["content-type"] = "application/json";
+const cookie = Object.entries(jar).map(([name, c]) => `${name}=${c.value}`).join("; ");
+if (cookie !== "") headers.cookie = cookie;
+fetch(url, { method, headers, body: body === "" ? undefined : body, redirect: "manual", signal: AbortSignal.timeout(20000) })
+  .then(async (r) => {
+    for (const line of r.headers.getSetCookie()) {
+      const [pair, ...attrs] = line.split(";").map((s) => s.trim());
+      const eq = pair.indexOf("=");
+      if (eq === -1) continue;
+      const name = pair.slice(0, eq);
+      const value = pair.slice(eq + 1);
+      const lower = attrs.map((a) => a.toLowerCase());
+      const maxAge = lower.find((a) => a.startsWith("max-age="));
+      if (value === "" || (maxAge !== undefined && Number(maxAge.slice(8)) <= 0)) { delete jar[name]; continue; }
+      jar[name] = { value, httpOnly: lower.includes("httponly"), secure: lower.includes("secure") };
+    }
+    fs.writeFileSync(jarFile, JSON.stringify(jar));
+    fs.writeFileSync(statusFile, String(r.status));
+    fs.writeFileSync(bodyFile, await r.text());
+  })
+  .catch((e) => {
+    fs.writeFileSync(statusFile, "TRANSPORT-ERROR");
+    fs.writeFileSync(bodyFile, String((e && e.message) || e));
+  });
+' "$1" "$WEB_URL$2" "${3:-}" "$TMPDIR_CHECK/bff.jar" "$TMPDIR_CHECK/bff.status" "$TMPDIR_CHECK/bff.body" || true
+}
+bff_status() { cat "$TMPDIR_CHECK/bff.status" 2>/dev/null || echo 'NO-REQUEST'; }
+bff_body()   { one_line <"$TMPDIR_CHECK/bff.body" 2>/dev/null || printf 'no body recorded'; }
+
+# bff_field a.b.c -> the string value at that path in the last body, or ABSENT / NOT-JSON.
+bff_field() {
+  node -e '
+const fs = require("node:fs");
+let v;
+try { v = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("NOT-JSON"); process.exit(0); }
+for (const key of process.argv[2].split(".")) { v = (v !== null && typeof v === "object") ? v[key] : undefined; }
+console.log(v === undefined || v === null ? "ABSENT" : (typeof v === "string" ? v : JSON.stringify(v)));
+' "$TMPDIR_CHECK/bff.body" "$1"
+}
+
+# jar_cookie NAME -> "httponly=1 secure=0" style flags, or ABSENT.
+jar_cookie() {
+  node -e '
+const fs = require("node:fs");
+let jar = {};
+try { jar = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { jar = {}; }
+const c = jar[process.argv[2]];
+console.log(c === undefined ? "ABSENT" : `httponly=${c.httpOnly ? 1 : 0} secure=${c.secure ? 1 : 0}`);
+' "$TMPDIR_CHECK/bff.jar" "$1"
+}
+
+# user_rows_for EMAIL -> the number of rows in public."user" with that email, as the
+# superuser over the socket; the address is a bound psql variable.
+user_rows_for() {
+  printf '%s\n' "select count(*) from public.\"user\" where email = :'email';" \
+    | docker compose exec -T postgres \
+        psql -v ON_ERROR_STOP=1 -v "email=$1" -U "$SUPERUSER" -d "$APP_DATABASE" -tAq \
+        2>"$TMPDIR_CHECK/userrows.err" | tr -d '[:space:]'
+}
+
+printf '\n-- the flow, through %s\n' "$WEB_URL" >&2
+FLOW_EMAIL="sc2-$(node -e 'console.log(require("node:crypto").randomBytes(6).toString("hex"))')@example.test"
+FLOW_PASSWORD="$(node -e 'console.log(require("node:crypto").randomBytes(18).toString("base64url"))')"
+FLOW_NAME='SC-2 Operator'
+WORKSPACE_NAME='Acme'
+rm -f "$TMPDIR_CHECK/bff.jar"
+
+SIGNUP_OK=0
+if [ "$UP_OK" -ne 1 ]; then
+  blocked 'AC-28.1' 'the stack did not come up (AC-115.1), so nothing was driven through the web app'
+elif [ "$(service_health web)" != 'healthy' ] || [ "$(service_health api)" != 'healthy' ]; then
+  blocked 'AC-28.1' "the web app or the API is not healthy (web: $(service_health web), api: $(service_health api)), so nothing was driven through the web app"
+elif before="$(user_rows_for "$FLOW_EMAIL")" && [ -n "$before" ] && [ "$before" != '0' ]; then
+  fail 'AC-28.1' "the fresh address already has $before row(s) in public.\"user\" before signup: the database is not the empty one AC-28 describes"
+elif [ -z "${before:-}" ]; then
+  fail 'AC-28.1' "could not count public.\"user\" rows for the address before signup: $(one_line <"$TMPDIR_CHECK/userrows.err")"
+else
+  bff POST /api/bff/auth/sign-up/email "$(node -e 'console.log(JSON.stringify({ email: process.argv[1], password: process.argv[2], name: process.argv[3] }))' "$FLOW_EMAIL" "$FLOW_PASSWORD" "$FLOW_NAME")"
+  status="$(bff_status)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-28.1' "POST $WEB_URL/api/bff/auth/sign-up/email could not be reached: $(bff_body)"
+  elif [ "$status" != '200' ]; then
+    fail 'AC-28.1' "POST /api/bff/auth/sign-up/email returned $status, not 200: $(bff_body)"
+  elif after="$(user_rows_for "$FLOW_EMAIL")" && [ "$after" = '1' ]; then
+    SIGNUP_OK=1
+    pass 'AC-28.1' "POST /api/bff/auth/sign-up/email returned 200 for a fresh address, and public.\"user\" went from 0 to 1 row for it (no seed data, no fixture)"
+  elif [ -z "${after:-}" ]; then
+    fail 'AC-28.1' "signup returned 200 but public.\"user\" could not be counted afterwards: $(one_line <"$TMPDIR_CHECK/userrows.err")"
+  else
+    fail 'AC-28.1' "signup returned 200 but public.\"user\" holds $after row(s) for the address, not 1: the account was not created (better-auth answers 200 for a duplicate under autoSignIn: false, ADR-0061)"
+  fi
+fi
+
+SIGNIN_OK=0
+if [ "$SIGNUP_OK" -ne 1 ]; then
+  blocked 'AC-28.2' 'signup did not succeed, so there are no credentials to sign in with'
+else
+  bff POST /api/bff/auth/sign-in/email "$(node -e 'console.log(JSON.stringify({ email: process.argv[1], password: process.argv[2] }))' "$FLOW_EMAIL" "$FLOW_PASSWORD")"
+  status="$(bff_status)"
+  AT="$(jar_cookie sk_at)"
+  RT="$(jar_cookie sk_rt)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-28.2' "POST $WEB_URL/api/bff/auth/sign-in/email could not be reached: $(bff_body)"
+  elif [ "$status" != '200' ]; then
+    fail 'AC-28.2' "POST /api/bff/auth/sign-in/email returned $status, not 200: $(bff_body)"
+  elif [ "$AT" = 'ABSENT' ] || [ "$RT" = 'ABSENT' ]; then
+    fail 'AC-28.2' "sign-in returned 200 but set no session cookie (sk_at: $AT, sk_rt: $RT): the BFF did not mint a session (ADR-0014)"
+  elif [ "${AT#httponly=1}" = "$AT" ] || [ "${RT#httponly=1}" = "$RT" ]; then
+    fail 'AC-28.2' "sign-in set both cookies but not HttpOnly (sk_at: $AT, sk_rt: $RT); web-api-client.md requires HttpOnly on both"
+  else
+    bff GET /api/bff/session
+    session_status="$(bff_status)"
+    projected="$(bff_field status)"
+    projected_email="$(bff_field user.email)"
+    if [ "$session_status" != '200' ]; then
+      fail 'AC-28.2' "sign-in set both cookies but GET /api/bff/session returned $session_status: $(bff_body)"
+    elif [ "$projected" != 'authenticated' ] || [ "$projected_email" != "$FLOW_EMAIL" ]; then
+      fail 'AC-28.2' "sign-in set both cookies but GET /api/bff/session projects status \"$projected\" for user.email \"$projected_email\", not an authenticated session for the signed-up address"
+    else
+      SIGNIN_OK=1
+      pass 'AC-28.2' 'POST /api/bff/auth/sign-in/email returned 200 and set HttpOnly sk_at and sk_rt; GET /api/bff/session projects the address as authenticated'
+    fi
+  fi
+fi
+
+if [ "$SIGNIN_OK" -ne 1 ]; then
+  blocked 'AC-28.3' 'sign-in did not return a session, so no workspace could be created'
+else
+  bff POST /api/bff/workspaces "$(node -e 'console.log(JSON.stringify({ name: process.argv[1] }))' "$WORKSPACE_NAME")"
+  status="$(bff_status)"
+  created_id="$(bff_field id)"
+  created_name="$(bff_field name)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-28.3' "POST $WEB_URL/api/bff/workspaces could not be reached: $(bff_body)"
+  elif [ "$status" != '201' ]; then
+    fail 'AC-28.3' "POST /api/bff/workspaces returned $status, not 201: $(bff_body)"
+  elif [ "$created_id" = 'ABSENT' ] || [ "$created_id" = 'NOT-JSON' ] || [ "$created_name" != "$WORKSPACE_NAME" ]; then
+    fail 'AC-28.3' "POST /api/bff/workspaces returned 201 but the body is not a workspace (id: $created_id, name: $created_name): $(bff_body)"
+  else
+    bff GET /api/bff/workspaces
+    list_status="$(bff_status)"
+    listed="$(node -e '
+const fs = require("node:fs");
+let b;
+try { b = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("NOT-JSON"); process.exit(0); }
+if (b === null || typeof b !== "object" || !Array.isArray(b.items)) { console.log("NO-ITEMS-ARRAY"); process.exit(0); }
+const hit = b.items.find((w) => w && w.id === process.argv[2]);
+console.log(hit === undefined ? `NOT-LISTED (${b.items.length} item(s))` : (hit.name === process.argv[3] ? "LISTED" : `LISTED-AS ${JSON.stringify(hit.name)}`));
+' "$TMPDIR_CHECK/bff.body" "$created_id" "$WORKSPACE_NAME")"
+    if [ "$list_status" != '200' ]; then
+      fail 'AC-28.3' "the workspace was created but GET /api/bff/workspaces returned $list_status: $(bff_body)"
+    elif [ "$listed" != 'LISTED' ]; then
+      fail 'AC-28.3' "the workspace was created (id $created_id) but the workspace list did not contain it as \"$WORKSPACE_NAME\": $listed"
+    else
+      pass 'AC-28.3' "POST /api/bff/workspaces returned 201 with id $created_id, and GET /api/bff/workspaces lists it as \"$WORKSPACE_NAME\""
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------------------

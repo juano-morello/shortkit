@@ -29,6 +29,8 @@
  *    answers zero rows for a relation the connected role cannot see, which reads
  *    identically to "the column is absent".
  */
+import { request as httpRequest } from 'node:http';
+
 import { migrationDsn } from './rls-fixture';
 import { execSql, querySql } from './psql';
 import type { ApiServer } from './api-server';
@@ -42,7 +44,7 @@ export const POLICY_COMPLIANT_PASSWORD = 'quilted-harbour-19-lantern';
 
 /**
  * One character. **No artifact in this repository states a password policy** — not
- * `STORY-005`, not ADR-0013, not `design/contracts/auth-tokens.md` — so the only
+ * `STORY-005`, not ADR-0013, not `docs/contracts/auth-tokens.md` — so the only
  * policy of record is the pinned release's own floor, which probing
  * `better-auth@1.6.26` puts at 8 characters (7 answers `400 PASSWORD_TOO_SHORT`, 8 is
  * accepted). A single character fails that floor and every policy anyone could state
@@ -53,7 +55,7 @@ export const TOO_SHORT_PASSWORD = 'x';
 
 /**
  * Better Auth's sign-up endpoint **requires** `name` in 1.6.26: a body without it
- * answers 400. `design/contracts/auth-tokens.md:47` writes the body as
+ * answers 400. `docs/contracts/auth-tokens.md:47` writes the body as
  * `{ email, password, name?, invitationToken? }`, with `name` optional. The fixture
  * sends one so no test depends on which of the two is corrected.
  */
@@ -63,10 +65,11 @@ export const SIGNUP_NAME = 'Integration Fixture';
  * Environment for the API child process.
  *
  * Every name here is **decided by this fixture**, exactly as `src/health/health.spec.ts`
- * decides `GIT_COMMIT_SHA` and says so: no ADR, contract, `.env.example` or workflow
- * names the variables the auth mount reads. `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`
+ * decides `GIT_COMMIT_SHA` and says so (written when no `.env.example` named them;
+ * `apps/api/.env.example` lists `GIT_COMMIT_SHA` and the auth mount's variables since
+ * TASK-009, and the fixture still decides its own values). `BETTER_AUTH_URL` and `BETTER_AUTH_SECRET`
  * are `better-auth`'s own conventions; `BFF_PROXY_SECRET` is named in
- * `design/contracts/rate-limit.md:129` and is here because TASK-009 adds
+ * `docs/contracts/rate-limit.md:129` and is here because TASK-009 adds
  * `assertBffProxySecretConfigured()` to `main.ts`, which refuses to boot without it.
  * If an implementer picks other names, this function is the single edit.
  *
@@ -79,7 +82,8 @@ export const SIGNUP_NAME = 'Integration Fixture';
 export function authServerEnv(baseUrl: string): Record<string, string> {
   return {
     NODE_ENV: 'test',
-    DATABASE_URL: appDsnOrThrow(),
+    DATABASE_URL: dsnOrThrow('DATABASE_URL', 'shortkit_app'),
+    DATABASE_AUTH_URL: dsnOrThrow('DATABASE_AUTH_URL', 'shortkit_auth'),
     GIT_COMMIT_SHA: '3d1f7a0c94b25e68af31c07d5b8e4a2196fd0c7b',
     BETTER_AUTH_URL: baseUrl,
     BETTER_AUTH_SECRET: 'integration-fixture-better-auth-secret-not-a-real-key',
@@ -93,19 +97,23 @@ export function authServerEnv(baseUrl: string): Record<string, string> {
 }
 
 /**
- * The runtime role's DSN, read the way `rls-fixture.ts` reads it so the remedy
- * message stays in one place. The API child connects as `shortkit_app`, which is
- * F-122's rule: checking as the migrator would prove nothing about the DSN the API
- * actually uses.
+ * One reader for both DSNs the API child needs, so the two remedy messages cannot say a
+ * different number of variables to each other (F-052). Read the way `rls-fixture.ts`'s
+ * `dsn()` reads `DATABASE_URL`/`DATABASE_MIGRATION_URL`, so the remedy stays in one
+ * shape across both files: no fallback from `DATABASE_AUTH_URL` to `DATABASE_URL`,
+ * because a fallback here would spawn the API child connecting to Better Auth's tables
+ * as `shortkit_app` — exactly the role ADR-0050's split exists to keep off them.
  */
-function appDsnOrThrow(): string {
-  const value = process.env.DATABASE_URL;
+function dsnOrThrow(variable: 'DATABASE_URL' | 'DATABASE_AUTH_URL', role: string): string {
+  const value = process.env[variable];
 
   if (value === undefined || value === '') {
     throw new Error(
-      'DATABASE_URL is not set. The integration suite needs a live Postgres: start it ' +
+      `${variable} is not set. The integration suite needs a live Postgres: start it ` +
         'with `docker compose -f docker-compose.test.yml up -d` and export DATABASE_URL ' +
-        '(shortkit_app) and DATABASE_MIGRATION_URL (shortkit_migrator).',
+        '(shortkit_app), DATABASE_MIGRATION_URL (shortkit_migrator) and DATABASE_AUTH_URL ' +
+        `(shortkit_auth) — see that file's header for the exact export lines. This call ` +
+        `needed ${variable} (${role}).`,
     );
   }
 
@@ -119,6 +127,63 @@ export interface AuthResponse {
   readonly raw: string;
   /** `name=value; name=value`, ready to send back as a `Cookie` header. */
   readonly cookie: string;
+  /**
+   * Every `Set-Cookie` header verbatim, attributes included.
+   *
+   * ADDED 2026-08-16, wave 2. `cookie` above is built for ROUND-TRIPPING a session back to
+   * the server, so it strips every attribute — which means nothing that reads it can see
+   * `Secure`, `HttpOnly`, `SameSite`, `Max-Age` or the `__Secure-` name prefix, and
+   * `auth-config-surface.md`'s cookie table is exactly a statement about those. Exposed
+   * here rather than parsed out of a raw `Response` in a spec, so one parser serves every
+   * caller (F-077: this directory is the test architect's).
+   */
+  readonly setCookie: readonly string[];
+}
+
+/**
+ * One `Set-Cookie` header, split into its name, its value and its attributes.
+ *
+ * Attribute names are lower-cased; a valueless attribute (`Secure`, `HttpOnly`) maps to the
+ * empty string, so presence is `key in attributes` and a value is `attributes[key]`.
+ */
+export interface ParsedCookie {
+  readonly name: string;
+  readonly value: string;
+  readonly attributes: Readonly<Record<string, string>>;
+}
+
+export function parseSetCookie(header: string): ParsedCookie {
+  const [pair, ...rest] = header.split(';');
+  const separator = pair.indexOf('=');
+
+  const attributes: Record<string, string> = {};
+  for (const part of rest) {
+    const trimmed = part.trim();
+    const at = trimmed.indexOf('=');
+
+    attributes[(at === -1 ? trimmed : trimmed.slice(0, at)).toLowerCase()] =
+      at === -1 ? '' : trimmed.slice(at + 1);
+  }
+
+  return {
+    name: separator === -1 ? pair : pair.slice(0, separator),
+    value: separator === -1 ? '' : pair.slice(separator + 1),
+    attributes,
+  };
+}
+
+/**
+ * The session-token cookie a response set, or `undefined` when it set none.
+ *
+ * Matched on the name ENDING in `better-auth.session_token` rather than equalling it,
+ * because `advanced.useSecureCookies` renames every cookie with a `__Secure-` prefix
+ * (`cookies/index.mjs:20,30`) — so a caller asserting on the prefix has to be able to find
+ * the cookie whichever name it carries.
+ */
+export function sessionTokenCookie(response: AuthResponse): ParsedCookie | undefined {
+  return response.setCookie
+    .map(parseSetCookie)
+    .find((cookie) => cookie.name.endsWith('better-auth.session_token') && cookie.value !== '');
 }
 
 /**
@@ -156,13 +221,96 @@ export async function authRequest(
     /* left as the raw text */
   }
 
-  const cookie = response.headers
-    .getSetCookie()
+  const setCookie = response.headers.getSetCookie();
+
+  const cookie = setCookie
     .map((header) => header.split(';')[0])
     .filter((pair) => !pair.endsWith('='))
     .join('; ');
 
-  return { status: response.status, body, raw, cookie };
+  return { status: response.status, body, raw, cookie, setCookie };
+}
+
+/**
+ * One request to the auth surface carrying a `Host` header this fixture chooses.
+ *
+ * ============================================================================
+ * `fetch` CANNOT DO THIS, WHICH IS THE ONLY REASON THIS FUNCTION EXISTS.
+ * ============================================================================
+ *
+ * `Host` is a forbidden header name, and undici DROPS it silently rather than refusing:
+ * measured against Node 24.19 through a loopback `http.createServer`, `fetch(url, {
+ * headers: { host: 'evil.test' } })` arrives with `req.headers.host` equal to the real
+ * authority, with no error anywhere. A test written on `authRequest` would therefore assert
+ * that the issuer does not follow a header it never sent, and would pass against the exact
+ * configuration `auth-config-surface.md` invariant 2 exists to forbid.
+ *
+ * `node:http` sets it verbatim (measured the same way: `req.headers.host` reads
+ * `evil.test`), so this is the raw client. Everything else matches `authRequest`: the
+ * `Origin` header is the server's own, the body is read as text before it is parsed, and
+ * the same `AuthResponse` comes back.
+ */
+export async function authRequestWithHost(
+  server: ApiServer,
+  method: 'GET' | 'POST',
+  path: string,
+  options: { readonly host: string; readonly body?: unknown; readonly cookie?: string },
+): Promise<AuthResponse> {
+  const target = new URL(`${server.baseUrl}/api/auth${path}`);
+  const payload = options.body === undefined ? undefined : JSON.stringify(options.body);
+
+  return new Promise<AuthResponse>((resolve, reject) => {
+    const request = httpRequest(
+      {
+        host: target.hostname,
+        port: target.port,
+        path: target.pathname + target.search,
+        method,
+        headers: {
+          host: options.host,
+          origin: server.baseUrl,
+          ...(payload === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(options.cookie === undefined || options.cookie === ''
+            ? {}
+            : { cookie: options.cookie }),
+        },
+      },
+      (response) => {
+        let raw = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk: string) => (raw += chunk));
+        response.on('end', () => {
+          let body: unknown = raw;
+          try {
+            body = JSON.parse(raw) as unknown;
+          } catch {
+            /* left as the raw text */
+          }
+
+          const setCookie = response.headers['set-cookie'] ?? [];
+
+          resolve({
+            status: response.statusCode ?? 0,
+            body,
+            raw,
+            cookie: setCookie
+              .map((header) => header.split(';')[0])
+              .filter((pair) => !pair.endsWith('='))
+              .join('; '),
+            setCookie,
+          });
+        });
+      },
+    );
+
+    request.on('error', reject);
+
+    if (payload !== undefined) {
+      request.write(payload);
+    }
+
+    request.end();
+  });
 }
 
 export async function signUp(
@@ -234,6 +382,176 @@ function columnMatching(table: string, pattern: string): string {
   }
 
   return rows[0].attname;
+}
+
+export interface UserRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly email: string;
+  readonly emailVerified: boolean;
+}
+
+/**
+ * Every `user` row for an address, with the id and the verification flag.
+ *
+ * A separate read from `accountsFor` rather than a widening of it: that one is TASK-009's,
+ * its callers assert on a row shape carrying exactly `emailVerified`, and adding a column
+ * to a shared reader is how a fixture change breaks a suite it was not written for.
+ *
+ * ⚠ NO POLICY GATES THIS. `relrowsecurity` is false on all five Better Auth tables
+ * (ADR-0056, measured), so this is an unfiltered read and the count it returns is the whole
+ * table's. The `tenants` reader below is the opposite case and says so.
+ */
+export function usersFor(email: string): UserRow[] {
+  const verified = columnMatching('user', '^email_?verified$');
+
+  return querySql<UserRow>(
+    migrationDsn(),
+    `SELECT id, email, "${verified}" AS "emailVerified"
+       FROM "user"
+      WHERE lower(email) = lower(:'email')`,
+    { variables: { email } },
+  );
+}
+
+/** How many `user` rows exist in total. No policy filters it; see `usersFor`. */
+export function countUsers(): number {
+  const rows = querySql<{ total: number }>(
+    migrationDsn(),
+    'SELECT count(*)::int AS total FROM "user"',
+  );
+
+  return rows[0]?.total ?? 0;
+}
+
+export interface MembershipRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly userId: string;
+  readonly role: string;
+}
+
+/**
+ * Every `tenant_memberships` row belonging to a user, across every tenant.
+ *
+ * ============================================================================
+ * READ THROUGH `app.membership_lookup_user`, WHICH IS A POLICY AND NOT A WHERE CLAUSE.
+ * ============================================================================
+ *
+ * `tenant_memberships` carries FORCE ROW LEVEL SECURITY, so `shortkit_migrator` is subject
+ * to its policies even though it owns the table (migration `0001`). Two policies can admit
+ * a read: `tenant_memberships_tenant_isolation`, which needs the tenant id the caller is
+ * asking FOR, and `tenant_memberships_membership_lookup` (ADR-0045), which admits exactly
+ * the rows whose `user_id` equals this flag — across every tenant, which is the direction a
+ * "did signup write exactly one membership, anywhere?" assertion needs.
+ *
+ * So a caller that knows only a user id can still ask, and the answer is the whole truth
+ * for that user rather than the truth inside one tenant.
+ */
+export function membershipsFor(userId: string): MembershipRow[] {
+  return querySql<MembershipRow>(
+    migrationDsn(),
+    `SELECT id, tenant_id AS "tenantId", user_id AS "userId", role
+       FROM tenant_memberships
+      WHERE user_id = :'user_id'`,
+    { variables: { user_id: userId }, flags: { 'app.membership_lookup_user': userId } },
+  );
+}
+
+export interface TenantRow extends Record<string, unknown> {
+  readonly id: string;
+  readonly name: string;
+}
+
+/**
+ * The `tenants` row with this id, or `undefined` when none is visible.
+ *
+ * ============================================================================
+ * THERE IS NO WAY TO COUNT `tenants` FROM THE SUITE, AND THAT IS DELIBERATE UPSTREAM.
+ * ============================================================================
+ *
+ * `tenants_self_select` is `USING (id = nullif(current_setting('app.tenant_id', true), '')::uuid)`
+ * and the table is FORCE ROW LEVEL SECURITY, so **one context sees at most one row** — its
+ * own. Every DSN the integration suite is given is NOBYPASSRLS on purpose
+ * (`docker-compose.test.yml`: "a superuser is exempt from every policy and would make
+ * AC-8..AC-11 vacuous"), so no reader here can produce `SELECT count(*) FROM tenants`.
+ *
+ * A caller therefore asserts on the tenant it can NAME — the one its membership row points
+ * at — and cannot assert that no OTHER tenant row was written. That residual is stated on
+ * the assertion that needs it, in `test/auth/signup-creates-tenant.int-spec.ts`.
+ */
+export function tenantRow(tenantId: string): TenantRow | undefined {
+  return querySql<TenantRow>(
+    migrationDsn(),
+    `SELECT id, name FROM tenants WHERE id = :'tenant_id'::uuid`,
+    { tenantId, variables: { tenant_id: tenantId } },
+  )[0];
+}
+
+/**
+ * Deletes one user's membership row, leaving the `user` row and its tenant in place.
+ *
+ * ============================================================================
+ * THIS PRODUCES A STATE NO SHIPPED CODE PATH PRODUCES. STORY-001 SAYS SO (Concern 2).
+ * ============================================================================
+ *
+ * AC-4 is stated over "a `user` row that has no `tenant_memberships` row". In this
+ * initiative that state arises only from ADR-0015's invited branch, which is out of scope,
+ * or from ADR-0054's residue, which needs a write to fail. So the fixture constructs it,
+ * and the AC is still worth having because `tenantIdForUser` throwing is the primary stop
+ * ADR-0015 names.
+ *
+ * BOTH FLAGS, and the second is not decoration — the same measurement `rls-fixture.ts`
+ * records: `tenant_memberships_privileged_erase` is `FOR DELETE` and grants no read, so a
+ * `DELETE ... WHERE user_id = ...` references a column, PostgreSQL applies the SELECT
+ * policies to it, and with no readable context the statement finds no row and reports
+ * `DELETE 0` with no error at all.
+ */
+export function deleteMembershipFor(userId: string, tenantId: string): void {
+  execSql(
+    migrationDsn(),
+    `DELETE FROM tenant_memberships WHERE user_id = :'user_id'`,
+    {
+      variables: { user_id: userId },
+      flags: { 'app.privileged_erase': tenantId, 'app.tenant_id': tenantId },
+    },
+  );
+}
+
+/**
+ * Erases a tenant row, and with it every tenant-scoped row that cascades from it.
+ *
+ * `tenants_privileged_erase` is the only DELETE path on the table (F-005) and needs
+ * `app.tenant_id` as well, for the reason `deleteMembershipFor` above states: the `WHERE`
+ * references `id`, so the SELECT policies apply to the DELETE.
+ */
+export function eraseTenant(tenantId: string): void {
+  execSql(migrationDsn(), `DELETE FROM tenants WHERE id = :'tenant_id'::uuid`, {
+    variables: { tenant_id: tenantId },
+    flags: { 'app.privileged_erase': tenantId, 'app.tenant_id': tenantId },
+  });
+}
+
+/**
+ * Takes an address back to "the tables are empty" — the state AC-1 is stated over.
+ *
+ * ORDER IS LOAD-BEARING. The tenants a signup created are only reachable through that
+ * user's membership rows, so they have to be erased BEFORE `clearAuthTables()` removes the
+ * `user` row that leads to them. Reversed, the tenant rows are stranded: nothing in the
+ * suite can enumerate `tenants` (see `tenantRow`), so nothing could ever find them again.
+ */
+export function clearSignupState(...emails: readonly string[]): void {
+  // VARIADIC, and it has to be: `clearAuthTables()` empties `user` for EVERY address, so
+  // calling this once per address in a loop would delete the second address's user row on
+  // the first pass and then have no way to find the tenants it led to.
+  for (const email of emails) {
+    for (const user of usersFor(email)) {
+      for (const membership of membershipsFor(user.id)) {
+        eraseTenant(membership.tenantId);
+      }
+    }
+  }
+
+  clearAuthTables();
 }
 
 export interface AccountRow extends Record<string, unknown> {

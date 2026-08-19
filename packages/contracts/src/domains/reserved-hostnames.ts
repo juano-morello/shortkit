@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/domain-provisioning.md
+ * Contract: docs/contracts/domain-provisioning.md
  * ADR: adr-0016-domain-provisioning.md (F-003)
  * Produced by: TASK-038
  * Consumed by: TASK-040 (rejection at POST /api/domains), TASK-041 (inline validation)

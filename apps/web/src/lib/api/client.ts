@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/web-api-client.md
+ * Contract: docs/contracts/web-api-client.md
  * ADR: adr-0014-web-session-handling.md, adr-0005, adr-0013, adr-0029, adr-0038
  * Produced by: TASK-008
  * Consumed by: TASK-012, 015, 019, 022, 026, 028, 041, 044, 047, 050, 052, 055, 057
@@ -14,6 +14,11 @@
  * no error carries a `cause` but RequestAbortedError, a template may not repeat a
  * placeholder, `isMutatingMethod` is a denylist that uppercases, and
  * `invalidParamValueMessage` names the condition F-312 gave it.
+ *
+ * Amended 2026-08-17 (TASK-007, identity-membership wave 4): `serverApiClient`,
+ * `mapBetterAuthError` and `buildUpstreamUrl` are MATERIALISED — the three F-291 deferrals
+ * are done, their consumers (the BFF proxy route and the auth surface) now exist. The 422
+ * code question (F-289) is decided in `mapBetterAuthError`'s docblock.
  */
 import { isErrorEnvelope } from '@shortkit/contracts';
 import type { z } from 'zod';
@@ -510,8 +515,18 @@ export async function apiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes> {
     throw new NetworkError(networkReadMessage(req.method, req.path), req.path);
   }
 
-  if (!response.ok) {
-    throw toApiError(response.status, raw);
+  return interpretResponse(req, response.status, response.ok, raw);
+}
+
+/**
+ * Response-handling steps 1, 2 and 5, ordered and normative (web-api-client.md), shared by
+ * `apiClient` (browser leg) and `serverApiClient` (server leg) so the four-way AC-15 split
+ * is one implementation. The transport/abort steps (6, 7) stay at each caller, because they
+ * key on that caller's own `fetch` rejection.
+ */
+function interpretResponse<TRes>(req: ApiRequest<TRes>, status: number, ok: boolean, raw: string): TRes {
+  if (!ok) {
+    throw toApiError(status, raw);
   }
 
   let body: unknown;
@@ -539,37 +554,244 @@ export async function apiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes> {
 }
 
 /**
- * DEFERRED 2026-08-10 by the F-291 ruling (TASK-008.md). Its consumers — the BFF proxy
- * route (TASK-012) and the auth surface (TASK-009) — left the initiative with EPIC-002, so
- * nothing calls this today and no TASK is assigned to materialise it. This is a recorded
- * deferral, NOT an oversight: do not implement it under another TASK without re-scoping,
- * and do not delete it, because web-api-client.md still specifies it.
+ * MATERIALISED by TASK-007 (was DEFERRED under the F-291 ruling until wave 4).
  *
- * Server components. Reads `sk_at` via next/headers cookies() and calls Fly directly,
- * one hop instead of two. It cannot set cookies during render, so on `token_expired`
- * it throws a redirect to a refresh route handler that bounces back.
+ * Server components. Reads `sk_at` via next/headers `cookies()` and calls the API DIRECTLY
+ * at `API_BASE_URL` with `Authorization: Bearer <sk_at>` — one hop, not two, because a
+ * server component is already inside the Vercel function and does not need the proxy
+ * (web-api-client.md topology). The response is handled by the SAME ordered steps as
+ * `apiClient` (`interpretResponse`), so AC-15's four-way split holds identically.
+ *
+ * IT CANNOT SET COOKIES DURING RENDER (invariant 5): `cookies().set()` throws outside an
+ * action/route-handler phase. So on a 401 `token_expired` it does NOT refresh in place; it
+ * throws a `redirect` to a route handler that refreshes `sk_at` from `sk_rt` and bounces
+ * back: `app/api/bff/session/refresh/route.ts` (TASK-007), reached through
+ * `SERVER_COMPONENT_REFRESH_PATH`. No `returnTo` is passed: a server component has no
+ * reliable view of the URL being rendered (no middleware sets one, and `Referer` names the
+ * PREVIOUS page), so the bounce lands on that route's default, `/`. A protected page that
+ * wants to return to itself can catch the redirect and re-issue it with `?returnTo=`.
+ *
+ * `next/headers` and `next/navigation` are imported DYNAMICALLY so this server path never
+ * enters a client bundle that only wanted `apiClient`.
+ *
+ * It sends NO `Origin`, so it must never be used for a POST to `/api/auth/*` (a server-side
+ * mutation at the auth surface 403s, F-233); sign-in/up/out go through the proxy route.
  */
-export function serverApiClient<TRes>(_req: ApiRequest<TRes>): Promise<TRes> {
-  throw new Error('not implemented');
+export async function serverApiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes> {
+  // Reuse the browser-leg construction and its normative rejections, then swap the
+  // same-origin BFF prefix for the server-only API base. `buildRequestUrl` throws the same
+  // plain Errors on an invalid template/params, before any request is made.
+  const apiPath = buildRequestUrl(req).slice(BFF_PATH_PREFIX.length);
+  const base = serverApiBaseUrl();
+
+  const { cookies } = await import('next/headers');
+  const store = await cookies();
+  const accessToken = store.get('sk_at')?.value;
+
+  const headers: Record<string, string> = {};
+
+  if (accessToken !== undefined && accessToken !== '') {
+    headers.authorization = `Bearer ${accessToken}`;
+  }
+
+  if (req.body !== undefined) {
+    headers['content-type'] = 'application/json';
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${base}${apiPath}`, {
+      method: req.method,
+      headers,
+      body: req.body === undefined ? undefined : JSON.stringify(req.body),
+      signal: req.signal,
+      redirect: 'manual',
+    });
+  } catch {
+    if (req.signal?.aborted === true) {
+      throw new RequestAbortedError(req.method, req.path, { cause: req.signal.reason });
+    }
+
+    throw new NetworkError(networkSendMessage(req.method, req.path), req.path);
+  }
+
+  let raw: string;
+
+  try {
+    raw = await response.text();
+  } catch {
+    if (req.signal?.aborted === true) {
+      throw new RequestAbortedError(req.method, req.path, { cause: req.signal.reason });
+    }
+
+    throw new NetworkError(networkReadMessage(req.method, req.path), req.path);
+  }
+
+  // Invariant 5: a token_expired cannot be refreshed in render. Bounce to the route handler.
+  if (response.status === 401 && isTokenExpired(raw)) {
+    const { redirect } = await import('next/navigation');
+    redirect(SERVER_COMPONENT_REFRESH_PATH);
+  }
+
+  return interpretResponse(req, response.status, response.ok, raw);
 }
 
 /**
- * DEFERRED 2026-08-10 by the F-291 ruling (TASK-008.md). Its consumers are the auth
- * screens (TASK-009), which left the initiative with EPIC-002. A recorded deferral, not an
- * oversight. Until it lands, a wrong password arrives through response-handling step 5 as
- * `{ code: 'internal_error', status: 401 }` and AC-20's behaviour is unreachable.
- *
- * ONE DESIGN QUESTION IS OPEN for whoever materialises it (F-289): 422 has no row in
- * ERROR_CODE_STATUS, and the code that carries USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL is
- * undecided. Constraints on the answer are in error-envelope.md, "Open: the code Better
- * Auth's 422 carries". `ApiError.status` and `ApiError.code` are independent, which is
- * what makes 422 expressible without touching the registry.
- *
- * Better Auth's routes are mounted outside Nest (ADR-0013), so their error bodies are
- * Better Auth's native shape, NOT ErrorEnvelope. Eight probed shapes: auth-tokens.md.
+ * The refresh-and-bounce route handler `serverApiClient` redirects to on `token_expired`:
+ * `app/api/bff/session/refresh/route.ts` (TASK-007). It accepts an optional same-origin
+ * relative `?returnTo=`; absent, it bounces to `/`. Invariant 5.
  */
-export function mapBetterAuthError(_status: number, _body: unknown): ApiError {
-  throw new Error('not implemented');
+export const SERVER_COMPONENT_REFRESH_PATH = '/api/bff/session/refresh';
+
+/** `true` when a 401 body is a `token_expired` envelope (the code the BFF/serverClient branches on). */
+function isTokenExpired(raw: string): boolean {
+  const body = tryParseJson(raw);
+
+  return isErrorEnvelope(body) && body.code === 'token_expired';
+}
+
+function serverApiBaseUrl(): string {
+  const value = process.env.API_BASE_URL;
+
+  if (value === undefined || value.trim() === '') {
+    throw new Error('API_BASE_URL is not set. serverApiClient reaches the API through it (ADR-0014).');
+  }
+
+  return value;
+}
+
+/**
+ * MATERIALISED by TASK-007 (was DEFERRED under the F-291 ruling until wave 4). Its consumer
+ * is the BFF proxy route, this same TASK: the route maps Better Auth's native error bodies
+ * through this so the browser sees an `ErrorEnvelope`-shaped `ApiError` with a real `code`,
+ * not the generic `internal_error` step 5 would otherwise produce for a wrong password.
+ *
+ * Better Auth's `/api/auth/*` mount sits outside Nest (ADR-0013), so no Nest filter shapes
+ * its errors: every body is `{ message, code }` and NOT `ErrorEnvelope`. The eight probed
+ * shapes are in auth-tokens.md ("Error bodies, verbatim from 1.6.26"), and a 429 from the
+ * email rate limiter carries the seconds in a `retryAfterSeconds` BODY field with no
+ * `code: "rate_limited"` (F-027) — an unmapped 429 renders as the generic error and the
+ * sign-in screen shows the wrong thing.
+ *
+ * ----------------------------------------------------------------------------
+ * THE 422 CODE, DECIDED HERE (F-289; error-envelope.md "Open: the code Better Auth's 422
+ * carries"). USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL maps to the EXISTING code
+ * `validation_failed`, with the transport status preserved as 422.
+ * ----------------------------------------------------------------------------
+ *
+ * Why an existing code and not a new one: `ERROR_CODES` is append-only and a code's status
+ * is then permanent (errors.ts), no `/api` route would emit a new code (the registry has
+ * never held a web-only code), and a code that means "this email already has an account" is
+ * an account-enumeration disclosure that must justify itself — which, since ADR-0061 made a
+ * duplicate signup answer 200 exactly like a fresh one, has NO caller on the primary path
+ * to justify. The 422 is now a legacy/sign-in-adjacent shape only. `validation_failed`
+ * reads slightly wrong (the request was well-formed; the conflict is with stored state),
+ * and that is the accepted cost of adding nothing permanent to the registry.
+ * `ApiError.status` is independent of `code` (F-289), so `{ code: 'validation_failed',
+ * status: 422 }` is expressible with no registry change.
+ *
+ * The origin errors (MISSING_OR_NULL_ORIGIN, INVALID_ORIGIN) map to `internal_error`: they
+ * mean the proxy or its `WEB_APP_ORIGINS` config is wrong, never that the operator did
+ * something, so they are not surfaced as a user-actionable message.
+ */
+export function mapBetterAuthError(status: number, body: unknown, retryAfterHeader?: string | null): ApiError {
+  const native = betterAuthBody(body);
+
+  // 429: `Retry-After` header first, `retryAfterSeconds` body field as the fallback (F-027,
+  // rate-limit.md). The Express limiters set the header; the Better Auth email hook does not.
+  if (status === 429) {
+    return new ApiError({
+      code: 'rate_limited',
+      status,
+      message: native.message ?? UNEXPECTED_RESPONSE_MESSAGE,
+      retryAfterSeconds: retryAfterFromHeader(retryAfterHeader) ?? retryAfterFromBody(body),
+    });
+  }
+
+  const mapped = native.code === undefined ? undefined : BETTER_AUTH_CODE_MAP[native.code];
+
+  if (mapped === undefined) {
+    // An unrecognised shape — an HTML page from an interposed proxy, an empty body, a code
+    // this table does not name — is internal_error at the original status (step 5).
+    return new ApiError({ code: 'internal_error', status, message: UNEXPECTED_RESPONSE_MESSAGE });
+  }
+
+  // A message is surfaced only for the codes a user can act on; the others carry the
+  // generic message so an operator/config fault is not rendered as their mistake.
+  const message =
+    BETTER_AUTH_MESSAGE_SURFACED.has(native.code as string) && native.message !== undefined
+      ? native.message
+      : UNEXPECTED_RESPONSE_MESSAGE;
+
+  return new ApiError({ code: mapped, status, message });
+}
+
+/** The eight probed Better Auth codes (auth-tokens.md) mapped onto our registry. */
+const BETTER_AUTH_CODE_MAP: Record<string, ErrorCode> = {
+  VALIDATION_ERROR: 'validation_failed',
+  PASSWORD_TOO_SHORT: 'validation_failed',
+  PASSWORD_TOO_LONG: 'validation_failed',
+  USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: 'validation_failed',
+  INVALID_EMAIL_OR_PASSWORD: 'unauthenticated',
+  MISSING_OR_NULL_ORIGIN: 'internal_error',
+  INVALID_ORIGIN: 'internal_error',
+  // The token-mint refusal for an account with no tenant membership (auth.config.ts,
+  // ADR-0055). A 403 the user cannot fix by retrying; not surfaced as their message.
+  NO_TENANT_MEMBERSHIP: 'internal_error',
+};
+
+/** Native codes whose message is safe and useful to show a signed-out visitor. */
+const BETTER_AUTH_MESSAGE_SURFACED = new Set<string>([
+  'VALIDATION_ERROR',
+  'PASSWORD_TOO_SHORT',
+  'PASSWORD_TOO_LONG',
+  'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL',
+  'INVALID_EMAIL_OR_PASSWORD',
+]);
+
+/** Reads `{ message?, code? }` off an unknown Better Auth body without trusting its shape. */
+function betterAuthBody(body: unknown): { message?: string; code?: string } {
+  if (typeof body !== 'object' || body === null) {
+    return {};
+  }
+
+  const candidate = body as { message?: unknown; code?: unknown };
+
+  return {
+    message: typeof candidate.message === 'string' ? candidate.message : undefined,
+    code: typeof candidate.code === 'string' ? candidate.code : undefined,
+  };
+}
+
+/** The `retryAfterSeconds` body field, when it is a finite non-negative number (F-027). */
+function retryAfterFromBody(body: unknown): number | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return undefined;
+  }
+
+  const value = (body as { retryAfterSeconds?: unknown }).retryAfterSeconds;
+
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * The `Retry-After` HEADER as delta-seconds, when present and a non-negative integer.
+ * The HTTP-date form is not parsed: neither limiter in this design emits it, and a date
+ * would need a clock this module deliberately does not read.
+ */
+function retryAfterFromHeader(header: string | null | undefined): number | undefined {
+  if (header === undefined || header === null) {
+    return undefined;
+  }
+
+  const trimmed = header.trim();
+
+  if (!/^\d{1,10}$/.test(trimmed)) {
+    return undefined;
+  }
+
+  return Number(trimmed);
 }
 
 /**
@@ -577,10 +799,8 @@ export function mapBetterAuthError(_status: number, _body: unknown): ApiError {
  * BFF proxy upstream URL. F-008. Used by app/api/bff/[...path]/route.ts.
  * ============================================================================
  *
- * DEFERRED 2026-08-10 by the F-291 ruling (TASK-008.md): the proxy route is TASK-012's and
- * left the initiative with EPIC-002, and no card's `paths` cover `apps/web/app/api/bff/**`
- * today. A recorded deferral, not an oversight. The F-288 exports below are NOT deferred
- * with it — see their docblock.
+ * MATERIALISED by TASK-007 (was DEFERRED under the F-291 ruling until wave 4). The proxy
+ * route `app/api/bff/[...path]/route.ts` calls it.
  *
  * NEVER `${API_BASE_URL}/api/${path}` and NEVER `new URL(path, API_BASE_URL)`.
  *
@@ -598,11 +818,47 @@ export function mapBetterAuthError(_status: number, _body: unknown): ApiError {
  * Returns null when the path is rejected; the route handler then answers 400.
  */
 export function buildUpstreamUrl(
-  _segments: string[],
-  _searchParams: URLSearchParams,
-  _apiBaseUrl: string,
+  segments: string[],
+  searchParams: URLSearchParams,
+  apiBaseUrl: string,
 ): URL | null {
-  throw new Error('not implemented');
+  let base: URL;
+
+  try {
+    base = new URL(apiBaseUrl);
+  } catch {
+    return null;
+  }
+
+  // 1. Reject any unsafe segment AFTER Next.js has decoded it — the form traversal arrives in.
+  for (const segment of segments) {
+    if (segment === '' || segment === '.' || segment === '..') {
+      return null;
+    }
+
+    if (/[/\\:]/.test(segment)) {
+      return null;
+    }
+  }
+
+  // 2. Re-encode and join. Never interpolate the raw catch-all. The absolute `/api/...`
+  //    path replaces `base`'s path, so `API_BASE_URL`'s own `/api` suffix is not doubled.
+  const upstream = new URL(`/api/${segments.map(encodeURIComponent).join('/')}`, base);
+
+  // 3. The load-bearing assertion: a protocol-relative or otherwise off-origin path cannot
+  //    carry the Bearer credential somewhere else (invariant 6).
+  if (upstream.origin !== base.origin) {
+    return null;
+  }
+
+  // 4. Rebuild the query from the parsed params, never concatenated.
+  upstream.search = '';
+
+  for (const [key, value] of searchParams) {
+    upstream.searchParams.append(key, value);
+  }
+
+  return upstream;
 }
 
 /** `redirect: 'manual'`. An upstream 3xx is returned to the caller, never followed. */
@@ -721,10 +977,11 @@ export function isMutatingMethod(method: string): boolean {
  * F-035. The client address the proxy forwards, and where it comes from.
  * ============================================================================
  *
- * The proxy adds, on every upstream request:
+ * The proxy adds, on every upstream request WHEN `BFF_PROXY_SECRET` IS SET — and neither
+ * header when it is unset, which is the local compose stack's state (TASK-009):
  *   BFF_CLIENT_IP_HEADER:  the browser's address, read from VERCEL_CLIENT_IP_HEADER
- *   BFF_PROXY_AUTH_HEADER: process.env.BFF_PROXY_SECRET (server-only, REQUIRED,
- *                          registered by TASK-004; NEVER logged — see
+ *   BFF_PROXY_AUTH_HEADER: process.env.BFF_PROXY_SECRET (server-only, optional; the
+ *                          API-side match is TASK-004's; NEVER logged — see
  *                          logging-and-headers.md F-032 for the API-side mirror)
  *
  * VERCEL_CLIENT_IP_HEADER is read WHOLE. Vercel sets it to the connecting client's
@@ -734,7 +991,10 @@ export function isMutatingMethod(method: string): boolean {
  *
  * NEVER x-forwarded-for.split(',')[0] — the leftmost entry of a multi-valued list is
  * the construct F-009 forbids, moved one hop upstream. If the header is absent (local
- * next dev), OMIT BFF_CLIENT_IP_HEADER entirely; the API falls back to Fly-Client-IP.
+ * next dev), OMIT BFF_CLIENT_IP_HEADER entirely; the API then falls back to the header
+ * TRUSTED_CLIENT_IP_HEADER declares, or to no principal where none is declared (F-320,
+ * ADR-0040, trusted-client-address.md). And when BFF_PROXY_SECRET is unset on THIS side,
+ * forward NEITHER header (the API would count the pair as a mismatch).
  *
  * ANY proxy placed in front of Vercel (Cloudflare, a corporate gateway, an Enterprise
  * trusted-proxy config) invalidates this assumption and requires revisiting

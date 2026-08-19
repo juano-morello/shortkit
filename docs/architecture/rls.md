@@ -5,8 +5,8 @@ database is what makes a missing `where` clause return nothing instead of return
 another agency's links.
 
 Sources: ADR-0002 (tenant context binding), ADR-0003 (policy template and roles), and
-the contracts `design/contracts/tenant-context.md` and
-`design/contracts/rls-policy-template.md`. This document is the working version — how
+the contracts `docs/contracts/tenant-context.md` and
+`docs/contracts/rls-policy-template.md`. This document is the working version — how
 the pieces fit and what you have to do when you add a table.
 
 ## The two roles
@@ -110,12 +110,12 @@ ALTER TABLE <t> FORCE  ROW LEVEL SECURITY;
 
 CREATE POLICY <t>_tenant_isolation ON <t>
   FOR ALL
-  USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+  USING      (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
 CREATE POLICY <t>_privileged_erase ON <t>
   FOR DELETE
-  USING (tenant_id::text = current_setting('app.privileged_erase', true));
+  USING (tenant_id::text = nullif(current_setting('app.privileged_erase', true), ''));
 
 CREATE INDEX <t>_tenant_id_idx ON <t> (tenant_id);
 ```
@@ -124,7 +124,7 @@ Do not type it. `tenantScopedPolicies('<t>')` in `apps/api/src/db/rls.ts` emits 
 these statements, and the integration fixture builds its own protected table from the
 same function, so what the tests exercise is what your migration applies.
 
-Four details in there are load-bearing:
+Five details in there are load-bearing:
 
 - **`FORCE`**, because the migrator owns the table and would otherwise bypass the
   policies it just created — including when it runs a later migration.
@@ -134,6 +134,14 @@ Four details in there are load-bearing:
 - **The second argument to `current_setting`.** With `true` an unset flag returns NULL
   instead of raising, so a query with no context returns zero rows rather than an error.
   `NULL = uuid` is NULL, which the policy treats as false.
+- **`nullif(<flag>, '')`**, which answers the case the second argument does not
+  (ADR-0049). A transaction-local `set_config` leaves a session placeholder behind whose
+  reset value is the empty string rather than NULL, and `pg.Pool` never resets a backend
+  — so from the first committed tenant transaction onward the flag reads `''`, `''::uuid`
+  is evaluated, and the query raises `22P02` instead of returning zero rows. `nullif`
+  collapses unset and reset alike, and the index on `tenant_id` is still used. An `AND`
+  guard is not a substitute: PostgreSQL does not guarantee left-to-right evaluation of
+  `AND` operands inside a policy predicate, and it was measured raising anyway.
 - **`tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`**, which is how
   erasure reaches the table at all.
 
@@ -158,8 +166,22 @@ Step 3 against an **already applied** migration does nothing at all. See
 | Check | Catches | When |
 | --- | --- | --- |
 | `assertRuntimeRoleCannotBypassRls()` | a `DATABASE_URL` whose role is superuser, holds `BYPASSRLS`, or owns tables in `public` | boot, before traffic |
-| `pnpm db:check-policies` | a table in `public` missing `ENABLE` or `FORCE` | after `db:migrate`, and in CI's integration job |
+| `pnpm db:check-policies` | five things: an exemption list that is no longer exactly five entries long; a table in `public` missing `ENABLE` or `FORCE`; a policy referencing a context flag outside `nullif(<flag>, '')`; a table on the wrong side of the `shortkit_app` / `shortkit_auth` grant matrix; a view or materialised view either runtime role can reach past that matrix | after `db:migrate`, and in CI's integration job |
 | the integration suite | the policies themselves: cross-tenant read, write, re-parenting, and a read with no context | `pnpm test:integration` |
+
+Two of those five are worth knowing about before you need them. **The exemption list's
+length is the control**, not its contents: the tables that legitimately carry no
+row-level security are the five Better Auth ones, and ADR-0044 calls that list "the whole
+of the security argument" for them — so a sixth entry has to arrive as a one-line diff a
+reviewer sees, with an ADR beside it. It is also the only assertion that runs before the
+connection opens, because a wrong list makes every verdict after it meaningless.
+
+**And a view is not covered by any of the others.** A view executes with its owner's
+privileges unless it is declared `WITH (security_invoker = true)`, so a migrator-owned
+view over `session` granted to `shortkit_app` returns the plaintext session token that
+migration `0001` revoked. Measured. A materialised view is worse: its rows are computed
+by its owner and stored, and it has no `security_invoker` option at all, so no runtime
+role may reach one.
 
 The boot check reads three properties, and ownership is the one that gets missed. It
 throws rather than calling `process.exit`, so the caller can close what it opened; the

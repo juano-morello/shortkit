@@ -4,6 +4,7 @@ import {
   Get,
   HttpException,
   NotFoundException,
+  SetMetadata,
 } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -16,6 +17,7 @@ import type { ErrorEnvelope } from '@shortkit/contracts';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { AppModule } from '../../app.module';
+import { PUBLIC_ROUTE_METADATA } from '../../tenancy/tenant-context';
 import { DomainError } from './domain-error';
 import type * as domainErrorModule from './domain-error';
 
@@ -23,7 +25,7 @@ import type * as domainErrorModule from './domain-error';
  * AC-13 — every rejected API request answers with the shared error envelope and a
  * stable machine-readable `code`.
  *
- * Contract: design/contracts/error-envelope.md. The invariants exercised here are
+ * Contract: docs/contracts/error-envelope.md. The invariants exercised here are
  * numbered 1 (every non-2xx body under /api validates against errorEnvelopeContract),
  * 2 (the code is stable and its status is fixed by ERROR_CODE_STATUS), 4 (`details`
  * appears only where the contract names a shape) and 8 (no secret reaches the body),
@@ -123,7 +125,13 @@ function zodErrorFixture(): unknown {
   return result.error;
 }
 
+/**
+ * Public since TASK-005 registered `AuthGuard` as `APP_GUARD`: every Nest route is guarded by
+ * default, and this controller exists to make the FILTER throw, which needs the handler to be
+ * reached. The metadata is what `@Public('…')` writes once TASK-006 implements it.
+ */
 @Controller('api/error-probe')
+@SetMetadata(PUBLIC_ROUTE_METADATA, 'exception-filter spec: the probe has to reach its handler')
 class ErrorProbeController {
   /** Anything the filter has no mapping for. */
   @Get('unmapped')

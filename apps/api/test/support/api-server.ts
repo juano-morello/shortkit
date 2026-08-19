@@ -41,8 +41,9 @@
  * `PORT` is the only variable `main.ts` reads today. Everything else a caller passes
  * through `env` is a name **this harness decides**, the same way
  * `src/health/health.spec.ts` decides `GIT_COMMIT_SHA` and records that it is doing
- * so: no ADR, contract, `.env.example` or workflow in this repository names the
- * variables the auth mount will read. If an implementer picks different names, the
+ * so (written when no `.env.example` named them; `apps/api/.env.example` has named
+ * `GIT_COMMIT_SHA` and the auth mount's variables since TASK-009, and this harness
+ * still decides its own values). If an implementer picks different names, the
  * caller's `env` callback is the single edit and no assertion weakens.
  *
  * ## Await this from `beforeEach`, not only from `beforeAll` — or a boot refusal skips

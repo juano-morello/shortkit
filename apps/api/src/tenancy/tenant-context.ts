@@ -1,13 +1,15 @@
 /**
- * Contract: design/contracts/tenant-context.md
+ * Contract: docs/contracts/tenant-context.md
  * ADR: adr-0002-tenant-context-binding.md, adr-0003-rls-policy-template-and-roles.md
- * Produced by: TASK-005 (withTenantTransaction, tenantDb), TASK-011 (interceptor, RequestContext)
+ * Produced by: TASK-005 (withTenantTransaction, tenantDb), TASK-006 (the three decorators
+ *              at the bottom and their metadata keys; the interceptor that reads them is
+ *              ./tenant-transaction.interceptor.ts)
  *
  * GC-5 lives here. Every tenant-scoped read or write runs inside a transaction that
  * has set `app.tenant_id`. THIS IS THE ONLY FILE THAT MAY SET IT outside tests, and
  * the only file besides ../db/rls.ts that may contain the string at all. rls.ts holds
  * the policies that READ the flag and sets nothing; the isolation suite asserts both
- * halves by grep (design/contracts/isolation-coverage.md, clauses A1 to A4).
+ * halves by grep (docs/contracts/isolation-coverage.md, clauses A1 to A4).
  *
  * SQL issued (F-007, 2026-08-04; third statement F-123, 2026-08-05):
  *   BEGIN;
@@ -39,6 +41,7 @@
  * grep from an identifier holding a concatenated value.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { SetMetadata } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import type { TenantRole, WorkspaceRole } from '@shortkit/contracts';
@@ -53,7 +56,7 @@ declare const tenantScopedBrand: unique symbol;
  * apps/api/src/db/client.ts, so this is the only way a repository reaches a connection.
  *
  * The `any` query-result and table-relation type params are the normative form in
- * design/contracts/tenant-context.md, supplied by drizzle-orm's own generics rather
+ * docs/contracts/tenant-context.md, supplied by drizzle-orm's own generics rather
  * than by this module.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -132,7 +135,7 @@ type AfterCommitHook = () => Promise<void> | void;
  */
 const tenantStorage = new AsyncLocalStorage<ActiveTenantContext>();
 
-/** design/contracts/tenant-context.md, TenantTransactionOptions.statementTimeoutMs. */
+/** docs/contracts/tenant-context.md, TenantTransactionOptions.statementTimeoutMs. */
 const DEFAULT_STATEMENT_TIMEOUT_MS = 5000;
 
 /**
@@ -349,14 +352,38 @@ export interface RequestContext {
 }
 
 /**
+ * The justification `@Public()` and `@NoTenantTransaction()` carry is what TASK-056's
+ * coverage report prints beside the route, and an empty one prints as an unexplained hole.
+ * So the check runs at DECORATION time, which is module load: a route carrying `@Public('')`
+ * fails the process at boot rather than passing review with a blank line in the report.
+ * Whitespace-only counts as empty for the same reason. This is a programming error, so it
+ * is a plain Error and not a DomainError — nothing here runs on a request path.
+ */
+function requireJustification(decorator: string, justification: string): string {
+  if (typeof justification !== 'string' || justification.trim() === '') {
+    throw new Error(
+      `@${decorator}() requires a non-empty justification: the isolation coverage report ` +
+        'prints it beside the route (ADR-0020), and a blank one is a hole nobody explained.',
+    );
+  }
+
+  return justification;
+}
+
+/**
  * Exempts a route from AuthGuard and from TenantTransactionInterceptor.
  * The justification is REQUIRED and is printed by TASK-056's coverage report.
  *
  * A @Public() route that touches a tenant-scoped table MUST reach it through a
  * capability-token entry point (ADR-0021). TASK-056 asserts this.
+ *
+ * Both readers test PRESENCE of the key, handler first and then class
+ * (`Reflector.getAllAndOverride`), so a class-level `@Public()` covers every handler on
+ * the controller and a handler-level one covers itself alone. The value under the key is
+ * the justification string, kept as written for the report; neither reader judges it.
  */
-export function Public(_justification: string): MethodDecorator & ClassDecorator {
-  throw new Error('not implemented');
+export function Public(justification: string): MethodDecorator & ClassDecorator {
+  return SetMetadata(PUBLIC_ROUTE_METADATA, requireJustification('Public', justification));
 }
 
 export const PUBLIC_ROUTE_METADATA = Symbol('PUBLIC_ROUTE_METADATA');
@@ -386,18 +413,38 @@ export const PUBLIC_ROUTE_METADATA = Symbol('PUBLIC_ROUTE_METADATA');
  *      WorkspaceAuthorizer with the same error codes.
  *      See workspace-authorization.md "Form C".
  *   3. WorkspaceGuard FAILS CLOSED: no context -> throws -> 500. Never returns true.
+ *
+ * No route shipped in this initiative carries it (TASK-006's card). It is implemented
+ * here because a module that ships two of its three decorators is worse than one that
+ * ships all three, and the rules above are carried forward unrelaxed.
  */
-export function NoTenantTransaction(
-  _justification: string,
-): MethodDecorator & ClassDecorator {
-  throw new Error('not implemented');
+export function NoTenantTransaction(justification: string): MethodDecorator & ClassDecorator {
+  return SetMetadata(
+    NO_TENANT_TRANSACTION_METADATA,
+    requireJustification('NoTenantTransaction', justification),
+  );
 }
 
 export const NO_TENANT_TRANSACTION_METADATA = Symbol('NO_TENANT_TRANSACTION_METADATA');
 
-/** Marks a provider for TASK-056's repository enumeration (ADR-0020). */
+/**
+ * Marks a provider for TASK-056's repository enumeration (ADR-0020): `DiscoveryService`
+ * finds the providers whose metatype carries the key and `MetadataScanner` enumerates
+ * their public methods as isolation subjects. The value is `true`; presence is what is read.
+ *
+ * The enumeration itself is out of scope here — `discoverRepositoryMethods()` in
+ * `test/isolation/coverage.ts` still throws "TASK-056 owns repository discovery" — so
+ * today the marker is written and nothing reads it. It exists now so that the first
+ * repository (`WorkspaceRepository`, TASK-011) carries it from the day it lands rather
+ * than being retrofitted.
+ */
 export function TenantScopedRepository(): ClassDecorator {
-  throw new Error('not implemented');
+  return SetMetadata(TENANT_SCOPED_REPOSITORY_METADATA, true);
 }
 
-export const TENANT_SCOPED_REPOSITORY = Symbol('TENANT_SCOPED_REPOSITORY');
+/**
+ * The key `TenantScopedRepository()` writes. Suffixed `_METADATA` like the two route keys
+ * above (TASK-006's card, "Produces"); `isolation-coverage.md` "Discovery" 2 and ADR-0020
+ * spell it `TENANT_SCOPED_REPOSITORY` in their snippet, and this is that symbol.
+ */
+export const TENANT_SCOPED_REPOSITORY_METADATA = Symbol('TENANT_SCOPED_REPOSITORY_METADATA');

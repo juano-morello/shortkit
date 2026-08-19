@@ -17,8 +17,8 @@
  * The first test is the falsifier for the rest: without it a client that threw
  * ContractViolationError unconditionally would pass every violation assertion below.
  *
- * Contract: design/contracts/web-api-client.md ("Response handling", ordered and
- * normative) and design/contracts/error-envelope.md.
+ * Contract: docs/contracts/web-api-client.md ("Response handling", ordered and
+ * normative) and docs/contracts/error-envelope.md.
  *
  * `fetch` is the only thing stubbed. It is the genuine external boundary; everything
  * else — the response objects, the zod contracts, the error classes — is real. Response
@@ -1109,5 +1109,153 @@ describe('cause carries nothing this module chose (F-310, ADR-0029)', () => {
     // Read off the signal. The caller constructed this value, holds it, and can read it back
     // off its own AbortSignal, which is why it is the one carve-out ADR-0029 keeps.
     expect((outcome as Error).cause).toBe(reason);
+  });
+});
+
+// ===========================================================================
+// TASK-007 (identity-membership wave 4): the three materialised F-291 deferrals.
+// mapBetterAuthError, buildUpstreamUrl, serverApiClient.
+// ===========================================================================
+import {
+  ApiError as ApiErrorClass,
+  buildUpstreamUrl,
+  mapBetterAuthError,
+} from './client';
+
+describe('mapBetterAuthError maps Better Auth native bodies (F-289, F-027, auth-tokens.md)', () => {
+  it('maps a wrong password (401 INVALID_EMAIL_OR_PASSWORD) to unauthenticated, message surfaced', () => {
+    const error = mapBetterAuthError(401, {
+      message: 'Invalid email or password',
+      code: 'INVALID_EMAIL_OR_PASSWORD',
+    });
+
+    expect(error).toBeInstanceOf(ApiErrorClass);
+    expect(error.code).toBe('unauthenticated');
+    expect(error.status).toBe(401);
+    expect(error.message).toBe('Invalid email or password');
+  });
+
+  it('maps the 400 validation shapes to validation_failed', () => {
+    for (const code of ['VALIDATION_ERROR', 'PASSWORD_TOO_SHORT', 'PASSWORD_TOO_LONG']) {
+      expect(mapBetterAuthError(400, { message: 'x', code }).code).toBe('validation_failed');
+    }
+  });
+
+  it('F-289: decides the 422 USER_ALREADY_EXISTS code as validation_failed, status preserved at 422', () => {
+    const error = mapBetterAuthError(422, {
+      message: 'User already exists. Use another email.',
+      code: 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL',
+    });
+
+    expect(error.code).toBe('validation_failed');
+    expect(error.status).toBe(422);
+    expect(error.message).toBe('User already exists. Use another email.');
+  });
+
+  it('maps the origin errors to internal_error without surfacing their message', () => {
+    const error = mapBetterAuthError(403, { message: 'Missing or null Origin', code: 'MISSING_OR_NULL_ORIGIN' });
+
+    expect(error.code).toBe('internal_error');
+    expect(error.status).toBe(403);
+    expect(error.message).not.toContain('Origin');
+  });
+
+  it('F-027: a 429 with retryAfterSeconds in the body and no code becomes rate_limited', () => {
+    const error = mapBetterAuthError(429, { retryAfterSeconds: 42 });
+
+    expect(error.code).toBe('rate_limited');
+    expect(error.status).toBe(429);
+    expect(error.retryAfterSeconds).toBe(42);
+  });
+
+  it('a 429 prefers the Retry-After header over the body field, and ignores a non-integer header', () => {
+    expect(mapBetterAuthError(429, { retryAfterSeconds: 42 }, '7').retryAfterSeconds).toBe(7);
+    expect(mapBetterAuthError(429, { retryAfterSeconds: 42 }, 'Wed, 21 Oct 2026 07:28:00 GMT').retryAfterSeconds).toBe(42);
+    expect(mapBetterAuthError(429, {}, null).retryAfterSeconds).toBeUndefined();
+  });
+
+  it('an unrecognised body is internal_error at the original status', () => {
+    expect(mapBetterAuthError(500, '<html>').code).toBe('internal_error');
+    expect(mapBetterAuthError(418, { code: 'SOMETHING_NEW' }).code).toBe('internal_error');
+  });
+});
+
+describe('buildUpstreamUrl (F-008): the proxy upstream construction', () => {
+  const API = 'http://api.internal:3001/api';
+
+  it('builds an on-origin URL under /api from clean segments', () => {
+    const url = buildUpstreamUrl(['auth', 'token'], new URLSearchParams(), API);
+
+    expect(url?.href).toBe('http://api.internal:3001/api/auth/token');
+  });
+
+  it('rejects a traversal or empty or slash-bearing segment', () => {
+    expect(buildUpstreamUrl(['..', 'health'], new URLSearchParams(), API)).toBeNull();
+    expect(buildUpstreamUrl([''], new URLSearchParams(), API)).toBeNull();
+    expect(buildUpstreamUrl(['a/b'], new URLSearchParams(), API)).toBeNull();
+  });
+
+  it('rejects a segment carrying a scheme-ish colon or a backslash', () => {
+    expect(buildUpstreamUrl(['a:b'], new URLSearchParams(), API)).toBeNull();
+    expect(buildUpstreamUrl(['a\\b'], new URLSearchParams(), API)).toBeNull();
+  });
+
+  it('rebuilds the query from parsed params', () => {
+    const url = buildUpstreamUrl(['links'], new URLSearchParams({ page: '2', q: 'a b' }), API);
+
+    expect(url?.searchParams.get('page')).toBe('2');
+    expect(url?.searchParams.get('q')).toBe('a b');
+  });
+});
+
+describe('serverApiClient (server components, one hop to the API)', () => {
+  const A_JWT = 'header.eyJzdWIiOiJ1MSJ9.sig';
+
+  function mockCookies(value: string | undefined): void {
+    vi.doMock('next/headers', () => ({
+      cookies: () =>
+        Promise.resolve({
+          get: (name: string) => (name === 'sk_at' && value !== undefined ? { value } : undefined),
+        }),
+    }));
+  }
+
+  afterEach(() => {
+    vi.doUnmock('next/headers');
+    vi.doUnmock('next/navigation');
+    vi.resetModules();
+    delete process.env.API_BASE_URL;
+  });
+
+  it('attaches Authorization: Bearer <sk_at> and calls the API base directly', async () => {
+    process.env.API_BASE_URL = 'http://api.internal:3001/api';
+    mockCookies(A_JWT);
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify(AN_ID), { status: 200 }));
+    const { serverApiClient } = await import('./client');
+
+    await serverApiClient({ method: 'GET', path: '/links/:id', params: { id: AN_ID }, contract: idContract });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe(`http://api.internal:3001/api/links/${AN_ID}`);
+    expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer ${A_JWT}`);
+    expect(init?.redirect).toBe('manual');
+  });
+
+  it('redirects on a 401 token_expired because it cannot set cookies during render (invariant 5)', async () => {
+    process.env.API_BASE_URL = 'http://api.internal:3001/api';
+    mockCookies(A_JWT);
+    const redirect = vi.fn((url: string) => {
+      throw new Error(`redirect:${url}`);
+    });
+    vi.doMock('next/navigation', () => ({ redirect }));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ code: 'token_expired', message: 'expired' }), { status: 401 }),
+    );
+    const { serverApiClient, SERVER_COMPONENT_REFRESH_PATH } = await import('./client');
+
+    await expect(serverApiClient({ method: 'GET', path: '/links', contract: pageOfIds })).rejects.toThrow('redirect:');
+    expect(redirect).toHaveBeenCalledWith(SERVER_COMPONENT_REFRESH_PATH);
   });
 });

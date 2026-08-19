@@ -15,8 +15,9 @@
  *
  * `repo:TenantsTableAccess.findAll` names a class that exists, in this file, with that
  * method on it. There is no `TenantRepository` to name instead: no repository class
- * exists anywhere in `apps/api/src` yet, and `@TenantScopedRepository()` still throws
- * `not implemented` (TASK-011). Naming one would put a surface id in `report.json` that
+ * for `tenants` exists anywhere in `apps/api/src` (the one repository that does,
+ * `WorkspaceRepository`, carries `@TenantScopedRepository()` — real since TASK-006 — and is
+ * registered below). Naming one would put a surface id in `report.json` that
  * points at nothing, and `ISOLATION_EXCLUSIONS` is keyed on exactly these strings.
  *
  * The access objects are thin on purpose. Each method issues ONE statement through
@@ -24,27 +25,41 @@
  * same policies — so what an attempt exercises is Postgres's row-level security, not
  * this file. When `LinkRepository` arrives it registers its own methods and the harness
  * does not notice the difference.
+ *
+ * SINCE TASK-011 ONE REAL REPOSITORY IS REGISTERED BESIDE THEM. `workspaces` carries two
+ * subjects on one table — the shipped F-353 pattern: `WorkspacesTableAccess` is the
+ * eight-shape statement battery every table gets, and `WorkspaceRepository` names the
+ * class in `src/workspaces/workspace.repository.ts` and attempts ITS FIVE METHODS, so
+ * `repo:WorkspaceRepository.rename` in `report.json` points at a method that exists.
  */
 import { sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
+import { WorkspaceNotFoundError } from '../../src/workspaces/workspace-not-found.error';
+import { WorkspaceRepository } from '../../src/workspaces/workspace.repository';
 import {
   createRlsFixture,
+  migrationDsn,
   RLS_FIXTURE_TABLE,
   TENANT_A,
   TENANT_B,
   TENANT_C_NEVER_SEEDED,
 } from '../support/rls-fixture';
+import { execSql } from '../support/psql';
+import { mintToken } from '../support/auth-fixture';
 
 import type {
+  AttemptGroup,
   CrossTenantAttemptResult,
   TenantFixture,
   TenantScopedMethod,
   TenantScopedSurfaceRegistration,
 } from './coverage';
 import { registerTenantScopedSurfaces } from './coverage';
+import { endpointAccess } from './http-attempts';
+import type { EndpointAttemptSpec, SignedInTenants } from './http-attempts';
 import {
   BASELINE_LEAK_CANARY_TABLE,
   createBaselineLeakCanary,
@@ -154,6 +169,31 @@ interface TableAccessSpec {
   readonly projection: string[];
   /** A non-owner column the update attempt tries to overwrite. */
   readonly mutableColumn: string;
+  /**
+   * ==========================================================================
+   * WHAT THE TWO UPDATE SHAPES ASSIGN TO `mutableColumn`. Added for
+   * `tenant_memberships` (tenant-membership-lookup.md, TASK-002).
+   * ==========================================================================
+   *
+   * Absent, each shape keeps its own literal, and the two stay DIFFERENT for the reason
+   * `updateAll` records below: `isolation_masked_refusal_canary` carries a CHECK
+   * constraint rejecting `overwritten-by-another-tenant` specifically, and a control
+   * that refused the unqualified write with 23514 would hide the leak it exists to
+   * expose. Every table whose mutable column is free text leaves this unset.
+   *
+   * `tenant_memberships` HAS NO FREE-TEXT COLUMN. `user_id` is UNIQUE and a foreign key
+   * and `role` is an enum, so a string literal assigned to either fails with a
+   * constraint or enum error rather than a policy refusal — and the harness scores that
+   * `unverified`, which is a red run over a table with nothing wrong with it. So the
+   * registration supplies a valid `tenant_role` instead, different from the one its
+   * fixture rows carry, and BOTH shapes use it: there is no CHECK constraint on this
+   * table for the two literals to have to differ against.
+   *
+   * A value and not a fragment, for F-352's reason — everything the `sql` tag
+   * interpolates that is not a fragment is bound as `$N`, so nothing spellable here can
+   * reach an existing column and quietly disarm both unqualified writes.
+   */
+  readonly mutableValue?: string | number | boolean;
   /**
    * The owner id the insert attempt writes, and the row it writes. For a `tenant_id`
    * table this is the target tenant itself. For `tenants`, whose row identity IS its
@@ -388,7 +428,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       qualification: 'owner-qualified',
       statement: (_actor, target) =>
         sql`update ${table}
-               set ${mutable} = ${'overwritten-by-another-tenant'}
+               set ${mutable} = ${spec.mutableValue ?? 'overwritten-by-another-tenant'}
              where ${owner} = ${target.id}::uuid`,
     }),
     shape({
@@ -429,7 +469,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       reaches: 'existing-row',
       qualification: 'unqualified',
       statement: () =>
-        sql`update ${table} set ${mutable} = ${'overwritten-by-an-unqualified-write'}${alsoSets}`,
+        sql`update ${table} set ${mutable} = ${spec.mutableValue ?? 'overwritten-by-an-unqualified-write'}${alsoSets}`,
     }),
     /** F-302. `DELETE FROM <t>` — the auditor's measurement: DELETE 0 qualified, DELETE 2 not. */
     shape({
@@ -553,7 +593,10 @@ const tenantsAccess: TenantScopedSurfaceRegistration = {
   subject: 'TenantsTableAccess',
   table: 'tenants',
   ownerColumn: 'id',
-  reset: createRlsFixture,
+  // `resetTenantFixtures`, not `createRlsFixture` — see its docblock (F-123). It calls
+  // `createRlsFixture()` first and then re-seeds what that erases by cascade, so this
+  // subject's reset no longer leaves another subject's table empty.
+  reset: resetTenantFixtures,
   methods: tableAccess({
     table: 'tenants',
     ownerColumn: 'id',
@@ -575,7 +618,8 @@ const rlsFixtureRowsAccess: TenantScopedSurfaceRegistration = {
   subject: 'RlsFixtureRowsTableAccess',
   table: RLS_FIXTURE_TABLE,
   ownerColumn: 'tenant_id',
-  reset: createRlsFixture,
+  /** F-123, same as above: one reset, and it leaves every subject's fixture complete. */
+  reset: resetTenantFixtures,
   methods: tableAccess({
     table: RLS_FIXTURE_TABLE,
     ownerColumn: 'tenant_id',
@@ -588,8 +632,341 @@ const rlsFixtureRowsAccess: TenantScopedSurfaceRegistration = {
   }),
 };
 
+/**
+ * ===========================================================================
+ * THE MIGRATED MEMBERSHIP TABLE (TASK-002, tenant-membership-lookup.md).
+ * ===========================================================================
+ *
+ * The third registered production table, and the first one carrying a THIRD policy
+ * beside the template's two: `tenant_memberships_membership_lookup`, ADR-0045's
+ * `FOR SELECT` token-mint escape. Every attempt below runs through
+ * `withTenantTransaction`, which sets `app.tenant_id` and never
+ * `app.membership_lookup_user`, so that policy reads NULL through its `nullif` and
+ * admits nothing here — which is the property this registration incidentally proves on
+ * every run. If it ever admitted something, `findAll` would return the other tenant's
+ * row and the harness would name it.
+ *
+ * ITS FIXTURE ROWS GO IN THROUGH THE MIGRATOR DSN AND SO DOES ITS `"user"` SEED, and
+ * both are structural rather than convenience: migration `0001` revokes `shortkit_app`
+ * on `"user"` entirely (ADR-0050), so the runtime role cannot seed the foreign key it
+ * needs. `resetTenantFixtures()` above does it — and does it for every subject, not only
+ * this one, so no registration's position in this file decides whether it is seeded.
+ */
+const MEMBERSHIP_ROW_A = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
+const MEMBERSHIP_ROW_B = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1';
+const PLANTED_MEMBERSHIP_ROW_ID = 'f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4';
+
+/** Better Auth generates its own ids and they are not uuids (auth-schema.md). */
+const MEMBERSHIP_USER_A = 'isolationUserA01';
+const MEMBERSHIP_USER_B = 'isolationUserB01';
+
+/**
+ * A third user, for `insertOwnedBy` alone. `UNIQUE (user_id)` is one row per user, so
+ * planting under A's or B's id would be refused by 23505 BEFORE any policy was
+ * evaluated — a refusal indistinguishable from the 42501 the INSERT policy owes us,
+ * which is the same trap `tenants` needs `TENANT_C_NEVER_SEEDED` for.
+ */
+const MEMBERSHIP_USER_PLANTED = 'isolationUserP01';
+
+/** Different from the value below, so an admitted update is visible as a change. */
+const MEMBERSHIP_OVERWRITE_ROLE = 'admin';
+const MEMBERSHIP_SEEDED_ROLE = 'owner';
+
+/**
+ * ===========================================================================
+ * THE MIGRATED `workspaces` TABLE (TASK-011, docs/contracts/workspaces.md).
+ * ===========================================================================
+ *
+ * The fourth registered production table and the first template-shaped one whose
+ * policies come from a MIGRATION rather than from the fixture — `0002_*.sql` carries
+ * `tenantScopedPolicies('workspaces')` hand-appended. `id` is database-generated in
+ * production; the fixture supplies fixed ids so `WorkspaceRepository`'s attempts below
+ * can name the target's row without a lookup.
+ */
+const WORKSPACE_ROW_A = 'a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2';
+const WORKSPACE_ROW_B = 'b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2';
+const PLANTED_WORKSPACE_ROW_ID = 'f5f5f5f5-f5f5-4f5f-8f5f-f5f5f5f5f5f5';
+const WORKSPACE_SEEDED_NAME = 'seeded-workspace';
+
+/**
+ * ===========================================================================
+ * THE RESET EVERY REGISTRATION IN THIS FILE USES. IT REBUILDS THE WHOLE FIXTURE,
+ * NOT ONE SUBJECT'S SHARE OF IT — AND THAT IS F-123.
+ * ===========================================================================
+ *
+ * `createRlsFixture()` erases the fixture tenants, and `tenant_memberships.tenant_id` is
+ * `ON DELETE CASCADE`, so ANY subject whose reset is `createRlsFixture` deletes both
+ * seeded membership rows as a side effect. `coverage.ts` resets per attempt and iterates
+ * the registry in insertion order, so the state the F-295 census reads is whatever the
+ * LAST reset left behind.
+ *
+ * The first version of this file registered `tenantMembershipsAccess` third and gave the
+ * other two `reset: createRlsFixture`, so the census passed **because of registration
+ * order** — and registering a fourth subject after it, the ordinary way this file grows,
+ * would have returned four census lines where six were expected. Loud, but the diagnosis
+ * is nowhere near the failure.
+ *
+ * So the dependency is removed rather than documented: there is ONE reset, it leaves the
+ * fixture complete for every registered subject, and whichever subject happens to run
+ * last is no longer a fact anyone has to know. **A new registration uses this function.**
+ * If a later subject needs its own seed, add it here rather than beside the registration,
+ * for the reason this paragraph exists.
+ */
+function resetTenantFixtures(): void {
+  // Tenants first: `createRlsFixture` erases and re-seeds them, and the erase cascades
+  // every membership row away. Seeding before it would seed nothing.
+  createRlsFixture();
+
+  // ONE psql spawn for all of it. Every registration's reset now pays for this, once per
+  // attempt, so the three round trips it replaced were worth collapsing — the tenant flag
+  // is set inline per statement instead of through `execSql`'s session-level option.
+  //
+  // WORKSPACES ARE SEEDED HERE TOO (TASK-011), one row per tenant, under each tenant's
+  // own flag: `workspaces` carries FORCE ROW LEVEL SECURITY, so the owning role's insert
+  // has to satisfy the WITH CHECK like anyone else's. Erasing the fixture tenants above
+  // already cascaded every workspace row away — seeded and planted alike — so no DELETE
+  // is needed for them.
+  //
+  // Deleting the `"user"` rows cascades their memberships too, which is what clears a row
+  // a previous attempt planted. `"user"` carries no row-level security (ADR-0044), so
+  // that half needs no tenant context — only the migrator's grant. The membership inserts
+  // do: `tenant_memberships` carries FORCE ROW LEVEL SECURITY, so even the owning role's
+  // insert has to satisfy the WITH CHECK, and it admits one tenant at a time.
+  //
+  // BOTH tenants, and that is rule 1 of this file: a table seeded for one tenant only
+  // returns zero rows to four of the five shapes because there is nothing there rather
+  // than because a policy denied them, and the harness scores that `unverified` (F-295).
+  //
+  // Every value reaches the script through a psql variable — `:'name'` quotes it as a
+  // literal — so nothing is concatenated in, the same property `execSql`'s own `tenantId`
+  // option has.
+  execSql(
+    migrationDsn(),
+    `DELETE FROM "user" WHERE id IN (:'user_a', :'user_b', :'user_planted');
+
+     INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES
+       (:'user_a',       'Isolation A', :'email_a', false, now(), now()),
+       (:'user_b',       'Isolation B', :'email_b', false, now(), now()),
+       (:'user_planted', 'Isolation P', :'email_p', false, now(), now());
+
+     SELECT set_config('app.tenant_id', :'tenant_a', false) \\g /dev/null
+     INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
+       VALUES (:'row_a', :'tenant_a', :'user_a', :'seeded_role');
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'workspace_a', :'tenant_a', :'workspace_name');
+
+     SELECT set_config('app.tenant_id', :'tenant_b', false) \\g /dev/null
+     INSERT INTO tenant_memberships (id, tenant_id, user_id, role)
+       VALUES (:'row_b', :'tenant_b', :'user_b', :'seeded_role');
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'workspace_b', :'tenant_b', :'workspace_name');`,
+    {
+      variables: {
+        tenant_a: TENANT_A,
+        tenant_b: TENANT_B,
+        row_a: MEMBERSHIP_ROW_A,
+        row_b: MEMBERSHIP_ROW_B,
+        user_a: MEMBERSHIP_USER_A,
+        user_b: MEMBERSHIP_USER_B,
+        user_planted: MEMBERSHIP_USER_PLANTED,
+        email_a: `${MEMBERSHIP_USER_A}@example.test`,
+        email_b: `${MEMBERSHIP_USER_B}@example.test`,
+        email_p: `${MEMBERSHIP_USER_PLANTED}@example.test`,
+        seeded_role: MEMBERSHIP_SEEDED_ROLE,
+        workspace_a: WORKSPACE_ROW_A,
+        workspace_b: WORKSPACE_ROW_B,
+        workspace_name: WORKSPACE_SEEDED_NAME,
+      },
+    },
+  );
+}
+
+const tenantMembershipsAccess: TenantScopedSurfaceRegistration = {
+  subject: 'TenantMembershipsTableAccess',
+  table: 'tenant_memberships',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'tenant_memberships',
+    ownerColumn: 'tenant_id',
+    // `user_id` rather than a label: it is the column the lookup policy keys on, so a
+    // row that crossed a boundary is named by the user it belongs to.
+    projection: ['id', 'tenant_id', 'user_id'],
+    mutableColumn: 'role',
+    mutableValue: MEMBERSHIP_OVERWRITE_ROLE,
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('tenant_memberships')} (id, tenant_id, user_id, role)
+          values (${PLANTED_MEMBERSHIP_ROW_ID}::uuid, ${ownerId}::uuid, ${MEMBERSHIP_USER_PLANTED}, ${MEMBERSHIP_SEEDED_ROLE})`,
+  }),
+};
+
+/**
+ * `workspaces`, attacked as a TABLE: the eight shapes, exactly as every other table.
+ * This registration is what gives the table its three unqualified writes (rule 4) and
+ * the owner-column theft attempt (F-330); the repository below issues none of those
+ * shapes by design, so it cannot supply them itself.
+ */
+const workspacesAccess: TenantScopedSurfaceRegistration = {
+  subject: 'WorkspacesTableAccess',
+  table: 'workspaces',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: tableAccess({
+    table: 'workspaces',
+    ownerColumn: 'tenant_id',
+    projection: ['id', 'tenant_id', 'name'],
+    mutableColumn: 'name',
+    plantedOwnerId: (target) => target.id,
+    plantedRow: (ownerId) =>
+      sql`insert into ${sql.identifier('workspaces')} (id, tenant_id, name)
+          values (${PLANTED_WORKSPACE_ROW_ID}::uuid, ${ownerId}::uuid, ${'planted-by-another-tenant'})`,
+  }),
+};
+
+/**
+ * ===========================================================================
+ * `workspaces`, attacked THROUGH THE REPOSITORY: one method per public method of
+ * `WorkspaceRepository`, called inside the ACTOR's tenant transaction with the TARGET's
+ * arguments, which is what isolation-coverage.md's "repository method" row describes.
+ * ===========================================================================
+ *
+ * What differs from the table battery, and why each difference is what it is:
+ *
+ * - EVERY METHOD IS `owner-qualified`, AND THAT IS THE REPOSITORY'S CONTRACT, NOT A
+ *   CONVENIENCE. Every statement it issues carries `tenant_id = currentTenantId()` in
+ *   its WHERE, or sets `tenant_id` on INSERT — `workspace.repository.spec.ts` compiles
+ *   all of them and asserts exactly that, which is the same property `shape()` derives
+ *   from the SQL for the table battery, checked at a different time. Nothing here can
+ *   be checked by `assertDeclaredQualification()` because a repository method hands the
+ *   harness a result and not a statement.
+ *
+ * - THE UNQUALIFIED WRITES LIVE IN `workspacesAccess` ABOVE. A registration whose writes
+ *   are all owner-qualified is blind to a wide-open UPDATE or DELETE policy (F-302), so
+ *   the rule is satisfied for the TABLE by the sibling registration — the F-353 pattern
+ *   of two subjects on one table, one per way of attacking it.
+ *
+ * - `create` HAS NO TARGET ARGUMENT TO CROSS WITH. The repository writes under the
+ *   context's tenant and takes no tenant parameter, so the attempt creates in the actor's
+ *   context and reports as `rowsAffected` the number of rows it wrote that the TARGET
+ *   owns — zero when the row landed under the actor, which is the only correct answer.
+ *   The per-row digest of the target's rows judges it a second way, and `reset()`
+ *   clears the created row before the next attempt.
+ *
+ * - `rename` AND `archive` ANSWER not-found FOR A ROW THE ACTOR DOES NOT OWN. That is
+ *   the repository's contract (`WorkspaceNotFoundError`, docs/contracts/workspaces.md),
+ *   so the attempt maps THAT error and no other to `rowsAffected: 0`. Anything else
+ *   thrown propagates and lands as `unverified`, naming the surface.
+ *
+ * - READS PROJECT `tenant_id`. The repository returns `tenantId`; the harness judges a
+ *   read on the owner COLUMN, so each row is mapped to `{ id, tenant_id, name }`.
+ */
+const workspaceRepository = new WorkspaceRepository();
+
+function seededWorkspaceOf(tenant: TenantFixture): string {
+  switch (tenant.id) {
+    case TENANT_A:
+      return WORKSPACE_ROW_A;
+    case TENANT_B:
+      return WORKSPACE_ROW_B;
+    default:
+      throw new Error(
+        `no seeded workspace for tenant ${tenant.id}; resetTenantFixtures seeds A and B only`,
+      );
+  }
+}
+
+function ownerProjection(
+  rows: ReadonlyArray<{ id: string; tenantId: string; name: string }>,
+): CrossTenantAttemptResult {
+  return { rows: rows.map((row) => ({ id: row.id, tenant_id: row.tenantId, name: row.name })) };
+}
+
+/** `WorkspaceNotFoundError` is the contract's answer to a foreign row; anything else is not. */
+async function affectedOrNotFound(work: () => Promise<unknown>): Promise<CrossTenantAttemptResult> {
+  try {
+    await work();
+
+    return { rowsAffected: 1 };
+  } catch (error) {
+    if (error instanceof WorkspaceNotFoundError) {
+      return { rowsAffected: 0 };
+    }
+
+    throw error;
+  }
+}
+
+const workspaceRepositoryAccess: TenantScopedSurfaceRegistration = {
+  subject: 'WorkspaceRepository',
+  table: 'workspaces',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: [
+    {
+      name: 'create',
+      kind: 'write',
+      reaches: 'new-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const created = await workspaceRepository.create({ name: 'planted-by-another-tenant' });
+
+          return { rowsAffected: created.tenantId === target.id ? 1 : 0 };
+        }),
+    },
+    {
+      name: 'list',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor) =>
+        withTenantTransaction(actor.id, async () =>
+          ownerProjection(await workspaceRepository.list({ includeArchived: true })),
+        ),
+    },
+    {
+      name: 'findById',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const found = await workspaceRepository.findById(seededWorkspaceOf(target));
+
+          return ownerProjection(found === null ? [] : [found]);
+        }),
+    },
+    {
+      name: 'rename',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, () =>
+          affectedOrNotFound(() =>
+            workspaceRepository.rename(seededWorkspaceOf(target), 'renamed-by-another-tenant'),
+          ),
+        ),
+    },
+    {
+      name: 'archive',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, () =>
+          affectedOrNotFound(() => workspaceRepository.archive(seededWorkspaceOf(target))),
+        ),
+    },
+  ],
+};
+
 registerTenantScopedSurfaces(tenantsAccess);
 registerTenantScopedSurfaces(rlsFixtureRowsAccess);
+registerTenantScopedSurfaces(tenantMembershipsAccess);
+registerTenantScopedSurfaces(workspacesAccess);
+registerTenantScopedSurfaces(workspaceRepositoryAccess);
 
 const PLANTED_CANARY_ROW_ID = 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2';
 
@@ -816,7 +1193,166 @@ export const guardedLeakBoundValueCanaryAccess = controlAccess(
   [{ column: 'lock_token', value: 'lock_token' }],
 );
 
-/** Every surface id this wave covers, hand-written so a battery quietly losing a method fails. */
+/**
+ * ===========================================================================
+ * THE FOUR WORKSPACE ROUTES, ATTACKED AS AUTHENTICATED HTTP (TASK-014, TASK-015).
+ * ===========================================================================
+ *
+ * SC-4's clause: "one negative control per endpoint, IN THE ISOLATION HARNESS rather than
+ * in a controller test." A controller test proves the controller does what its author
+ * expected; this proves the composition root — guard, tenant interceptor, filter,
+ * repository, policies — refuses what the controller was never asked about, issued as a
+ * SECOND signed-in operator against the first's rows.
+ *
+ * These run against the CHILD API `signedInTenants()` booted (the real main.ts, the real
+ * /api prefix), as two real operators whose tenants are the ones their own signups
+ * created. So the fixtures below are the SIGNED-IN tenants, not `tenants`' TENANT_A/B, and
+ * the endpoint battery is a second attempt group with its own fixtures (coverage.ts,
+ * `runAttemptGroups`). The two workspace rows the routes address are seeded by hand under
+ * those two tenants at fixed ids.
+ *
+ * EVERY ROUTE IS `owner-qualified`, AND THAT IS WHAT THE ENDPOINT ENFORCES, not merely what
+ * the repository happens to do. Every statement the route issues carries
+ * `tenant_id = currentTenantId()` in its WHERE, or sets `tenant_id` on insert, and no route
+ * takes a parameter or body field naming another tenant — `docs/contracts/workspaces.md`
+ * ("Endpoints"): a cross-tenant reference is answered 404 `not_found`, indistinguishable
+ * from a malformed or missing id. There is no unqualified HTTP shape to declare, because
+ * the endpoint offers no way to express one.
+ */
+const ENDPOINT_WORKSPACE_A = 'e1e1e1e1-e1e1-4e1e-8e1e-e1e1e1e1e1e1';
+const ENDPOINT_WORKSPACE_B = 'e2e2e2e2-e2e2-4e2e-8e2e-e2e2e2e2e2e2';
+const ENDPOINT_WORKSPACE_NAME = 'signed-in-seeded-workspace';
+
+const WORKSPACE_ENDPOINTS: readonly EndpointAttemptSpec[] = [
+  {
+    name: 'create',
+    method: 'POST',
+    route: '/api/workspaces',
+    httpKind: 'write',
+    reaches: 'new-row',
+    qualification: 'owner-qualified',
+    // Create takes only a name and writes under the caller's tenant; the attack is that
+    // the created row must belong to the ACTOR, never the target. Verified against the
+    // database, because the response carries no tenantId (workspaces.md, "The client shape").
+    buildRequest: () => ({ path: '/api/workspaces', body: { name: 'planted-by-another-tenant' } }),
+    expectedRefusal: { kind: 'created-under-actor' },
+  },
+  {
+    name: 'list',
+    method: 'GET',
+    route: '/api/workspaces',
+    httpKind: 'read',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    // The actor lists its own; the target's seeded workspace must not appear. The positive
+    // control is the target listing its own and seeing that row, so an empty cross-tenant
+    // list is isolation and not a broken route.
+    buildRequest: () => ({ path: '/api/workspaces?includeArchived=true' }),
+    expectedRefusal: { kind: 'absent-from-list' },
+  },
+  {
+    name: 'rename',
+    method: 'PATCH',
+    route: '/api/workspaces/:id',
+    httpKind: 'write',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    buildRequest: (_actor, target, ctx) => ({
+      path: `/api/workspaces/${ctx.seededRowId(target.id)}`,
+      body: { name: 'renamed-by-another-tenant' },
+    }),
+    expectedRefusal: { kind: 'status', status: 404 },
+  },
+  {
+    name: 'archive',
+    method: 'POST',
+    route: '/api/workspaces/:id/archive',
+    httpKind: 'write',
+    reaches: 'existing-row',
+    qualification: 'owner-qualified',
+    buildRequest: (_actor, target, ctx) => ({
+      path: `/api/workspaces/${ctx.seededRowId(target.id)}/archive`,
+    }),
+    expectedRefusal: { kind: 'status', status: 404 },
+  },
+];
+
+/** A fresh bearer for one signed-in tenant, minted from its cookie so it cannot expire mid-run. */
+async function tokenMinter(runtime: SignedInTenants): Promise<(tenantId: string) => Promise<string>> {
+  return async (tenantId: string): Promise<string> => {
+    const tenant = tenantId === runtime.a.tenantId ? runtime.a : runtime.b;
+    const minted = await mintToken(runtime.server, tenant.cookie);
+    const token = (minted.body as { token?: unknown }).token;
+
+    if (minted.status !== 200 || typeof token !== 'string') {
+      throw new Error(`re-mint for ${tenantId} answered ${String(minted.status)}: ${minted.raw}`);
+    }
+
+    return token;
+  };
+}
+
+/** Seeds one workspace per signed-in tenant at a fixed id, under each tenant's own flag. */
+function resetSignedInWorkspaces(runtime: SignedInTenants): void {
+  execSql(
+    migrationDsn(),
+    `SELECT set_config('app.tenant_id', :'ta', false) \\g /dev/null
+     DELETE FROM workspaces;
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'wa'::uuid, :'ta'::uuid, :'name');
+
+     SELECT set_config('app.tenant_id', :'tb', false) \\g /dev/null
+     DELETE FROM workspaces;
+     INSERT INTO workspaces (id, tenant_id, name)
+       VALUES (:'wb'::uuid, :'tb'::uuid, :'name');`,
+    {
+      variables: {
+        ta: runtime.a.tenantId,
+        tb: runtime.b.tenantId,
+        wa: ENDPOINT_WORKSPACE_A,
+        wb: ENDPOINT_WORKSPACE_B,
+        name: ENDPOINT_WORKSPACE_NAME,
+      },
+    },
+  );
+}
+
+/**
+ * The endpoint attempt group: the registration whose methods are the four HTTP attacks,
+ * and the signed-in fixtures they run against. Built at runtime because it needs the booted
+ * child and the two live sessions; the surface ids it contributes are pinned in
+ * `EXPECTED_SURFACE_IDS`.
+ */
+export async function workspaceEndpointGroup(runtime: SignedInTenants): Promise<AttemptGroup> {
+  const tokenFor = await tokenMinter(runtime);
+  const seededRowId = (tenantId: string): string =>
+    tenantId === runtime.a.tenantId ? ENDPOINT_WORKSPACE_A : ENDPOINT_WORKSPACE_B;
+
+  const registration = endpointAccess({
+    subject: 'WorkspaceEndpoints',
+    table: 'workspaces',
+    ownerColumn: 'tenant_id',
+    reset: () => resetSignedInWorkspaces(runtime),
+    baseUrl: runtime.server.baseUrl,
+    tokenFor,
+    seededRowId,
+    endpoints: WORKSPACE_ENDPOINTS,
+  });
+
+  return {
+    registrations: [registration],
+    fixtures: {
+      tenantA: { id: runtime.a.tenantId, name: 'signed-in-tenant-a' },
+      tenantB: { id: runtime.b.tenantId, name: 'signed-in-tenant-b' },
+    },
+  };
+}
+
+/**
+ * Every surface id this wave covers, hand-written so a battery quietly losing a method
+ * fails. IN SORTED ORDER: the suite compares it against `covered.sort()`, and `repo:`
+ * sorts before `route:`, so the four route ids come last.
+ */
 export const EXPECTED_SURFACE_IDS = [
   'repo:RlsFixtureRowsTableAccess.deleteAll',
   'repo:RlsFixtureRowsTableAccess.deleteOwnedBy',
@@ -826,6 +1362,18 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:RlsFixtureRowsTableAccess.reparentAll',
   'repo:RlsFixtureRowsTableAccess.updateAll',
   'repo:RlsFixtureRowsTableAccess.updateOwnedBy',
+  // The third registered subject (TASK-002). Eight shapes, like the other two: no table
+  // may decline one (F-342), and `tenant_memberships` answers all eight — the two
+  // unqualified updates through `mutableValue`, because its only non-owner column is an
+  // enum and the default literal is not a `tenant_role`.
+  'repo:TenantMembershipsTableAccess.deleteAll',
+  'repo:TenantMembershipsTableAccess.deleteOwnedBy',
+  'repo:TenantMembershipsTableAccess.findAll',
+  'repo:TenantMembershipsTableAccess.findOwnedBy',
+  'repo:TenantMembershipsTableAccess.insertOwnedBy',
+  'repo:TenantMembershipsTableAccess.reparentAll',
+  'repo:TenantMembershipsTableAccess.updateAll',
+  'repo:TenantMembershipsTableAccess.updateOwnedBy',
   'repo:TenantsTableAccess.deleteAll',
   'repo:TenantsTableAccess.deleteOwnedBy',
   'repo:TenantsTableAccess.findAll',
@@ -834,4 +1382,25 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:TenantsTableAccess.reparentAll',
   'repo:TenantsTableAccess.updateAll',
   'repo:TenantsTableAccess.updateOwnedBy',
+  // The fourth table (TASK-011): the five methods of the first real repository,
+  // attempted through the class itself, and the eight shapes on `workspaces`.
+  'repo:WorkspaceRepository.archive',
+  'repo:WorkspaceRepository.create',
+  'repo:WorkspaceRepository.findById',
+  'repo:WorkspaceRepository.list',
+  'repo:WorkspaceRepository.rename',
+  'repo:WorkspacesTableAccess.deleteAll',
+  'repo:WorkspacesTableAccess.deleteOwnedBy',
+  'repo:WorkspacesTableAccess.findAll',
+  'repo:WorkspacesTableAccess.findOwnedBy',
+  'repo:WorkspacesTableAccess.insertOwnedBy',
+  'repo:WorkspacesTableAccess.reparentAll',
+  'repo:WorkspacesTableAccess.updateAll',
+  'repo:WorkspacesTableAccess.updateOwnedBy',
+  // TASK-014/015: the four authenticated workspace routes, attacked as HTTP by a second
+  // signed-in operator. `route:` ids sort after every `repo:` id.
+  'route:GET /api/workspaces',
+  'route:PATCH /api/workspaces/:id',
+  'route:POST /api/workspaces',
+  'route:POST /api/workspaces/:id/archive',
 ] as const;

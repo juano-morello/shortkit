@@ -2,7 +2,7 @@ import { ERROR_CODE_STATUS, validationDetailsContract } from '@shortkit/contract
 import type { ErrorCode, ErrorEnvelope } from '@shortkit/contracts';
 
 /**
- * Contract: design/contracts/error-envelope.md
+ * Contract: docs/contracts/error-envelope.md
  *
  * The one error shape the API returns. `ERROR_CODE_STATUS` is normative, so the
  * status is never chosen at the call site — a code always carries the status the

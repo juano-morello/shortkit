@@ -1,8 +1,8 @@
 # The whole stack, up from nothing (AC-115).
 #
-# Contract: design/contracts/rls-policy-template.md (roles, grants, env vars)
-# ADR: adr-0030 .. adr-0037
-# Produced by: TASK-059
+# Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
+# ADR: adr-0030 .. adr-0037; adr-0040, adr-0050, adr-0051, adr-0059 (the api and web environment)
+# Produced by: TASK-059. Environment blocks extended by TASK-018, TASK-003 and TASK-009.
 # Measured by: scripts/check-compose-stack.sh
 #
 #   docker compose up                                                  # AC-115's command
@@ -22,9 +22,11 @@
 # reaches for under time pressure. Half of it is meant to be copied and half must not be.
 #
 # Reusable — this is rls-policy-template.md's "Roles" section, applied:
-#   - both roles NOBYPASSRLS, both with attribute defaults otherwise;
+#   - all three roles NOBYPASSRLS, all three with attribute defaults otherwise;
 #   - shortkit_app owns nothing and receives DML only through
-#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator;
+#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator; shortkit_auth owns
+#     nothing and receives no default privilege at all — its DML is hand-written
+#     per table (ADR-0050);
 #   - USAGE on schema public and nothing more;
 #   - migrations run as shortkit_migrator and the seed runs as shortkit_app, from a
 #     stage that is not the deployed image (ADR-0033).
@@ -79,8 +81,8 @@ services:
     restart: unless-stopped
     environment:
       # The bootstrap superuser. Nothing else in the stack uses it: every statement the
-      # API, the migrator and the seed issue comes from one of the two NOBYPASSRLS roles,
-      # because a superuser is exempt from every policy.
+      # API, the migrator and the seed issue comes from one of the three NOBYPASSRLS
+      # roles, because a superuser is exempt from every policy.
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
       # `postgres`, so the entrypoint does not create `shortkit` itself. The
       # `CREATE DATABASE shortkit OWNER shortkit_migrator` in the init script is what
@@ -88,12 +90,13 @@ services:
       # pg_database_owner and run DDL with no further grant (ADR-0003).
       POSTGRES_DB: postgres
       # Read by the init script and, for the app one, by the health probe on every
-      # interval. Both survive into the running server's environment: the entrypoint's
-      # `unset "${!POSTGRES_@}"` does not match them, so `docker inspect` and
-      # /proc/1/environ hold them for the container's lifetime. Fixtures, so that is
-      # fine; an override is a disclosure and this stack has no secret mechanism.
+      # interval. All three survive into the running server's environment: the
+      # entrypoint's `unset "${!POSTGRES_@}"` does not match them, so `docker inspect`
+      # and /proc/1/environ hold them for the container's lifetime. Fixtures, so that
+      # is fine; an override is a disclosure and this stack has no secret mechanism.
       SHORTKIT_MIGRATOR_PASSWORD: ${SHORTKIT_MIGRATOR_PASSWORD:-migrator}
       SHORTKIT_APP_PASSWORD: ${SHORTKIT_APP_PASSWORD:-app}
+      SHORTKIT_AUTH_PASSWORD: ${SHORTKIT_AUTH_PASSWORD:-auth}
     ports:
       # 127.0.0.1 explicitly, on every published port in this file: a stack with the
       # password `app` is not on the LAN. 55432 sits beside the test stack's 55433 and is
@@ -226,6 +229,132 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
+      # shortkit_auth, never shortkit_app: ADR-0050's second pool, reached only through
+      # betterAuthDatabase(). This DSN, as CONSTRUCTED HERE, always renders — the password
+      # falls back to the fixture ${SHORTKIT_AUTH_PASSWORD:-auth} default two block levels
+      # up, same as every other role's DSN in this file. "No fallback" is a property of
+      # the APPLICATION-level variable this DSN is bound to: DATABASE_AUTH_URL is a
+      # declared binding with no fallback to DATABASE_URL (ADR-0050) — an unset
+      # DATABASE_AUTH_URL fails boot rather than silently restoring shortkit_app as the
+      # auth role. BETTER_AUTH_SECRET below is the same shape of binding: no fallback
+      # here either, because it is not a fixture placeholder but an actual signing key.
+      #
+      # EXISTING VOLUME? `shortkit_auth` is created by the init script below, which runs
+      # EXACTLY ONCE against an empty data directory (ADR-0032). A `shortkit-dev_pgdata`
+      # volume from before this role existed keeps a two-role database forever.
+      #
+      # `migrate` does NOT fail on it today (measured against a scratch two-role
+      # cluster: `db:migrate` and `seed.mts` both exit 0) — nothing under
+      # apps/api/drizzle/** names shortkit_auth until TASK-002's migration `0001`
+      # (wave 1) adds the GRANT ... TO shortkit_auth that fails with `role
+      # "shortkit_auth" does not exist` against a database that never created it.
+      #
+      # From wave 2, `api` fails against THIS DSN, but not with "role does not exist".
+      # `api` connects from OUTSIDE the postgres container, over the compose network —
+      # the same path as a probe from your own host against the published port — and
+      # the image's `host all all 127.0.0.1/32 trust` line only matches a connection
+      # that arrives FROM 127.0.0.1. Neither does (measured: `inet_client_addr()` on a
+      # connection from the host reads the bridge gateway, e.g. 172.18.0.1, never
+      # 127.0.0.1), so scram runs and a missing role answers `password authentication
+      # failed for user "shortkit_auth"` — no `FATAL:` prefix; that is psql's own
+      # formatting, not what `node-postgres` puts on `error.message` or what
+      # `docker compose logs api` prints through main.ts's `err_message`. Only a probe
+      # run FROM INSIDE the postgres container (its unix socket, or 127.0.0.1 from
+      # within it) hits the trust line and gets `FATAL: role "shortkit_auth" does not
+      # exist` instead — not how `api` connects, and not how you would naturally check
+      # this from your host.
+      #
+      # THAT MESSAGE READS AS A WRONG PASSWORD. The two cheapest repairs from there are
+      # overriding SHORTKIT_AUTH_PASSWORD, which does nothing, or repointing
+      # DATABASE_AUTH_URL at a DSN that does authenticate — which is the change
+      # ADR-0050 names as silently restoring shortkit_app as the auth role with every
+      # gate still green. Run `docker compose down -v` before the next `up` instead;
+      # that re-runs the init script and creates the role.
+      DATABASE_AUTH_URL: postgres://shortkit_auth:${SHORTKIT_AUTH_PASSWORD:-auth}@postgres:5432/shortkit
+      # ---------------------------------------------------------------------------
+      # NO VALUE IS COMMITTED HERE. THIS IS THE ONLY VARIABLE IN THIS FILE WITHOUT ONE.
+      # ---------------------------------------------------------------------------
+      # ADR-0051 (amended, F-144): a committed default is a value everyone already has
+      # the moment this repository is cloned, and from TASK-003 (wave 2) that value signs
+      # every JWT betterAuth({ secret }) mints — the same failure mode as better-auth's
+      # own published constant (F-020), just under a different string. ${VAR:?...} fails
+      # at Compose PARSE time instead, before any container, network, volume or image
+      # layer is created, and Compose's own error names the variable.
+      #
+      # scripts/check-compose-stack.sh generates and exports one value per run, before
+      # its trap cleanup EXIT (ADR-0051). Everyone else: export BETTER_AUTH_SECRET
+      # yourself, or set it in a project-root .env (see .env.example) — at least 32
+      # characters, and not better-auth's published default. 32 random bytes from
+      # node:crypto, base64url-encoded, is the shape this repository's own tooling uses.
+      #
+      # UNLIKE THE FIXTURE PASSWORDS ABOVE, `docker compose config` and `docker inspect`
+      # printing this variable is a disclosure, not a fixture (the note at :94-96 and :177
+      # does not cover it): whatever value is bound here is real, not a committed
+      # placeholder. Do not paste either command's output into an issue, a report or a
+      # shared scrollback while it carries a live BETTER_AUTH_SECRET.
+      BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?generate at least 32 characters and export it, or put it in .env at the repository root. No value is committed here because this one signs JWTs. See .env.example and ADR-0051.}'
+      # ---------------------------------------------------------------------------
+      # THESE TWO CARRY DEFAULTS, AND THAT IS THE DIFFERENCE FROM THE KEY ABOVE.
+      # ---------------------------------------------------------------------------
+      # Neither is a credential (ADR-0059). Publishing `http://localhost:3001` discloses
+      # nothing and grants nothing, this file already commits four role passwords, and the
+      # published ports below are exactly these two origins — so the defaults are the
+      # correct values for this stack and `docker compose up` on a fresh clone needs
+      # nothing exported for them. BETTER_AUTH_SECRET stays the only variable in this file
+      # with no default, which is a sentence ADR-0051 relies on.
+      #
+      # BETTER_AUTH_URL is the origin the API issues and verifies tokens for. Unset,
+      # better-auth derives the issuer from each request's Host header — measured, one
+      # session and two Host values minted two validly signed tokens with different `iss`
+      # — and derives the session cookie's `Secure` flag from NODE_ENV.
+      #
+      # WHAT MAKES A COMMITTED DEFAULT SAFE IS THE LOOPBACK RULE, NOT THIS FILE: `http:`
+      # is accepted only for localhost, 127.0.0.0/8 or [::1] (apps/api/src/auth/
+      # boot-assertions.ts). Copying this line to a real host keeps the scheme, and that
+      # copy is a boot refusal rather than a session cookie in cleartext.
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3001}
+      # Comma-separated origins the dashboard is served from, EXTENDING the API's own
+      # origin rather than replacing it. Unset is legal and costs a browser flow a
+      # `403 INVALID_ORIGIN`; a bare `*` is refused at boot, because that is the value an
+      # operator reaches for when every local login answers 403 and it trusts every origin
+      # on the internet (ADR-0059).
+      WEB_APP_ORIGINS: ${WEB_APP_ORIGINS:-http://localhost:3000}
+      # ---------------------------------------------------------------------------
+      # THE FOUR TRUST DECLARATIONS ARE ABSENT, AND ABSENT ON PURPOSE (ADR-0040, TASK-009).
+      # ---------------------------------------------------------------------------
+      # Two boundaries, declared independently, each with the same shape: a named hop or
+      # `direct`, unset is read as `direct`, and any other value refuses boot in EVERY
+      # environment — `Proxy`, `true`, `1` and `prod` all fail here as they would anywhere.
+      # apps/api/.env.example carries the full table.
+      #
+      #   CLIENT_TRUST_BOUNDARY=proxy      a hop in front terminates client connections and
+      #                                    sets AND strips the header named below; without
+      #                                    it, unset, read as `direct`
+      #   TRUSTED_CLIENT_IP_HEADER=...     the header that hop sets. Required only under
+      #                                    `proxy`; never x-forwarded-for or forwarded
+      #   BFF_TRUST_BOUNDARY=bff           our own frontend forwards a browser address it
+      #                                    authenticates with the secret below; unset, `direct`
+      #   BFF_PROXY_SECRET=...             required only under `bff`. Shared with the `web`
+      #                                    service's copy, which is ALSO unset here
+      #
+      # This stack has no hop in front of `api` — a laptop browser reaches 127.0.0.1:3001
+      # directly — so `CLIENT_TRUST_BOUNDARY` is unset. And the `web` service below carries no
+      # BFF_PROXY_SECRET, so its proxy route forwards NEITHER x-shortkit-client-ip NOR
+      # x-shortkit-proxy-auth, so `BFF_TRUST_BOUNDARY` is unset too. What that costs, stated
+      # (ADR-0040): no assertion fires, no IP principal is established, the IP-keyed rate
+      # buckets do not bind, and `trusted_client_ip_unresolved_total` is nonzero from the
+      # first request. `authBodyCap` at 32 KiB and the email-keyed bucket still bind, so the
+      # credential surface is less protected here, not unprotected.
+      #
+      # DO NOT ADD A FIXTURE BFF_PROXY_SECRET TO BOTH SERVICES TO "TURN THE LIMITS ON". A
+      # secret that reads as real is one somebody copies into a deployment, and ADR-0040
+      # rejected that route by name. A stack that wants the BFF trust path exercised sets
+      # BFF_TRUST_BOUNDARY=bff here and the same BFF_PROXY_SECRET on both services, from its
+      # own environment, and takes ownership of that value.
+      #
+      # PORT is not set: main.ts defaults to 3001, which is the port published below and the
+      # one the healthcheck probes. GIT_COMMIT_SHA is not set here either — it is baked into
+      # the image by the build arg above (ADR-0037), not read from this block.
     ports:
       - '127.0.0.1:3001:3001'
     healthcheck:
@@ -261,6 +390,32 @@ services:
       dockerfile: apps/web/Dockerfile
     pull_policy: build
     restart: unless-stopped
+    # `service_healthy`, not plain `depends_on` (ADR-0036): a started `api` container is
+    # one whose boot preconditions have not yet run, and the BFF route below would answer
+    # every request with a connection refused until they had. ADR-0035 declared no
+    # dependency because nothing under apps/web called the API; the proxy route now does,
+    # so the dependency exists and is declared in the same file that carries the route's
+    # base URL (TASK-009, wave 4).
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Read at REQUEST time by apps/web/app/api/bff/[...path]/route.ts and
+      # apps/web/src/lib/session/session.ts — server-only, never inlined, so it needs no
+      # rebuild and it is the compose network's name for the API, not the published port:
+      # `localhost:3001` inside this container is this container. Includes `/api`
+      # (ADR-0006); the route replaces the path, so the suffix is not doubled.
+      #
+      # A LITERAL, NOT `${API_BASE_URL:-...}`, on purpose. A developer running `next dev`
+      # on the host exports API_BASE_URL=http://localhost:3001/api, and interpolating that
+      # here would hand this container an address that resolves to itself, with a green
+      # healthcheck and a 502 from every proxied call. No value from the host is right
+      # inside this network, so none is read. apps/web/.env.example documents the same value.
+      API_BASE_URL: http://api:3001/api
+      # BFF_PROXY_SECRET IS NOT SET, and its absence is paired with the `api` service's:
+      # with no secret the route forwards NEITHER x-shortkit-client-ip NOR
+      # x-shortkit-proxy-auth, and `api` declares no BFF_TRUST_BOUNDARY, so no assertion
+      # asks for one. Optional for a local stack. See the block above `api`'s ports.
     ports:
       - '127.0.0.1:3000:3000'
     healthcheck:
@@ -271,21 +426,20 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
-    # NO `depends_on`, deliberately (ADR-0035). Nothing under apps/web calls the API, so
-    # a declared dependency would assert a relationship that does not exist.
+    # WHAT A GREEN `web` MEANS NOW. `apiClient()` targets the same-origin BFF proxy at
+    # `/api/bff/<path>`, the route exists (apps/web/app/api/bff/[...path]/route.ts,
+    # TASK-007), and it forwards to API_BASE_URL over this network. So a signup posted at
+    # http://localhost:3000 reaches `api` with the browser's `Origin: http://localhost:3000`,
+    # which WEB_APP_ORIGINS above trusts. Green here still means "/ answered 200", not
+    # "the proxied path works" — scripts/check-compose-stack.sh is where the flow gets
+    # asserted (its signup clause is TASK-017's), not this probe. `http://api:3001/...` is
+    # reachable from inside this container and from no browser; `http://localhost:3001/...`
+    # is reachable from a browser and not from inside.
     #
-    # WHAT A GREEN `web` DOES NOT MEAN. Anything through `apiClient()` returns 404,
-    # because the BFF proxy route it targets — apps/web/app/api/bff/[...path]/route.ts —
-    # does not exist in this repository. No screen calls it today, so nothing is broken,
-    # but two green containers are not evidence of a working frontend-to-backend path.
-    # `http://api:3001/...` is reachable from inside this container and from no browser;
-    # `http://localhost:3001/...` is reachable from a browser and not from inside here.
-    # When the proxy lands it brings `depends_on: api: service_healthy` and reads
-    # API_BASE_URL=http://api:3001/api server-side, in the same commit as the route.
-    #
-    # No NEXT_PUBLIC_* is set for the build, deliberately: Next inlines those, and the
-    # only two candidate values are one no browser can resolve and one that would be
-    # baked wrong anywhere but this machine.
+    # No NEXT_PUBLIC_* is set for the build, deliberately (ADR-0035): Next inlines those,
+    # nothing under apps/web reads NEXT_PUBLIC_API_BASE_URL, and the only two candidate
+    # values are one no browser can resolve and one that would be baked wrong anywhere but
+    # this machine.
 
 volumes:
   pgdata:
@@ -308,10 +462,11 @@ configs:
       set -eu
       psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname postgres \
         -v migrator_password="$$SHORTKIT_MIGRATOR_PASSWORD" \
-        -v app_password="$$SHORTKIT_APP_PASSWORD" <<'SQL'
-      -- design/contracts/rls-policy-template.md "Roles", verbatim.
+        -v app_password="$$SHORTKIT_APP_PASSWORD" \
+        -v auth_password="$$SHORTKIT_AUTH_PASSWORD" <<'SQL'
+      -- docs/contracts/rls-policy-template.md "Roles", verbatim.
       --
-      -- NOBYPASSRLS on BOTH roles. It is the Postgres default, and it is written out
+      -- NOBYPASSRLS on all three roles. It is the Postgres default, and it is written out
       -- because a role that can bypass RLS makes every isolation claim in this system a
       -- tautology: the API's boot check would refuse, the integration suite's assertions
       -- would pass over a role exempt from every policy, and nothing else looks. The
@@ -319,6 +474,8 @@ configs:
       -- there. docker-compose.test.yml carries the same sentence for the same reason.
       CREATE ROLE shortkit_migrator LOGIN PASSWORD :'migrator_password' NOBYPASSRLS;
       CREATE ROLE shortkit_app      LOGIN PASSWORD :'app_password'      NOBYPASSRLS;
+      -- shortkit_auth: runtime, Better Auth only. Owns nothing (ADR-0050).
+      CREATE ROLE shortkit_auth     LOGIN PASSWORD :'auth_password'     NOBYPASSRLS;
 
       -- The migrator owns the database, so it owns schema `public` through
       -- pg_database_owner and can run DDL without any further grant. The app role owns
@@ -329,8 +486,13 @@ configs:
 
       -- Nothing here grants shortkit_app anything on a table directly. It receives DML
       -- only through ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator, which is what
-      -- makes the seed's connection a real grant check (ADR-0033).
-      GRANT USAGE ON SCHEMA public TO shortkit_app;
+      -- makes the seed's connection a real grant check (ADR-0033). A default privilege
+      -- for shortkit_auth would grant it DML on every table the migrator creates,
+      -- including every tenant-scoped one — the split cannot be expressed as a default
+      -- privilege in either direction (rls-policy-template.md "Roles", ADR-0050).
+      -- shortkit_auth's DML on the five Better Auth tables is hand-written per table in
+      -- migration 0001 (TASK-002).
+      GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public

@@ -10,10 +10,12 @@
  * WHAT A GREEN RUN OF THIS FILE DOES AND DOES NOT SAY
  * ---------------------------------------------------------------------------
  *
- * IT SAYS: for the two tables that exist today — `tenants` and `rls_fixture_rows` — a
- * tenant transaction belonging to either tenant cannot read, filter for, update, delete
- * or plant a row belonging to the other, or TAKE OWNERSHIP OF ONE, through any of EIGHT
- * statement shapes ON EITHER TABLE — no table is excused from one since r4 withdrew the
+ * IT SAYS: for the four tables that exist today — `tenants`, `rls_fixture_rows`,
+ * `tenant_memberships` (TASK-002) and `workspaces` (TASK-011, also attempted through the
+ * five methods of `WorkspaceRepository`) — a tenant transaction belonging to either tenant
+ * cannot read, filter for, update, delete or plant a row belonging to the other, or TAKE
+ * OWNERSHIP OF ONE, through any of EIGHT statement shapes ON EVERY ONE OF THEM — no table
+ * is excused from one since r4 withdrew the
  * decline (F-342) — IN EITHER DIRECTION; that three of those eight carry NO WHERE CLAUSE,
  * so a wide-open UPDATE or DELETE policy cannot hide behind a correctly scoped SELECT
  * policy (F-302), and that one of the three ASSIGNS THE OWNER COLUMN, so a widened USING
@@ -28,8 +30,12 @@
  * `shortkit_app`, a role holding neither SUPERUSER nor BYPASSRLS.
  *
  * IT DOES NOT SAY the system has no uncovered cross-tenant surface. Most of the system
- * is unwritten: there is no authenticated route, no repository class, and no
- * `workspaces`, `links`, `domains`, `tenant_memberships` or `click_events` table. Route
+ * is unwritten: there is no authenticated route, one repository class
+ * (`WorkspaceRepository`, registered by hand rather than discovered), and no `links`,
+ * `domains` or `click_events` table. `tenant_memberships` is here
+ * as a TABLE, attempted directly; the ONE surface that reads it outside a tenant context
+ * — `withMembershipLookup` / `tenantIdForUser`, the token-mint escape — is not attempted
+ * here at all, and is the third entry in `ISOLATION_EXCLUSIONS` (ADR-0045). Route
  * and repository discovery — isolation-coverage.md's route and decorator enumeration,
  * the four grep clauses and the `pg_policies` shape assertion — are TASK-056's. AC-12 is
  * met against a partial table set, deliberately and by ruling, and the boundary is
@@ -102,13 +108,27 @@
  * ...plus four probes for tables nobody registered: `wave3_workspaces_probe` (F-296) and
  * `wave3_audit_events_probe_{norls,noforce,forced}` (F-303, F-333), which the drift check
  * has to name whether or not they are protected.
+ *
+ * ...and, since 2026-08-14, a TWELFTH control that is not about this battery at all
+ * (F-133). `isolation_membership_lookup_{,wide_open_,flag_gated_}canary` carry the
+ * token-mint escape's `FOR SELECT` policy in three shapes — the shipped predicate and two
+ * widenings of it. NOTHING ABOVE CAN REACH THAT POLICY: every attempt here runs through
+ * `withTenantTransaction`, which never sets `app.membership_lookup_user`. The control it
+ * proves lives in `test/auth/tenant-memberships.int-spec.ts`, and the measured defect was
+ * that a lookup policy admitting every membership row of every tenant left that file
+ * reporting 6 passed, exit 0.
  */
+import type { Server } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import pg from 'pg';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { AppModule } from '../../src/app.module';
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
 
 import {
@@ -118,6 +138,7 @@ import {
   formatIsolationReport,
   ISOLATION_EXCLUSIONS,
   registeredSubjects,
+  runAttemptGroups,
   runCrossTenantAttempts,
   tenantOwnershipCensus,
   tenantScopedTableDrift,
@@ -125,21 +146,35 @@ import {
   assertNoTenantIdAltered,
 } from './coverage';
 import type {
+  AttemptGroup,
   AttemptOutcome,
   IsolationReport,
   SuiteOutcome,
   TenantFixtures,
 } from './coverage';
 import {
+  createEndpointControlCanary,
+  createMembershipLookupCanaries,
   createUnregisteredOwnerColumnProbe,
   createUnregisteredTableProbe,
   dropControlTables,
+  dropEndpointControlCanary,
   dropUnregisteredOwnerColumnProbes,
   dropUnregisteredTableProbe,
+  endpointControlGroup,
+  EndpointControlModule,
   ownerColumnProbeTable,
+  MEMBERSHIP_LOOKUP_CANARY_TABLE,
+  MEMBERSHIP_LOOKUP_CANARY_USER_A,
+  MEMBERSHIP_LOOKUP_CANARY_USER_B,
+  MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
+  MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE,
   OWNER_COLUMN_PROBE_PROTECTIONS,
   UNREGISTERED_TABLE_PROBE,
 } from './controls';
+import { signedInTenants, SIGNED_IN_EMAILS } from './http-attempts';
+import type { SignedInTenants } from './http-attempts';
+import { clearSignupState } from '../support/auth-fixture';
 import { createLeakCanary, dropLeakCanary, leakCanaryProtection } from './leak-canary';
 import {
   assertDeclaredQualification,
@@ -157,14 +192,24 @@ import {
   pkOwnerCanaryAccess,
   qualificationOfStatement,
   unqualifiedWriteCanaryAccess,
+  workspaceEndpointGroup,
 } from './registrations';
+import {
+  assertLookupAdmitsOnly,
+  countMembershipsWithNoLookupFlag,
+  readMembershipsUnderLookupFlag,
+  warmMembershipLookupFlags,
+} from '../support/membership-lookup-probe';
 import { querySql } from '../support/psql';
 import {
+  appDsn,
   assertAppRoleCannotBypassRls,
   dropRlsFixture,
   migrationDsn,
   RLS_FIXTURE_TABLE,
+  TENANT_A,
   TENANT_A_ROW_ID,
+  TENANT_B,
   TENANT_B_ROW_ID,
 } from '../support/rls-fixture';
 
@@ -178,7 +223,7 @@ const REPORT_PATH = fileURLToPath(new URL('report.json', import.meta.url));
  * moving both have to arrive as a visible diff. It reaches `report.json` as
  * `observedTests`, so a reader of the artifact can check it too.
  */
-const TESTS_IN_THIS_FILE = 29;
+const TESTS_IN_THIS_FILE = 33;
 
 /**
  * ===========================================================================
@@ -303,6 +348,13 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   let fixtures: TenantFixtures;
   let report: IsolationReport | null = null;
 
+  // TASK-014/015. The two concurrent signed-in operators, the child API they were minted
+  // against, the in-process app carrying the real guard + interceptor in front of the
+  // control route, and the two HTTP attempt groups built from them.
+  let signedIn: SignedInTenants | undefined;
+  let controlApp: INestApplication | undefined;
+  let controlBaseUrl: string;
+
   /**
    * The run's judged report. `report` is nullable so that `afterAll` can tell a run that
    * never produced one from a run that did (F-331); a test reaching for it when
@@ -331,22 +383,57 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     assertAppRoleCannotBypassRls();
 
     fixtures = await createTenantFixtures();
-    report = await runCrossTenantAttempts(registeredSubjects(), fixtures);
+
+    // TASK-014. Two real operators, signed in concurrently through the shipped auth surface
+    // against a child API — the SC-4 mechanism. Their tenants are the ones their own signups
+    // created, so the HTTP attempts are a SECOND group with its own fixtures (F-293 both
+    // directions still, but a different pair of tenants than the table battery).
+    signedIn = await signedInTenants();
+    // The in-process app's guard reads BETTER_AUTH_URL per request and its JWKS cache per
+    // fetch, so pointing it at the child once the port is known verifies the child's tokens.
+    vi.stubEnv('BETTER_AUTH_URL', signedIn.server.baseUrl);
+
+    // The control endpoint's app: the real AppModule (guard, tenant interceptor, filter)
+    // plus the in-test control route, exactly the shape auth-guard.int-spec.ts uses. The
+    // control TABLE is built inside the control test, not here, so the main run below never
+    // sees an unprotected table in its drift check.
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule, EndpointControlModule],
+    }).compile();
+    controlApp = moduleRef.createNestApplication({ logger: false });
+    await controlApp.listen(0, '127.0.0.1');
+    (controlApp.getHttpServer() as Server).keepAliveTimeout = 0;
+    controlBaseUrl = await controlApp.getUrl();
+
+    const endpointGroup: AttemptGroup = await workspaceEndpointGroup(signedIn);
+
+    // Two groups, one report (AC-29): the SQL table battery against the seeded fixtures, and
+    // the HTTP endpoint battery against the two signed-in operators.
+    report = await runAttemptGroups([
+      { registrations: registeredSubjects(), fixtures },
+      endpointGroup,
+    ]);
 
     // F-331. This writes the ATTEMPTS and deliberately leaves `verdict: incomplete`.
-    // Eleven of this file's tests run after this line, including
-    // `assertNoTenantIdAltered()`, and any of them can disprove an attempt battery that
-    // judged itself clean. The verdict is published in `afterAll` and nowhere else.
+    // Tests run after this line, including `assertNoTenantIdAltered()`, and any can disprove
+    // an attempt battery that judged itself clean. The verdict is published in `afterAll`.
     writeIsolationReport(report, REPORT_PATH);
     // AC-12's "its output enumerates which methods were exercised", in the run log.
     console.log(formatIsolationReport(report));
-  }, 300_000);
+  }, 600_000);
 
-  afterAll((suite) => {
+  afterAll(async (suite) => {
     try {
       dropLeakCanary();
       dropControlTables();
       dropRlsFixture();
+      // TASK-014/015 teardown: close the in-process control app, stop the child API, and
+      // take the two signed-in operators' tenants back out — their workspaces cascade with
+      // them, so `db:check-policies` after the suite sees no stranded rows.
+      await controlApp?.close();
+      await signedIn?.server.stop();
+      clearSignupState(...SIGNED_IN_EMAILS);
+      vi.unstubAllEnvs();
     } finally {
       // F-331. THE ONLY WRITE THAT CAN PUBLISH `pass`, and it happens after every test in
       // this file has a result. `report` is null when `beforeAll` threw — vitest runs
@@ -365,8 +452,8 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   });
 
   it('AC-12: no registered method lets one tenant reach another tenant\'s rows', () => {
-    // The premise, stated first and read from the catalog: both tables really are
-    // protected, so a clean run below is the policies denying rather than an
+    // The premise, stated first and read from the catalog: all three registered tables
+    // really are protected, so a clean run below is the policies denying rather than an
     // unprotected table nobody looked at. Counts are hand-derived — four bespoke
     // policies on `tenants` from drizzle/0000_*.sql, two from tenantScopedPolicies().
     expect(protectionOf('tenants')).toEqual({
@@ -378,6 +465,18 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       row_security: true,
       force_row_security: true,
       policies: 2,
+    });
+    // THREE on `tenant_memberships`, and the third is the one no attempt in this file can
+    // reach: `tenantScopedPolicies()` emits the isolation policy and `<t>_privileged_erase`,
+    // and `membershipLookupPolicy()` adds a SELECT policy keyed on the token-mint flag
+    // (ADR-0045). That policy is the excluded surface's whole narrowing, so a migration
+    // that dropped it — or one that never emitted it — would leave the exclusion in
+    // `ISOLATION_EXCLUSIONS` justified by a policy the database does not have, and every
+    // attempt below would still be green. Read from the catalogue for that reason.
+    expect(protectionOf('tenant_memberships')).toEqual({
+      row_security: true,
+      force_row_security: true,
+      policies: 3,
     });
 
     expect(leakedSurfaces(judged())).toEqual([]);
@@ -395,38 +494,107 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
       judged().attempts.map(() => 'pass'),
     );
 
-    // SIXTEEN surfaces, each attempted in both directions (F-293) — the same eight shapes
-    // on both tables, since r4 withdrew the one decline (F-342). Reads and writes are both
-    // exercised: AC-94 covers the reads and AC-95 the writes, and a battery that had lost
-    // all of one kind would still satisfy the count above.
-    expect(judged().attempts).toHaveLength(32);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(8);
-    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(24);
+    // FORTY-ONE surfaces, each attempted in both directions (F-293). THIRTY-SEVEN are SQL
+    // table subjects — the same eight shapes on all FOUR tables, since r4 withdrew the one
+    // decline (F-342), TASK-002 registered `tenant_memberships` and TASK-011 registered
+    // `workspaces`; plus the FIVE methods of `WorkspaceRepository`. FOUR are the
+    // authenticated workspace ROUTES, attacked as HTTP by a second signed-in operator
+    // (TASK-014). 41 x 2 = 82. Reads and writes are both exercised: AC-94 covers the reads
+    // and AC-95 the writes, and a battery that had lost all of one kind would still satisfy
+    // the total. The endpoints add two read attempts (GET list, both directions) and six
+    // write attempts (POST create, PATCH rename, POST archive, both directions).
+    expect(judged().attempts).toHaveLength(82);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'read')).toHaveLength(22);
+    expect(judged().attempts.filter((outcome) => outcome.kind === 'write')).toHaveLength(60);
 
-    // F-302, F-330, F-342. Twelve of those twenty-four writes carry NO WHERE CLAUSE.
-    // Hand-derived, because a battery that silently lost them is a battery that cannot
-    // see a wide-open UPDATE policy, and the counts above would not move if `updateAll`
-    // were quietly replaced by a second owner-qualified statement.
+    // F-302, F-330, F-342. Twenty-four writes carry NO WHERE CLAUSE — three shapes, on each
+    // of four tables, in each of two directions. Hand-derived, because a battery that
+    // silently lost them is a battery that cannot see a wide-open UPDATE policy, and the
+    // counts above would not move if `updateAll` were quietly replaced by a second
+    // owner-qualified statement. `WorkspaceRepository` and the HTTP endpoints contribute
+    // none: every statement they issue is owner-qualified, and the table's unqualified
+    // writes come from its sibling `WorkspacesTableAccess`.
+    //
+    // F-107. NAMED BY `${direction} ${id}`, NOT `labelled()`. `labelled()` renders only
+    // `direction + method`, so it showed each shape three times and could not tell
+    // `tenant_memberships.updateAll` from a third `tenants.updateAll` — a missing surface
+    // and a duplicated one read identically in the one assertion whose job is naming what
+    // was attempted. The full id carries the subject, so each table's write is distinct.
     expect(
-      labelled(
-        judged().attempts.filter(
+      judged()
+        .attempts.filter(
           (outcome) => outcome.kind === 'write' && outcome.qualification === 'unqualified',
-        ),
-      ),
+        )
+        .map((outcome) => `${outcome.direction ?? '?'} ${outcome.id}`)
+        .sort(),
     ).toEqual([
-      'A->B deleteAll',
-      'A->B deleteAll',
-      'A->B reparentAll',
-      'A->B reparentAll',
-      'A->B updateAll',
-      'A->B updateAll',
-      'B->A deleteAll',
-      'B->A deleteAll',
-      'B->A reparentAll',
-      'B->A reparentAll',
-      'B->A updateAll',
-      'B->A updateAll',
+      'A->B repo:RlsFixtureRowsTableAccess.deleteAll',
+      'A->B repo:RlsFixtureRowsTableAccess.reparentAll',
+      'A->B repo:RlsFixtureRowsTableAccess.updateAll',
+      'A->B repo:TenantMembershipsTableAccess.deleteAll',
+      'A->B repo:TenantMembershipsTableAccess.reparentAll',
+      'A->B repo:TenantMembershipsTableAccess.updateAll',
+      'A->B repo:TenantsTableAccess.deleteAll',
+      'A->B repo:TenantsTableAccess.reparentAll',
+      'A->B repo:TenantsTableAccess.updateAll',
+      'A->B repo:WorkspacesTableAccess.deleteAll',
+      'A->B repo:WorkspacesTableAccess.reparentAll',
+      'A->B repo:WorkspacesTableAccess.updateAll',
+      'B->A repo:RlsFixtureRowsTableAccess.deleteAll',
+      'B->A repo:RlsFixtureRowsTableAccess.reparentAll',
+      'B->A repo:RlsFixtureRowsTableAccess.updateAll',
+      'B->A repo:TenantMembershipsTableAccess.deleteAll',
+      'B->A repo:TenantMembershipsTableAccess.reparentAll',
+      'B->A repo:TenantMembershipsTableAccess.updateAll',
+      'B->A repo:TenantsTableAccess.deleteAll',
+      'B->A repo:TenantsTableAccess.reparentAll',
+      'B->A repo:TenantsTableAccess.updateAll',
+      'B->A repo:WorkspacesTableAccess.deleteAll',
+      'B->A repo:WorkspacesTableAccess.reparentAll',
+      'B->A repo:WorkspacesTableAccess.updateAll',
     ]);
+  });
+
+  it('AC-29/AC-30: every authenticated workspace endpoint is attempted in both directions and reports pass', () => {
+    // SC-4. The four shipped routes, attacked as HTTP by a SECOND signed-in operator against
+    // the composition root the child API booted — the real guard, tenant interceptor, filter,
+    // repository and policies. A refusal is a pass only because the OWNER's positive control
+    // succeeded on the same request in the same run (F-296); otherwise the attempt is
+    // `unverified` and this file is red. These are in the same report as the SQL battery
+    // (AC-29: every attempt recorded), which is why report.json names route ids.
+    const endpoints = judged().attempts.filter((outcome) => outcome.id.startsWith('route:'));
+
+    expect([...new Set(endpoints.map((outcome) => outcome.id))].sort()).toEqual([
+      'route:GET /api/workspaces',
+      'route:PATCH /api/workspaces/:id',
+      'route:POST /api/workspaces',
+      'route:POST /api/workspaces/:id/archive',
+    ]);
+    // Four routes, both directions — and each direction's actor was the other signed-in
+    // operator, which is what "both directions" means for an HTTP attempt (F-293).
+    expect(endpoints.filter((outcome) => outcome.direction === 'A->B')).toHaveLength(4);
+    expect(endpoints.filter((outcome) => outcome.direction === 'B->A')).toHaveLength(4);
+    expect(endpoints.filter((outcome) => outcome.outcome !== 'pass')).toEqual([]);
+  });
+
+  it('AC-30/AC-32: workspaces and tenant_memberships are registered subjects, and every membership attempt passes', () => {
+    // AC-30 names the tables this initiative ships; AC-32 is `tenant_memberships` specifically.
+    const tables = new Set(registeredSubjects().map((registration) => registration.table));
+
+    expect(tables.has('workspaces')).toBe(true);
+    expect(tables.has('tenant_memberships')).toBe(true);
+
+    // AC-32: its cross-tenant attempts run in both directions and every one reports pass —
+    // eight shapes, two directions. Its owner column is `tenant_id`; it is template-shaped,
+    // not a cascade root, so all eight are live.
+    const memberships = judged().attempts.filter((outcome) => outcome.table === 'tenant_memberships');
+
+    expect(memberships).toHaveLength(16);
+    expect([...new Set(memberships.map((outcome) => outcome.direction))].sort()).toEqual([
+      'A->B',
+      'B->A',
+    ]);
+    expect(memberships.filter((outcome) => outcome.outcome !== 'pass')).toEqual([]);
   });
 
   it('F-342: the owner-column write is attempted on tenants too, and reports only the acting tenant\'s own row', () => {
@@ -469,32 +637,60 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
   it('F-293: every registered surface is attempted in both directions, not only as tenant A', () => {
     // The blocker r1 found: `attempt()` had one call site and it read
     // `method.attempt(fixtures.tenantA, fixtures.tenantB)`, so the actor was always A
-    // and a policy that leaks only to B was never attempted. Both lists are the same
-    // ten ids, which is what "both directions" means.
+    // and a policy that leaks only to B was never attempted. Both lists are the whole of
+    // `EXPECTED_SURFACE_IDS`, which is what "both directions" means — stated against that
+    // roster rather than as a count, so it does not go stale the next time a table is
+    // registered.
     const forward = judged().attempts.filter((outcome) => outcome.direction === 'A->B');
     const reverse = judged().attempts.filter((outcome) => outcome.direction === 'B->A');
 
     expect(forward.map((outcome) => outcome.id).sort()).toEqual([...EXPECTED_SURFACE_IDS]);
     expect(reverse.map((outcome) => outcome.id).sort()).toEqual([...EXPECTED_SURFACE_IDS]);
 
-    // ...and the actor really was the other tenant, not the same one twice.
-    expect([...new Set(forward.map((outcome) => outcome.actor))]).toEqual([fixtures.tenantA.id]);
-    expect([...new Set(reverse.map((outcome) => outcome.actor))]).toEqual([fixtures.tenantB.id]);
+    // ...and the actor really was the other tenant, not the same one twice. The SQL table
+    // subjects (`repo:` ids) act as the seeded fixtures; the HTTP endpoint subjects
+    // (`route:` ids) act as the two SIGNED-IN operators, whose tenants are different — so
+    // the actor check is per group, and each is a single tenant per direction.
+    const tableActor = (attempts: AttemptOutcome[], id: RegExp): (string | undefined)[] => [
+      ...new Set(attempts.filter((o) => id.test(o.id)).map((o) => o.actor)),
+    ];
+
+    expect(tableActor(forward, /^repo:/)).toEqual([fixtures.tenantA.id]);
+    expect(tableActor(reverse, /^repo:/)).toEqual([fixtures.tenantB.id]);
+    expect(tableActor(forward, /^route:/)).toEqual([signedIn?.a.tenantId]);
+    expect(tableActor(reverse, /^route:/)).toEqual([signedIn?.b.tenantId]);
   });
 
   it('F-295: each tenant sees exactly its own row in every registered table before anything is attempted', async () => {
-    // The positive control. Four lines, hand-derived from the fixture: two tables, two
+    // The positive control. Ten lines, hand-derived from the fixture: four tables, two
     // tenants, one row each, and each tenant seeing only its own. If `app.tenant_id`
     // were never set, set under a mistyped name, or set to a value no row matches, this
     // is empty and every cross-tenant attempt in the file would be passing on nothing.
+    //
+    // The two `workspaces` lines each appear TWICE: the census is taken per REGISTRATION
+    // and that table carries two subjects (`WorkspacesTableAccess` and
+    // `WorkspaceRepository`, TASK-011 — the F-353 pattern), so its rows are read once per
+    // subject. Same row, same digest, same owner; a third copy or a fourth id here is a
+    // registration or a row that should not exist.
     const { id: a } = fixtures.tenantA;
     const { id: b } = fixtures.tenantB;
 
+    // The two `tenant_memberships` row ids are written out rather than imported, because
+    // `registrations.ts` does not export them and because the LITERAL is the point: the
+    // planted row this suite's attempts try to insert is
+    // `f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4`, so a census line naming any id but the two
+    // seeded ones is a row that survived an attempt. A count would not say that.
     expect(await tenantOwnershipCensus(registeredSubjects(), fixtures)).toEqual([
       `${RLS_FIXTURE_TABLE} seen-by=${a} id=${TENANT_A_ROW_ID} owner=${a}`,
       `${RLS_FIXTURE_TABLE} seen-by=${b} id=${TENANT_B_ROW_ID} owner=${b}`,
+      `tenant_memberships seen-by=${a} id=a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1 owner=${a}`,
+      `tenant_memberships seen-by=${b} id=b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1 owner=${b}`,
       `tenants seen-by=${a} id=${a} owner=${a}`,
       `tenants seen-by=${b} id=${b} owner=${b}`,
+      `workspaces seen-by=${a} id=a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2 owner=${a}`,
+      `workspaces seen-by=${a} id=a2a2a2a2-a2a2-4a2a-8a2a-a2a2a2a2a2a2 owner=${a}`,
+      `workspaces seen-by=${b} id=b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2 owner=${b}`,
+      `workspaces seen-by=${b} id=b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2 owner=${b}`,
     ]);
   });
 
@@ -535,9 +731,26 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // cannot slip in unnoticed. Extending it is the correct response to adding a
     // registration; extending it WITHOUT understanding why the new entry is refused is
     // the mistake, and the invariant above is what catches that.
+    //
+    // Three per direction since TASK-002, not two: `tenant_memberships`' `insertOwnedBy`
+    // is refused by the isolation policy's WITH CHECK — the same clause, on a policy
+    // emitted by the same `tenantScopedPolicies()` builder, as the other two. The
+    // invariant above is what says so rather than this roster: all six carry
+    // `qualification: 'owner-qualified'`, `refusalKind: 'row-level-security'` and a
+    // message matching `violates row-level security policy`.
+    //
+    // Four per direction since TASK-011: `workspaces`' `insertOwnedBy` is refused by the
+    // same WITH CHECK, from the same builder, applied by migration 0002. The five
+    // `WorkspaceRepository` attempts add nothing here — none of them is refused, because
+    // the repository never issues a statement the policy has to refuse: its predicate
+    // finds nothing first, and `create` writes under the actor.
     expect(labelled(refused)).toEqual([
       'A->B insertOwnedBy',
       'A->B insertOwnedBy',
+      'A->B insertOwnedBy',
+      'A->B insertOwnedBy',
+      'B->A insertOwnedBy',
+      'B->A insertOwnedBy',
       'B->A insertOwnedBy',
       'B->A insertOwnedBy',
     ]);
@@ -1177,6 +1390,179 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
       expect(control.verdict).toBe('fail');
     }, 180_000);
+
+    it('F-133: a widened membership-lookup policy is caught by the control that reads under the flag', async () => {
+      // ===========================================================================
+      // THE ONE CONTROL HERE FOR A POLICY THIS BATTERY CANNOT ATTEMPT AT ALL.
+      // ===========================================================================
+      //
+      // `tenant_memberships_membership_lookup` is the token-mint escape (ADR-0045): the
+      // only policy in the system that reads a tenant-scoped table with NO tenant context.
+      // Nothing above can see it widen — every attempt runs through
+      // `withTenantTransaction`, which never sets `app.membership_lookup_user`, and
+      // `registrations.ts` treats the narrowing as proven elsewhere. `db:check-policies`
+      // counts `nullif` wrappers and cannot see which column a predicate compares against.
+      // ELSEWHERE is control 2 of `test/auth/tenant-memberships.int-spec.ts`, and this is
+      // the test that says control 2 can fail.
+      //
+      // MEASURED on 2026-08-14, on the migrated production table, with the shipped lookup
+      // policy replaced by the flag-gated predicate this control's third table carries:
+      // that file reported 6 passed, exit 0. Its fixture held one membership row, so
+      // "returns that user and no other tenant" had no other tenant's row to exclude.
+      //
+      // The functions below are THE ONES CONTROL 2 CALLS, from
+      // `test/support/membership-lookup-probe.ts`. A copy of the read written here would
+      // prove that PostgreSQL behaves as PostgreSQL does; running the shipped mechanism
+      // over a correct policy and two widened ones is what proves the control discriminates.
+      createMembershipLookupCanaries();
+
+      const runtime = new pg.Client({ connectionString: appDsn() });
+
+      await runtime.connect();
+
+      try {
+        // The warm state ADR-0049 exists for, and the state control 2 runs in: every
+        // declared flag left at `''` by a committed transaction-local `set_config`. One
+        // warm serves every read below, because each read sets the flag inside its own
+        // transaction and leaves the session placeholder at `''` again.
+        await warmMembershipLookupFlags(runtime, {
+          tenantId: TENANT_A,
+          userId: MEMBERSHIP_LOOKUP_CANARY_USER_A,
+        });
+
+        const probe = { userId: MEMBERSHIP_LOOKUP_CANARY_USER_A };
+
+        const underProductionPredicate = await readMembershipsUnderLookupFlag(runtime, {
+          ...probe,
+          table: MEMBERSHIP_LOOKUP_CANARY_TABLE,
+        });
+        const underWideOpen = await readMembershipsUnderLookupFlag(runtime, {
+          ...probe,
+          table: MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE,
+        });
+        const underFlagGated = await readMembershipsUnderLookupFlag(runtime, {
+          ...probe,
+          table: MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
+        });
+
+        // Hand-derived from the seed, which is one membership per tenant. The correct
+        // twin's predicate is read out of `membershipLookupPolicy()` itself, so this line
+        // is a statement about the shipped policy and not about a transcription of it.
+        expect(underProductionPredicate).toEqual([
+          { user_id: MEMBERSHIP_LOOKUP_CANARY_USER_A, tenant_id: TENANT_A },
+        ]);
+
+        // ...and both widenings hand tenant B's membership to a caller who asked about
+        // tenant A's user. `USING (true)` is the obvious one; the flag-gated predicate is
+        // the one an author writes while believing they have scoped the escape.
+        const bothTenants = [
+          { user_id: MEMBERSHIP_LOOKUP_CANARY_USER_A, tenant_id: TENANT_A },
+          { user_id: MEMBERSHIP_LOOKUP_CANARY_USER_B, tenant_id: TENANT_B },
+        ];
+
+        expect(underWideOpen).toEqual(bothTenants);
+        expect(underFlagGated).toEqual(bothTenants);
+
+        // ---------------------------------------------------------------------------
+        // AND THE CONTROL ITSELF DISCRIMINATES, WHICH IS THE POINT OF THIS TEST.
+        // ---------------------------------------------------------------------------
+        //
+        // `assertLookupAdmitsOnly` is control 2's whole expectation. Green over the
+        // production predicate, red over both widenings — a control that cannot be shown
+        // to fail is not a control, and this one demonstrably could not before the second
+        // membership row was seeded.
+        // `AssertionError` rather than a bare "it threw": a broken helper throws too, and a
+        // `TypeError` here would be the control reporting a defect it cannot see for a
+        // reason that has nothing to do with the policy.
+        const control2 = (rows: readonly { user_id: string; tenant_id: string }[]): string => {
+          try {
+            assertLookupAdmitsOnly(rows, {
+              user_id: MEMBERSHIP_LOOKUP_CANARY_USER_A,
+              tenant_id: TENANT_A,
+            });
+
+            return 'admitted only that user';
+          } catch (error) {
+            return (error as Error).name;
+          }
+        };
+
+        expect({
+          productionPredicate: control2(underProductionPredicate),
+          wideOpen: control2(underWideOpen),
+          flagGated: control2(underFlagGated),
+        }).toEqual({
+          productionPredicate: 'admitted only that user',
+          wideOpen: 'AssertionError',
+          flagGated: 'AssertionError',
+        });
+
+        // ---------------------------------------------------------------------------
+        // WHY CONTROL 3 IS NOT ENOUGH, MEASURED RATHER THAN ARGUED.
+        // ---------------------------------------------------------------------------
+        //
+        // Control 3 reads with NO flag set. It sees `USING (true)` — two rows where zero
+        // are owed — and it is STRUCTURALLY BLIND to the flag-gated shape, which with no
+        // flag set correctly admits nothing. That is the division of labour: control 3
+        // catches an ungated policy, control 2 catches a gated one that compares the wrong
+        // column, and only control 2 needed the second seeded row to do it.
+        expect(
+          await countMembershipsWithNoLookupFlag(runtime, MEMBERSHIP_LOOKUP_CANARY_TABLE),
+        ).toEqual({ rows: 0 });
+        expect(
+          await countMembershipsWithNoLookupFlag(
+            runtime,
+            MEMBERSHIP_LOOKUP_WIDE_OPEN_CANARY_TABLE,
+          ),
+        ).toEqual({ rows: 2 });
+        expect(
+          await countMembershipsWithNoLookupFlag(
+            runtime,
+            MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE,
+          ),
+        ).toEqual({ rows: 0 });
+      } finally {
+        await runtime.end();
+      }
+    }, 180_000);
+
+    it('AC-31: every attempt over a control ENDPOINT on an unprotected table is reported as failing', async () => {
+      // THE ENDPOINT-LEVEL EQUIVALENT OF `isolation_leak_canary`. A table shaped exactly
+      // like `workspaces` but with ENABLE ROW LEVEL SECURITY omitted, reached through a
+      // control route that reads and writes it via `tenantDb()` and trusts row-level security
+      // to scope it — the exact defect `scripts/check-policies.mts` exists to catch, over
+      // HTTP. The route runs inside the SAME in-process app as the real guard and interceptor.
+      // A harness that could not see an endpoint leak would report this endpoint clean.
+      //
+      // Built and dropped inside this test so the main run never sees an unprotected table
+      // in its own drift check; exempted in SUITE_OWNED_CONTROL_TABLES so THIS run's drift is
+      // clean and the `fail` is the attempts' answer, not a drift tripwire (F-346).
+      createEndpointControlCanary();
+
+      try {
+        const control = await runAttemptGroups([
+          endpointControlGroup(signedIn as SignedInTenants, controlBaseUrl),
+        ]);
+
+        // Four control routes, both directions, and not one is anything but `fail`. `fail`
+        // rather than "not a pass": an `unverified` here would mean the control stopped being
+        // a leak — the positive control failed, or a status the refusal rule cannot read.
+        expect(control.attempts).toHaveLength(8);
+        expect(control.attempts.filter((outcome) => outcome.outcome !== 'fail')).toEqual([]);
+        expect(control.attempts.every((outcome) => outcome.id.startsWith('route:'))).toBe(true);
+        expect(control.verdict).toBe('fail');
+
+        // The `fail` is the policies' answer, not registry drift: the control table is in
+        // SUITE_OWNED_CONTROL_TABLES, so a clean drift here is what makes the verdict a
+        // statement about the missing row-level security (F-346).
+        expect(control.registryDrift).toEqual({
+          inDatabaseNotRegistered: [],
+          registeredNotInDatabase: [],
+        });
+      } finally {
+        dropEndpointControlCanary();
+      }
+    }, 180_000);
   });
 
   it('F-331: report.json carries no verdict while the tests that could disprove it are still running', async () => {
@@ -1195,7 +1581,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
 
     // ...and it is not an empty marker: the attempts are this run's and were judged, so a
     // process killed here strands the evidence without stranding a verdict.
-    expect(inFlight.attempts).toHaveLength(32);
+    expect(inFlight.attempts).toHaveLength(82);
     expect(inFlight.attemptVerdict).toBe('pass');
     expect(inFlight.incompleteBecause).toContain('had not finished');
 
@@ -1234,7 +1620,7 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     // and recorded in the round's report.
     const afterTheAttempts = JSON.parse(readFileSync(REPORT_PATH, 'utf8')) as IsolationReport;
 
-    expect(afterTheAttempts.attempts).toHaveLength(32);
+    expect(afterTheAttempts.attempts).toHaveLength(82);
     expect(afterTheAttempts.runAt).not.toBe(marker.runAt);
   });
 
@@ -1357,14 +1743,23 @@ describe('cross-tenant isolation over every registered tenant-scoped surface', (
     await expect(assertNoTenantIdAltered()).resolves.toBeUndefined();
   }, 180_000);
 
-  it('AC-12: exactly two isolation exclusions are declared', () => {
-    // isolation-coverage.md, "Exclusions: exactly two", and invariant 5. Neither surface
-    // exists yet; the LENGTH is the control, so that a third exclusion has to arrive as
-    // a one-line diff a reviewer sees, with the written justification ADR-0020 requires.
-    expect(ISOLATION_EXCLUSIONS).toHaveLength(2);
+  it('AC-12: exactly three isolation exclusions are declared', () => {
+    // isolation-coverage.md's `ISOLATION_EXCLUSIONS` section and invariant 5, plus
+    // ADR-0045's "The exclusion". Cited by content rather than by heading: that section
+    // is still headed "exactly two" and is site 6 on TASK-002's card, so a citation by
+    // title goes stale the moment TASK-002 lands.
+    //
+    // The LENGTH is the control, so that a fourth exclusion has to arrive as a one-line
+    // diff a reviewer sees, with the written justification ADR-0020 requires. The first
+    // two surfaces do not exist yet (TASK-029, TASK-054). The third is `withMembershipLookup`,
+    // the token-mint escape: it and this assertion land in TASK-002's commit together,
+    // because an escape in wave 1 with its entry in wave 9 is eight waves of a green
+    // suite over an unlisted escape. Red until then, deliberately.
+    expect(ISOLATION_EXCLUSIONS).toHaveLength(3);
     expect(ISOLATION_EXCLUSIONS.map((exclusion) => exclusion.id)).toEqual([
       'repo:RedirectReadRepository.resolveByHostAndSlug',
       'repo:PrivilegedTenantEraser.erase',
+      'repo:TenantMembershipLookup.tenantIdForUser',
     ]);
   });
 });

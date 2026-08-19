@@ -1,9 +1,9 @@
 -- The roles, database and grants the `integration` job's Postgres service needs.
 --
--- Contract: .sdlc/foundation/design/contracts/rls-policy-template.md ("Roles")
--- ADR: .sdlc/foundation/design/adr-0003-rls-policy-template-and-roles.md
+-- Contract: docs/contracts/rls-policy-template.md ("Roles")
+-- ADR: docs/decisions/adr-0003-rls-policy-template-and-roles.md
 --
--- Both paths are written out in full because the bare `design/contracts/...` form used
+-- Both paths are written out in full because the bare `docs/contracts/...` form used
 -- across apps/ and packages/ does not resolve from the repository root — there is no
 -- top-level `design/`. That short form is a repo-wide convention in files this TASK does
 -- not own; it is reported rather than half-corrected here.
@@ -26,12 +26,14 @@
 -- against a real database would commit real credentials. Provisioning the production
 -- roles is not this file's job.
 
--- NOBYPASSRLS on BOTH roles, written out although it is the default. A role that can
--- bypass row-level security turns every isolation assertion in the suite into a
+-- NOBYPASSRLS on all three roles, written out although it is the default. A role that
+-- can bypass row-level security turns every isolation assertion in the suite into a
 -- tautology, and the assertions further down are what stop this file from being the
 -- place that silently happens.
 CREATE ROLE shortkit_migrator LOGIN PASSWORD 'migrator' NOBYPASSRLS;
 CREATE ROLE shortkit_app      LOGIN PASSWORD 'app'      NOBYPASSRLS;
+-- shortkit_auth: runtime, Better Auth only. Owns nothing (ADR-0050).
+CREATE ROLE shortkit_auth     LOGIN PASSWORD 'auth'     NOBYPASSRLS;
 
 -- The migrator owns the database, so it owns schema `public` through pg_database_owner
 -- and runs DDL with no further grant. The app role owns nothing (ADR-0003).
@@ -45,16 +47,22 @@ DO $$
 DECLARE
   bad text;
 BEGIN
-  -- rls-policy-template.md: "shortkit_app must never hold BYPASSRLS, SUPERUSER,
-  -- CREATEROLE or table ownership." Three of the four are checked here; table ownership
-  -- is checked downstream by check-policies.mts's count of tables owned in schema public,
-  -- which runs in the same job. CREATEROLE cannot escalate to the other two on PostgreSQL
-  -- 16+ — the server closes that path — and it is listed because this block is the
-  -- contract's only mechanical reader and was two words short of matching it.
+  -- rls-policy-template.md: "Neither shortkit_app nor shortkit_auth may hold BYPASSRLS,
+  -- SUPERUSER, CREATEROLE or table ownership." Three of the four are checked here; table
+  -- ownership is checked downstream, per role, and NOT by check-policies.mts, which holds
+  -- no ownership read at all. For shortkit_app it is the boot check,
+  -- assertRuntimeRoleCannotBypassRls (apps/api/src/db/rls.ts), which reads
+  -- tables_owned_in_public for current_user. For shortkit_auth the equivalent boot check
+  -- is assertAuthRoleSeparation (ADR-0050, TASK-004, wave 3); until it lands this file's
+  -- own suite covers it at the two live-database sites
+  -- (auth-role-provisioning.int-spec.ts, "shortkit_auth owns no relation in the migrated
+  -- schema"). CREATEROLE cannot escalate to the other two on PostgreSQL 16+ — the server
+  -- closes that path — and it is listed because this block is the contract's only
+  -- mechanical reader and was two words short of matching it.
   SELECT string_agg(rolname, ', ')
     INTO bad
     FROM pg_roles
-   WHERE rolname IN ('shortkit_app', 'shortkit_migrator')
+   WHERE rolname IN ('shortkit_app', 'shortkit_migrator', 'shortkit_auth')
      AND (rolbypassrls OR rolsuper OR rolcreaterole);
 
   IF bad IS NOT NULL THEN
@@ -63,9 +71,9 @@ BEGIN
       bad;
   END IF;
 
-  IF (SELECT count(*) FROM pg_roles WHERE rolname IN ('shortkit_app', 'shortkit_migrator')) <> 2 THEN
+  IF (SELECT count(*) FROM pg_roles WHERE rolname IN ('shortkit_app', 'shortkit_migrator', 'shortkit_auth')) <> 3 THEN
     RAISE EXCEPTION
-      'shortkit_app and shortkit_migrator must both exist and be distinct roles: the migrator owns the schema and the app role owns nothing (ADR-0003).';
+      'shortkit_app, shortkit_migrator and shortkit_auth must all exist and be distinct roles: the migrator owns the schema, the app role owns nothing and the auth role owns nothing (ADR-0003, ADR-0050).';
   END IF;
 
   IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'shortkit_test')
@@ -77,10 +85,17 @@ END $$;
 
 \connect shortkit_test
 
-GRANT USAGE ON SCHEMA public TO shortkit_app;
+GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
 
 -- Scoped to the identity `shortkit_migrator`: tables created by any other role grant
 -- shortkit_app nothing. That fails closed, at runtime rather than here.
+--
+-- shortkit_auth gets no ALTER DEFAULT PRIVILEGES of its own, in either direction: a
+-- default privilege for shortkit_auth would grant it DML on every table the migrator
+-- creates, including every tenant-scoped one, so the split cannot be expressed as a
+-- default privilege at all (rls-policy-template.md "Roles", ADR-0050). shortkit_auth's
+-- DML on the five Better Auth tables is hand-written per table in migration 0001
+-- (TASK-002) instead.
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public

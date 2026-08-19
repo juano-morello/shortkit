@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/workspace-authorization.md
+ * Contract: docs/contracts/workspace-authorization.md
  * ADR: adr-0015-user-tenant-cardinality.md, adr-0023-branded-role-types.md
  * Produced by: TASK-016
  *
@@ -88,7 +88,11 @@ export const WORKSPACE_ROLE = {
 export type Unbranded<T> = T extends { readonly [roleBrand]: unknown } ? never : T;
 
 export function asTenantRole<T extends string>(_value: Unbranded<T>): TenantRole {
-  throw new Error('not implemented');
+  if (!(TENANT_ROLES as readonly string[]).includes(_value)) {
+    throw new Error(`not a tenant role: ${_value}`);
+  }
+
+  return _value as unknown as TenantRole;
 }
 
 export function asWorkspaceRole<T extends string>(_value: Unbranded<T>): WorkspaceRole {
@@ -119,9 +123,19 @@ export function roleRank(_role: WorkspaceRole): number {
   throw new Error('not implemented');
 }
 
-/** Throws on an unknown key rather than returning undefined. */
+/**
+ * Throws on an unknown key rather than returning undefined. Guards with `TENANT_ROLES`
+ * membership rather than an `undefined` check on the lookup: an object literal indexed by
+ * an arbitrary string returns an inherited property (`toString`, `__proto__`, ...) instead
+ * of `undefined`, so that check alone lets those keys through with a typeof-mismatched
+ * value rather than a throw. Same guard `asTenantRole` uses, for the same reason.
+ */
 export function tenantRoleRank(_role: TenantRole): number {
-  throw new Error('not implemented');
+  if (!(TENANT_ROLES as readonly string[]).includes(_role)) {
+    throw new Error(`not a tenant role: ${_role}`);
+  }
+
+  return TENANT_ROLE_RANK[_role as unknown as TenantRoleValue];
 }
 
 export function meetsWorkspaceRole(actual: WorkspaceRole, minimum: WorkspaceRole): boolean {

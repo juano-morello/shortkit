@@ -4,9 +4,6 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     ignores: [
-      // Inert design artifacts. `design/stubs/**` holds sources at the paths they
-      // will occupy; the TASK that materialises one lints it then.
-      '.sdlc/**',
       '**/node_modules/**',
       '**/dist/**',
       '**/.next/**',
@@ -117,6 +114,54 @@ export default tseslint.config(
                 'Import the shared logger from observability/logger instead. Nest’s Logger ' +
                 'and ConsoleLogger write unstructured lines that carry none of the field ' +
                 'allowlist or error-field controls (GC-9, ADR-0028).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // ========================================================================
+    // packages/contracts MAY IMPORT `zod` AND NOTHING ELSE (ADR-0005, TASK-001, F-086).
+    // ========================================================================
+    //
+    // `apps/web` imports this package's source directly, with no build step
+    // (`transpilePackages: ['@shortkit/contracts']`). A Node-only import (`node:*`), a
+    // Nest/Express import (`@nestjs/*`), or a server-only driver (`drizzle-orm`, `pg`)
+    // here breaks the Next.js build rather than this package's own; a `react` import
+    // here would be the reverse mistake, coupling a shared contract to one consumer.
+    //
+    // A gitignore-style `group` cannot express this: the `ignore` package this rule is
+    // built on strips a leading `./`/`../` before matching, so a negation pattern meant
+    // to re-permit relative imports (`!./**`) also re-permits every bare package name —
+    // proven against `ignore@7.0.6` directly before writing this as a `regex` instead.
+    // The regex bans anything that is neither `zod` nor a relative specifier, which is
+    // the shape `arrayOfStringsOrObjectPatterns` calls out as the alternative to `group`.
+    //
+    // Spec files and `vitest.config.ts` are excluded: they import `vitest`, which never
+    // ships in what `apps/web` bundles (`transpilePackages` reaches the source `index.ts`
+    // re-exports, not `*.spec.ts`), so the rule this ADR states has nothing to say about
+    // them.
+    //
+    // This block does not share its `files` glob with any other rules object in this
+    // file, unlike the pre-TASK-060 configuration `eslint.config.mjs:74-77` describes,
+    // where a second object matching the same glob silently replaced the first's
+    // `no-restricted-imports` options and left it reading as enforced when it was not.
+    files: ['packages/contracts/**/*.ts'],
+    ignores: ['packages/contracts/**/*.spec.ts', 'packages/contracts/vitest.config.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^(?!\\.{1,2}/)(?!zod$).+$',
+              caseSensitive: true,
+              message:
+                'packages/contracts may import zod and its own relative modules only ' +
+                '(ADR-0005). apps/web imports this source directly with no build step, so ' +
+                'a Node-only or framework import here breaks that build rather than this ' +
+                "package's own.",
             },
           ],
         },

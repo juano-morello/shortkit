@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/tenant-context.md
+ * Contract: docs/contracts/tenant-context.md
  * ADR: adr-0002-tenant-context-binding.md
  * Produced by: TASK-005
  *
@@ -9,8 +9,10 @@
  * transaction and no context flag, which is the hole GC-5 exists to close. What
  * leaves this module is `databaseTransaction`, and its only sanctioned callers are
  * `withTenantTransaction` (tenancy/tenant-context.ts), `withRedirectRead`
- * (TASK-029), `privilegedTenantEraser` (TASK-054) and
- * `assertRuntimeRoleCannotBypassRls` (db/rls.ts). TASK-056 asserts that list.
+ * (TASK-029), `privilegedTenantEraser` (TASK-054),
+ * `assertRuntimeRoleCannotBypassRls` (db/rls.ts), `withMembershipLookup`
+ * (auth/membership-lookup.ts) and `assertAuthRoleSeparation`
+ * (auth/boot-assertions.ts). TASK-056 asserts that list.
  *
  * The fourth entry was added 2026-08-05 (F-126). The boot check reads pg_roles and
  * pg_class before the app accepts traffic, so it runs no tenant-scoped statement;
@@ -18,15 +20,24 @@
  * longer one. The guarantee is not that `databaseTransaction` is unreachable — any
  * module can import it — but that a transaction opened without a context flag sees
  * zero rows and can write none, which is fail-closed by policy.
- * `design/contracts/tenant-context.md` still names three; that file is the
- * architect's and the amendment is reported rather than made here.
+ *
+ * The fifth entry was added 2026-08-14 (ADR-0045). `withMembershipLookup` is the
+ * token-mint escape: `tid` must be in every token, it comes from a tenant-scoped
+ * table, and at mint time no tenant is known. `tenant-context.md`'s consumer list
+ * already carries all five.
+ *
+ * The sixth entry was added 2026-08-17 (ADR-0050, TASK-004). `assertAuthRoleSeparation`
+ * reads `pg_class` as the application role for the first direction of the grant matrix
+ * — the boot check's shape, on the boot check's terms — and reaches the AUTH pool for
+ * its second direction through `withAuthRoleIntrospection` below, which is that
+ * function's only sanctioned caller.
  *
  * Driver: `pg` with `drizzle-orm/node-postgres` (ADR-0002). Not
  * `@neondatabase/serverless`: its HTTP driver takes a transaction as an array of
  * statements decided up front, and GC-5 needs an interactive transaction whose
  * statements the application chooses as it runs.
  */
-import { DrizzleQueryError } from 'drizzle-orm';
+import { DrizzleQueryError, sql } from 'drizzle-orm';
 import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { NodePgDatabase, NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
@@ -52,6 +63,14 @@ let pool: pg.Pool | undefined;
 let database: NodePgDatabase<typeof schema> | undefined;
 
 /**
+ * The auth pool, on the same terms and for the same reason. Built on first use, which
+ * is `betterAuthDatabase()` and nothing else, so a unit suite that never reaches Better
+ * Auth never requires DATABASE_AUTH_URL either.
+ */
+let authPool: pg.Pool | undefined;
+let authDatabase: NodePgDatabase<typeof schema> | undefined;
+
+/**
  * Connections this process holds open against Neon's pooled endpoint (ADR-0002).
  *
  * Ten is `pg`'s own default, written out because it is a capacity decision rather
@@ -64,6 +83,16 @@ let database: NodePgDatabase<typeof schema> | undefined;
  * Raising it trades a bounded queue for a longer one; it does not create capacity.
  */
 const POOL_MAX = 10;
+
+/**
+ * The auth pool's ceiling (ADR-0050). Five rather than ten because it serves sign-in,
+ * sign-up, sign-out and token mint rather than every request.
+ *
+ * THE TWO CEILINGS ADD: fifteen connections per instance where there were ten, and no
+ * code path enforces the sum. That is the capacity cost of the role split, stated here
+ * rather than inherited.
+ */
+const AUTH_POOL_MAX = 5;
 
 /**
  * How long an acquisition waits before it fails (F-123). Zero — `pg`'s default —
@@ -124,6 +153,78 @@ function connectionString(): string {
   return value;
 }
 
+/**
+ * ============================================================================
+ * NO FALLBACK TO DATABASE_URL. NOT IN ANY ENVIRONMENT, NOT UNDER ANY NODE_ENV.
+ * ============================================================================
+ *
+ * ADR-0050 makes this a declared binding required unconditionally everywhere (GC-B).
+ * A fallback is the exact failure mode the role split exists to close: it would restore
+ * `shortkit_app` as the role Better Auth connects as, silently, and every gate would
+ * stay green while `session` and `account` were writable from the request path again.
+ *
+ * If sign-in is failing after migration `0001`, this is the variable — not the REVOKE.
+ * Migration `0001` revokes `shortkit_app` on all five Better Auth tables, so a pool on
+ * `DATABASE_URL` cannot read `user` at all.
+ */
+function authConnectionString(): string {
+  const value = process.env.DATABASE_AUTH_URL;
+
+  if (value === undefined || value.trim() === '') {
+    throw new Error(
+      'DATABASE_AUTH_URL is not set. It authenticates as shortkit_auth, the only role ' +
+        'holding privileges on Better Auth\'s five tables; shortkit_app is revoked on ' +
+        'all five by migration 0001 and there is deliberately no fallback to ' +
+        'DATABASE_URL (ADR-0050).',
+    );
+  }
+
+  return value;
+}
+
+/**
+ * Both listeners, on both pools, and neither is optional (F-123, F-137). A pool missing
+ * either one takes the process down on a scale-to-zero or an
+ * `idle_in_transaction_session_timeout`. Attached from one function so the two pools
+ * cannot drift apart on the point that costs a dead process.
+ */
+function attachConnectionListeners(target: pg.Pool, idle: string, checkedOut: string): void {
+  // A connection sitting IDLE IN THE POOL (F-123). `pg-pool` has already removed
+  // that client by the time it emits, so there is nothing to clean up and nobody
+  // to reject; logging and discarding is the whole handler. Without a listener
+  // Node turns the emit into an uncaughtException and the API exits, and the
+  // trigger is routine rather than exotic: ADR-0002 targets Neon, which terminates
+  // idle connections when a compute scales to zero, as do restarts, failovers and
+  // idle_session_timeout.
+  target.on('error', (error: Error) => {
+    discardedConnection(idle, error);
+  });
+
+  // A connection that dies while it is CHECKED OUT (F-137). Different event,
+  // different listener, and `pool.on('error')` above does not cover it: that one
+  // is attached through pg-pool's makeIdleListener and only while the client is in
+  // the pool. pg-pool removes it in _acquireClient, and drizzle's
+  // NodePgSession.transaction attaches nothing of its own, so a client in the
+  // middle of a transaction has NO error listener at all. Postgres killing that
+  // backend — a Neon scale-to-zero, a failover, a restart, or the
+  // idle_in_transaction_session_timeout withTenantTransaction sets — reaches
+  // client.emit('error') with nobody listening, and Node takes the process down.
+  //
+  // 'connect', not 'acquire': pg-pool emits 'connect' once per newly created
+  // client, so the listener survives every later checkout, and pg-pool never
+  // removes a listener it did not add. 'acquire' fires on every checkout and would
+  // stack one listener per use.
+  //
+  // The in-flight statement is not rescued and is not meant to be: `pg` rejects it
+  // separately and the caller sees a connection failure. This listener exists so
+  // that failure stays a rejected promise instead of a dead process.
+  target.on('connect', (client: pg.PoolClient) => {
+    client.on('error', (error: Error) => {
+      discardedConnection(checkedOut, error);
+    });
+  });
+}
+
 function client(): NodePgDatabase<typeof schema> {
   if (database === undefined) {
     pool = new pg.Pool({
@@ -135,45 +236,89 @@ function client(): NodePgDatabase<typeof schema> {
       allowExitOnIdle: true,
     });
 
-    // A connection sitting IDLE IN THE POOL (F-123). `pg-pool` has already removed
-    // that client by the time it emits, so there is nothing to clean up and nobody
-    // to reject; logging and discarding is the whole handler. Without a listener
-    // Node turns the emit into an uncaughtException and the API exits, and the
-    // trigger is routine rather than exotic: ADR-0002 targets Neon, which terminates
-    // idle connections when a compute scales to zero, as do restarts, failovers and
-    // idle_session_timeout.
-    pool.on('error', (error: Error) => {
-      discardedConnection('idle pooled connection', error);
-    });
-
-    // A connection that dies while it is CHECKED OUT (F-137). Different event,
-    // different listener, and `pool.on('error')` above does not cover it: that one
-    // is attached through pg-pool's makeIdleListener and only while the client is in
-    // the pool. pg-pool removes it in _acquireClient, and drizzle's
-    // NodePgSession.transaction attaches nothing of its own, so a client in the
-    // middle of a transaction has NO error listener at all. Postgres killing that
-    // backend — a Neon scale-to-zero, a failover, a restart, or the
-    // idle_in_transaction_session_timeout withTenantTransaction sets — reaches
-    // client.emit('error') with nobody listening, and Node takes the process down.
-    //
-    // 'connect', not 'acquire': pg-pool emits 'connect' once per newly created
-    // client, so the listener survives every later checkout, and pg-pool never
-    // removes a listener it did not add. 'acquire' fires on every checkout and would
-    // stack one listener per use.
-    //
-    // The in-flight statement is not rescued and is not meant to be: `pg` rejects it
-    // separately and the caller sees a connection failure. This listener exists so
-    // that failure stays a rejected promise instead of a dead process.
-    pool.on('connect', (checkedOut: pg.PoolClient) => {
-      checkedOut.on('error', (error: Error) => {
-        discardedConnection('checked-out connection', error);
-      });
-    });
+    attachConnectionListeners(pool, 'idle pooled connection', 'checked-out connection');
 
     database = drizzle(pool, { schema });
   }
 
   return database;
+}
+
+/**
+ * The handle Better Auth's drizzle adapter is built on (ADR-0046, ADR-0050).
+ *
+ * ============================================================================
+ * A SECOND POOL, ON A SECOND DSN, AS A SECOND ROLE. IT IS NOT `client()`.
+ * ============================================================================
+ *
+ * ADR-0046 decided this was built from the SAME pool as `databaseTransaction`, and it
+ * is `superseded_in_part_by: ADR-0050` on exactly that point (F-028). That rejection
+ * was made against a single-role model, where a second pool bought a true sentence in a
+ * docblock and nothing else. With two roles a pool IS how a process holds a role, and
+ * migration `0001` revokes `shortkit_app` on `user`, `session`, `account`,
+ * `verification` and `jwks` — so a handle on `DATABASE_URL` cannot read `user` and
+ * nobody can sign in. ADR-0046's narrowed-export decision, its `transaction: false` and
+ * its one-caller rule are untouched.
+ *
+ * Distinct labels on the two listeners so an operator can tell which pool lost a
+ * connection: fifteen backends across two roles is two capacity stories, not one.
+ */
+export function betterAuthDatabase(): NodePgDatabase<typeof schema> {
+  if (authDatabase === undefined) {
+    authPool = new pg.Pool({
+      connectionString: authConnectionString(),
+      max: AUTH_POOL_MAX,
+      connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
+      allowExitOnIdle: true,
+    });
+
+    attachConnectionListeners(
+      authPool,
+      'idle pooled auth connection',
+      'checked-out auth connection',
+    );
+
+    authDatabase = drizzle(authPool, { schema });
+  }
+
+  return authDatabase;
+}
+
+/**
+ * ============================================================================
+ * A READ ONLY TRANSACTION ON THE AUTH POOL, FOR ONE CALLER: `assertAuthRoleSeparation`.
+ * ============================================================================
+ *
+ * ADR-0050's boot assertion has to read `pg_roles` and `pg_class` AS `shortkit_auth` — its
+ * second direction asks whether the role this process holds on `DATABASE_AUTH_URL` reaches
+ * any tenant-scoped table, holds `BYPASSRLS`, or owns anything, and `has_table_privilege(
+ * current_user, ...)` is only that question when `current_user` is the auth role. The
+ * adapter handle above is closed to two files by name (`better-auth-database-callers.spec.ts`
+ * scan 1), so the assertion reaches the pool through this narrower door instead.
+ *
+ * NARROWER, NOT NARROW. `SET TRANSACTION READ ONLY` refuses every write, so nothing opened
+ * here can forge a session row; it does not stop a read of `session.token`, and this is
+ * therefore still a handle on the role. Who may name it is bounded the same way the adapter
+ * handle is — `boot-assertions.spec.ts` asserts the identifier appears in exactly this file
+ * and `auth/boot-assertions.ts` — and the sanctioned caller list is that one function.
+ * Adding a second caller is an ADR-0056 conversation, not a convenience.
+ *
+ * It shares the auth pool with the adapter (`AUTH_POOL_MAX`, five) rather than opening a
+ * sixth connection: the boot assertion runs once, before the process serves, and the pool
+ * is otherwise idle at that moment.
+ */
+export async function withAuthRoleIntrospection<T>(
+  fn: (tx: DatabaseTransaction) => Promise<T>,
+): Promise<T> {
+  try {
+    return await betterAuthDatabase().transaction(async (tx) => {
+      await tx.execute(sql`set transaction read only`);
+
+      return fn(tx);
+    });
+  } catch (error) {
+    throw unwrapDriverError(error);
+  }
 }
 
 /**
@@ -233,7 +378,7 @@ function driverError(error: unknown): pg.DatabaseError | undefined {
 
 /**
  * The five-character SQLSTATE of a caught database error, or undefined when it is
- * not one. Normative in design/contracts/tenant-context.md, "Driver errors inside
+ * not one. Normative in docs/contracts/tenant-context.md, "Driver errors inside
  * `fn`": every catch that branches on a Postgres condition goes through here, and
  * reading `.code` off a caught error directly is a defect — inside `fn` a silent
  * one, because the branch simply never matches.
@@ -258,14 +403,30 @@ export function postgresErrorConstraint(error: unknown): string | undefined {
 }
 
 /**
- * Releases the pool. Called from shutdown and from a script that has finished its
+ * Releases BOTH pools. Called from shutdown and from a script that has finished its
  * work; the process otherwise exits only because `allowExitOnIdle` lets it.
+ *
+ * Both, since 2026-08-14 (ADR-0050). A pool this function forgot keeps five backends
+ * open and — with `allowExitOnIdle` off, which is one edit away — the event loop with
+ * them. Each `end()` is awaited even if the other rejects, so one failing pool does not
+ * strand the other's connections.
  */
 export async function closeDatabase(): Promise<void> {
   const open = pool;
+  const openAuth = authPool;
 
   pool = undefined;
   database = undefined;
+  authPool = undefined;
+  authDatabase = undefined;
 
-  await open?.end();
+  const [application, auth] = await Promise.allSettled([open?.end(), openAuth?.end()]);
+
+  if (application.status === 'rejected') {
+    throw application.reason;
+  }
+
+  if (auth.status === 'rejected') {
+    throw auth.reason;
+  }
 }

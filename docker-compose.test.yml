@@ -1,12 +1,13 @@
 # The Postgres `pnpm test:integration` runs against locally.
 #
-# Contract: design/contracts/rls-policy-template.md (roles, grants, env vars)
+# Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
 # ADR: adr-0001-test-framework.md, adr-0003-rls-policy-template-and-roles.md
 # Produced by: TASK-005 (F-038)
 #
 #   docker compose -f docker-compose.test.yml up -d --wait
 #   export DATABASE_URL='postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test'
 #   export DATABASE_MIGRATION_URL='postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test'
+#   export DATABASE_AUTH_URL='postgres://shortkit_auth:auth@127.0.0.1:55433/shortkit_test'
 #   pnpm test:integration
 #   docker compose -f docker-compose.test.yml down -v
 #
@@ -30,9 +31,11 @@
 # half of it must not be.
 #
 # Reusable — this is rls-policy-template.md's "Roles" section, applied:
-#   - both roles NOBYPASSRLS, both with attribute defaults otherwise;
+#   - all three roles NOBYPASSRLS, all three with attribute defaults otherwise;
 #   - shortkit_app owns nothing and receives DML only through
-#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator;
+#     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator; shortkit_auth owns
+#     nothing and receives no default privilege at all — its DML is hand-written
+#     per table (ADR-0050);
 #   - USAGE on schema public and nothing more.
 #
 # NOT reusable:
@@ -52,9 +55,10 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      # The bootstrap superuser. Neither DSN above uses it: every statement the
-      # suite issues comes from one of the two NOBYPASSRLS roles, because a
-      # superuser is exempt from every policy and would make AC-8..AC-11 vacuous.
+      # The bootstrap superuser. None of the three DSNs above uses it: every
+      # statement the suite issues comes from one of the three NOBYPASSRLS roles,
+      # because a superuser is exempt from every policy and would make
+      # AC-8..AC-11 vacuous.
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     ports:
@@ -113,14 +117,16 @@ configs:
   # service that runs them.
   shortkit_roles_sql:
     content: |
-      -- design/contracts/rls-policy-template.md "Roles", verbatim but for the
+      -- docs/contracts/rls-policy-template.md "Roles", verbatim but for the
       -- literal passwords, which psql cannot take as :'variables' here.
       --
-      -- NOBYPASSRLS on BOTH roles. It is the default, and it is written out because
+      -- NOBYPASSRLS on all three roles. It is the default, and it is written out because
       -- a role that can bypass RLS turns every isolation assertion in the suite into
       -- a tautology; test/support/rls-fixture.ts re-checks it before each run.
       CREATE ROLE shortkit_migrator LOGIN PASSWORD 'migrator' NOBYPASSRLS;
       CREATE ROLE shortkit_app      LOGIN PASSWORD 'app'      NOBYPASSRLS;
+      -- shortkit_auth: runtime, Better Auth only. Owns nothing (ADR-0050).
+      CREATE ROLE shortkit_auth     LOGIN PASSWORD 'auth'     NOBYPASSRLS;
 
       -- The migrator owns the database, so it owns schema `public` through
       -- pg_database_owner and can run DDL without any further grant. The app role
@@ -129,7 +135,12 @@ configs:
 
       \connect shortkit_test
 
-      GRANT USAGE ON SCHEMA public TO shortkit_app;
+      -- A default privilege for shortkit_auth would grant it DML on every table
+      -- the migrator creates, including every tenant-scoped one — the split cannot
+      -- be expressed as a default privilege in either direction
+      -- (rls-policy-template.md "Roles", ADR-0050). shortkit_auth's DML on the five
+      -- Better Auth tables is hand-written per table in migration 0001 (TASK-002).
+      GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
       ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public

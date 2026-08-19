@@ -34,10 +34,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
  * wrong variable, and a runtime `git rev-parse` (there is no `.git` in the deployed image)
  * all fail it.
  *
- * **The source name is pinned here because no artifact names it.** Searched 2026-08-07:
- * no ADR, contract, TASK, `.env.example` or workflow in this repository names the variable
+ * **The source name is pinned here because no artifact named it.** Searched 2026-08-07:
+ * no ADR, contract, TASK, `.env.example` or workflow in this repository named the variable
  * carrying the build's git SHA — TASK-003 owns `Dockerfile` and `fly.toml`, where it is
- * introduced. This test therefore decides it, and records the decision rather than
+ * introduced. (`apps/api/.env.example` and the root `.env.example` name `GIT_COMMIT_SHA`
+ * since TASK-009, matching what this test decided.) This test therefore decides it, and records the decision rather than
  * assuming it: the Dockerfile takes the SHA as a build argument and exposes it to the
  * running process as `GIT_COMMIT_SHA`. If TASK-003's implementer picks a different name,
  * `COMMIT_SHA_ENV` below is the single edit; the assertion does not weaken.

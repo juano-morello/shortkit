@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/error-envelope.md
+ * Contract: docs/contracts/error-envelope.md
  * ADR: adr-0024-domain-error-transport.md, adr-0025-zod-error-recognition-in-contracts.md
  * Produced by: TASK-007
  * Consumed by: every API TASK. Nothing may opt out.
@@ -37,8 +37,6 @@
  * client are strings written in this file and shapes validated against a schema in
  * `packages/contracts`. No message an HttpException carried reaches a body.
  */
-import { randomUUID } from 'node:crypto';
-
 import { Catch, HttpException } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import {
@@ -51,14 +49,17 @@ import type { ErrorEnvelope } from '@shortkit/contracts';
 import type { Logger } from 'pino';
 
 import { errorLogFields, logger } from '../../observability/logger';
+import { requestIdFor } from '../../observability/request-id';
+import type { RequestIdCarrier } from '../../observability/request-id';
 import { INTERNAL_ERROR_MESSAGE, isDomainError } from './domain-error';
 import { errorResponse, narrowEnvelope } from './error-envelope';
 import type { ErrorResponse } from './error-envelope';
 
 /**
- * `apps/api` declares no `express` dependency and none of its types resolve here, so the
- * response is named by the four members this filter uses. `getResponse<T>()` is a cast,
- * so nothing is lost by narrowing it.
+ * The response is named by the four members this filter uses rather than by Express's own
+ * type. `express@5.2.1` has been a dependency of `apps/api` since TASK-004 (the auth mount in
+ * `main.ts`), but `getResponse<T>()` is a cast either way, so a narrow shape loses nothing and
+ * keeps this file from depending on which HTTP adapter Nest is running.
  */
 interface HttpResponseLike {
   readonly headersSent: boolean;
@@ -68,21 +69,11 @@ interface HttpResponseLike {
   end(): void;
 }
 
-/** Same reasoning as `HttpResponseLike`: only what this filter reads. */
-interface HttpRequestLike {
-  readonly headers: Readonly<Record<string, string | string[] | undefined>>;
-}
-
-/** `logging-and-headers.md`: the `x-request-id` header, or a generated uuid. */
-const REQUEST_ID_HEADER = 'x-request-id';
-
 /**
- * A caller-supplied `x-request-id` is untrusted input on its way into a log aggregator.
- * pino JSON-encodes it, so a newline cannot split the record, but nothing bounds its
- * length — 128 characters is longer than any correlation id anyone issues and short enough
- * that a megabyte header cannot be replayed into the log on every request.
+ * Same reasoning as `HttpResponseLike`: only what this filter reads, which is what
+ * `requestIdFor` reads — the header bag and the id `RequestLogInterceptor` stored.
  */
-const MAX_REQUEST_ID_LENGTH = 128;
+type HttpRequestLike = RequestIdCarrier;
 
 /**
  * The envelope message for both validation branches. A client renders per code and
@@ -122,7 +113,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     // Bound to a local, never to `this`: the filter is a singleton and per-request state
     // on the instance would attribute one request's id to another's failure.
-    const log = logger.child({ request_id: requestId(http.getRequest<HttpRequestLike>()) });
+    // `requestIdFor` reads the id `RequestLogInterceptor` chose for this request first, so the
+    // request line and this error line share one id; where the interceptor did not run (a
+    // guard refusal, an unmatched path, a body-parser 400) it is the caller's `x-request-id`
+    // or a fresh uuid, as before (`observability/request-id.ts`).
+    const log = logger.child({ request_id: requestIdFor(http.getRequest<HttpRequestLike>()) });
 
     // The redirect surface streams a 302 outside /api. Writing a body over a started
     // response corrupts it, so the failure goes to the log and the response is ended.
@@ -289,25 +284,4 @@ function logError(
     { ...fields, ...errorLogFields(exception, { includeMessage: isDomainError(exception) }) },
     context,
   );
-}
-
-/**
- * The `x-request-id` the caller sent, or a fresh uuid. Nothing upstream sets the header
- * today, so most ids are generated and correlate the lines of one failure with each other
- * and with nothing else. That is still `error-envelope.md` invariant 9's floor — a 500 now
- * has an id at all — and it becomes end-to-end correlation the moment the BFF forwards one
- * (TASK-012).
- */
-function requestId(request: HttpRequestLike | undefined): string {
-  // Optional throughout: `getRequest()` is a cast, and this runs before the try/catch that
-  // F-092 wrapped `write` in, so a throw here would escape the one component that answers
-  // for every throwable.
-  const supplied = request?.headers[REQUEST_ID_HEADER];
-  const value = Array.isArray(supplied) ? supplied[0] : supplied;
-
-  if (typeof value !== 'string' || value.trim() === '') {
-    return randomUUID();
-  }
-
-  return value.trim().slice(0, MAX_REQUEST_ID_LENGTH);
 }

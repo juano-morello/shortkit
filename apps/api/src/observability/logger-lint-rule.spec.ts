@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * AC-116: "… no module constructs `Logger` from `@nestjs/common` or any other logger — and
  * A LINT RULE FAILS THE BUILD IF ONE DOES."
  *
- * Contract: `design/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
+ * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
  * Nothing may opt out". Amendment A-9 on STORY-002. Enforces GC-9.
  *
  * ============================================================================

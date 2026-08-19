@@ -1,5 +1,5 @@
 /**
- * Contract: design/contracts/error-envelope.md
+ * Contract: docs/contracts/error-envelope.md
  * Produced by: TASK-007
  *
  * Codes are APPEND-ONLY. Never rename, never remove, never change a code's status.

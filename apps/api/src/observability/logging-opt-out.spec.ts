@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * enumerated, then each one emits through the pino instance registered at the composition
  * root — no module constructs `Logger` from `@nestjs/common` or any other logger."
  *
- * Contract: `design/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
+ * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
  * Nothing may opt out, with two named exceptions". ADR-0028. Enforces GC-9.
  *
  * ============================================================================
@@ -75,8 +75,25 @@ const NEST_LOGGER_EXPORTS = new Set(['Logger', 'ConsoleLogger']);
  */
 const COMPOSITION_ROOT = 'apps/api/src/observability/logger.ts';
 
-/** Where the shared instance lives, as every consumer spells it. */
+/** Where the shared instance lives, as every consumer outside its directory spells it. */
 const SHARED_LOGGER_MODULE = /(^|\/)observability\/logger$/;
+
+/**
+ * How a SIBLING spells it. `request-log.interceptor.ts` (TASK-016) lives beside `logger.ts`
+ * and imports `./logger`; the pattern above requires the `observability/` segment and would
+ * have read that emitter as one with no logger at all — the wrong verdict for the right
+ * import. Accepted only from a module whose own path is under the observability directory,
+ * so `./logger` in any other directory stays what it is: some other module.
+ */
+const SIBLING_LOGGER_MODULE = /^\.\/logger$/;
+const OBSERVABILITY_DIRECTORY = /(^|\/)observability\/[^/]+\.ts$/;
+
+function namesTheSharedLogger(specifier: string, importerPath: string): boolean {
+  return (
+    SHARED_LOGGER_MODULE.test(specifier) ||
+    (SIBLING_LOGGER_MODULE.test(specifier) && OBSERVABILITY_DIRECTORY.test(importerPath))
+  );
+}
 
 /** The export a consumer needs. `errorLogFields` alone does not make a module an emitter. */
 const SHARED_LOGGER_EXPORT = 'logger';
@@ -222,7 +239,7 @@ function analyse(path: string, text: string): AnalysedModule {
       const specifier = node.moduleSpecifier.text;
       const names = importedNames(node.importClause);
 
-      if (SHARED_LOGGER_MODULE.test(specifier)) {
+      if (namesTheSharedLogger(specifier, path)) {
         importsSharedLogger ||= names.some(
           (name) => !name.typeOnly && name.imported === SHARED_LOGGER_EXPORT,
         );

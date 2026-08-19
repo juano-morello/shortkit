@@ -1,4 +1,6 @@
-import { BadRequestException, Controller, Get } from '@nestjs/common';
+import { BadRequestException, Controller, Get, SetMetadata } from '@nestjs/common';
+
+import { PUBLIC_ROUTE_METADATA } from '../../src/tenancy/tenant-context';
 
 /**
  * F-273's fixture. ⚠ THIS FILE IS sdlc-test-architect'S, like the rest of
@@ -43,7 +45,13 @@ export const RESPONSE_OBJECT_ONLY_MARKER = 'ROSECRET-reachable-only-through-getR
 /** No global prefix is set on the app the suite's child builds, so this resolves at the root. */
 export const RESPONSE_OBJECT_PROBE_PATH = 'f273-response-object';
 
+/**
+ * Public since TASK-005 registered `AuthGuard` as `APP_GUARD` (wave 4): the marker below is
+ * only reachable if the handler runs, and the handler only runs on a route the global guard
+ * exempts. The metadata is what `@Public('…')` writes once TASK-006 implements it.
+ */
 @Controller(RESPONSE_OBJECT_PROBE_PATH)
+@SetMetadata(PUBLIC_ROUTE_METADATA, 'F-273 fixture: the probe has to reach its handler')
 export class ResponseObjectProbeController {
   @Get()
   throwWithTheMarkerOnlyInTheResponseObject(): never {

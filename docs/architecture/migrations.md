@@ -39,9 +39,14 @@ assert.
 
 There are two local databases and they are different databases. For work against the
 integration suite's container, `DATABASE_URL` and `DATABASE_MIGRATION_URL` point at
-`docker-compose.test.yml` on port 55433; the header of that file has the two exports. The
+`docker-compose.test.yml` on port 55433; the header of that file has the export lines —
+three since TASK-018 (`DATABASE_AUTH_URL` alongside the two these commands read). The
 development stack (`docker-compose.yml`, port 55432, database `shortkit`) applies its own
-migrations as part of `docker compose up` and needs neither export.
+migrations as part of `docker compose up` and needs none of the three exported — it needs
+`BETTER_AUTH_SECRET` instead (ADR-0051), for every `docker compose` subcommand against
+that file, not only `up`: nothing in this file is committed for it, so `docker-compose.yml`
+fails at parse time until it is exported or set in a project-root `.env`. See the
+README's "Running the whole stack" section.
 
 `db:seed` reads `DATABASE_URL` and **refuses any database that is not named `shortkit`**,
 which is what keeps the demo tenant out of `shortkit_test` when it is run from a shell
@@ -88,7 +93,10 @@ Two consequences:
   - development stack: `docker compose down -v`, then `docker compose up`. The `migrate`
     service re-applies everything against the empty volume. `down -v` and nothing weaker:
     the volume is what holds the already-applied state, and it survives
-    `docker compose down` (ADR-0032).
+    `docker compose down` (ADR-0032). Both commands parse `docker-compose.yml`, so
+    `BETTER_AUTH_SECRET` (ADR-0051) has to be exported before either — in a shell where it
+    is not, `down -v` fails at parse time naming the variable, the volume is not
+    destroyed, and this repair silently did not run.
 
 ## There is no down migration
 
@@ -196,4 +204,5 @@ Whoever chooses a platform reads that list first. This document is the local pro
 
 Write migrations to be transactional where you can. A run that fails halfway through a
 non-transactional migration leaves the database in a state no file describes, and
-`docker compose down -v` is then the only repair.
+`docker compose down -v` is then the only repair — against the development stack, with
+`BETTER_AUTH_SECRET` exported first (ADR-0051), for the same reason given above.
