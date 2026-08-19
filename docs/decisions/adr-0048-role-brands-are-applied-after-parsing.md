@@ -77,7 +77,10 @@ merely the zod parse that happened one line earlier.
 **`asWorkspaceRole` and `roleRank` stay throwing.** Workspace membership is out of scope
 (refinement, Scope/Out), and implementing them would ship two functions with no caller. Only
 `asTenantRole` and `tenantRoleRank` are implemented, which is what TASK-001's card already
-says.
+says. *Dated note, 2026-08-18 (item 1b, TASK-1b-01; ledger 1b-W1-01):* both are implemented
+now, in the same guard shape as `asTenantRole`, because item 1b brought their callers —
+`WorkspaceAuthorization` and `meetsWorkspaceRole`. The rule of this ADR is unchanged: the
+brand is applied after parsing and never inferred.
 
 **The same split applies to every later contract with a role.** `workspaces/` in wave 7 and
 invitations in item 1b declare a wire contract with `z.enum(...)`, a declared domain

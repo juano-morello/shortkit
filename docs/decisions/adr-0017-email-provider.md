@@ -233,6 +233,9 @@ and stays opt-in.
   change, not a safety one: absence already resolves to `NoopMailSender`. Whoever owns
   `docker-compose.yml` and ADR-0035 makes that call. F-386's pass did not touch either file.
   **Ruled 2026-08-18 (D-02, Juano): it does.** TASK-1b-11 sets it; unset stays `none`.
+  **Done 2026-08-18:** `docker-compose.yml` carries `MAIL_TRANSPORT: ${MAIL_TRANSPORT:-console}`
+  with the comment, ADR-0035 carries the dated note, and `check-compose-stack.sh` reads the
+  invite link out of `docker compose logs api` in four clauses.
 - ~~The design stub `design/stubs/apps/api/src/mail/mail-sender.ts` still carries the struck
   `NODE_ENV` binding~~ **Struck 2026-08-18 (TASK-1b-02):** `design/stubs/**` no longer exists
   in the repository, so there is nothing to retire and F-401 is discharged by absence.

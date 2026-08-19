@@ -262,7 +262,12 @@ them runs today: no `AppModule` route carries tenant data, no class carries
 marker or walks the routes, so the subjects are still a registry, now of four tables and
 four hand-listed endpoints. The boundary as it stands is `COVERAGE_BOUNDARY` in
 `apps/api/test/isolation/coverage.ts`, reproduced verbatim into `report.json`; this file
-does not repeat it. **The set of subjects in this wave is a registry**, so `uncovered` is
+does not repeat it. *Amended again 2026-08-18 (item 1b, TASK-1b-03 and TASK-1b-10; ledger
+1b-W1-12):* seven tables (`memberships`, `invitations`, `invitation_workspaces` added, migration
+`0003`), three repository classes (`WorkspaceRepository`, `InvitationRepository`,
+`MembershipRepository`) and ten hand-listed endpoints (five under `/api/workspaces`, five
+under `/api/invitations`). Still a registry; `COVERAGE_BOUNDARY` remains the one place the
+numbers live, and the sentence before this note is what it looked like at 1a. **The set of subjects in this wave is a registry**, so `uncovered` is
 structurally `[]` and cannot fail on its own. An earlier version of the harness header
 claimed enumeration where there was a list, and the first audit round measured the
 consequence: a tenant-scoped table nobody registered leaked every row to every tenant, with

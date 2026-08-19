@@ -18,7 +18,8 @@ describing a repository state that no longer existed.
 The ADRs and the design contracts survived that deletion, because the code cites them. They
 are in `docs/decisions/` and `docs/contracts/`.
 
-Each item below needs the one above it.
+Each item below needs the one above it. Item 1 shipped in two halves, the second on
+2026-08-18; item 2 is next.
 
 ---
 
@@ -44,10 +45,34 @@ Each item below needs the one above it.
      registered by hand; and the compose stack driving signup, sign-in and workspace
      creation end to end. Out, by the split above: mail, invitations, `memberships` and
      `WorkspaceRole` enforcement, all 1b.
-   - **1b — invitations.** The second-human path: capability tokens per ADR-0021, mail, the
-     accept legs, `memberships` and `WorkspaceRole` enforcement. **F-018, F-300/F-362 and
-     F-386/F-401 belong to this entry**, not to 1a, and stay in the carried-forward table
-     below until it opens.
+   - **1b — invitations, implemented on branch `feat/invitations`, PR pending, stacked on
+     #9 (`feat/identity-membership`) and retargeted to `main` once #9 merges.** The
+     second-human path: capability tokens per ADR-0021, mail, the accept legs, `memberships`
+     and `WorkspaceRole` enforcement. **F-018, F-300/F-362 and F-386/F-401 belonged to this
+     entry** and are discharged below.
+
+     **Shipped 2026-08-18.** Three tables in one migration (`memberships`, `invitations`,
+     `invitation_workspaces`, `0003`, `tenantScopedPolicies()` for all three, ADR-0062); the
+     `MailSender` port with `console`, `resend`, `fake` and `none` transports selected by
+     `MAIL_TRANSPORT`, unset binding the one that sends nothing, and the
+     `workspace_invitation` template dispatched from `afterCommit`; capability tokens
+     `<tenantId>.<43 base64url>` with only the digest stored; five routes under
+     `/api/invitations` (create, list, revoke, an anonymous `lookup` behind the
+     `@Public()` per-IP bucket, and `accept`), the token travelling in a request body and
+     the mail link's URL **fragment**, never a path, a query or a log line; the invited
+     signup branch in Better Auth's hooks that joins the inviter's tenant as `member` and
+     creates no tenant; `WorkspaceAuthorization` reading `memberships` on every workspace
+     route, the creator's `workspace_admin` row written with the workspace, the list
+     membership-filtered, and `GET /api/workspaces/:id`; the email-keyed sign-in bucket that
+     refunds a success; the invitations screen per workspace and the accept page that
+     reads `location.hash` and drops it; the isolation suite over seven tables, three
+     repository classes and ten endpoints; and the compose stack declaring
+     `MAIL_TRANSPORT=console` (D-02) with four clauses that invite, read the link out of
+     `docker compose logs api`, sign the invitee up, and assert they see exactly the granted
+     workspace at `member`. Not built, by decision: member management after the invitation
+     (`PATCH /api/members/:id/workspace-role`, tenant-role changes), a resend action, bounce
+     handling, a real `From` domain, and a per-tenant cap on invitation volume (TASK-051's
+     bucket). Ledger residuals are in the 2026-08-18 carried-forward list below.
 
    Why the cut fell there: a workspace with exactly one human who can see it has nothing to
    scope, so `memberships` would be a table nothing reads. ADR-0015 already separates tenant
@@ -57,7 +82,11 @@ Each item below needs the one above it.
 
    The known cost, recorded rather than discovered later: 1b adds a boundary to a `workspaces`
    table and policy set that never had one, which is F-236's class at one remove. Design owes
-   an ADR clause naming what 1b adds and why the existing policies survive it.
+   an ADR clause naming what 1b adds and why the existing policies survive it. *Paid
+   2026-08-18:* ADR-0062 is that clause — the boundary is a second table, `memberships`, the
+   `workspaces` policy set is unchanged, and the list is filtered by a join the repository
+   owns; a pre-1b volume has workspaces with no creator membership and no backfill, and the
+   README's reset ladder says so.
 
 2. **Links and the redirect hot path.** A multi-tenant URL shortener on the system default
    domain, with a redirect that stays fast, stays correct when someone edits a destination,
@@ -68,8 +97,9 @@ Each item below needs the one above it.
 
 4. **Operations, safety and compliance.** Link changes are attributable, write abuse is
    bounded per tenant, tenants can export and erase their data, and the isolation suite
-   covers the whole surface instead of the four tables and four endpoints it reaches today
-   (two tables when this was written; 1a widened it on 2026-08-18).
+   covers the whole surface instead of the seven tables and ten endpoints it reaches today
+   (two tables when this was written; 1a widened it to four and four, and 1b to seven, three
+   repository classes and ten, both on 2026-08-18).
 
 5. **Public marketing surface.** Someone lands on the apex domain and works out what
    Shortkit is without creating an account.
@@ -86,9 +116,11 @@ Two things the old plan already knew. Carry them forward, or pay to learn them a
 - **Item 4 carries the suite that backs the tenancy claim.** The harness exists and passes
   today, over two tables: `tenants` and `rls_fixture_rows`, which is every table the
   repository has. It prints that boundary on every run. The claim gets stronger only as the
-  surface it covers grows. (Since 2026-08-18: four tables, `tenant_memberships` and
-  `workspaces` added, and the four `/api/workspaces` endpoints; still registered by hand,
-  and the run still prints that.)
+  surface it covers grows. (Since 2026-08-18: seven tables — `tenant_memberships`,
+  `workspaces`, `memberships`, `invitations` and `invitation_workspaces` added — three
+  repository classes, and the ten endpoints under `/api/workspaces` and `/api/invitations`;
+  still registered by hand, and the run still prints that. `COVERAGE_BOUNDARY` in
+  `apps/api/test/isolation/coverage.ts` is the text.)
 
 ## Carried forward 2026-08-11 — the isolation harness's method, not its coverage
 
@@ -189,18 +221,18 @@ Retro-phase findings and are **below `check-ledger`'s reach**: it only asserts a
 
 | Obligation | Inherited by | Ruling |
 |---|---|---|
-| **F-018 is reopened** — `@Public()` invitation routes have no IP-keyed limit in any environment that exists today. Its record still reads `status: fixed`, annotated but not flipped, deliberately: the fix it describes was real and correct against the design of the day, and what changed is the design underneath it. | Item 1 (invitations, auth) | ADR-0040 + Juano's fail-open ruling, 2026-08-11 |
+| ~~**F-018 is reopened** — `@Public()` invitation routes have no IP-keyed limit in any environment that exists today.~~ **Discharged 2026-08-18 (TASK-1b-07, TASK-1b-08):** `RateLimitGuard` charges every `@Public()` route 30/60 s per client IP where a trusted header is declared, before the token is parsed; the one such route is `POST /api/invitations/lookup`. Where no header is declared the bucket does not bind and the warn line says so — the fail-open ruling, unchanged. | Item 1 (invitations, auth) | ADR-0040 + Juano's fail-open ruling, 2026-08-11 |
 | **The TASK-009 boot assertion** — `assertTrustedClientIpHeaderConfigured()` and `assertBffProxySecretConfigured()`, both gated on a declared property rather than `NODE_ENV`. `TASK-009.md` mentions neither ADR-0040, nor the assertions, nor F-018. | Item 1 | ADR-0040 (F-380), rate-limit.md (F-385) |
 | **F-036, F-037** — parked majors on the architect, from the design phase. | whichever entry revives their subject | parked at the design cap |
-| **F-300 / F-362** — `invitation-tokens.md` invariant 5 is corrected but the mechanism is undecided: the raw token sits in the URL path on **both** the `GET` and the `POST` accept legs, so the two recorded fixes are **not** equivalent. A redirect covers the GET and not the POST. | Item 1 | Juano's park-and-correct ruling, 2026-08-11 |
+| ~~**F-300 / F-362** — `invitation-tokens.md` invariant 5 is corrected but the mechanism is undecided: the raw token sits in the URL path on **both** the `GET` and the `POST` accept legs.~~ **Discharged 2026-08-18 (D-03, TASK-1b-04, TASK-1b-08, TASK-1b-13):** the token travels in the mail link's URL **fragment** and in the bodies of `POST /api/invitations/lookup` and `POST /api/invitations/accept`; the path forms were not built. | Item 1 | Juano's park-and-correct ruling, 2026-08-11 |
 | **F-350** — the drift repair reached the isolation suite and not the GDPR paths. `tenantScopedTables()` still has no name-independent derivation, and it is what export and erasure iterate. | Item 4, and any entry adding a tenant-scoped table | ADR-0019 amendment, 2026-08-11 |
-| **F-386** — `mail-sender.md` binds the **live Resend sender** when `NODE_ENV` is `production`, which `Dockerfile:83` sets under `docker compose up`. It does not refuse to boot; it waits, and sends real email the first time anyone invites someone from a local stack. | Item 1, or whichever entry writes mail | ruled 2026-08-12: `MAIL_TRANSPORT` is a third declaration, unset binds `NoopMailSender` |
-| **F-401 — the mail stub is stale in the unsafe direction.** `design/stubs/apps/api/src/mail/mail-sender.ts` still binds on `NODE_ENV` in four docblocks and has no `NoopMailSender`, while the contract F-386 just corrected forbids exactly that. **An implementer who trusts the stub over the contract reintroduces F-386**, and it fails silently — the stub's version boots and sends. This is F-288's mechanism: a normative-looking artifact carrying a rule the source of truth has replaced. The `apps/web` stub-drift gate does not cover `apps/api`. | Item 1, or whichever entry writes mail | a stub sweep, or TASK-010's ADR-0039 retirement, whichever comes first |
+| ~~**F-386** — `mail-sender.md` binds the **live Resend sender** when `NODE_ENV` is `production`, which `Dockerfile:83` sets under `docker compose up`.~~ **Discharged 2026-08-18 (TASK-1b-02):** `resolveMailTransport` is the one read of `MAIL_TRANSPORT`, nothing under `apps/api/src/mail/**` reads `NODE_ENV`, unset binds `NoopMailSender`, and `resend` refuses boot without `RESEND_API_KEY` and `MAIL_FROM`; a spec scans the source for both facts. | Item 1, or whichever entry writes mail | ruled 2026-08-12: `MAIL_TRANSPORT` is a third declaration, unset binds `NoopMailSender` |
+| ~~**F-401 — the mail stub is stale in the unsafe direction.**~~ **Discharged by absence 2026-08-18 (TASK-1b-02):** `design/stubs/**` left the repository with the process tree on 2026-08-17, so there is no stub to trust over the contract; `mail-sender.md`'s normative form names the shipped files. | Item 1, or whichever entry writes mail | a stub sweep, or TASK-010's ADR-0039 retirement, whichever comes first |
 | **F-400 — `domain-provisioning.md:134` names no selector.** It says "Production resolves over DNS-over-HTTPS" and TASK-039 will invent one; the obvious invention is `NODE_ENV`. A DoH resolver bound that way under `docker compose up` resolves real DNS from a laptop against a stranger's domain — the F-386 shape one subsystem over. Caught before it was written, because the architect was asked to enumerate bindings rather than assertions. | Item 3 (custom domains) | name the selector as a declared property, per ADR-0017 and ADR-0040 |
-| **F-236 — the GDPR eraser erases nothing and reports success.** `PrivilegedTenantEraser.erase` written the obvious way deletes no rows and returns cleanly. This is F-002's class — a design blocker fixed at *policy* level in design round 1 — reappearing at *statement* level, because the policy fix was verified against the policy set and never against a statement issued under it. **The most consequential item in this table.** | Item 1, and any entry touching GDPR erasure | filed at TASK-006 delivery; owner TASK-054, deferred |
-| **F-239 — `ALTER DEFAULT PRIVILEGES` grants `shortkit_app` full DML on every table the migrator creates**, so a new table is writable by the runtime role before anyone writes a policy for it. | Item 1, and any entry adding a table | owner TASK-009, deferred |
+| **F-236 — the GDPR eraser erases nothing and reports success.** `PrivilegedTenantEraser.erase` written the obvious way deletes no rows and returns cleanly. This is F-002's class — a design blocker fixed at *policy* level in design round 1 — reappearing at *statement* level, because the policy fix was verified against the policy set and never against a statement issued under it. **The most consequential item in this table.** *1b, 2026-08-18: untouched — no eraser exists yet; the three new tables cascade from `tenants(id)` like the rest, so the statement-level problem is the same shape, one table wider three times over.* | Item 1, and any entry touching GDPR erasure | filed at TASK-006 delivery; owner TASK-054, deferred |
+| **F-239 — `ALTER DEFAULT PRIVILEGES` grants `shortkit_app` full DML on every table the migrator creates**, so a new table is writable by the runtime role before anyone writes a policy for it. *1b, 2026-08-18: still open. Migration `0003` created three tables and hand-appended `tenantScopedPolicies()` for all three in the same commit, so the window was zero seconds long this time; nothing prevents a later migration from leaving it open, and `db:check-policies` plus `tenantScopedTableDrift()` are what would catch it after the fact.* | Item 1, and any entry adding a table | owner TASK-009, deferred |
 | **F-102 — AC-68 versus F-097's DNS-proof ordering.** A finding against an approved artifact, so routing rule 0 makes it Juano's, and it must settle before custom domains are dispatched. | Item 3 (custom domains) | escalated 2026-08-03, unresolved |
-| **F-157 — no build-output scan can cover dynamic routes**, which is where the entire authenticated surface will live. AC-113's guard is sound for what it scans and structurally blind to what comes next. | Item 1, when the first authenticated route lands | closed against TASK-004; the residual is real |
+| **F-157 — no build-output scan can cover dynamic routes**, which is where the entire authenticated surface will live. AC-113's guard is sound for what it scans and structurally blind to what comes next. *1b, 2026-08-18: unchanged; the accept page and the invitations screen are dynamic routes the scan does not see, as predicted.* | Item 1, when the first authenticated route lands | closed against TASK-004; the residual is real |
 
 **Why this block exists rather than a pointer to `findings.yaml`.** The initiative named the same
 defect four times in its own logs — a routing recorded as a resolution, a record that lagged its
@@ -298,11 +330,10 @@ its ledger id.
   request log line: the interceptor wraps matched handlers only and the filter's
   `DomainError` branch does not log. Repeated credential failures on the bearer surface are
   unobservable. Express-level request logging in `main.ts` is the place.
-- **W5-01** — `apiClient` does not normalise a 429's `Retry-After` header or
-  `retryAfterSeconds` body into `ApiError.retryAfterSeconds`; `web-api-client.md` step 4
-  says it does. `mapBetterAuthError` does it on the BFF side, so through the real client the
-  auth screens show a rate-limit message with no seconds. TASK-052 owned it and left the
-  initiative.
+- ~~**W5-01** — `apiClient` does not normalise a 429's `Retry-After` header or
+  `retryAfterSeconds` body into `ApiError.retryAfterSeconds`.~~ **Closed 2026-08-18
+  (TASK-1b-12):** `apiClient` reads the header first and the body field second, and
+  `web-api-client.md` step 4 is true through the real client.
 - **W4-13** — the ESLint config has no `eslint-plugin-react-hooks` and no `jsx-a11y`, so
   `use-session.ts` has no rules-of-hooks or exhaustive-deps coverage. Needs a dependency add
   and a lockfile change.
@@ -331,3 +362,51 @@ its ledger id.
 - **W8-01** — the request log line carries no `method`. `logging-and-headers.md`'s
   "Required fields" table does not name it and ADR-0028 lets no unnamed field through, so
   the contract amendment comes first.
+
+## Carried forward from `invitations` (item 1b), 2026-08-18
+
+The 1b wave ledger's residuals, each with its ledger id. None is closed by the branch.
+
+- **1b-W3-07** — no per-tenant or per-caller cap on `POST /api/invitations`: a
+  `workspace_admin` can script mail volume bounded only by the transport. The tenant write
+  bucket is TASK-051's and lands with item 4.
+- **Member management is not built.** `PATCH /api/members/:id/workspace-role` and the
+  tenant-role change route are rows in `workspace-authorization.md` marked "not built in
+  1b"; the only way a role changes today is a direct `memberships` update, which the next
+  request honours (no cache, AC-1b-21).
+- **The tenant-`admin` creator gap.** Creating a workspace needs tenant `admin`, so an
+  invitee (tenant `member`) cannot create one even where they are `workspace_admin`
+  elsewhere; nothing promotes a tenant role after signup.
+- **The fragment needs JavaScript.** The accept page reads `location.hash`; a browser
+  with scripts off sees the page with no token and no way to hand it over (D-03's accepted
+  cost).
+- **1b-W1-08** — `ResendMailSender` retries once on a network throw with no
+  `Idempotency-Key` and no timeout, so a lost response after acceptance can send a
+  duplicate invitation. Candidate: a key from invitation id plus attempt.
+- **1b-W1-09** — workspace and tenant names admit control characters; a newline in one
+  forges the console transport's block boundary (a dev-only channel, same-tenant author).
+  Candidate: refuse control characters in the name contracts.
+- **1b-W1-10** — `MAIL_TRANSPORT=fake` is a legal production value that swallows mail with
+  no signal; a boot warn parallel to `none`'s is the candidate.
+- **1b-W1-11** — foreign keys without a leading-column index: `memberships.user_id`,
+  `invitations.invited_by_user_id`, `invitations.accepted_by_user_id`,
+  `invitation_workspaces.workspace_id`. Add when a query plan asks for one.
+- **1b-W1-03** — `LocalRateLimiter` copies rather than imports `LocalAuthRateLimiter`'s
+  algorithm (per F-034); a shared bounded-map core is the candidate refactor.
+- **1b-W1-06 (fixed) leaves a question** — Express routes case-insensitively, so
+  `/API/...` reaches the same handler; the public IP bucket now lower-cases the path, and
+  `auth-rate-limit.ts`'s `bucketFor` still compares exactly (1b-W1-07, benign: Better Auth
+  404s the varied path). Whether `main.ts` should set `case sensitive routing` is open.
+- **1b-W3-03** — the invited signup form does not prefill the invited address; the address
+  is shown as context.
+- **1b-W3-08** — `WorkspaceRepository` is registered twice; `WorkspacesModule` should
+  export it.
+- **1b-W4-01** — `classifyInvitationScreenError` lives in `invite-form.tsx` and is imported
+  by sibling components; belongs in `invitations-api.ts`.
+- **1b-W4-02** — `workspaceContract.workspaceRole` is `.optional()` to accommodate web
+  fixtures; the API always sends it. Tighten once the fixtures carry the field.
+- **1b-W1-04** — AC-1b-38's wording (the unresolved-principal warn fires with no header
+  declared) disagrees with `trusted-client-address.md`'s "Signal" (silent then); the
+  contract was implemented, the story sentence stands corrected here.
+- **1b-W1-13** — accepted cost, ADR-0062: `reparentAll` on the composite-FK tables scores a
+  widened `USING` as unverified (23503) rather than fail; still red, and inherent.

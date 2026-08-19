@@ -1,8 +1,10 @@
 # The whole stack, up from nothing (AC-115).
 #
 # Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
-# ADR: adr-0030 .. adr-0037; adr-0040, adr-0050, adr-0051, adr-0059 (the api and web environment)
-# Produced by: TASK-059. Environment blocks extended by TASK-018, TASK-003 and TASK-009.
+# ADR: adr-0030 .. adr-0037; adr-0040, adr-0050, adr-0051, adr-0059 (the api and web environment);
+#      adr-0017 (MAIL_TRANSPORT)
+# Produced by: TASK-059. Environment blocks extended by TASK-018, TASK-003, TASK-009 and
+#              TASK-1b-11 (MAIL_TRANSPORT, D-02).
 # Measured by: scripts/check-compose-stack.sh
 #
 #   docker compose up                                                  # AC-115's command
@@ -319,6 +321,25 @@ services:
       # operator reaches for when every local login answers 403 and it trusts every origin
       # on the internet (ADR-0059).
       WEB_APP_ORIGINS: ${WEB_APP_ORIGINS:-http://localhost:3000}
+      # The mail transport (ADR-0017, docs/contracts/mail-sender.md). D-02, ruled by Juano on
+      # 2026-08-18: THIS STACK DECLARES `console`. Every message the API would send is written
+      # to the container's stdout as plain text and nothing leaves the process, so an
+      # invitation created on this stack prints its accept link — the URL with the single-use
+      # token in its fragment — into `docker compose logs api`, one block per message, the
+      # URL on a line of its own. That is how a developer, and check-compose-stack.sh's
+      # invitation clauses, complete an invitation here without a mailbox. The link's origin
+      # is the first entry of WEB_APP_ORIGINS above, http://localhost:3000, which is where
+      # the accept page is served.
+      #
+      # `console` is opt-in and this line is the opt-in. UNSET IS NOT `console`: an unset
+      # MAIL_TRANSPORT binds NoopMailSender and sends nothing, and that is what a
+      # production-shaped deployment gets when it forgets the variable — a laptop's log is
+      # the only place raw tokens on stdout are acceptable, so no deployment declares
+      # `console`, and none copies this line. `MAIL_TRANSPORT=none docker compose up` is the
+      # silent stack; check-compose-stack.sh unsets an exported override so it measures the
+      # value this file declares. No RESEND_* variable is set here: `resend` needs
+      # RESEND_API_KEY and MAIL_FROM and refuses boot without them.
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-console}
       # ---------------------------------------------------------------------------
       # THE FOUR TRUST DECLARATIONS ARE ABSENT, AND ABSENT ON PURPOSE (ADR-0040, TASK-009).
       # ---------------------------------------------------------------------------

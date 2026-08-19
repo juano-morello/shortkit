@@ -19,8 +19,16 @@ set -euo pipefail
 #   order and through the web app, then all three succeed against a database with no seed
 #   data and with no manual step between them.
 #
-# ADR: adr-0030 .. adr-0037, adr-0050, adr-0051, adr-0059. Contract:
-# docs/contracts/rls-policy-template.md, docs/contracts/web-api-client.md.
+# AC-1b-41 / AC-1b-42 (STORY-1b-09, TASK-1b-11), the second-human path on the same stack,
+# after AC-28's clauses and before the second `up`. SC-2 extended: the owner invites a
+# fresh address to the workspace, the invite link is read out of `docker compose logs api`
+# (`MAIL_TRANSPORT=console`, D-02), the invitee signs up with the token, signs in, and sees
+# exactly the granted workspace at the granted role -- and nothing the owner did not grant.
+#
+# ADR: adr-0030 .. adr-0037, adr-0050, adr-0051, adr-0059; adr-0017 and adr-0021 for the
+# invitation clauses. Contract: docs/contracts/rls-policy-template.md,
+# docs/contracts/web-api-client.md, docs/contracts/mail-sender.md,
+# docs/contracts/invitation-tokens.md.
 #
 #   ./scripts/check-compose-stack.sh
 #
@@ -30,10 +38,11 @@ set -euo pipefail
 #
 # EXIT CODES, AND THE DISTINCTION IS THE POINT:
 #   0  every clause passed.
-#   1  at least one AC-115 or AC-28 clause is red. The clause table says which and why.
+#   1  at least one AC-115, AC-28 or AC-1b-e2e clause is red. The clause table says which
+#      and why.
 #   2  the CHECK could not run — no Docker, no node, or a machine that is not the
 #      machine AC-115 describes. Nothing was measured, and nothing may be concluded
-#      about AC-115 or AC-28 from a 2.
+#      about AC-115, AC-28 or the invitation clauses from a 2.
 #
 # WHAT IT ASSERTS, AND WHAT IT DELIBERATELY DOES NOT:
 #
@@ -104,6 +113,28 @@ set -euo pipefail
 #   These are transport-level. No tier in this repository drives a browser, and that
 #   residual is stated in STORY-004 rather than closed here.
 #
+# FOUR INVITATION CLAUSES, THE SECOND HUMAN END TO END (TASK-1b-11, AC-1b-41, AC-1b-42):
+#   the owner from AC-28 creates a second workspace and invites a fresh address to the first
+#   one as `member` (AC-1b-e2e-1); the accept link is read out of `docker compose logs api`,
+#   where the console transport prints one plain-text block per message with the URL on a
+#   line of its own (AC-1b-e2e-2); the invitee signs up through the web app with the token
+#   from the URL's fragment, which creates one `user` row and NO tenant (AC-1b-e2e-3); the
+#   invitee signs in and the workspace list is exactly the granted workspace at `member`, an
+#   archive and a rename are 403, the second workspace is 404, a second signup with the
+#   same token is 409, and the owner's invitation list shows the row accepted (AC-1b-e2e-4).
+#
+#   THE TOKEN IS A BEARER CREDENTIAL AND IT IS NEVER PRINTED (F-379). It lives in a shell
+#   variable, goes into two request bodies, and reaches no reason string, no note and no
+#   file this script leaves behind. What IS asserted about it is where it appears in the
+#   API log: on the console block's URL line and on no JSON line (SC-8), before the signup
+#   and again after the whole flow.
+#
+#   `docker compose logs api` is the one command these clauses add. Reading a mail out of a
+#   container log is exactly what D-02 traded for: without `console` there is no way for
+#   this check, or a developer, to complete an invitation on this stack. A run against a
+#   stack whose API is not printing mail is BLOCKED at AC-1b-e2e-2 with that reason, not
+#   FAIL (AC-1b-42): nothing about the invitation path was measured, and the table says so.
+#
 # ENVIRONMENT KNOBS:
 #   SHORTKIT_CHECK_KEEP_STACK=1    leave the stack up after the run (default: tear down).
 #                                  The generated BETTER_AUTH_SECRET dies with this process
@@ -169,13 +200,17 @@ declare_clause 'AC-115.9' "GET /health on the composed API returns a body whose 
 declare_clause 'AC-28.1'  'signup through the web app succeeds for an address with no account, against a database with no seed data'
 declare_clause 'AC-28.2'  'sign-in through the web app with those credentials returns a session'
 declare_clause 'AC-28.3'  'a workspace created through the web app appears in the workspace list'
+declare_clause 'AC-1b-e2e-1' 'the owner creates a second workspace and invites a fresh address to the first as member through the web app; the response carries no token'
+declare_clause 'AC-1b-e2e-2' 'the invite URL is read from docker compose logs api: one console block for the address, the token on its URL line and on no JSON line'
+declare_clause 'AC-1b-e2e-3' 'the invitee signs up through the web app with the token: one user row for the address, a member row in the owner tenant, and no new tenant'
+declare_clause 'AC-1b-e2e-4' 'the invitee signs in and lists exactly the granted workspace as member; archive and rename are 403, the second workspace is 404, a second signup with the token is 409, the owner sees the invitation accepted'
 declare_clause 'DOD-1'    'docker compose up a second time succeeds'
 declare_clause 'DOD-2'    'the second up did not double the seeded data'
 declare_clause 'DOD-3'    'data survives docker compose restart'
 
 summarise_and_exit() {
   local i worst=0
-  printf '\n== clause table (AC-115, AC-28) ==\n'
+  printf '\n== clause table (AC-115, AC-28, AC-1b-e2e) ==\n'
   for i in "${!CLAUSE_IDS[@]}"; do
     printf '%-10s %-6s %s\n           %s\n' \
       "${CLAUSE_IDS[$i]}" "${CLAUSE_RESULT[$i]}" "${CLAUSE_TEXT[$i]}" "-> ${CLAUSE_REASON[$i]}"
@@ -183,9 +218,9 @@ summarise_and_exit() {
   done
   printf '\n'
   if [ "$worst" -eq 0 ]; then
-    printf 'AC-115 and AC-28: GREEN. Every clause passed.\n'
+    printf 'AC-115, AC-28 and AC-1b-e2e: GREEN. Every clause passed.\n'
   else
-    printf 'AC-115 or AC-28: RED. See the clause table above; each line fails on its own.\n'
+    printf 'AC-115, AC-28 or AC-1b-e2e: RED. See the clause table above; each line fails on its own.\n'
   fi
   exit "$worst"
 }
@@ -341,6 +376,17 @@ if [ -n "${COMPOSE_FILE:-}" ]; then
   unset COMPOSE_FILE
 fi
 
+# MAIL_TRANSPORT is the same class of variable one service down: `docker-compose.yml` writes
+# `${MAIL_TRANSPORT:-console}` (D-02) so a developer can run the silent stack with an
+# exported `none`, and an exported value here would put a stack in front of the invitation
+# clauses that is not the one the file declares. Unset, with a note; the value is a
+# transport name, not a secret, so printing it is fine (F-379 is about credentials).
+if [ -n "${MAIL_TRANSPORT:-}" ]; then
+  printf 'note: unsetting $MAIL_TRANSPORT (%s); the invitation clauses measure the transport docker-compose.yml declares.\n' \
+    "$MAIL_TRANSPORT" >&2
+  unset MAIL_TRANSPORT
+fi
+
 # ADR-0051: `docker-compose.yml:295` carries no default for BETTER_AUTH_SECRET any more,
 # so this harness generates one and exports it for the duration of this run. It must land
 # before `trap cleanup EXIT` below, not merely before the first `docker compose config` --
@@ -426,6 +472,10 @@ if [ -z "$COMPOSE_FILE_FOUND" ]; then
   blocked 'AC-28.1'  'no compose file: no web app to sign up through'
   blocked 'AC-28.2'  'no compose file: no web app to sign in through'
   blocked 'AC-28.3'  'no compose file: no web app to create a workspace through'
+  blocked 'AC-1b-e2e-1' 'no compose file: no web app to invite through'
+  blocked 'AC-1b-e2e-2' 'no compose file: no API log to read an invite URL from'
+  blocked 'AC-1b-e2e-3' 'no compose file: no web app to sign the invitee up through'
+  blocked 'AC-1b-e2e-4' 'no compose file: no web app to sign the invitee in through'
   blocked 'DOD-1'    'no compose file: a second up cannot be attempted'
   blocked 'DOD-2'    'no compose file: there is no seeded data to count'
   blocked 'DOD-3'    'no compose file: there is nothing to restart'
@@ -820,9 +870,14 @@ fi
 # generated, used twice and dropped; no reason string carries it (F-379).
 # ---------------------------------------------------------------------------
 
-# bff METHOD PATH [JSON-BODY] -> $TMPDIR_CHECK/bff.status, bff.body; the jar in bff.jar
+# bff METHOD PATH [JSON-BODY] -> $TMPDIR_CHECK/bff.status, bff.body; the jar in $BFF_JAR
 # is read before the request and rewritten after it. Never fails the script: a transport
 # error is a status of TRANSPORT-ERROR with the message as the body, like the /health probe.
+#
+# $BFF_JAR is the browser's identity. AC-28 has one browser, the owner's; the invitation
+# clauses add a second (the invitee) and a third (the second signup), and switch by
+# assigning BFF_JAR around their requests. Two people, two jars, one helper.
+BFF_JAR="$TMPDIR_CHECK/bff.jar"
 bff() {
   node -e '
 const fs = require("node:fs");
@@ -854,7 +909,7 @@ fetch(url, { method, headers, body: body === "" ? undefined : body, redirect: "m
     fs.writeFileSync(statusFile, "TRANSPORT-ERROR");
     fs.writeFileSync(bodyFile, String((e && e.message) || e));
   });
-' "$1" "$WEB_URL$2" "${3:-}" "$TMPDIR_CHECK/bff.jar" "$TMPDIR_CHECK/bff.status" "$TMPDIR_CHECK/bff.body" || true
+' "$1" "$WEB_URL$2" "${3:-}" "$BFF_JAR" "$TMPDIR_CHECK/bff.status" "$TMPDIR_CHECK/bff.body" || true
 }
 bff_status() { cat "$TMPDIR_CHECK/bff.status" 2>/dev/null || echo 'NO-REQUEST'; }
 bff_body()   { one_line <"$TMPDIR_CHECK/bff.body" 2>/dev/null || printf 'no body recorded'; }
@@ -878,7 +933,7 @@ let jar = {};
 try { jar = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { jar = {}; }
 const c = jar[process.argv[2]];
 console.log(c === undefined ? "ABSENT" : `httponly=${c.httpOnly ? 1 : 0} secure=${c.secure ? 1 : 0}`);
-' "$TMPDIR_CHECK/bff.jar" "$1"
+' "$BFF_JAR" "$1"
 }
 
 # user_rows_for EMAIL -> the number of rows in public."user" with that email, as the
@@ -895,7 +950,7 @@ FLOW_EMAIL="sc2-$(node -e 'console.log(require("node:crypto").randomBytes(6).toS
 FLOW_PASSWORD="$(node -e 'console.log(require("node:crypto").randomBytes(18).toString("base64url"))')"
 FLOW_NAME='SC-2 Operator'
 WORKSPACE_NAME='Acme'
-rm -f "$TMPDIR_CHECK/bff.jar"
+rm -f "$BFF_JAR"
 
 SIGNUP_OK=0
 if [ "$UP_OK" -ne 1 ]; then
@@ -955,6 +1010,8 @@ else
   fi
 fi
 
+WORKSPACE_OK=0
+W1_ID=''
 if [ "$SIGNIN_OK" -ne 1 ]; then
   blocked 'AC-28.3' 'sign-in did not return a session, so no workspace could be created'
 else
@@ -984,10 +1041,308 @@ console.log(hit === undefined ? `NOT-LISTED (${b.items.length} item(s))` : (hit.
     elif [ "$listed" != 'LISTED' ]; then
       fail 'AC-28.3' "the workspace was created (id $created_id) but the workspace list did not contain it as \"$WORKSPACE_NAME\": $listed"
     else
+      WORKSPACE_OK=1
+      W1_ID="$created_id"
       pass 'AC-28.3' "POST /api/bff/workspaces returned 201 with id $created_id, and GET /api/bff/workspaces lists it as \"$WORKSPACE_NAME\""
     fi
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# AC-1b-e2e-1 .. -4 — invite, read the link out of the log, accept, see only yours
+# (TASK-1b-11; AC-1b-41, AC-1b-42; SC-2 extended by SC-6..SC-8)
+#
+# The same browser stand-in as AC-28, and one more person. The owner (signed in above)
+# creates a SECOND workspace, so that "the invitee sees only their workspace" has something
+# to be measured against, then invites a fresh address to the FIRST one as `member`. Nothing
+# in the invitation's response may carry the token: the link is the capability (D-01), and
+# the only place it exists is the mail, which on this stack is a plain-text block the console
+# transport prints to the API's stdout (D-02, `MAIL_TRANSPORT=console` in docker-compose.yml).
+# So the check does what a developer does -- `docker compose logs api` -- and takes the token
+# off the URL line of the block addressed to the invitee. Then the invitee signs up with it
+# through the web app, signs in with a jar of their own, and the workspace list is exactly
+# [W1] at `member`, W2 is 404, a rename and an archive of W1 are 403, and the token is spent.
+#
+# NEVER PRINTED (F-379): the token, the two passwords, the invite URL. Reason strings carry
+# statuses, codes, counts and ids. THE LOG IS READ TWICE for the token, both times as a
+# fixed-string grep over the API log split by line: once when the URL is taken (AC-1b-e2e-2:
+# it is on the block's URL line and on no line that parses as JSON), and once after the whole
+# flow (AC-1b-e2e-4's last step: still exactly one line), because the signup and the second
+# signup are the two requests that carried it and would be where a request logger leaked it.
+#
+# BLOCKED, NOT FAIL, when the log holds no block for the address (AC-1b-42): a stack whose
+# API is not printing mail -- MAIL_TRANSPORT overridden, or the console block's shape
+# changed -- has told this check nothing about invitations, and the three clauses after it
+# are BLOCKED on that too. FAIL is reserved for a measured refusal: a wrong status, a wrong
+# count, a wrong role.
+#
+# DOD-2's census runs after this block, so the invitee's rows are inside both of its counts.
+# ---------------------------------------------------------------------------
+
+# The tenant census, as the superuser: shortkit_app sees only the tenant matching
+# app.tenant_id, so a row the seed or an invited signup created under another id is
+# invisible to it. Defined here because AC-1b-e2e-3 counts before and after the invited
+# signup, and DOD-2 / DOD-3 count across the second up and the restart.
+census() { psql_super 'select count(*) from public.tenants' 2>"$TMPDIR_CHECK/census.err" | tr -d '[:space:]'; }
+census_err() { one_line <"$TMPDIR_CHECK/census.err" 2>/dev/null || printf 'no error recorded'; }
+
+# The API's log, prefix stripped. `docker compose logs` prefixes every line with the
+# container name and ` | `; the first ` | ` on a line is that prefix and nothing the API
+# writes precedes it. Written to a file under $TMPDIR_CHECK, which cleanup() removes.
+api_log() { docker compose logs --no-color api 2>/dev/null | sed 's/^[^|]*| //' >"$TMPDIR_CHECK/api.log"; }
+
+# invite_url_for EMAIL -> the URL line of the console block addressed to EMAIL, or nothing.
+# Reads the LAST block for that address, so a re-sent invitation reads as the newest one.
+# The block's three fixed lines are the header, `To: <address>` and the footer
+# (console-mail-sender.ts, "THE SHAPE"); the URL is the one line inside it that carries the
+# accept path. Prints one line and nothing else -- the caller keeps it in a variable.
+invite_url_for() {
+  awk -v to="To: $1" \
+      -v header='--- outbound mail (console transport; nothing was sent) ---' \
+      -v footer='--- end of outbound mail ---' '
+    $0 == header { inblock = 1; mine = 0; url = ""; next }
+    inblock && $0 == to { mine = 1; next }
+    inblock && mine && index($0, "/invitations/accept#token=") > 0 { url = $0 }
+    $0 == footer { if (mine && url != "") last = url; inblock = 0; mine = 0 }
+    END { if (last != "") print last }
+  ' "$TMPDIR_CHECK/api.log"
+}
+
+# mail_blocks_for EMAIL -> how many console blocks in the API log are addressed to EMAIL.
+mail_blocks_for() { grep -c -x -F -- "To: $1" "$TMPDIR_CHECK/api.log" || true; }
+
+# token_lines TOKEN -> "<all> <json>": lines of the API log holding the token as a fixed
+# string, and how many of those start with `{` (pino's shape; every JSON line the API
+# writes is one object per line). Never prints the token.
+token_lines() {
+  local all json
+  all="$(grep -c -F -- "$1" "$TMPDIR_CHECK/api.log" || true)"
+  json="$(grep -F -- "$1" "$TMPDIR_CHECK/api.log" | grep -c '^{' || true)"
+  printf '%s %s' "${all:-0}" "${json:-0}"
+}
+
+# member_rows_for EMAIL OWNER_EMAIL -> the number of tenant_memberships rows for EMAIL at
+# role `member` in the tenant OWNER_EMAIL belongs to; both addresses bound, never pasted.
+member_rows_for() {
+  printf '%s\n' "select count(*) from public.tenant_memberships tm join public.\"user\" u on u.id = tm.user_id where u.email = :'email' and tm.role = 'member' and tm.tenant_id = (select tm2.tenant_id from public.tenant_memberships tm2 join public.\"user\" u2 on u2.id = tm2.user_id where u2.email = :'owner');" \
+    | docker compose exec -T postgres \
+        psql -v ON_ERROR_STOP=1 -v "email=$1" -v "owner=$2" -U "$SUPERUSER" -d "$APP_DATABASE" -tAq \
+        2>"$TMPDIR_CHECK/memberrows.err" | tr -d '[:space:]'
+}
+
+printf '\n-- the second human, through %s and docker compose logs api\n' "$WEB_URL" >&2
+INVITEE_EMAIL="invitee-$(node -e 'console.log(require("node:crypto").randomBytes(6).toString("hex"))')@example.test"
+INVITEE_PASSWORD="$(node -e 'console.log(require("node:crypto").randomBytes(18).toString("base64url"))')"
+INVITEE_NAME='SC-2 Invitee'
+SECOND_EMAIL="invitee2-$(node -e 'console.log(require("node:crypto").randomBytes(6).toString("hex"))')@example.test"
+W2_NAME='Beta'
+OWNER_JAR="$TMPDIR_CHECK/bff.jar"
+INVITEE_JAR="$TMPDIR_CHECK/bff.jar.invitee"
+SECOND_JAR="$TMPDIR_CHECK/bff.jar.second"
+rm -f "$INVITEE_JAR" "$SECOND_JAR"
+
+INVITE_OK=0
+W2_ID=''
+INVITATION_ID=''
+if [ "$WORKSPACE_OK" -ne 1 ]; then
+  blocked 'AC-1b-e2e-1' 'AC-28.3 did not create and list a workspace, so there is nothing to invite anyone to'
+else
+  BFF_JAR="$OWNER_JAR"
+  bff POST /api/bff/workspaces "$(node -e 'console.log(JSON.stringify({ name: process.argv[1] }))' "$W2_NAME")"
+  status="$(bff_status)"
+  W2_ID="$(bff_field id)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-1b-e2e-1' "step 1 (second workspace): POST $WEB_URL/api/bff/workspaces could not be reached: $(bff_body)"
+  elif [ "$status" != '201' ] || [ "$W2_ID" = 'ABSENT' ] || [ "$W2_ID" = 'NOT-JSON' ]; then
+    fail 'AC-1b-e2e-1' "step 1 (second workspace): POST /api/bff/workspaces returned $status (id: $W2_ID), not 201 with an id: $(bff_body)"
+  else
+    bff POST /api/bff/invitations "$(node -e 'console.log(JSON.stringify({ email: process.argv[1], workspaces: [{ workspaceId: process.argv[2], workspaceRole: "member" }] }))' "$INVITEE_EMAIL" "$W1_ID")"
+    status="$(bff_status)"
+    INVITATION_ID="$(bff_field id)"
+    inv_state="$(bff_field state)"
+    inv_token_key="$(node -e '
+const fs = require("node:fs");
+let b;
+try { b = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("NOT-JSON"); process.exit(0); }
+const hasToken = (v) => v !== null && typeof v === "object" && (Object.prototype.hasOwnProperty.call(v, "token") || Object.values(v).some(hasToken));
+console.log(hasToken(b) ? "PRESENT" : "ABSENT");
+' "$TMPDIR_CHECK/bff.body")"
+    inv_grant="$(node -e '
+const fs = require("node:fs");
+let b;
+try { b = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("NOT-JSON"); process.exit(0); }
+const ws = Array.isArray(b && b.workspaces) ? b.workspaces : [];
+console.log(ws.length === 1 && ws[0].workspaceId === process.argv[2] && ws[0].workspaceRole === "member" ? "W1-AS-MEMBER" : JSON.stringify(ws.map((w) => [w && w.workspaceId, w && w.workspaceRole])));
+' "$TMPDIR_CHECK/bff.body" "$W1_ID")"
+    if [ "$status" = 'TRANSPORT-ERROR' ]; then
+      fail 'AC-1b-e2e-1' "step 2 (invite): POST $WEB_URL/api/bff/invitations could not be reached: $(bff_body)"
+    elif [ "$status" != '201' ]; then
+      fail 'AC-1b-e2e-1' "step 2 (invite): POST /api/bff/invitations returned $status, not 201: $(bff_body)"
+    elif [ "$inv_token_key" != 'ABSENT' ]; then
+      fail 'AC-1b-e2e-1' "step 2 (invite): POST /api/bff/invitations returned 201 but the body carries a \`token\` key ($inv_token_key): the response must never carry the capability (invitations/index.ts header, SC-8)"
+    elif [ "$INVITATION_ID" = 'ABSENT' ] || [ "$INVITATION_ID" = 'NOT-JSON' ] || [ "$inv_state" != 'pending' ] || [ "$inv_grant" != 'W1-AS-MEMBER' ]; then
+      fail 'AC-1b-e2e-1' "step 2 (invite): POST /api/bff/invitations returned 201 but the body is not a pending invitation naming W1 as member (id: $INVITATION_ID, state: $inv_state, workspaces: $inv_grant): $(bff_body)"
+    else
+      INVITE_OK=1
+      pass 'AC-1b-e2e-1' "POST /api/bff/workspaces created a second workspace ($W2_ID); POST /api/bff/invitations returned 201, state pending, naming $W1_ID as member, with no token key anywhere in the body"
+    fi
+  fi
+fi
+
+TOKEN_OK=0
+INVITE_TOKEN=''
+if [ "$INVITE_OK" -ne 1 ]; then
+  blocked 'AC-1b-e2e-2' 'no invitation was created, so there is no invite URL to read'
+else
+  api_log
+  blocks="$(mail_blocks_for "$INVITEE_EMAIL")"
+  invite_url="$(invite_url_for "$INVITEE_EMAIL")"
+  INVITE_TOKEN="${invite_url##*#token=}"
+  if [ "${blocks:-0}" = '0' ]; then
+    blocked 'AC-1b-e2e-2' "docker compose logs api holds no console-transport block addressed to the invited address: the API is not printing mail, so MAIL_TRANSPORT is not console on this stack (docker-compose.yml declares it, D-02) or the block's shape changed (console-mail-sender.ts). Nothing about the invitation path was measured."
+  elif [ "$blocks" != '1' ]; then
+    fail 'AC-1b-e2e-2' "docker compose logs api holds $blocks console-transport blocks addressed to the invited address; one invitation must produce exactly one message (SC-6)"
+  elif [ -z "$invite_url" ]; then
+    fail 'AC-1b-e2e-2' 'the console-transport block for the invited address holds no line carrying /invitations/accept#token= (workspace-invitation.ts puts the URL on a line of its own)'
+  elif [ "$INVITE_TOKEN" = "$invite_url" ] || [ "${#INVITE_TOKEN}" -ne 80 ]; then
+    fail 'AC-1b-e2e-2' "the URL line was found but what follows #token= is not an 80-character capability token (length ${#INVITE_TOKEN}; invitation-tokens.md fixes <uuid>.<43 base64url>)"
+  elif [ "${invite_url#"$WEB_URL/invitations/accept#token="}" = "$invite_url" ]; then
+    fail 'AC-1b-e2e-2' "the invite URL is not $WEB_URL/invitations/accept#token=<token>: the link's origin is not the web app's (WEB_APP_ORIGINS in docker-compose.yml is what invitation-mail.ts builds it on)"
+  else
+    read -r tl_all tl_json <<<"$(token_lines "$INVITE_TOKEN")"
+    if [ "$tl_json" != '0' ]; then
+      fail 'AC-1b-e2e-2' "the token appears on $tl_json JSON log line(s) of the API log; it may appear on the console block's URL line and nowhere else (SC-8, GC-K)"
+    elif [ "$tl_all" != '1' ]; then
+      fail 'AC-1b-e2e-2' "the token appears on $tl_all line(s) of the API log; exactly one, the console block's URL line, is the only place it may be (SC-8)"
+    else
+      TOKEN_OK=1
+      pass 'AC-1b-e2e-2' "docker compose logs api holds exactly one console-transport block for the invited address; its URL line is $WEB_URL/invitations/accept#token=<80 characters>, and the token is on that line and on no JSON line"
+    fi
+  fi
+fi
+
+INVITEE_SIGNUP_OK=0
+if [ "$TOKEN_OK" -ne 1 ]; then
+  blocked 'AC-1b-e2e-3' 'no invite URL was read, so there is no token to sign up with'
+elif before="$(user_rows_for "$INVITEE_EMAIL")" && [ -n "$before" ] && [ "$before" != '0' ]; then
+  fail 'AC-1b-e2e-3' "the invited address already has $before row(s) in public.\"user\" before signup: the database is not the empty one AC-28 describes"
+elif [ -z "${before:-}" ]; then
+  fail 'AC-1b-e2e-3' "could not count public.\"user\" rows for the invited address before signup: $(one_line <"$TMPDIR_CHECK/userrows.err")"
+elif tenants_before="$(census || true)" && [ -z "$tenants_before" ]; then
+  fail 'AC-1b-e2e-3' "could not count public.tenants before the invited signup: $(census_err)"
+else
+  BFF_JAR="$INVITEE_JAR"
+  bff POST /api/bff/auth/sign-up/email "$(node -e 'console.log(JSON.stringify({ email: process.argv[1], password: process.argv[2], name: process.argv[3], invitationToken: process.argv[4] }))' "$INVITEE_EMAIL" "$INVITEE_PASSWORD" "$INVITEE_NAME" "$INVITE_TOKEN")"
+  status="$(bff_status)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-1b-e2e-3' "step 1 (invited signup): POST $WEB_URL/api/bff/auth/sign-up/email could not be reached: $(bff_body)"
+  elif [ "$status" != '200' ]; then
+    fail 'AC-1b-e2e-3' "step 1 (invited signup): POST /api/bff/auth/sign-up/email with invitationToken returned $status, not 200: $(bff_body)"
+  elif ! after="$(user_rows_for "$INVITEE_EMAIL")" || [ -z "$after" ]; then
+    fail 'AC-1b-e2e-3' "step 2 (user row): the invited signup returned 200 but public.\"user\" could not be counted afterwards: $(one_line <"$TMPDIR_CHECK/userrows.err")"
+  elif [ "$after" != '1' ]; then
+    fail 'AC-1b-e2e-3' "step 2 (user row): the invited signup returned 200 but public.\"user\" holds $after row(s) for the address, not 1: the account was not created (better-auth answers 200 for a duplicate under autoSignIn: false, ADR-0061)"
+  elif ! tenants_after="$(census)" || [ -z "$tenants_after" ]; then
+    fail 'AC-1b-e2e-3' "step 3 (no new tenant): could not count public.tenants after the invited signup: $(census_err)"
+  elif [ "$tenants_before" != "$tenants_after" ]; then
+    fail 'AC-1b-e2e-3' "step 3 (no new tenant): public.tenants went from $tenants_before row(s) to $tenants_after across the invited signup; an invited signup joins the inviter's tenant and creates none (ADR-0015, SC-7)"
+  elif ! member_rows="$(member_rows_for "$INVITEE_EMAIL" "$FLOW_EMAIL")" || [ -z "$member_rows" ]; then
+    fail 'AC-1b-e2e-3' "step 4 (tenant membership): could not read public.tenant_memberships for the invited address: $(one_line <"$TMPDIR_CHECK/memberrows.err")"
+  elif [ "$member_rows" != '1' ]; then
+    fail 'AC-1b-e2e-3' "step 4 (tenant membership): public.tenant_memberships holds $member_rows row(s) for the invited address at role member in the owner's tenant, not 1 (ADR-0015, A-8: the invitee joins as member)"
+  else
+    INVITEE_SIGNUP_OK=1
+    pass 'AC-1b-e2e-3' "POST /api/bff/auth/sign-up/email with invitationToken returned 200; public.\"user\" went from 0 to 1 row for the invited address, public.tenants stayed at $tenants_after, and the invitee holds one tenant_memberships row at member in the owner's tenant"
+  fi
+fi
+
+if [ "$INVITEE_SIGNUP_OK" -ne 1 ]; then
+  blocked 'AC-1b-e2e-4' 'the invited signup did not succeed, so there is no invitee to sign in'
+else
+  BFF_JAR="$INVITEE_JAR"
+  bff POST /api/bff/auth/sign-in/email "$(node -e 'console.log(JSON.stringify({ email: process.argv[1], password: process.argv[2] }))' "$INVITEE_EMAIL" "$INVITEE_PASSWORD")"
+  status="$(bff_status)"
+  AT="$(jar_cookie sk_at)"
+  RT="$(jar_cookie sk_rt)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-1b-e2e-4' "step 1 (invitee sign-in): POST $WEB_URL/api/bff/auth/sign-in/email could not be reached: $(bff_body)"
+  elif [ "$status" != '200' ]; then
+    fail 'AC-1b-e2e-4' "step 1 (invitee sign-in): POST /api/bff/auth/sign-in/email returned $status, not 200: $(bff_body)"
+  elif [ "$AT" = 'ABSENT' ] || [ "$RT" = 'ABSENT' ]; then
+    fail 'AC-1b-e2e-4' "step 1 (invitee sign-in): 200 but no session cookie was set (sk_at: $AT, sk_rt: $RT): the BFF did not mint a session for the invitee (ADR-0014)"
+  else
+    bff GET /api/bff/workspaces
+    list_status="$(bff_status)"
+    seen="$(node -e '
+const fs = require("node:fs");
+let b;
+try { b = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("NOT-JSON"); process.exit(0); }
+if (b === null || typeof b !== "object" || !Array.isArray(b.items)) { console.log("NO-ITEMS-ARRAY"); process.exit(0); }
+const ids = b.items.map((w) => (w && w.id) || "?");
+if (b.items.length !== 1) { console.log(`${b.items.length} item(s): ${ids.join(", ")}`); process.exit(0); }
+const w = b.items[0];
+if (w.id !== process.argv[2]) { console.log(`one item, id ${w.id}, not the granted workspace`); process.exit(0); }
+console.log(w.workspaceRole === "member" ? "EXACTLY-W1-AS-MEMBER" : `the granted workspace, at workspaceRole ${JSON.stringify(w.workspaceRole)}, not member`);
+' "$TMPDIR_CHECK/bff.body" "$W1_ID")"
+    if [ "$list_status" != '200' ]; then
+      fail 'AC-1b-e2e-4' "step 2 (scoped list): GET /api/bff/workspaces as the invitee returned $list_status: $(bff_body)"
+    elif [ "$seen" != 'EXACTLY-W1-AS-MEMBER' ]; then
+      fail 'AC-1b-e2e-4' "step 2 (scoped list): GET /api/bff/workspaces as the invitee is not exactly the granted workspace at member: $seen (SC-7; the list is membership-filtered, D-10)"
+    else
+      bff POST "/api/bff/workspaces/$W1_ID/archive"
+      archive_status="$(bff_status)"
+      archive_code="$(bff_field code)"
+      bff PATCH "/api/bff/workspaces/$W1_ID" "$(node -e 'console.log(JSON.stringify({ name: process.argv[1] }))' 'Renamed by a member')"
+      rename_status="$(bff_status)"
+      rename_code="$(bff_field code)"
+      bff GET "/api/bff/workspaces/$W2_ID"
+      w2_status="$(bff_status)"
+      w2_code="$(bff_field code)"
+      if [ "$archive_status" != '403' ] || [ "$archive_code" != 'insufficient_workspace_role' ]; then
+        fail 'AC-1b-e2e-4' "step 3 (member cannot archive): POST /api/bff/workspaces/<W1>/archive as the invitee returned $archive_status $archive_code, not 403 insufficient_workspace_role (workspace-authorization.md: archive is workspace_admin)"
+      elif [ "$rename_status" != '403' ] || [ "$rename_code" != 'insufficient_workspace_role' ]; then
+        fail 'AC-1b-e2e-4' "step 3 (member cannot rename): PATCH /api/bff/workspaces/<W1> as the invitee returned $rename_status $rename_code, not 403 insufficient_workspace_role"
+      elif [ "$w2_status" != '404' ] || [ "$w2_code" != 'not_found' ]; then
+        fail 'AC-1b-e2e-4' "step 4 (the other workspace is invisible): GET /api/bff/workspaces/<W2> as the invitee returned $w2_status $w2_code, not 404 not_found (SC-7)"
+      else
+        BFF_JAR="$SECOND_JAR"
+        bff POST /api/bff/auth/sign-up/email "$(node -e 'console.log(JSON.stringify({ email: process.argv[1], password: process.argv[2], name: process.argv[3], invitationToken: process.argv[4] }))' "$SECOND_EMAIL" "$INVITEE_PASSWORD" 'SC-2 Second Signup' "$INVITE_TOKEN")"
+        second_status="$(bff_status)"
+        second_code="$(bff_field code)"
+        second_rows="$(user_rows_for "$SECOND_EMAIL" || true)"
+        BFF_JAR="$OWNER_JAR"
+        bff GET "/api/bff/invitations?workspaceId=$W1_ID"
+        inv_list_status="$(bff_status)"
+        inv_seen="$(node -e '
+const fs = require("node:fs");
+let b;
+try { b = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("NOT-JSON"); process.exit(0); }
+if (b === null || typeof b !== "object" || !Array.isArray(b.items)) { console.log("NO-ITEMS-ARRAY"); process.exit(0); }
+const hit = b.items.find((i) => i && i.id === process.argv[2]);
+if (hit === undefined) { console.log(`NOT-LISTED (${b.items.length} item(s))`); process.exit(0); }
+const hasToken = (v) => v !== null && typeof v === "object" && (Object.prototype.hasOwnProperty.call(v, "token") || Object.values(v).some(hasToken));
+console.log(hasToken(b) ? "TOKEN-KEY-PRESENT" : String(hit.state));
+' "$TMPDIR_CHECK/bff.body" "$INVITATION_ID")"
+        api_log
+        read -r tl_all tl_json <<<"$(token_lines "$INVITE_TOKEN")"
+        if [ "$second_status" != '409' ] || [ "$second_code" != 'invitation_already_accepted' ]; then
+          fail 'AC-1b-e2e-4' "step 5 (the token is spent): a second signup with the same token returned $second_status $second_code, not 409 invitation_already_accepted (SC-8): $(bff_body)"
+        elif [ "$second_rows" != '0' ]; then
+          fail 'AC-1b-e2e-4' "step 5 (the token is spent): the second signup was refused but public.\"user\" holds ${second_rows:-an unreadable count of} row(s) for its address, not 0"
+        elif [ "$inv_list_status" != '200' ]; then
+          fail 'AC-1b-e2e-4' "step 6 (the owner sees it accepted): GET /api/bff/invitations?workspaceId=<W1> as the owner returned $inv_list_status: $(bff_body)"
+        elif [ "$inv_seen" != 'accepted' ]; then
+          fail 'AC-1b-e2e-4' "step 6 (the owner sees it accepted): GET /api/bff/invitations?workspaceId=<W1> lists the invitation as \"$inv_seen\", not accepted"
+        elif [ "$tl_json" != '0' ] || [ "$tl_all" != '1' ]; then
+          fail 'AC-1b-e2e-4' "step 7 (the token stayed out of the log): after the whole flow the token appears on $tl_all line(s) of the API log, $tl_json of them JSON; exactly one line, the console block's URL line, and no JSON line is the rule (SC-8)"
+        else
+          pass 'AC-1b-e2e-4' "the invitee signed in with HttpOnly cookies; GET /api/bff/workspaces is exactly [$W1_ID] at member; archive and rename of it are 403 insufficient_workspace_role; GET of $W2_ID is 404 not_found; a second signup with the token is 409 invitation_already_accepted with no user row; the owner's list shows the invitation accepted; the token is still on one API log line and no JSON line"
+        fi
+      fi
+    fi
+  fi
+fi
+BFF_JAR="$OWNER_JAR"
 
 # ---------------------------------------------------------------------------
 # DOD-1 / DOD-2 — `docker compose up` twice in a row, with an idempotent seed
@@ -996,9 +1351,6 @@ fi
 # the seed might have inserted under a second id: shortkit_app sees only the tenant
 # matching app.tenant_id, so under RLS a doubling is invisible to it.
 # ---------------------------------------------------------------------------
-
-census() { psql_super 'select count(*) from public.tenants' 2>"$TMPDIR_CHECK/census.err" | tr -d '[:space:]'; }
-census_err() { one_line <"$TMPDIR_CHECK/census.err" 2>/dev/null || printf 'no error recorded'; }
 
 printf '\n-- second up\n' >&2
 if [ "$UP_OK" -eq 1 ]; then
