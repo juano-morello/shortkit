@@ -19,6 +19,9 @@ coverage
 .superpowers
 .vercel
 docs
+# The load-test harness runs against a built image from outside it, so it is context the
+# build uploads and no stage ever copies.
+infra
 
 # Never into an image, and this repository is public so anything that lands there is
 # rotated rather than deleted.

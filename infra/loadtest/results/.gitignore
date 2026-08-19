@@ -1,0 +1,8 @@
+# Every run writes a file here. They are measurements of one machine at one moment, not
+# artifacts anyone else can act on: the committed record is `../baseline.json` and
+# `docs/performance/redirect-baseline.md`, both of which name the machine that produced
+# them. A results directory in git turns into a log nobody prunes.
+#
+# The directory itself is tracked (this file) so `pnpm loadtest` and the CI job have
+# somewhere to write on a fresh clone.
+*.json

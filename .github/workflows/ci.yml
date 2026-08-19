@@ -5,9 +5,14 @@
 #              The `integration` job's redis service container and item 2's declared
 #              environment: TASK-2-04 (AC-2-45).
 #
-# `performance` and `performance-full` are ADR-0018's Layer 1 and Layer 2 and belong to
-# TASK-037, not here. The ADR's title covers all four jobs; its Follow-ups section is what
-# splits them.
+# `performance` is ADR-0018's Layer 1, added by TASK-2-11 after Juano ruled D-2-04 (a) on
+# 2026-08-19. It gates; it is not advisory.
+#
+# `performance-full` is ADR-0018's Layer 2 (500 RPS against a deployed instance with a real
+# managed cache) and IT DOES NOT EXIST AND IS NOT COMING BACK BY ITSELF. ADR-0030 chose no
+# deploy target, so there is nothing to point it at. It is recorded as impossible, with the
+# condition that reopens it, in `docs/performance/redirect-baseline.md`. A future ADR that
+# supersedes ADR-0030 is what puts it here.
 #
 # NOTHING HERE MAY SWALLOW A FAILURE (AC-5). No `continue-on-error`, no `|| true`, no
 # `set +e`, no step that reads an exit code and reports success anyway. Every command's
@@ -385,6 +390,240 @@ jobs:
       - name: AC-115 — the whole stack comes up from nothing
         run: pnpm test:compose
 
+  # ADR-0018 LAYER 1, THE PR PERFORMANCE GATE. Produced by TASK-2-11, built rather than
+  # deferred because Juano ruled D-2-04 (a) on 2026-08-19: the job gates, it is not advisory.
+  #
+  # WHAT IT GATES ON: the MEDIAN of three runs' `serverP99`, compared to `ciP99BudgetMs` in
+  # `infra/loadtest/baseline.json`. That number comes off `Server-Timing: app;dur=`, which the
+  # redirect handler measures with `process.hrtime.bigint()` around its own work, so it
+  # excludes this runner's scheduler, the socket and k6's own timing. The client-observed p99
+  # is measured, written into every result file, and gated on by nothing: it moves with the
+  # machine, and a gate on it fails builds for the runner's mood.
+  #
+  # WHY THREE RUNS AND A MEDIAN: one noisy neighbour cannot fail the build. That is AC-64's
+  # property, and ADR-0018 calls it "the single most important choice here". Taking the best
+  # of three instead of the median would be a different job that measures nothing.
+  #
+  # WHY 100 RPS AND NOT SC-2's 500: k6 and the API share this runner's vCPUs, so a 500 RPS p99
+  # here would measure contention rather than the code. The cost is a stated detection gap:
+  # a regression that only appears under 500 RPS pressure, or one caused by a change in Redis
+  # round trips, passes this job. ADR-0018 accepts that; layer 2 was the thing that closed it,
+  # and ADR-0030 leaves layer 2 with nothing to run against. That half is recorded as
+  # impossible in `docs/performance/redirect-baseline.md`, not quietly skipped.
+  #
+  # ⚠ THE BUDGET IS PROVISIONAL UNTIL THIS JOB HAS RUN GREEN ONCE. `ciP99BudgetMs` was
+  # calibrated on Juano's workstation, not on `ubuntu-latest`, because no CI measurement
+  # existed when it was written. A four-vCPU shared runner is slower and the multiplier is a
+  # guess until a run says otherwise. `baseline.json`'s `ciMeasuredP99` is `null` for exactly
+  # that reason. THE FIRST RUN OF THIS JOB IS THE CALIBRATION, so a red first run is a
+  # measurement, not a regression: read the three p99s it prints, set `ciMeasuredP99` and
+  # `ciP99BudgetMs` from them with the headroom the baseline document states, and record the
+  # run in that document. Do not repair it by editing `infra/loadtest/gate.mjs`.
+  #
+  # ============================================================================
+  # DE-GATING RECIPE, IF THIS JOB HAS TO STOP BLOCKING MERGES.
+  # ============================================================================
+  #
+  # Remove `performance` from ALL THREE lists in the `gate` job below: `needs:`, the `env:`
+  # block, and the assertion loop's `for pair in …`. Fewer than three and the gate stops
+  # asserting on it while still looking wired, which is the F-390 shape this workflow already
+  # carries a warning about.
+  #
+  # LEAVE THIS JOB IN PLACE AND RUNNING. De-gated, it still measures on every pull request and
+  # still prints the three p99s and the median, so a regression is visible in the log the day
+  # it lands rather than the week someone thinks to look. A deleted job measures nothing, and
+  # nothing else in this repository measures the redirect path.
+  #
+  # NEVER DE-GATE BY WEAKENING `infra/loadtest/gate.mjs`. Raising the comparison, dropping a
+  # validity check, or taking the best of three removes the signal and keeps the green check,
+  # which is strictly worse than an honest de-gate recorded here.
+  performance:
+    name: performance
+    runs-on: ubuntu-latest
+    # Three runs of 10 s warm-up plus 30 s measured is about 2 minutes 20 seconds of load, and
+    # the build, the migration and the k6 download sit on top. The same 30-minute bound and
+    # the same reasoning as `quality`. See its comment for why `timeout-minutes` covers queue
+    # time as well as execution, and for the zero-steps-executed signature (F-219) that tells
+    # a queue cancellation apart from a defect in this job.
+    timeout-minutes: 30
+    env:
+      # The same three DSNs and the same two ports as `integration`, deliberately: the
+      # commands below then read identically to that job's and to docker-compose.test.yml's
+      # header. Fixture credentials for containers destroyed with the runner.
+      DATABASE_URL: postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test
+      DATABASE_MIGRATION_URL: postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test
+      DATABASE_AUTH_URL: postgres://shortkit_auth:auth@127.0.0.1:55433/shortkit_test
+      # No password, for the same reason `integration` has none: GitHub's `services:` has no
+      # `command:`, so a service container cannot be given `redis-server --requirepass`. The
+      # container is job-local and destroyed with the runner.
+      REDIS_URL: redis://127.0.0.1:56380
+      # `perf-<run_id>`: every key this job writes begins `sk:perf-<run_id>:`, so no two runs
+      # can read each other's records (redirect-cache.md's collision rule). Never `dev`,
+      # never `prod`.
+      REDIS_KEY_NAMESPACE: perf-${{ github.run_id }}
+      # The hostname the seeded system default domain carries (D-2-02), and therefore the
+      # `Host` the harness must send. It drives http://localhost:3001/<slug>; hostname
+      # normalisation strips the port.
+      SYSTEM_DEFAULT_DOMAIN: localhost
+      PORT: '3001'
+      # The production posture, matching the compose stack's `api` service, because that is
+      # the configuration the baseline was measured against. A `development` build would
+      # measure different code.
+      NODE_ENV: production
+      # ADR-0027: `main.ts` refuses to boot without 40 lowercase hex characters. `github.sha`
+      # is exactly that, and it is the real commit under test.
+      GIT_COMMIT_SHA: ${{ github.sha }}
+      BETTER_AUTH_URL: http://localhost:3001
+      # A FIXTURE, and it is committed on purpose: it signs JWTs that exist inside one job on
+      # one runner and are destroyed with it. Not `secrets.*`: a Dependabot or fork pull
+      # request receives no secrets (see `quality`'s preflight step), and a performance gate
+      # that cannot run on those pull requests is a gate with a hole in it.
+      BETTER_AUTH_SECRET: ci-performance-fixture-better-auth-secret-not-a-real-key
+      WEB_APP_ORIGINS: http://localhost:3000
+      # Never `resend`. `mail-transport.ts` refuses to boot a test process that could send
+      # mail, and this job signs an account up.
+      MAIL_TRANSPORT: console
+      # The HMAC that pseudonymises visitor addresses into `click_events.ip_hash` (D-2-17).
+      # The same fixture `integration` uses; the only addresses it ever hashes are k6's own
+      # loopback connections.
+      CLICK_IP_HASH_KEY: local-fixture-click-ip-hash-key-fake-values
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 55433:5432
+        # NOT `pg_isready`. See the identical probe in `integration` and F-127 for why a
+        # probe that does not authenticate over TCP reports healthy against the entrypoint's
+        # temporary socket-only server.
+        options: >-
+          --health-cmd "psql 'postgres://postgres:postgres@127.0.0.1:5432/postgres' -tAc 'select 1'"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 10s
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 56380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 5s
+    steps:
+      # persist-credentials: false (see the note on the same step in `quality`).
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-toolchain
+
+      # k6 IS A GO BINARY AND NOT AN npm DEPENDENCY, DELIBERATELY (ADR-0018). A Node load
+      # generator competes with the API for the same event loop and then reports its own
+      # scheduling delay as the application's latency.
+      #
+      # Pinned by version AND by checksum, verified before it is unpacked: this step
+      # downloads and executes a binary from outside the dependency graph, so it gets the
+      # same treatment `packageManager`'s sha512 gets. A release re-tagged upstream fails
+      # here instead of running. The version is the one `docs/performance/redirect-baseline.md`
+      # names as having produced the recorded figures; changing it re-opens the calibration.
+      - name: Install the pinned k6
+        env:
+          K6_VERSION: v2.2.0
+          K6_SHA256: b5a8003c86f35f5cd5ceef1490312c48e587696c94d998cefc6d7b3b4cb1597d
+        run: |
+          set -euo pipefail
+
+          cd "${{ runner.temp }}"
+          curl -fsSL -o k6.tar.gz \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz"
+          echo "${K6_SHA256}  k6.tar.gz" | sha256sum -c -
+          tar xzf k6.tar.gz
+          echo "${{ runner.temp }}/k6-${K6_VERSION}-linux-amd64" >> "$GITHUB_PATH"
+
+      # Roles first, then the schema, then the platform rows, in the same order and from the
+      # same SQL file as `integration`, because `services:` has no equivalent of Compose's
+      # `configs:` block and the roles cannot be baked into the image.
+      - name: Provision the migrator, app and auth roles
+        run: |
+          docker exec -i -e PGPASSWORD=postgres "${{ job.services.postgres.id }}" \
+            psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 5432 -U postgres -d postgres -f - \
+            < .github/scripts/provision-test-database.sql
+
+      - name: Apply migrations
+        run: pnpm --filter @shortkit/api db:migrate
+
+      # The platform tenant, its workspace and the system default domain row (ADR-0063).
+      # `POST /api/links` resolves a foreign key against the domain row, so without this the
+      # harness cannot seed the link it is about to drive, and it connects as shortkit_app so
+      # a bad migration identity fails here rather than inside a percentile.
+      - name: Seed the platform rows
+        run: pnpm --filter @shortkit/api db:seed
+
+      - name: Build the API
+        run: pnpm --filter @shortkit/api build
+
+      # Backgrounded, then waited on. `pnpm start` would put a pnpm process between the job
+      # and the server for nothing; this is the same `node dist/main.js` the production image
+      # runs as its CMD. Nothing stops it: the runner is destroyed with the job, and a stop
+      # step would be one more place for a failure to be swallowed.
+      #
+      # NOTE FOR ANYONE COPYING THIS INTO A LONGER-LIVED ENVIRONMENT: the process is started
+      # under `NODE_ENV=production` with the job's fixture secrets. It is safe here only
+      # because the whole machine goes away afterwards.
+      - name: Start the API
+        run: |
+          set -euo pipefail
+
+          node apps/api/dist/main.js > "${{ runner.temp }}/api.log" 2>&1 &
+
+          for _ in $(seq 1 60); do
+            if curl -fsS http://localhost:3001/health | grep -q '"status":"ok"'; then
+              echo 'OK: the API is serving /health.'
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo '::error::the API did not answer /health within 60s. Its log follows.'
+          cat "${{ runner.temp }}/api.log"
+          exit 1
+
+      # Three runs, in one step so the log reads in order. Each seeds its own workspace and
+      # link THROUGH THE API, warms the cache, and drives `GET /:slug` at 100 RPS for 30 s
+      # after a 10 s warm-up it excludes structurally. No `|| true` anywhere: a run that
+      # cannot seed or cannot reach the target fails this step (AC-5).
+      - name: Three measured runs at the CI rate
+        run: |
+          set -euo pipefail
+
+          for run in 1 2 3; do
+            echo "::group::performance run ${run} of 3"
+            pnpm loadtest --rate 100 --duration 30 --warmup 10 --environment ci-containers
+            echo '::endgroup::'
+          done
+
+      # THE GATE ITSELF. It reads the three result files and `infra/loadtest/baseline.json`,
+      # discards any run that did not measure the cache-hit path at the requested rate (exit
+      # 2), and compares the MEDIAN `serverP99` to `ciP99BudgetMs` (exit 1 when over).
+      #
+      # `--assert-agreement` is deliberately NOT passed. It is AC-64's local calibration
+      # check; requiring all three runs to agree here would undo the median that makes this
+      # job stable in the first place.
+      - name: Gate the median server p99 against the calibrated budget
+        run: node infra/loadtest/gate.mjs --runs 3
+
+      # The API's log, on failure only. A red gate needs the server's own account of the run:
+      # a boot refusal, a degraded-cache line, a click-flush error. Printing it on success
+      # would bury it.
+      - name: The API log, if anything above failed
+        if: failure()
+        run: cat "${{ runner.temp }}/api.log"
+
   # The branch's required check, and the only one that should be (test-strategy.md).
   # GitHub Actions rejects a workflow whose `needs` names a job that does not exist, so a
   # job silently dropped or renamed becomes a hard configuration error here instead of a
@@ -401,7 +640,8 @@ jobs:
   # a required check, so branch protection requiring only `gate` raised no objection on a
   # run where `quality` went red. Every control this job fans in — `pnpm audit`,
   # `db:check-policies`, the AC-113 inlined-secret guard, the AC-114 collection assertion,
-  # the AC-115 stack check, lint, typecheck, test, build — blocked nothing. Not weakened
+  # the AC-115 stack check, the redirect p99 budget, lint, typecheck, test, build — blocked
+  # nothing. Not weakened
   # in the failure case: inoperative in it, which is the only case the gate exists for.
   #
   # The earlier version of this comment asserted the opposite, and the branch protection
@@ -417,7 +657,7 @@ jobs:
   gate:
     name: gate
     runs-on: ubuntu-latest
-    needs: [quality, integration, compose]
+    needs: [quality, integration, compose, performance]
     if: always()
     # This job checks nothing out and calls no API. `{}` grants the GITHUB_TOKEN no scope
     # at all, rather than inheriting the workflow's `contents: read`.
@@ -428,16 +668,21 @@ jobs:
     # above that is entirely queue absorption, not expected execution.
     timeout-minutes: 10
     steps:
-      - name: Assert quality, integration and compose all succeeded
+      - name: Assert quality, integration, compose and performance all succeeded
         env:
           QUALITY: ${{ needs.quality.result }}
           INTEGRATION: ${{ needs.integration.result }}
           COMPOSE: ${{ needs.compose.result }}
+          # THE THIRD OF THE THREE PLACES `performance` HAS TO APPEAR (TASK-2-11, D-2-04).
+          # `needs:` above, this block, and the loop below. Two out of three is a gate that
+          # reads as wired and asserts nothing. That is F-390's shape, which this repository
+          # has already been bitten by once.
+          PERFORMANCE: ${{ needs.performance.result }}
         run: |
-          echo "quality=$QUALITY integration=$INTEGRATION compose=$COMPOSE"
+          echo "quality=$QUALITY integration=$INTEGRATION compose=$COMPOSE performance=$PERFORMANCE"
 
           failed=0
-          for pair in "quality:$QUALITY" "integration:$INTEGRATION" "compose:$COMPOSE"; do
+          for pair in "quality:$QUALITY" "integration:$INTEGRATION" "compose:$COMPOSE" "performance:$PERFORMANCE"; do
             job="${pair%%:*}"
             result="${pair#*:}"
             if [ "$result" != 'success' ]; then
@@ -451,4 +696,4 @@ jobs:
             exit 1
           fi
 
-          echo 'quality, integration and compose all succeeded.'
+          echo 'quality, integration, compose and performance all succeeded.'
