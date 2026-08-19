@@ -4,8 +4,10 @@
  *           implementer must guarantee"), `docs/contracts/trusted-client-address.md`
  *           ("Signal"), `docs/contracts/error-envelope.md` (the 429 body),
  *           `docs/contracts/tenant-context.md` (`PUBLIC_ROUTE_METADATA`)
- * ADR: adr-0012 (degradation posture), adr-0040 (a `null` principal), adr-0013, adr-0024
- * Produced by: TASK-1b-07 (wave 1 of item 1b), closing F-018. Registered as `APP_GUARD` in
+ * ADR: adr-0012 (degradation posture), adr-0040 (a `null` principal), adr-0013, adr-0024,
+ *      adr-0038 (anything not `GET`/`HEAD` is mutating)
+ * Produced by: TASK-1b-07 (wave 1 of item 1b), closing F-018; debt sweep D1 (2026-08-19),
+ *              the tenant-keyed write branch. Registered as `APP_GUARD` in
  *              `rate-limit.module.ts`, imported by `AppModule` AFTER `AuthModule`.
  *
  * ============================================================================
@@ -39,16 +41,26 @@
  * `authRateLimit`; that file exports no shared helper, so the helper is replicated here with
  * its own once-per-minute state.
  *
- * THE AUTHENTICATED BRANCH IS A DOCUMENTED NO-OP (D-08). The contract's Scope table has a
- * second row — "authenticated routes under `/api` | `tenantId` | `POST`, `PATCH`, `PUT`,
- * `DELETE` | 120 / 60 s" — and it is TASK-051's, with `RedisAuthRateLimiter`, `redisClient` and
- * `checkTenant`. This guard passes such a request, charging nothing; the port declares no
- * `checkTenant` so nothing here can be mistaken for it. When TASK-051 lands, this is the
- * branch it fills, reading `tenantId` from the `RequestContext` `AuthGuard` wrote — which is
- * why the guard is registered AFTER `AuthGuard` (`rate-limit.md`, "What the implementer must
- * guarantee"). On a `@Public()` route `AuthGuard` returns at its step 1 without touching the
- * request, so for the branch that is real today the order is immaterial and the ruling is
- * pinned for the branch that is not (`app.module.spec.ts`).
+ * THE AUTHENTICATED BRANCH: THE TENANT-KEYED WRITE BUCKET (debt sweep D1, 2026-08-19;
+ * previously TASK-051's documented no-op, D-08). The contract's Scope table's first row —
+ * "authenticated routes under `/api` | `tenantId` | `POST`, `PATCH`, `PUT`, `DELETE` |
+ * 120 / 60 s" — now runs here, process-local through the same port. Which methods: anything
+ * that is not `GET` or `HEAD`, ADR-0038's rule, which is the contract's four-method list
+ * closed against unexpected methods — a method the list does not name must fail toward being
+ * limited, not toward being free. Authenticated `GET`s stay unlimited, deliberately
+ * (`rate-limit.md`, "Scope"). Which key: the `RequestContext` `AuthGuard` wrote to the
+ * request — a claim from the verified token, never a client-chosen value — which is why the
+ * guard is registered AFTER `AuthGuard` (`rate-limit.md`, "What the implementer must
+ * guarantee"; `app.module.spec.ts` pins the order). On a `@Public()` route `AuthGuard`
+ * returns at its step 1 without touching the request and the branch below charges the IP
+ * bucket INSTEAD — the two branches are exclusive, so no request is charged twice.
+ *
+ * This bucket is also what bounds invitation mail volume (finding 1b-W3-07): a
+ * `workspace_admin` scripting `POST /api/invitations` was limited by nothing but the mail
+ * transport, and every invitation the API accepts now costs one charge of its tenant's 120
+ * writes per minute, mail included. What remains TASK-051's: rebinding `RATE_LIMIT_PORT` to
+ * the Redis implementation (per-fleet rather than per-machine, `LocalRateLimiter` kept as
+ * the degraded fallback) and the `rate_limit_degraded_total` counter.
  *
  * THE REFUSAL. A `DomainError('rate_limited', …)` carrying `Retry-After` in its `headers`, so
  * `ApiExceptionFilter` writes the header before the envelope (its "invariant 7" comment):
@@ -69,9 +81,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { REQUEST_CONTEXT_KEY } from '../../auth/auth.guard';
 import { resolveRateLimitPrincipal } from '../../auth/resolve-rate-limit-principal';
 import { errorLogFields, logger } from '../../observability/logger';
 import { PUBLIC_ROUTE_METADATA } from '../../tenancy/tenant-context';
+import type { RequestContext } from '../../tenancy/tenant-context';
 import { DomainError } from '../errors/domain-error';
 import { TRUSTED_CLIENT_IP_HEADER_ENV, TRUSTED_CLIENT_IP_UNRESOLVED_COUNTER } from '../net/trusted-client-address';
 import type { TrustedAddressHeaders } from '../net/trusted-client-address';
@@ -84,6 +98,14 @@ import type { RateLimitPort } from './rate-limit.types';
  * the copy must not read as "the link is broken".
  */
 export const RATE_LIMITED_MESSAGE = 'Too many requests from this address. Try again shortly.';
+
+/**
+ * The tenant bucket's 429 body message. Fixed, like its sibling, and phrased for the caller
+ * it refuses: an authenticated operator (or their script) writing faster than 120 changes a
+ * minute — not a stranger behind a NAT, so it does not mention an address.
+ */
+export const TENANT_WRITE_RATE_LIMITED_MESSAGE =
+  'Too many changes in a short time. Try again shortly.';
 
 /**
  * The global prefix `main.ts` sets, as a path segment. Routes outside it — `GET /health`, the
@@ -99,7 +121,9 @@ let lastUnresolvedWarnAt = Number.NEGATIVE_INFINITY;
 /** What this guard reads from the request. Named, like `AuthGuard` names its members. */
 interface RateLimitedRequest {
   readonly path: string;
+  readonly method: string;
   readonly headers: TrustedAddressHeaders;
+  readonly [REQUEST_CONTEXT_KEY]?: RequestContext;
 }
 
 /**
@@ -120,6 +144,19 @@ export function isUnderApiPrefix(path: string): boolean {
   return lower === API_PREFIX || lower.startsWith(`${API_PREFIX}/`);
 }
 
+/**
+ * ADR-0038: anything that is not `GET` or `HEAD` is mutating. A negation rather than the
+ * contract's four-method allowlist because the two failure directions are not symmetric — a
+ * method the predicate does not recognise must land in the limited branch, not escape it.
+ * Uppercased first for the reason the ADR measured on the Fetch spec: `PATCH` is absent from
+ * its normalise list, so a lowercase spelling can arrive as sent.
+ */
+function isMutatingMethod(method: string): boolean {
+  const upper = method.toUpperCase();
+
+  return upper !== 'GET' && upper !== 'HEAD';
+}
+
 @Injectable()
 export class RateLimitGuard implements CanActivate {
   /** `@Inject(Reflector)` written out for the reason `AuthGuard` gives (`consistent-type-imports`, ADR-0001). */
@@ -134,17 +171,18 @@ export class RateLimitGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (publicJustification === undefined) {
-      // The authenticated branch: TASK-051's tenant-keyed write bucket. A documented no-op
-      // that charges nothing — see the docblock.
-      return true;
-    }
-
     const request = context.switchToHttp().getRequest<RateLimitedRequest>();
 
     if (!isUnderApiPrefix(request.path)) {
-      // `GET /health` and every other public route registered outside the prefix.
+      // Routes registered outside the prefix — `GET /health`, the redirect controller — are
+      // outside this guard entirely, on both branches (`rate-limit.md`, "Scope", AC-86).
       return true;
+    }
+
+    if (publicJustification === undefined) {
+      // The authenticated branch: the tenant-keyed write bucket (debt sweep D1; see the
+      // docblock). `GET` and `HEAD` stay unlimited; everything else charges the tenant.
+      return this.checkTenantWrite(request);
     }
 
     const principal = resolveRateLimitPrincipal(request.headers, process.env);
@@ -170,6 +208,42 @@ export class RateLimitGuard implements CanActivate {
     }
 
     throw new DomainError('rate_limited', RATE_LIMITED_MESSAGE, {
+      headers: { 'Retry-After': String(decision.retryAfterSeconds) },
+    });
+  }
+
+  /** The authenticated branch: charge the tenant's write bucket, or pass a non-mutating request. */
+  private async checkTenantWrite(request: RateLimitedRequest): Promise<boolean> {
+    if (!isMutatingMethod(request.method)) {
+      return true;
+    }
+
+    const requestContext = request[REQUEST_CONTEXT_KEY];
+
+    if (requestContext === undefined) {
+      // Unreachable behind `AuthGuard`, which either populated the context or answered 401
+      // before this guard ran (`app.module.spec.ts` pins the order). Kept as a pass rather
+      // than a throw so a misordered graph degrades open like every other limiter failure
+      // here, instead of turning every authenticated write into a 5xx (ADR-0012's posture).
+      return true;
+    }
+
+    let decision;
+    try {
+      decision = await this.port.checkTenant(requestContext.tenantId);
+    } catch (error: unknown) {
+      logger.warn(
+        errorLogFields(error, { includeMessage: false }),
+        'the tenant write rate-limit store failed to answer; the request proceeded without a limit',
+      );
+      return true;
+    }
+
+    if (decision.allowed) {
+      return true;
+    }
+
+    throw new DomainError('rate_limited', TENANT_WRITE_RATE_LIMITED_MESSAGE, {
       headers: { 'Retry-After': String(decision.retryAfterSeconds) },
     });
   }

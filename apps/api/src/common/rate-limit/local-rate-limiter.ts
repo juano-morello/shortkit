@@ -3,8 +3,9 @@
  *           two key spaces; "`LocalAuthRateLimiter` is bounded, per bucket": F-028's rules)
  * ADR: adr-0012 (the local bucket is the degradation floor, not a stand-in), adr-0040
  * Produced by: TASK-1b-07 (wave 1 of item 1b). Bound to `RATE_LIMIT_PORT` in
- *              `rate-limit.module.ts`. TASK-051 adds `checkTenant` with its own map and binds
- *              the Redis implementation to the same token, keeping this one as the fallback.
+ *              `rate-limit.module.ts`. Debt sweep D1 (2026-08-19) added `checkTenant` with
+ *              its own map. TASK-051 binds the Redis implementation to the same token,
+ *              keeping this one as the fallback.
  *
  * ============================================================================
  * THE SAME ALGORITHM AS `LocalAuthRateLimiter`, DELIBERATELY NOT THAT CLASS.
@@ -19,7 +20,18 @@
  * one returns a decision) and TASK-051 rebinds them separately; the one thing imported is
  * `LOCAL_AUTH_LIMITER_SWEEP_MS`, so the two sweep on the same cadence the contract names.
  *
- * Fixed windows aligned to the epoch, ONE map, bounded by F-028's three rules:
+ * Fixed windows aligned to the epoch, TWO maps with disjoint key spaces (F-034):
+ *
+ *   - `publicIps`, the `@Public()` bucket, bounded by F-028's three rules below;
+ *   - `tenants`, the tenant-keyed write bucket (debt sweep D1), a PLAIN LRU capped at
+ *     `LOCAL_LIMITER_MAX_TENANTS`, swept on the same cadence. Its keys are produced only by
+ *     authenticated callers, so F-028's churn defences (eviction that skips at-or-over-limit
+ *     entries, the forced-eviction counter) are deliberately absent there — the contract
+ *     states the rule ("`checkTenant` keeps its plain LRU ... its keys require
+ *     authentication, so F-028's extra rules are unnecessary there"). Keeping the maps
+ *     separate is what stops anonymous address churn evicting a tenant's write bucket.
+ *
+ * The `@Public()` IP map is bounded by F-028's three rules:
  *
  *   - entries whose window has elapsed are dead: dropped lazily on access and by a sweep
  *     every `LOCAL_AUTH_LIMITER_SWEEP_MS`;
@@ -47,7 +59,14 @@ import type { OnModuleDestroy } from '@nestjs/common';
 
 import { LOCAL_AUTH_LIMITER_SWEEP_MS } from '../../auth/auth-rate-limit';
 import { logger } from '../../observability/logger';
-import { LOCAL_LIMITER_MAX_PUBLIC_IPS, PUBLIC_IP_LIMIT, PUBLIC_IP_WINDOW_S } from './rate-limit.types';
+import {
+  LOCAL_LIMITER_MAX_PUBLIC_IPS,
+  LOCAL_LIMITER_MAX_TENANTS,
+  PUBLIC_IP_LIMIT,
+  PUBLIC_IP_WINDOW_S,
+  RATE_LIMIT_MAX_WRITES,
+  RATE_LIMIT_WINDOW_S,
+} from './rate-limit.types';
 import type { RateLimitDecision, RateLimitPort } from './rate-limit.types';
 
 const LOCAL_FORCED_EVICTION_COUNTER = 'local_rate_limit_forced_eviction_total';
@@ -55,6 +74,8 @@ const LOCAL_FORCED_EVICTION_COUNTER = 'local_rate_limit_forced_eviction_total';
 const MILLISECONDS_PER_SECOND = 1000;
 
 const PUBLIC_IP_WINDOW_MS = PUBLIC_IP_WINDOW_S * MILLISECONDS_PER_SECOND;
+
+const TENANT_WINDOW_MS = RATE_LIMIT_WINDOW_S * MILLISECONDS_PER_SECOND;
 
 interface Entry {
   /** The fixed window this count belongs to, as its start in epoch milliseconds. */
@@ -66,6 +87,9 @@ interface Entry {
 export class LocalRateLimiter implements RateLimitPort, OnModuleDestroy {
   /** LRU order is `Map` insertion order, maintained by deleting and re-inserting on every hit. */
   private readonly publicIps = new Map<string, Entry>();
+
+  /** The tenant-keyed write bucket's map. SEPARATE from `publicIps` (F-034); plain LRU. */
+  private readonly tenants = new Map<string, Entry>();
 
   private readonly sweep: NodeJS.Timeout;
 
@@ -110,9 +134,54 @@ export class LocalRateLimiter implements RateLimitPort, OnModuleDestroy {
     return { allowed: true };
   }
 
-  /** How many addresses the map currently holds. For the spec's bounding assertions. */
+  async checkTenant(tenantId: string): Promise<RateLimitDecision> {
+    const now = Date.now();
+    const windowStart = Math.floor(now / TENANT_WINDOW_MS) * TENANT_WINDOW_MS;
+
+    let entry = this.tenants.get(tenantId);
+
+    if (entry !== undefined) {
+      this.tenants.delete(tenantId);
+
+      if (entry.windowStart !== windowStart) {
+        entry = undefined;
+      }
+    }
+
+    if (entry === undefined) {
+      if (this.tenants.size >= LOCAL_LIMITER_MAX_TENANTS) {
+        // Plain LRU, no skip rules and no counter: see the docblock. The oldest entry goes,
+        // exhausted or not, because reaching this line takes 10,000 authenticated tenants.
+        const oldest = this.tenants.keys().next();
+
+        if (!oldest.done) {
+          this.tenants.delete(oldest.value);
+        }
+      }
+
+      entry = { windowStart, count: 0 };
+    }
+
+    entry.count += 1;
+    this.tenants.set(tenantId, entry);
+
+    if (entry.count > RATE_LIMIT_MAX_WRITES) {
+      const remaining = (windowStart + TENANT_WINDOW_MS - now) / MILLISECONDS_PER_SECOND;
+
+      return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(remaining)) };
+    }
+
+    return { allowed: true };
+  }
+
+  /** How many addresses the IP map currently holds. For the spec's bounding assertions. */
   size(): number {
     return this.publicIps.size;
+  }
+
+  /** How many tenants the tenant map currently holds. For the spec's bounding assertions. */
+  tenantSize(): number {
+    return this.tenants.size;
   }
 
   onModuleDestroy(): void {
@@ -123,6 +192,12 @@ export class LocalRateLimiter implements RateLimitPort, OnModuleDestroy {
     for (const [key, entry] of this.publicIps) {
       if (entry.windowStart + PUBLIC_IP_WINDOW_MS <= now) {
         this.publicIps.delete(key);
+      }
+    }
+
+    for (const [key, entry] of this.tenants) {
+      if (entry.windowStart + TENANT_WINDOW_MS <= now) {
+        this.tenants.delete(key);
       }
     }
   }

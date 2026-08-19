@@ -114,6 +114,31 @@ the shape against a live database (a refused request opens no transaction) and a
 `GET /health` on a booted process. The wave-3 invitation lookup inherits the guard without an
 edit here.
 
+### What shipped 2026-08-19 (debt sweep D1): the tenant write bucket, process-local
+
+The first row of the Scope table is now real. `RateLimitGuard`'s authenticated branch
+charges `checkTenant(tenantId)` — the `RequestContext`'s tenant, written by `AuthGuard`
+from the verified token, which is why the guard order that module comment pins is now
+load-bearing — for every request under `/api` whose method is not `GET` or `HEAD`
+(ADR-0038's rule, which is this table's four-method list closed against unexpected
+methods; a method the list does not name is limited, not free), 120 per 60 s, through the
+same `RATE_LIMIT_PORT`. The store is `LocalRateLimiter`'s second map: tenant-keyed, a
+plain LRU capped at `LOCAL_LIMITER_MAX_TENANTS = 10_000`, SEPARATE from the IP map
+(F-034), swept on the shared cadence — exactly the shape "Behaviour when Redis is
+unavailable" already specified for the fallback, bound as the primary until Redis exists.
+Authenticated `GET`s stay unlimited, unchanged and deliberate. `@Public()` routes keep the
+IP bucket only; the two branches are exclusive, so no request is charged twice. The 429 is
+"Response on limit"'s Nest shape (`Retry-After` plus the envelope), with its own fixed
+message. A side effect worth naming: this bounds invitation mail volume (finding 1b-W3-07)
+— `POST /api/invitations` now costs one charge of its tenant's 120 writes per minute, so a
+scripted `workspace_admin` is no longer limited only by the mail transport.
+
+**Still TASK-051's:** rebinding `RATE_LIMIT_PORT` to the Redis implementation (per-fleet
+rather than per-machine, keeping `LocalRateLimiter` as ADR-0012's degraded fallback),
+`RedisAuthRateLimiter`, `redisClient` reuse (GC-3), and the `rate_limit_degraded_total`
+counter — unreachable until a store that can fail is bound. Until then the gap is
+ADR-0012's stated one: the limit applies per machine, and Fly runs one machine.
+
 ### Which address "the client IP" means, under the BFF
 
 **Found during round 4 while verifying F-030, and not previously filed.** Every IP-keyed
@@ -431,6 +456,11 @@ wave 1; the tenant-branch rows above keep TASK-051:
 | `RATE_LIMIT_PORT`, `RateLimitPort`, `RateLimitDecision`, `PUBLIC_IP_LIMIT`, `PUBLIC_IP_WINDOW_S`, `LOCAL_LIMITER_MAX_PUBLIC_IPS`, `RATE_LIMIT_WINDOW_S`, `RATE_LIMIT_MAX_WRITES` | `apps/api/src/common/rate-limit/rate-limit.types.ts` | **TASK-1b-07** |
 | `RateLimitModule` (binds `RATE_LIMIT_PORT` → `LocalRateLimiter`, `APP_GUARD` → `RateLimitGuard`); its import into `AppModule` after `AuthModule` | `apps/api/src/common/rate-limit/rate-limit.module.ts`, `apps/api/src/app.module.ts` | **TASK-1b-07** |
 | `RateLimitGuard` tenant branch, `checkTenant`, `RedisAuthRateLimiter`, the Redis binding | `apps/api/src/common/rate-limit/**`, `apps/api/src/app.module.ts` | **TASK-051** |
+
+**Amended 2026-08-19 (debt sweep D1).** The tenant branch, `checkTenant` and
+`LOCAL_LIMITER_MAX_TENANTS` shipped process-local ("What shipped 2026-08-19" under Scope);
+the last row above keeps TASK-051 for `RedisAuthRateLimiter`, the Redis binding and the
+degraded-counter path only.
 
 **The injection order.** The auth module **declares the port**, exactly as the redirect
 module declares its branding port (ADR-0011). The mount and the hook call through the
@@ -764,6 +794,9 @@ the API does when Redis is gone.
    where a header is declared. The tenant-keyed half is not built yet (TASK-051, D-08), so
    until it lands authenticated writes under `/api` are covered by nothing but `AuthGuard`;
    recorded here rather than left to be inferred from the guard's no-op branch.
+   **Amended 2026-08-19 (debt sweep D1):** the tenant-keyed half is built, process-local
+   ("What shipped 2026-08-19" under Scope). Authenticated writes under `/api` are covered
+   unconditionally again — per machine, until TASK-051 rebinds the port to Redis.
 8. No request body larger than 32 KiB reaches Better Auth, and none larger than 100 KiB
    reaches a Nest handler.
 9. A `@Public()` route cannot be used to exhaust the connection pool the redirect path

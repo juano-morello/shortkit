@@ -9,8 +9,10 @@ import { RATE_LIMIT_PORT } from './rate-limit.types';
  * Contract: `docs/contracts/rate-limit.md` ("Ownership and injection order", "What the
  *           implementer must guarantee")
  * ADR: adr-0012, adr-0040
- * Produced by: TASK-1b-07 (wave 1 of item 1b). TASK-051 rebinds `RATE_LIMIT_PORT` to the
- *              Redis-backed implementation here, keeping `LocalRateLimiter` as the fallback.
+ * Produced by: TASK-1b-07 (wave 1 of item 1b); debt sweep D1 (2026-08-19) filled the guard's
+ *              tenant branch, still through this binding. TASK-051 rebinds `RATE_LIMIT_PORT`
+ *              to the Redis-backed implementation here, keeping `LocalRateLimiter` as the
+ *              fallback.
  *
  * Declares the port and binds the guard, the way `AuthModule` declares `AUTH_RATE_LIMIT_PORT`
  * and binds `AuthGuard`: the guard reaches the store through the token and never through a
@@ -31,9 +33,9 @@ import { RATE_LIMIT_PORT } from './rate-limit.types';
  * contract fixes "the guard runs AFTER `AuthGuard` (it needs `tenantId`) and BEFORE
  * `TenantTransactionInterceptor`" — the second half is Nest's lifecycle (every guard before
  * any interceptor), the first is this import order, and `app.module.spec.ts` pins it by
- * reading the resolved global guard list. Today's real branch, the `@Public()` bucket, would
- * work in either order because `AuthGuard` returns at once for a public route; the order is
- * pinned for the tenant branch TASK-051 fills.
+ * reading the resolved global guard list. Since debt sweep D1 the order is load-bearing: the
+ * tenant branch reads the `RequestContext` `AuthGuard` wrote, and a refused write never
+ * reaches the interceptor that would open its tenant transaction.
  */
 @Module({
   providers: [

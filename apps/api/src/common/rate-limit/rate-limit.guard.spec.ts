@@ -1,4 +1,4 @@
-import { Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Patch, Post } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { errorEnvelopeContract } from '@shortkit/contracts';
@@ -11,11 +11,14 @@ import { JWKS_KEY_SET_SOURCE } from '../../auth/auth.guard';
 import { logger } from '../../observability/logger';
 import { NoTenantTransaction, Public } from '../../tenancy/tenant-context';
 import { TRUSTED_CLIENT_IP_HEADER_ENV, TRUSTED_CLIENT_IP_UNRESOLVED_COUNTER } from '../net/trusted-client-address';
-import { PUBLIC_IP_LIMIT, PUBLIC_IP_WINDOW_S } from './rate-limit.types';
+import { PUBLIC_IP_LIMIT, PUBLIC_IP_WINDOW_S, RATE_LIMIT_MAX_WRITES, RATE_LIMIT_WINDOW_S } from './rate-limit.types';
 
 /**
- * STORY-1b-08 — AC-1b-37, AC-1b-38 and AC-1b-40's "the authenticated branch charges no
- * bucket", over a real HTTP round trip. TASK-1b-07, wave 1 of item 1b.
+ * STORY-1b-08 — AC-1b-37, AC-1b-38 and AC-1b-40's substance (an authenticated request never
+ * charges the IP bucket), over a real HTTP round trip. TASK-1b-07, wave 1 of item 1b; the
+ * tenant-keyed write bucket added by debt sweep D1 (2026-08-19) is tested here too, against
+ * the same real graph — the unit tier carries the 120-limit assertions because the limit is
+ * not env-tunable, and the integration tier re-runs `public-ip-bucket.int-spec.ts` unchanged.
  *
  * Contract: `docs/contracts/rate-limit.md` ("Scope": `@Public()` routes under `/api`, client
  * IP, all methods including `GET`, 30 per 60 s; "Response on limit"; "What the implementer
@@ -88,6 +91,48 @@ class RateLimitProbeController {
     handlerRuns.push('private-post');
     return { ok: true };
   }
+
+  /** An authenticated GET: never charged (`rate-limit.md`, "Scope": authenticated GETs stay unlimited). */
+  @Get('private')
+  @NoTenantTransaction('rate-limit spec: the authenticated GET branch, and this tier has no database')
+  privateGet(): { ok: true } {
+    handlerRuns.push('private-get');
+    return { ok: true };
+  }
+
+  /** ADR-0038: PATCH is mutating and charges the same tenant bucket as POST. */
+  @Patch('private')
+  @HttpCode(200)
+  @NoTenantTransaction('rate-limit spec: PATCH charges the tenant bucket, and this tier has no database')
+  privatePatch(): { ok: true } {
+    handlerRuns.push('private-patch');
+    return { ok: true };
+  }
+
+  /** ADR-0038: DELETE is mutating and charges the same tenant bucket as POST. */
+  @Delete('private')
+  @HttpCode(200)
+  @NoTenantTransaction('rate-limit spec: DELETE charges the tenant bucket, and this tier has no database')
+  privateDelete(): { ok: true } {
+    handlerRuns.push('private-delete');
+    return { ok: true };
+  }
+}
+
+/**
+ * An authenticated mutating route OUTSIDE the `/api` prefix. The unit tier sets no global
+ * prefix, so this stands in for the routes `main.ts` registers outside it: the guard's path
+ * test must leave them uncharged on the tenant branch exactly as on the public branch.
+ */
+@Controller('unprefixed-probe')
+class UnprefixedProbeController {
+  @Post('write')
+  @HttpCode(200)
+  @NoTenantTransaction('rate-limit spec: a mutating route outside /api, and this tier has no database')
+  write(): { ok: true } {
+    handlerRuns.push('unprefixed-write');
+    return { ok: true };
+  }
 }
 
 let signingKey: CryptoKey;
@@ -104,8 +149,10 @@ interface Probe {
   readonly raw: string;
 }
 
+type ProbeMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+
 async function probe(
-  method: 'GET' | 'POST',
+  method: ProbeMethod,
   path: string,
   headers: Record<string, string> = {},
 ): Promise<Probe> {
@@ -125,7 +172,7 @@ async function probe(
 /** `n` requests in a row, and their statuses. */
 async function burst(
   n: number,
-  method: 'GET' | 'POST',
+  method: ProbeMethod,
   path: string,
   headers: Record<string, string> = {},
 ): Promise<Probe[]> {
@@ -138,7 +185,30 @@ async function burst(
 
 const PUBLIC = '/api/rate-limit-probe/public';
 const PRIVATE = '/api/rate-limit-probe/private';
+const UNPREFIXED = '/unprefixed-probe/write';
 const HEALTH = '/health';
+
+/** A bearer for `tenantId`, so each tenant-bucket test names its own tenant like the IP tests name their own address. */
+async function mintBearer(tenantId: string): Promise<string> {
+  return `Bearer ${await new SignJWT({ sub: USER_ID, tid: tenantId, email: 'operator@example.com', ev: true, jti: SESSION_ID })
+    .setProtectedHeader({ alg: 'EdDSA', kid: 'test-key' })
+    .setIssuedAt()
+    .setIssuer(ISSUER)
+    .setAudience(ISSUER)
+    .setExpirationTime(Math.floor(Date.now() / 1000) + 300)
+    .sign(signingKey)}`;
+}
+
+/**
+ * Pins `Date` (and only `Date`) to the start of the current tenant window, so a long burst
+ * cannot straddle a fixed-window boundary and flake — the pattern the null-principal test
+ * set. The caller owns the `finally { vi.useRealTimers(); }`.
+ */
+function freezeAtTenantWindowStart(): void {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  const windowMs = RATE_LIMIT_WINDOW_S * 1000;
+  vi.setSystemTime(Math.floor(Date.now() / windowMs) * windowMs);
+}
 
 beforeAll(async () => {
   const pair = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
@@ -159,7 +229,7 @@ beforeAll(async () => {
 
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
-    controllers: [RateLimitProbeController],
+    controllers: [RateLimitProbeController, UnprefixedProbeController],
   })
     .overrideProvider(JWKS_KEY_SET_SOURCE)
     .useValue(() => Promise.resolve(keySet))
@@ -286,7 +356,7 @@ describe('a null principal (AC-1b-38, ADR-0040)', () => {
   });
 });
 
-describe('the authenticated branch (AC-1b-40: a documented no-op, TASK-051 owns the tenant bucket)', () => {
+describe('the authenticated branch and the IP bucket stay disjoint (AC-1b-40\'s substance)', () => {
   it('an authenticated route is untouched by an exhausted public bucket for the same address', async () => {
     await burst(PUBLIC_IP_LIMIT + 1, 'POST', PUBLIC, { [TRUSTED_HEADER]: '203.0.113.60' });
 
@@ -295,7 +365,7 @@ describe('the authenticated branch (AC-1b-40: a documented no-op, TASK-051 owns 
     expect(authenticated.map((r) => r.status)).toEqual([200, 200, 200]);
   });
 
-  it('authenticated requests charge nothing: 30 of them leave the address a full public allowance', async () => {
+  it('authenticated requests charge no IP bucket: 30 of them leave the address a full public allowance', async () => {
     const authenticated = await burst(PUBLIC_IP_LIMIT, 'POST', PRIVATE, { [TRUSTED_HEADER]: '203.0.113.61', authorization: bearer });
     const publicAfter = await burst(PUBLIC_IP_LIMIT, 'POST', PUBLIC, { [TRUSTED_HEADER]: '203.0.113.61' });
 
@@ -309,5 +379,131 @@ describe('the authenticated branch (AC-1b-40: a documented no-op, TASK-051 owns 
     const result = await probe('POST', PRIVATE, { [TRUSTED_HEADER]: '203.0.113.62' });
 
     expect({ status: result.status, code: (result.body as { code?: unknown }).code }).toEqual({ status: 401, code: 'unauthenticated' });
+  });
+});
+
+describe('the tenant-keyed write bucket (debt sweep D1: 120 mutating requests per tenant per 60 s, process-local; the Redis rebinding stays TASK-051\'s)', () => {
+  it('the 121st mutating request from one tenant in a window is 429 rate_limited with Retry-After and an ErrorEnvelope, and the handler never runs for it', async () => {
+    freezeAtTenantWindowStart();
+    try {
+      const tenantBearer = await mintBearer('a1b2c3d4-0001-4a6b-8d0f-1e3a5c7b9d2f');
+      const results = await burst(RATE_LIMIT_MAX_WRITES + 1, 'POST', PRIVATE, { authorization: tenantBearer });
+      const refused = results[RATE_LIMIT_MAX_WRITES];
+
+      expect({
+        admitted: new Set(results.slice(0, RATE_LIMIT_MAX_WRITES).map((r) => r.status)),
+        refusedStatus: refused.status,
+        handlerRuns: handlerRuns.length,
+      }).toEqual({ admitted: new Set([200]), refusedStatus: 429, handlerRuns: RATE_LIMIT_MAX_WRITES });
+
+      const retryAfter = Number(refused.retryAfter);
+      expect(
+        Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= RATE_LIMIT_WINDOW_S,
+        `Retry-After: ${String(refused.retryAfter)}`,
+      ).toBe(true);
+      expect(errorEnvelopeContract.safeParse(refused.body).success, refused.raw).toBe(true);
+      expect(refused.body).toEqual({ code: 'rate_limited', message: expect.any(String) });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('AC-84 over HTTP: a second tenant is unaffected by the first being exhausted', async () => {
+    freezeAtTenantWindowStart();
+    try {
+      const exhausted = await mintBearer('a1b2c3d4-0002-4a6b-8d0f-1e3a5c7b9d2f');
+      const other = await mintBearer('a1b2c3d4-0003-4a6b-8d0f-1e3a5c7b9d2f');
+      await burst(RATE_LIMIT_MAX_WRITES + 1, 'POST', PRIVATE, { authorization: exhausted });
+
+      const probe121 = await probe('POST', PRIVATE, { authorization: other });
+
+      expect(probe121.status, probe121.raw).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ADR-0038: PATCH and DELETE charge the same bucket as POST — 118 POSTs, a PATCH and a DELETE exhaust the window and the 121st mutating request refuses', async () => {
+    freezeAtTenantWindowStart();
+    try {
+      const tenantBearer = await mintBearer('a1b2c3d4-0004-4a6b-8d0f-1e3a5c7b9d2f');
+      const posts = await burst(RATE_LIMIT_MAX_WRITES - 2, 'POST', PRIVATE, { authorization: tenantBearer });
+      const patch = await probe('PATCH', PRIVATE, { authorization: tenantBearer });
+      const del = await probe('DELETE', PRIVATE, { authorization: tenantBearer });
+      const refused = await probe('POST', PRIVATE, { authorization: tenantBearer });
+
+      expect({
+        posts: new Set(posts.map((r) => r.status)),
+        patch: patch.status,
+        del: del.status,
+        refused: refused.status,
+      }).toEqual({ posts: new Set([200]), patch: 200, del: 200, refused: 429 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('GETs are never charged: more GETs than the whole write allowance leave the tenant\'s 120 writes intact', async () => {
+    freezeAtTenantWindowStart();
+    try {
+      const tenantBearer = await mintBearer('a1b2c3d4-0005-4a6b-8d0f-1e3a5c7b9d2f');
+      const reads = await burst(RATE_LIMIT_MAX_WRITES + 5, 'GET', PRIVATE, { authorization: tenantBearer });
+      const writes = await burst(RATE_LIMIT_MAX_WRITES, 'POST', PRIVATE, { authorization: tenantBearer });
+      const refused = await probe('POST', PRIVATE, { authorization: tenantBearer });
+
+      expect({
+        reads: new Set(reads.map((r) => r.status)),
+        writes: new Set(writes.map((r) => r.status)),
+        refused: refused.status,
+      }).toEqual({ reads: new Set([200]), writes: new Set([200]), refused: 429 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('no double charge: a @Public() POST carrying a bearer charges the IP bucket only, and the tenant\'s write allowance stays whole', async () => {
+    freezeAtTenantWindowStart();
+    try {
+      const tenantBearer = await mintBearer('a1b2c3d4-0006-4a6b-8d0f-1e3a5c7b9d2f');
+      // `AuthGuard` returns at step 1 for a @Public() route without reading the token, so
+      // these are anonymous to the limiter and the IP bucket is what refuses the 31st.
+      const publics = await burst(PUBLIC_IP_LIMIT + 1, 'POST', PUBLIC, {
+        [TRUSTED_HEADER]: '203.0.113.70',
+        authorization: tenantBearer,
+      });
+      const writes = await burst(RATE_LIMIT_MAX_WRITES, 'POST', PRIVATE, {
+        [TRUSTED_HEADER]: '203.0.113.70',
+        authorization: tenantBearer,
+      });
+      const refused = await probe('POST', PRIVATE, { [TRUSTED_HEADER]: '203.0.113.70', authorization: tenantBearer });
+
+      expect({
+        publicStatuses: publics.map((r) => r.status),
+        writes: new Set(writes.map((r) => r.status)),
+        refused: refused.status,
+      }).toEqual({
+        publicStatuses: [...Array<number>(PUBLIC_IP_LIMIT).fill(200), 429],
+        writes: new Set([200]),
+        refused: 429,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a mutating route outside /api is never charged: the path test governs both branches', async () => {
+    freezeAtTenantWindowStart();
+    try {
+      const tenantBearer = await mintBearer('a1b2c3d4-0007-4a6b-8d0f-1e3a5c7b9d2f');
+      const outside = await burst(5, 'POST', UNPREFIXED, { authorization: tenantBearer });
+      const writes = await burst(RATE_LIMIT_MAX_WRITES, 'POST', PRIVATE, { authorization: tenantBearer });
+
+      expect({
+        outside: new Set(outside.map((r) => r.status)),
+        writes: new Set(writes.map((r) => r.status)),
+      }).toEqual({ outside: new Set([200]), writes: new Set([200]) });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
