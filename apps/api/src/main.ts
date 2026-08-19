@@ -22,7 +22,9 @@ import {
 } from './auth/boot-assertions';
 import { AUTH_RATE_LIMIT_PORT } from './auth/ports/auth-rate-limit.port';
 import type { AuthRateLimitPort } from './auth/ports/auth-rate-limit.port';
-import { RedisBindingError, assertRedisConfigured } from './cache/redis-client';
+import { RedisBindingError, assertRedisConfigured, closeRedisClient } from './cache/redis-client';
+import { CLICK_DRAIN_BUDGET_MS, ClickEventBuffer } from './clicks/click-event-buffer';
+import { ClickIpHashKeyError, assertClickIpHashKeyConfigured } from './clicks/ip-hash';
 import { assertRuntimeRoleCannotBypassRls } from './db/rls';
 import { readBuildCommitSha } from './health/build-commit';
 import { MailBindingError, assertMailTransportConfigured } from './mail/mail-transport';
@@ -219,6 +221,16 @@ let app: INestApplication | undefined;
  *     `'unavailable'`, which the redirect answers from Postgres (AC-2-29). Nothing here
  *     waits for it, and no boot budget is spent on it.
  *
+ *  2e. The click IP hash key, D-2-17 and ADR-0010 (TASK-2-09, item 2). One more `process.env`
+ *     read, so it joins the class above, and it takes 2c's and 2d's shape with ABSENCE
+ *     INVERTED BACK: it is `BETTER_AUTH_SECRET`'s posture, not `MAIL_TRANSPORT`'s, because
+ *     the harmless option does not exist here. `CLICK_IP_HASH_KEY` is the HMAC key behind
+ *     `click_events.ip_hash`; a constant fallback would be a hash that anyone holding the
+ *     constant can reverse, and writing no row would silently empty the stream SC-6 exists
+ *     for. So the assertion is unconditional, the refusal is
+ *     `boot_precondition: 'click_ip_hash_key'` (`ClickIpHashKeyError`, mapped in the catch
+ *     below), and NEVER `NODE_ENV`: a laptop and a real deployment refuse identically.
+ *
  *  3. `assertRuntimeRoleCannotBypassRls()` — F-116, ADR-0003. One transaction against
  *     `pg_roles` and `pg_class`. TASK-005 built it and disclosed that nothing called it,
  *     so until now a `DATABASE_URL` pointing at a superuser or any `BYPASSRLS` role
@@ -293,6 +305,8 @@ async function assertBootPreconditions(): Promise<void> {
   assertMailTransportConfigured(process.env);
 
   assertRedisConfigured(process.env);
+
+  assertClickIpHashKeyConfigured(process.env);
 
   // ONE DEADLINE FOR BOTH DATABASE CHECKS. `DATABASE_REACHABLE_BUDGET_MS` is sized as the
   // whole boot's reachability allowance (see its declaration), so the second check inherits
@@ -515,6 +529,82 @@ async function bootstrap(): Promise<void> {
   });
 
   await app.listen(resolvePort(process.env.PORT));
+
+  registerGracefulShutdown(app);
+}
+
+/**
+ * ============================================================================
+ * `SIGTERM` DRAINS THE CLICK BUFFER, THEN CLOSES WHAT HOLDS THE EVENT LOOP (ADR-0010).
+ * ============================================================================
+ *
+ * Click events live in memory for up to 1000 ms or 100 events by design (ADR-0010's accepted
+ * gap), so a process that exits on `SIGTERM` without draining loses every one of them on
+ * every ordinary restart, which turns a stated crash-loss window into a routine one. The
+ * drain is bounded at `CLICK_DRAIN_BUDGET_MS`: a database that cannot take the batch must not
+ * be able to hold the process up, and an unbounded drain would be a shutdown that never ends.
+ *
+ * ORDER, AND EACH STEP IS BOUNDED. Drain first, because the buffer needs the pool the close
+ * would take away; then `app.close()`, which stops the listener and runs the container's
+ * shutdown; then `closeRedisClient()` (TASK-2-03: an open `ioredis` connection keeps the
+ * event loop alive and its reconnection timer with it). Every step catches: a failure in one
+ * must not strand the exit, which is the same reason `bootstrap().catch` closes with
+ * `.catch(() => undefined)`.
+ *
+ * `once`, NOT `on`: a second `SIGTERM` during a drain would start a second one. And the exit
+ * is EXPLICIT, because a handler registered for a signal replaces Node's default termination, so a
+ * process that only finished its cleanup would keep running if any handle survived it, which
+ * is the failure mode this whole function exists to avoid on the way in.
+ */
+function registerGracefulShutdown(instance: INestApplication): void {
+  process.once('SIGTERM', () => {
+    // A handler that rejected would leave the process ALIVE on a signal that used to end
+    // it, and the platform would then wait out its kill timeout on every deploy. So the
+    // failure path exits too, non-zero, with the reason on a line.
+    shutdown(instance).catch((error: unknown) => {
+      logger.error(
+        { code: 'shutdown_failed', ...errorLogFields(error, { includeMessage: true }) },
+        'the graceful shutdown failed; exiting anyway',
+      );
+
+      process.exit(1);
+    });
+  });
+}
+
+async function shutdown(instance: INestApplication): Promise<void> {
+  const buffer = instance.get(ClickEventBuffer, { strict: false });
+  const buffered = buffer.size;
+
+  await Promise.race([buffer.flush(), delay(CLICK_DRAIN_BUDGET_MS)]);
+
+  logger.info(
+    { code: 'click_drain_completed' },
+    `SIGTERM: ${String(buffered)} buffered click events were drained before shutdown ` +
+      `(bounded at ${String(CLICK_DRAIN_BUDGET_MS)}ms; ${String(buffer.size)} left unwritten)`,
+  );
+
+  // BOTH FAILURES GET A LINE BEFORE THE EXIT CODE SAYS OTHERWISE. Swallowing them silently
+  // and exiting zero reports a clean shutdown for a container that could not close its
+  // listener or its cache connection, which is the one moment an operator has to learn that
+  // from the process itself: nothing after this point runs, and the exit code is the only
+  // other signal. Neither failure changes the exit code, because the drain has already
+  // happened and a stuck close must not keep the process alive.
+  await instance.close().catch((error: unknown) => {
+    logger.error(
+      { code: 'shutdown_close_failed', ...errorLogFields(error, { includeMessage: true }) },
+      'the application container did not close cleanly on SIGTERM',
+    );
+  });
+
+  await closeRedisClient().catch((error: unknown) => {
+    logger.error(
+      { code: 'shutdown_close_failed', ...errorLogFields(error, { includeMessage: true }) },
+      'the redirect cache client did not close cleanly on SIGTERM',
+    );
+  });
+
+  process.exit(0);
 }
 
 bootstrap().catch(async (error: unknown) => {
@@ -558,6 +648,11 @@ bootstrap().catch(async (error: unknown) => {
   // above. It fires only on a DECLARED binding that is malformed or incomplete; an absent
   // `REDIS_URL` writes a warn line and boots.
   //
+  // `ClickIpHashKeyError.binding` is the sixth, always `'click_ip_hash_key'` (item 2,
+  // TASK-2-09, D-2-17), a class of its own for the same reason again. Unlike the two above
+  // it fires on ABSENCE as well as on a malformed value: there is no degraded click hash
+  // worth having, so the variable is required outright (AC-2-37).
+  //
   // THAT ONLY HOLDS WHILE `auth.config.ts` IS REACHED FROM INSIDE `bootstrap()` (F-210).
   // A static import at this file's module scope evaluates it before `bootstrap()` runs, so
   // the throw never reaches this handler at all: measured, a raw uncaught stack on stderr
@@ -571,6 +666,7 @@ bootstrap().catch(async (error: unknown) => {
       ...(error instanceof AuthBindingError ? { boot_precondition: error.binding } : {}),
       ...(error instanceof MailBindingError ? { boot_precondition: error.binding } : {}),
       ...(error instanceof RedisBindingError ? { boot_precondition: error.binding } : {}),
+      ...(error instanceof ClickIpHashKeyError ? { boot_precondition: error.binding } : {}),
       ...errorLogFields(error, { includeMessage: true }),
     },
     'the API failed to start',

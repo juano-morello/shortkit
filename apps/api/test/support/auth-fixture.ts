@@ -93,6 +93,18 @@ export function authServerEnv(baseUrl: string): Record<string, string> {
      * value for a throwaway process; nothing signs anything real with it.
      */
     BFF_PROXY_SECRET: 'FIXTURE-bff-proxy-secret_not_a_real_value_00',
+    /**
+     * REQUIRED SINCE TASK-2-09, unconditionally (D-2-17): the API refuses to boot without
+     * it, so a child spawned with this environment and nothing else exits 1 and every test
+     * in the calling file reports "the API exited before it accepted a connection". It is
+     * declared here rather than left to the runner because every caller of this function
+     * needs a bootable child and none of them cares what the key is; a suite that asserts
+     * on `ip_hash` values passes its own key over this one.
+     *
+     * 32 bytes, base64url, 43 characters, the shape `ip-hash.ts` enforces. A fixture for a
+     * throwaway process: the only addresses it ever hashes are the ones a suite invents.
+     */
+    CLICK_IP_HASH_KEY: 'FIXTURE-click-ip-hash-key-not-a-real-value0',
   };
 }
 

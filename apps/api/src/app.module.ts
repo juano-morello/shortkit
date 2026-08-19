@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { AuthModule } from './auth/auth.module';
+import { ClicksModule } from './clicks/clicks.module';
 import { AuthorizationModule } from './common/authorization/authorization.module';
 import { WorkspaceAuthorizationInterceptor } from './common/authorization/workspace-authorization.interceptor';
 import { ApiExceptionFilter } from './common/errors/exception-filter';
@@ -95,6 +96,14 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
     WorkspacesModule,
     InvitationsModule,
     LinksModule,
+    // TASK-2-09. It binds `REDIRECT_CLICK_SINK`, which `RedirectModule` declares and injects
+    // `@Optional()`: without this entry every redirect answers correctly and no click row is
+    // ever written, and nothing else in the suite notices. `clicks/clicks.module.spec.ts`
+    // asserts the binding against THIS graph, which is ADR-0011's owed test (D-2-10).
+    // Its position in the list is immaterial, since it declares `GET /api/links/:linkId/clicks`,
+    // three segments, which no other route can shadow, but it stays above the redirect,
+    // like every other feature module.
+    ClicksModule,
     RateLimitModule,
     AuthorizationModule,
     RedirectModule,
