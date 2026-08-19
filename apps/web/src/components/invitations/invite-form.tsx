@@ -13,7 +13,7 @@
  *   `validation_failed` under `workspaces`), docs/contracts/error-envelope.md,
  *   docs/contracts/rate-limit.md (429 with `Retry-After`).
  * ADR: adr-0048 (the wire role is unbranded), adr-0029 (no caller value in an error string).
- * Consumes: TASK-1b-12's `createInvitationRequest`, `classifyInvitationError`,
+ * Consumes: TASK-1b-12's `createInvitationRequest`, `classifyInvitationScreenError`,
  *   `INVITATION_MESSAGES`.
  *
  * ONE WORKSPACE PER INVITATION FROM THIS SCREEN (D-14). The API's body names up to twenty
@@ -37,8 +37,8 @@
  * WHO MAY INVITE IS THE API'S CALL. The row on `/workspaces` only offers the link to a
  * `workspace_admin`, but hiding is not enforcement: a 403 `insufficient_workspace_role` /
  * `insufficient_tenant_role` here renders `INVITE_FORM_MESSAGES.forbidden` (the shared
- * classifier has no 403 branch — `classifyInvitationScreenError` below adds one for the
- * two screens) and a 404 `not_found` — the caller no longer administers this workspace,
+ * classifier has no 403 branch — `classifyInvitationScreenError` in `invitations-api.ts`
+ * adds one for the two screens) and a 404 `not_found` — the caller no longer administers this workspace,
  * or it is gone — renders `workspaceGone`. 429 renders the seconds when the API sent them.
  *
  * THE ADDRESS is the operator's own input: echoed in the field and in the screen's
@@ -54,10 +54,10 @@ import type { FormEvent, ReactElement } from 'react';
 import { INVITABLE_WORKSPACE_ROLES, INVITATION_EMAIL_MAX_LENGTH, createInvitationRequestContract } from '@shortkit/contracts';
 import type { CreateInvitationRequest, Invitation, WorkspaceRoleValue } from '@shortkit/contracts';
 
-import { ApiError, apiClient } from '../../lib/api/client';
+import { apiClient } from '../../lib/api/client';
 import { INVITATION_MESSAGES } from './invitation-state-message';
-import { classifyInvitationError, createInvitationRequest } from './invitations-api';
-import type { InvitationFailure } from './invitations-api';
+import { classifyInvitationScreenError, createInvitationRequest } from './invitations-api';
+import type { InvitationScreenFailure } from './invitations-api';
 
 /** The picker's value type: the roles the UI offers, a subset of `WorkspaceRoleValue`. */
 export type InvitableWorkspaceRole = (typeof INVITABLE_WORKSPACE_ROLES)[number];
@@ -88,22 +88,6 @@ export const INVITE_FORM_MESSAGES = {
   workspaceGone: 'This workspace is no longer yours to invite to: it may have been removed, or you no longer administer it.',
   forbidden: 'This account cannot invite people to this workspace. Only a workspace admin can.',
 } as const;
-
-/**
- * The failure a screen-side control reports: TASK-1b-12's classification plus `forbidden`
- * for the two 403 codes the workspace-authorization interceptor answers. The shared
- * classifier maps them to `unknown` (the accept page never meets a 403); the invitations
- * screen does, on invite and on revoke, and says why rather than "something went wrong".
- */
-export type InvitationScreenFailure = InvitationFailure | { kind: 'forbidden' };
-
-export function classifyInvitationScreenError(error: unknown): InvitationScreenFailure {
-  if (error instanceof ApiError && (error.code === 'insufficient_workspace_role' || error.code === 'insufficient_tenant_role')) {
-    return { kind: 'forbidden' };
-  }
-
-  return classifyInvitationError(error);
-}
 
 /**
  * The client-side check IS the shared contract's `safeParse` (the same object goes on the

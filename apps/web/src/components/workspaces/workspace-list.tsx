@@ -75,7 +75,9 @@ export function WorkspaceList({ initialItems, includeArchived }: WorkspaceListPr
   const [items, setItems] = useState<Workspace[]>(initialItems);
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [focusStatus, setFocusStatus] = useState(false);
+  // Bumped when an announcement must also take focus; a counter rather than a
+  // reset-in-effect boolean, so the effect below only reads it (react-hooks/set-state-in-effect).
+  const [focusStatus, setFocusStatus] = useState(0);
   const [reloading, setReloading] = useState(false);
   // The "Reload the list" control is `aria-disabled`, not `disabled`; this ref is its guard.
   const reloadInFlight = useRef(false);
@@ -83,9 +85,8 @@ export function WorkspaceList({ initialItems, includeArchived }: WorkspaceListPr
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (focusStatus) {
+    if (focusStatus > 0) {
       statusRef.current?.focus();
-      setFocusStatus(false);
     }
   }, [focusStatus]);
 
@@ -130,7 +131,7 @@ export function WorkspaceList({ initialItems, includeArchived }: WorkspaceListPr
       setStatus(message);
 
       if (moveFocusToStatus) {
-        setFocusStatus(true);
+        setFocusStatus((n) => n + 1);
       }
     }
   }

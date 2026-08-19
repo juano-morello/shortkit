@@ -11,7 +11,7 @@
  *   (`DELETE /api/invitations/:id`: `workspace_admin` on every workspace the invitation
  *   names — 404 unknown/other-tenant, 409 `invitation_already_accepted`, 200 idempotent on
  *   an already-revoked row, D-09), docs/contracts/error-envelope.md.
- * Consumes: TASK-1b-12's `revokeInvitationRequest`; `classifyInvitationScreenError` and
+ * Consumes: TASK-1b-12's `revokeInvitationRequest` and `classifyInvitationScreenError`;
  *   `ROLE_LABELS` from `invite-form.tsx`.
  *
  * "EXPIRED" IS DERIVED HERE, CLIENT-SIDE. 1b never writes `invitation_state = 'expired'`
@@ -52,9 +52,9 @@ import type { KeyboardEvent, ReactElement } from 'react';
 import type { Invitation, InvitationStateValue } from '@shortkit/contracts';
 
 import { apiClient } from '../../lib/api/client';
-import { ROLE_LABELS, classifyInvitationScreenError } from './invite-form';
-import type { InvitationScreenFailure } from './invite-form';
-import { revokeInvitationRequest } from './invitations-api';
+import { ROLE_LABELS } from './invite-form';
+import { classifyInvitationScreenError, revokeInvitationRequest } from './invitations-api';
+import type { InvitationScreenFailure } from './invitations-api';
 
 export const STATE_LABELS: Record<InvitationStateValue, string> = {
   pending: 'Pending',
@@ -160,7 +160,7 @@ interface InvitationRowProps {
   onFailure: (failure: InvitationScreenFailure) => void;
 }
 
-type FocusTarget = 'revoke-button' | 'confirm-button' | null;
+type FocusTarget = 'revoke-button' | 'confirm-button';
 
 function InvitationRow({ invitation, workspaceId, state, onRevoked, onFailure }: InvitationRowProps): ReactElement {
   const idBase = useId();
@@ -170,32 +170,32 @@ function InvitationRow({ invitation, workspaceId, state, onRevoked, onFailure }:
 
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Focus is moved in an effect, once the target is actually mounted.
-  const [focusTarget, setFocusTarget] = useState<FocusTarget>(null);
+  // Focus is moved in an effect, once the target is actually mounted. Each request is
+  // a fresh object, so asking for the same target twice still re-runs the effect and
+  // the effect never has to reset the state it depends on (react-hooks/set-state-in-effect).
+  const [focusMove, setFocusMove] = useState<{ target: FocusTarget } | null>(null);
 
   useEffect(() => {
-    switch (focusTarget) {
+    switch (focusMove?.target) {
       case 'revoke-button':
         revokeButtonRef.current?.focus();
         break;
       case 'confirm-button':
         confirmButtonRef.current?.focus();
         break;
-      case null:
-        return;
+      case undefined:
+        break;
     }
-
-    setFocusTarget(null);
-  }, [focusTarget]);
+  }, [focusMove]);
 
   function openConfirm(): void {
     setConfirming(true);
-    setFocusTarget('confirm-button');
+    setFocusMove({ target: 'confirm-button' });
   }
 
   function closeConfirm(): void {
     setConfirming(false);
-    setFocusTarget('revoke-button');
+    setFocusMove({ target: 'revoke-button' });
   }
 
   async function handleRevokeConfirmed(): Promise<void> {
@@ -219,7 +219,7 @@ function InvitationRow({ invitation, workspaceId, state, onRevoked, onFailure }:
       if (failure.kind !== 'aborted') {
         // The row stays as it was; the confirm closes and the screen shows the message.
         setConfirming(false);
-        setFocusTarget('revoke-button');
+        setFocusMove({ target: 'revoke-button' });
         onFailure(failure);
       }
 
@@ -233,7 +233,7 @@ function InvitationRow({ invitation, workspaceId, state, onRevoked, onFailure }:
     await onRevoked(revoked);
   }
 
-  function handleConfirmKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+  function handleConfirmKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
     if (event.key === 'Escape') {
       event.preventDefault();
       closeConfirm();
@@ -286,7 +286,6 @@ function InvitationRow({ invitation, workspaceId, state, onRevoked, onFailure }:
               role="group"
               aria-labelledby={confirmLabelId}
               aria-busy={busy}
-              onKeyDown={handleConfirmKeyDown}
             >
               <p id={confirmLabelId} className="invitation-revoke-question">
                 Revoke the invitation for {invitation.email}? The link in their email stops working.
@@ -299,10 +298,11 @@ function InvitationRow({ invitation, workspaceId, state, onRevoked, onFailure }:
                   onClick={() => {
                     void handleRevokeConfirmed();
                   }}
+                  onKeyDown={handleConfirmKeyDown}
                 >
                   {busy ? 'Revoking…' : 'Confirm'} <span className="visually-hidden">revoking {invitation.email}</span>
                 </button>
-                <button type="button" className="secondary" onClick={closeConfirm}>
+                <button type="button" className="secondary" onClick={closeConfirm} onKeyDown={handleConfirmKeyDown}>
                   Cancel <span className="visually-hidden">revoking {invitation.email}</span>
                 </button>
               </div>

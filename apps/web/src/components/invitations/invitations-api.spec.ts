@@ -35,6 +35,7 @@ import {
   WORKSPACE_BY_ID_PATH,
   acceptInvitationRequest,
   classifyInvitationError,
+  classifyInvitationScreenError,
   clearStoredInvitationToken,
   createInvitationRequest,
   getWorkspaceRequest,
@@ -226,5 +227,18 @@ describe('classifyInvitationError: one kind per code, keyed by code and never by
 
   it('keys on code, not status: a not_found envelope at an unexpected status is still not_found', () => {
     expect(classifyInvitationError(new ApiError({ code: 'not_found', status: 400, message: 'x' }))).toEqual({ kind: 'not_found' });
+  });
+});
+
+describe('classifyInvitationScreenError', () => {
+  it('maps the two 403 codes to forbidden and defers everything else to the shared classifier', () => {
+    expect(classifyInvitationScreenError(new ApiError({ code: 'insufficient_workspace_role', status: 403, message: 'x' }))).toEqual({
+      kind: 'forbidden',
+    });
+    expect(classifyInvitationScreenError(new ApiError({ code: 'insufficient_tenant_role', status: 403, message: 'x' }))).toEqual({
+      kind: 'forbidden',
+    });
+    expect(classifyInvitationScreenError(new ApiError({ code: 'not_found', status: 404, message: 'x' }))).toEqual({ kind: 'not_found' });
+    expect(classifyInvitationScreenError(new Error('boom'))).toEqual({ kind: 'unknown' });
   });
 });

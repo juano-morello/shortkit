@@ -15,10 +15,9 @@ import type { Invitation } from '@shortkit/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 
-import { INVITE_FORM_MESSAGES, InviteForm, ROLE_LABELS, classifyInvitationScreenError } from './invite-form';
-import type { InvitationScreenFailure } from './invite-form';
+import { INVITE_FORM_MESSAGES, InviteForm, ROLE_LABELS } from './invite-form';
 import { INVITATION_MESSAGES } from './invitation-state-message';
-import { ApiError } from '../../lib/api/client';
+import type { InvitationScreenFailure } from './invitations-api';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const INVITEE = 'new.teammate@client.test';
@@ -318,18 +317,5 @@ describe('invite form: who may invite (the API is the enforcer; the screen only 
       expect(onFailure).toHaveBeenCalledWith({ kind: 'unauthenticated' });
     });
     expect(screen.queryByRole('alert')).toBeNull();
-  });
-});
-
-describe('classifyInvitationScreenError', () => {
-  it('maps the two 403 codes to forbidden and defers everything else to the shared classifier', () => {
-    expect(classifyInvitationScreenError(new ApiError({ code: 'insufficient_workspace_role', status: 403, message: 'x' }))).toEqual({
-      kind: 'forbidden',
-    });
-    expect(classifyInvitationScreenError(new ApiError({ code: 'insufficient_tenant_role', status: 403, message: 'x' }))).toEqual({
-      kind: 'forbidden',
-    });
-    expect(classifyInvitationScreenError(new ApiError({ code: 'not_found', status: 404, message: 'x' }))).toEqual({ kind: 'not_found' });
-    expect(classifyInvitationScreenError(new Error('boom'))).toEqual({ kind: 'unknown' });
   });
 });
