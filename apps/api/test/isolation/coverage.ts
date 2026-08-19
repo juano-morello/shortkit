@@ -275,6 +275,22 @@ export interface TenantScopedMethod {
    * table or repository method leaves it undefined and keeps the `repo:` id.
    */
   readonly surfaceId?: SurfaceId;
+  /**
+   * TASK-1b-10. HAND-SET ON THE ONE `@Public()` ROUTE UNTIL TASK-056 DISCOVERS IT.
+   * `discoveredSurfaces()` reports every method as `authenticated: true` — every table
+   * and repository method runs inside a tenant transaction and every workspace route sits
+   * behind the guard. `POST /api/invitations/lookup` is neither: it carries `@Public()`, the
+   * capability token is its whole authorisation (ADR-0021, GC-L), and the tenant transaction
+   * it reaches `invitations` through is opened FROM THE TOKEN'S PREFIX rather than from a
+   * claim. A registration that leaves these undefined is reported as authenticated, which is
+   * the right default for everything else and the wrong answer for that one route.
+   *
+   * `publicJustification` is the decorator's own string, copied so the report carries what
+   * the code says; `usesCapabilityToken` is what AC-1b-32 asks the report to list.
+   */
+  readonly authenticated?: boolean;
+  readonly publicJustification?: string;
+  readonly usesCapabilityToken?: boolean;
   readonly attempt: CrossTenantAttempt;
 }
 
@@ -535,19 +551,33 @@ export const ISOLATION_EXCLUSIONS = [
  * walks the Nest module graph and Better Auth is mounted on the raw Express instance
  * ahead of Nest (ADR-0013), so nothing under `/api/auth/*` is enumerable.
  *
- * These are declarations of where the boundary of enumeration lies. The tests named in
- * `coveredBy` belong to TASK-013 and TASK-054 and DO NOT EXIST YET; the report carries
- * the entries so a reader sees the gap, and TASK-056 is what turns `coveredBy` into an
- * assertion that the file is there and runs.
+ * These are declarations of where the boundary of enumeration lies. The two signup
+ * entries name files that exist (TASK-014, TASK-1b-09) and the suite asserts they are on
+ * disk (AC-1b-33); the GDPR entry names TASK-054's, which does not exist yet. The report
+ * carries every entry so a reader sees the gap, and TASK-056 is what turns `coveredBy`
+ * into an assertion that each file runs.
  */
 export const UNENUMERABLE_SURFACES = [
   {
+    // TASK-1b-10 (AC-1b-33): the INVITED branch, which is the entry the contract's own
+    // block names. `onUserCreated` reads the token `hooks.before` validated, opens the
+    // tenant transaction from the row's tenant id (never from the token string, GC-E) and
+    // writes one `tenant_memberships` row plus the named `memberships` rows — the single
+    // anonymous path that writes tenant-scoped rows on behalf of a tenant the caller does
+    // not yet belong to. `signup-invited.int-spec.ts` covers it end to end, including the
+    // prefix-swapped token that creates no user and no membership anywhere (ADR-0021).
     id: 'hook:onUserCreated',
-    reason: 'Better Auth handler is mounted outside the Nest module graph (ADR-0013).',
-    // TASK-014: repointed at the signup hook's integration test, which ships this
-    // initiative and exists. The uninvited branch — signup creates a tenant that is the
-    // generated uuid and one membership in it — is what `signup-creates-tenant.int-spec.ts`
-    // asserts, and it is the one anonymous path that writes `tenant_memberships`.
+    reason:
+      'Better Auth handler is mounted outside the Nest module graph (ADR-0013); the invited branch is the single anonymous path writing tenant_memberships (ADR-0021).',
+    coveredBy: 'apps/api/test/auth/signup-invited.int-spec.ts',
+  },
+  {
+    // The UNINVITED branch — signup creates a tenant that is the generated uuid and one
+    // `owner` membership in it — kept as its own entry (TASK-014 had repointed the single
+    // entry at this file) so the report names both branches with the file covering each.
+    id: 'hook:onUserCreated (uninvited branch)',
+    reason:
+      'Better Auth handler is mounted outside the Nest module graph (ADR-0013); the uninvited branch creates the tenant and its owner membership.',
     coveredBy: 'apps/api/test/auth/signup-creates-tenant.int-spec.ts',
   },
   {
@@ -559,63 +589,103 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-1b-03, wave 1 of 1b (amending TASK-015, wave 9). This run covers SEVEN TABLES ' +
-  'and FOUR AUTHENTICATED ENDPOINTS, in TWO ATTEMPT CATEGORIES. ' +
+  'TASK-1b-10, wave 4 of 1b (amending TASK-1b-03 and TASK-015). This run covers SEVEN ' +
+  'TABLES, THREE REPOSITORY CLASSES and TEN ENDPOINTS, in TWO ATTEMPT CATEGORIES. ' +
   'THE SEVEN TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
   '`tenants` (the migrated cascade root, four bespoke policies), `rls_fixture_rows` (a ' +
   'FIXTURE TABLE this suite creates and drops per run, built from the production ' +
   'tenantScopedPolicies()), `tenant_memberships` (migrated, TASK-002 — carrying the ' +
-  'token-mint FOR SELECT escape as a third policy), `workspaces` (migrated, TASK-011 ' +
-  '— attacked both as a table and through the five methods of WorkspaceRepository), and ' +
-  '`memberships`, `invitations` and `invitation_workspaces` (migrated, TASK-1b-03, ' +
-  'migration 0003 — the template unchanged, two policies each, attacked as tables only ' +
-  'until InvitationRepository and MembershipRepository register their methods). Each ' +
-  'is hit with EIGHT statement shapes in BOTH directions; three of the eight carry NO ' +
-  'WHERE CLAUSE (F-302) and one of those assigns the owner column (F-330). ' +
-  'THE FOUR ENDPOINTS, attacked as authenticated HTTP requests by a second signed-in ' +
-  'operator against the composition root (TASK-014, SC-4): `POST /api/workspaces`, ' +
-  '`GET /api/workspaces`, `PATCH /api/workspaces/:id` and `POST /api/workspaces/:id/archive`. ' +
-  'Two real users, two real memberships and two real tokens are minted through the shipped ' +
-  'auth surface — not forged — and each route is attempted in both directions. A 404 or ' +
-  '403 counts as a pass ONLY when the OWNER of the addressed row succeeds (2xx) at the ' +
+  'token-mint FOR SELECT escape as a third policy), `workspaces` (migrated, TASK-011), ' +
+  'and `memberships`, `invitations` and `invitation_workspaces` (migrated, TASK-1b-03, ' +
+  'migration 0003 — the template unchanged, two policies each). Each is hit with EIGHT ' +
+  'statement shapes in BOTH directions; three of the eight carry NO WHERE CLAUSE (F-302) ' +
+  'and one of those assigns the owner column (F-330). THREE OF THE SEVEN ARE ALSO ' +
+  "ATTACKED THROUGH THEIR REPOSITORY CLASS, called inside the ACTOR's tenant transaction " +
+  "with the TARGET's ids: the six methods of WorkspaceRepository (TASK-011, TASK-1b-06), " +
+  'the four of InvitationRepository (create, listForWorkspace, findById, revoke) and the ' +
+  'four of MembershipRepository (roleFor, workspaceIdsFor, create, listForWorkspace) ' +
+  "(TASK-1b-10). Every repository method is owner-qualified by the class's own contract; " +
+  'the unqualified writes on each table come from its sibling TableAccess subject. ' +
+  'THE TEN ENDPOINTS, attacked as HTTP requests by a second signed-in operator against ' +
+  'the composition root the child API booted (TASK-014, SC-4): the FIVE workspace routes ' +
+  '`POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:workspaceId`, ' +
+  '`PATCH /api/workspaces/:workspaceId`, `POST /api/workspaces/:workspaceId/archive` (each ' +
+  'gated or filtered by a `memberships` row since TASK-1b-06), and the FIVE invitation ' +
+  "routes `POST /api/invitations` (naming the target's workspace: 404), `GET " +
+  "/api/invitations?workspaceId=` (the target's: 404), `DELETE /api/invitations/:id` (the " +
+  "target's invitation: 404), `POST /api/invitations/accept` (the target's raw token as " +
+  'the actor: 409 invitation_tenant_conflict — an APPLICATION refusal raised before any ' +
+  'statement, not a policy answer, so it counts only because the actor accepting ITS OWN ' +
+  "tenant's invitation is 200 in the same attempt AND the target's invitation is read " +
+  "back still pending with no membership row for the actor's user in the target's " +
+  'tenant) and `POST /api/invitations/lookup`, the one `@Public()` route (TASK-1b-10). ' +
+  "THE LOOKUP'S SEMANTICS ARE STATED, NOT ASSUMED (D-01, ADR-0021): the capability " +
+  "token IS the authorisation, so a holder of tenant B's token previews tenant B's " +
+  'invitation BY DESIGN and no attempt here tries to make that a leak. The boundary this ' +
+  'harness measures on that route is TENANT ROUTING: the entry function opens the tenant ' +
+  "transaction from the token's PREFIX and its first statement is the digest lookup under " +
+  "that tenant's policy, so the attempt is the ACTOR's raw token with its prefix replaced " +
+  "by the TARGET's id, anonymous, and must answer 404 while the untouched token answers 200 " +
+  'in the same attempt. "Zero rows read in the target" on that attempt is proven by the ' +
+  "policy premise (the actor's digest exists only in the actor's tenant, and the target's " +
+  "transaction is shown by the table battery to see no row of the actor's) plus the " +
+  'digest miss, NOT by a statement counter — no SELECT-counting trigger exists and ' +
+  'pg_stat counters are not tenant-attributable; the suite additionally asserts the ' +
+  "swapped-prefix answer is byte-identical to a never-issued token's. Two real users, two " +
+  'real memberships, two real tokens and two real invitations (raw tokens held in memory ' +
+  'by the fixture, digests planted under the migrator) are minted through the shipped ' +
+  'auth surface — not forged — and each route is attempted in both directions. A 404, 403 ' +
+  'or 409 counts as a pass ONLY when the OWNER of the addressed row succeeds (2xx) at the ' +
   'same request in the same run: otherwise the id or the route is wrong, the refusal ' +
   'proves nothing, and the attempt is `unverified` and red. A mutating attempt is verified ' +
   'against the DATABASE, never the response body. ' +
+  'ROLE VERSUS TENANT: the isolation suite attacks the TENANT boundary. Role semantics ' +
+  'inside one tenant — a `member` on PATCH is 403, a same-tenant non-member on GET ' +
+  '/:workspaceId is 404 — are covered by test/workspaces, test/authorization and ' +
+  'test/invitations (AC-1b-19, 23, 24), not here: a third signed-in principal per tenant ' +
+  'would double the fixture for a property the tenant attempts cannot see anyway (a user of ' +
+  'tenant B cannot hold a membership in tenant A — composite FK plus policy). ' +
   'THE SET WAS REGISTERED BY HAND, NOT DISCOVERED. There is no route or repository ' +
-  'enumeration in this wave: the table subjects are the registry in registrations.ts and ' +
-  'the endpoint subjects are a hand-written list of EndpointAttemptSpecs. A ROUTE NOBODY ' +
-  'REGISTERED IS A ROUTE NOBODY ATTACKED — module-graph route discovery, the ' +
-  '@TenantScopedRepository decorator enumeration, the four grep clauses and the ' +
-  'pg_policies shape assertion are all TASK-056\'s and unbuilt. What keeps the TABLE ' +
-  'registry honest is the database cross-check: a relation in schema public must be ' +
-  'registered if ANY of FIVE independent properties holds — it is `tenants`; it carries a ' +
-  'column named tenant_id; row-level security is enabled AND forced on it; one of its ' +
-  'policies reads app.tenant_id; or it declares a FOREIGN KEY to tenants(id) — and a ' +
-  'difference in either direction fails the run and names the table (ADR-0019, SQL half). ' +
-  'That cross-check does NOT reach routes: a controller nobody registered is invisible to ' +
-  'it, which is the endpoint half of the same "registered by hand" bound. ' +
+  'enumeration in this wave: the table and repository subjects are the registry in ' +
+  'registrations.ts and the endpoint subjects are two hand-written lists of ' +
+  'EndpointAttemptSpecs. A ROUTE NOBODY REGISTERED IS A ROUTE NOBODY ATTACKED — ' +
+  'module-graph route discovery, the @TenantScopedRepository decorator enumeration (which ' +
+  'would also surface TenantMembershipRepository.roleFor, unregistered today), the four ' +
+  "grep clauses and the pg_policies shape assertion are all TASK-056's and unbuilt; the " +
+  "`publicRoutes` list and the lookup's `usesCapabilityToken` flag are hand-set on the " +
+  'registration until then. What keeps the TABLE registry honest is the database ' +
+  'cross-check: a relation in schema public must be registered if ANY of FIVE independent ' +
+  'properties holds — it is `tenants`; it carries a column named tenant_id; row-level ' +
+  'security is enabled AND forced on it; one of its policies reads app.tenant_id; or it ' +
+  'declares a FOREIGN KEY to tenants(id) — and a difference in either direction fails the ' +
+  'run and names the table (ADR-0019, SQL half). That cross-check does NOT reach routes: a ' +
+  'controller nobody registered is invisible to it, which is the endpoint half of the same ' +
+  '"registered by hand" bound. ' +
   'WHAT A PASS MEANS: every registered method and endpoint was attempted in both ' +
   'directions, each acting tenant was shown to own a row first, every refusal scored as a ' +
-  'pass was a recognised refusal (a row-level security SQLSTATE for a table attempt, an ' +
-  'owner-verified 404/403 for an endpoint attempt), and no tenant could see or change a ' +
-  'row it does not own before or after any attempt. An attempt that proved nothing is ' +
-  '`unverified` and fails the run. ' +
+  'pass was a recognised refusal (a row-level security SQLSTATE for a table attempt, the ' +
+  "repository's own not-found answer for a repository attempt, an owner-verified " +
+  '404/403/409 for an endpoint attempt), and no tenant could see or change a row it does ' +
+  'not own before or after any attempt. An attempt that proved nothing is `unverified` and ' +
+  'fails the run. ' +
   'WHAT THIS RUN STILL DOES NOT PROVE. Coverage is bounded by the shapes someone thought ' +
-  'of — Juano\'s 2026-08-11 ruling — and this initiative adds a whole new attempt ' +
-  'category (HTTP) to that same bound rather than escaping it. FIVE STATEMENT SHAPES ' +
-  'F-341 NAMES ARE NOT BUILT: INSERT ... ON CONFLICT DO UPDATE (the save()/upsert() idiom, ' +
-  'reaching the UPDATE policy\'s USING on conflict); MERGE (each WHEN branch a different ' +
+  "of — Juano's 2026-08-11 ruling — and this initiative adds routes and repository classes " +
+  'to that same bound rather than escaping it. FIVE STATEMENT SHAPES F-341 NAMES ARE NOT ' +
+  'BUILT: INSERT ... ON CONFLICT DO UPDATE (the save()/upsert() idiom, reaching the UPDATE ' +
+  "policy's USING on conflict — and note the accept path's ON CONFLICT DO NOTHING is the " +
+  'shape chosen precisely to stay clear of it, D-12); MERGE (each WHEN branch a different ' +
   'policy); eviction, UPDATE <t> SET <owner> = <a tenant the fixture never seeds> (the ' +
   'count rule detects it but the digest cannot name the recipient); cascade and trigger ' +
   'effects on a SIBLING table (bounded today only because tenants has no ordinary DELETE ' +
   'policy); and SELECT ... FOR UPDATE / FOR SHARE (a locking read applies the UPDATE ' +
-  'policy\'s USING, an existence side channel). ISOLATION_EXCLUSIONS carries the surfaces ' +
+  "policy's USING, an existence side channel). ISOLATION_EXCLUSIONS carries the surfaces " +
   'deliberately outside the tenant-facing interface — redirect resolution, GDPR erasure, ' +
   'and the token-mint membership lookup — each narrowed by database policy and justified ' +
-  'in-file; the LENGTH of that list is the control, so a new exclusion arrives as a ' +
-  'one-line diff a reviewer sees. And most of the system is simply unwritten: there are ' +
-  'no `links`, `domains` or `click_events` tables, no invitation or membership routes yet ' +
-  '(1b waves 2-4), and no other authenticated routes.';
+  'in-file; the LENGTH of that list is the control (still three), so a new exclusion ' +
+  'arrives as a one-line diff a reviewer sees. The invited signup branch is UNENUMERABLE ' +
+  '(Better Auth is mounted outside the Nest graph) and is covered by a named integration ' +
+  'test rather than an attempt here. And most of the system is simply unwritten: there are ' +
+  'no `links`, `domains` or `click_events` tables and no other authenticated routes.';
 
 /* ========================================================================== *
  * The registry. This is the enumeration mechanism.
@@ -856,14 +926,24 @@ export function discoveredSurfaces(
     registration.methods.map((method): DiscoveredSurface => {
       const id = methodSurfaceId(registration, method);
 
+      // TASK-1b-10: `authenticated` defaults to true — every table and repository method is
+      // behind the tenant transaction, every workspace route behind the guard — and the one
+      // registration that says otherwise is the `@Public()` capability-token lookup, which
+      // carries its justification and the `usesCapabilityToken` flag AC-1b-32 names.
+      const authenticated = method.authenticated ?? true;
+
       return {
         id,
         // A `route:` id is an HTTP endpoint attempt (TASK-014); everything else runs
         // inside a tenant transaction as a repository-shaped surface.
         kind: id.startsWith('route:') ? 'route' : 'repository-method',
-        // Every method here is behind the guard or the tenant transaction, which is what
-        // `authenticated` means for these surfaces.
-        authenticated: true,
+        authenticated,
+        ...(authenticated || method.publicJustification === undefined
+          ? {}
+          : { publicJustification: method.publicJustification }),
+        ...(method.usesCapabilityToken === undefined
+          ? {}
+          : { usesCapabilityToken: method.usesCapabilityToken }),
       };
     }),
   );
@@ -1549,8 +1629,12 @@ export async function runAttemptGroups(
     unverified,
     registryDrift,
     excluded: ISOLATION_EXCLUSIONS.map((exclusion) => ({ ...exclusion })),
-    // TASK-056 fills both from the module graph. No route exists to enumerate.
-    publicRoutes: [],
+    // TASK-056 fills both from the module graph. Until then `publicRoutes` is what the
+    // registrations declared by hand (TASK-1b-10): the one `@Public()` route, with the
+    // decorator's justification. `noTenantTransactionRoutes` has nothing to carry yet.
+    publicRoutes: discovered
+      .filter((surface) => !surface.authenticated)
+      .map((surface) => ({ id: surface.id, justification: surface.publicJustification ?? '' })),
     noTenantTransactionRoutes: [],
     unenumerable: UNENUMERABLE_SURFACES.map((surface) => ({ ...surface })),
     coverageBoundary: COVERAGE_BOUNDARY,

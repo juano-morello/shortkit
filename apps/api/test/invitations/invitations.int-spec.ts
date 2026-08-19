@@ -343,13 +343,15 @@ beforeEach(async () => {
   clearSignupState(...usedEmails);
 }, 180_000);
 
+// 60 s, not vitest's 10 s default: `clearSignupState` shells out to psql once per address
+// (a `docker run` each where no local psql exists), and this file signs up ~15 of them.
 afterAll(async () => {
   await app?.close();
   await closeDatabase();
   vi.unstubAllEnvs();
   clearSignupState(...usedEmails);
   await server?.stop();
-});
+}, 60_000);
 
 /** AC-1b-1's caller: owner of T, workspace_admin of W1 and W3, member of W2. */
 async function tenantWithThreeWorkspaces(): Promise<{ a: Principal; W1: string; W2: string; W3: string }> {

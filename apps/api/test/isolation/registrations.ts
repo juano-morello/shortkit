@@ -34,13 +34,24 @@
  *
  * SINCE TASK-1b-03 THREE MORE TABLES ARE REGISTERED AS BATTERIES: `memberships`,
  * `invitations` and `invitation_workspaces` (migration 0003, ADR-0062), each the eight
- * shapes and nothing else until their repositories land (TASK-1b-04, TASK-1b-05) and
- * register their own methods beside them.
+ * shapes — AND SINCE TASK-1b-10 TWO OF THEM CARRY THEIR REPOSITORY BESIDE THE BATTERY:
+ * `InvitationRepository` (create, listForWorkspace, findById, revoke) on `invitations` and
+ * `MembershipRepository` (roleFor, workspaceIdsFor, create, listForWorkspace) on
+ * `memberships`, the same F-353 two-subjects-one-table pattern `workspaces` shipped.
+ * `invitation_workspaces` has no repository class of its own — its rows are written and
+ * read only through `InvitationRepository` and the capability-lookup functions — so it
+ * stays a battery. The endpoint half gained a second group, the five invitation routes,
+ * documented at `INVITATION_ENDPOINTS` below.
  */
 import { sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
+import { WORKSPACE_ROLE } from '@shortkit/contracts';
 
+import { InvitationNotFoundError } from '../../src/invitations/errors';
+import { InvitationRepository } from '../../src/invitations/invitation.repository';
+import { issueCapabilityToken } from '../../src/invitations/tokens/capability-token';
+import { MembershipRepository } from '../../src/memberships/membership.repository';
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
 import { WorkspaceNotFoundError } from '../../src/workspaces/workspace-not-found.error';
 import { WorkspaceRepository } from '../../src/workspaces/workspace.repository';
@@ -52,7 +63,7 @@ import {
   TENANT_B,
   TENANT_C_NEVER_SEEDED,
 } from '../support/rls-fixture';
-import { execSql } from '../support/psql';
+import { execSql, querySql } from '../support/psql';
 import { mintToken } from '../support/auth-fixture';
 
 import type {
@@ -64,7 +75,7 @@ import type {
 } from './coverage';
 import { registerTenantScopedSurfaces } from './coverage';
 import { endpointAccess } from './http-attempts';
-import type { EndpointAttemptSpec, SignedInTenants } from './http-attempts';
+import type { EndpointAttemptSpec, SignedInTenant, SignedInTenants } from './http-attempts';
 import {
   BASELINE_LEAK_CANARY_TABLE,
   createBaselineLeakCanary,
@@ -1093,14 +1104,25 @@ function ownerProjection(
   return { rows: rows.map((row) => ({ id: row.id, tenant_id: row.tenantId, name: row.name })) };
 }
 
-/** `WorkspaceNotFoundError` is the contract's answer to a foreign row; anything else is not. */
-async function affectedOrNotFound(work: () => Promise<unknown>): Promise<CrossTenantAttemptResult> {
+/**
+ * A repository's OWN not-found answer to a foreign row is zero rows; anything else is not.
+ * `WorkspaceNotFoundError` for `WorkspaceRepository` (docs/contracts/workspaces.md), and
+ * since TASK-1b-10 `InvitationNotFoundError` for `InvitationRepository.revoke` and
+ * `WorkspaceNotFoundError` for `InvitationRepository.create` (the composite foreign key's
+ * refusal of a grant naming a workspace outside the transaction's tenant, mapped by the
+ * repository itself — invitation-tokens.md, ADR-0062). The class is named per call so a
+ * method that starts throwing the OTHER repository's error is `unverified` rather than a pass.
+ */
+async function affectedOrNotFound(
+  work: () => Promise<unknown>,
+  notFound: new () => Error = WorkspaceNotFoundError,
+): Promise<CrossTenantAttemptResult> {
   try {
     await work();
 
     return { rowsAffected: 1 };
   } catch (error) {
-    if (error instanceof WorkspaceNotFoundError) {
+    if (error instanceof notFound) {
       return { rowsAffected: 0 };
     }
 
@@ -1191,13 +1213,245 @@ const workspaceRepositoryAccess: TenantScopedSurfaceRegistration = {
   ],
 };
 
+/**
+ * ===========================================================================
+ * `invitations` AND `memberships`, attacked THROUGH THEIR REPOSITORIES (TASK-1b-10, D-19):
+ * one method per public method of the class, called inside the ACTOR's tenant transaction
+ * with the TARGET's ids — the `WorkspaceRepository` shape above, on the two 1b classes.
+ * ===========================================================================
+ *
+ * What is the same: every method is `owner-qualified` by the class's own contract (each
+ * statement carries `tenant_id = currentTenantId()` or sets it on INSERT — the repository
+ * specs compile and assert exactly that); the unqualified writes on both tables live in the
+ * sibling `…TableAccess` batteries; reads project the owner column so the harness judges
+ * them on it; a write that the repository answers with its OWN not-found error is zero rows,
+ * anything else thrown propagates and lands `unverified`, naming the surface.
+ *
+ * What differs, per method, and why:
+ *
+ * - `InvitationRepository.create` NAMES THE TARGET'S WORKSPACE in its one grant. The row it
+ *   would write is (target's workspace, actor's tenant), a pair `workspaces (id, tenant_id)`
+ *   does not hold, and the composite foreign key refuses it 23503 — which the repository
+ *   maps to `WorkspaceNotFoundError`, its contract's answer to a workspace the caller cannot
+ *   see (ADR-0062's "second floor" under the policy). The transaction rolls back with it, so
+ *   the `invitations` header row it inserted first never lands; the per-attempt census on
+ *   the target's rows judges that a second way. Reported as zero rows; a create that
+ *   SUCCEEDED naming the target's workspace, or whose row carried the target's tenant, is
+ *   the leak. Compare `WorkspaceRepository.create`, which has no target argument to cross
+ *   with; this one does, so it is crossed.
+ *
+ * - `MembershipRepository.create` HAS NO CONTRACT MAPPING for a foreign workspace — a grant
+ *   naming the target's workspace would raise the raw 23503, which the harness cannot
+ *   attribute to a policy and scores `unverified` (F-342's accounting: red, not a pass, and
+ *   not evidence either). So it is attempted the way `WorkspaceRepository.create` is: the
+ *   ACTOR's own workspace, the TARGET's seeded user (a `"user"` row is not tenant-bound;
+ *   the pair collides with nothing), and the created row must carry the actor's tenant.
+ *   `rowsAffected` is 1 only if it carried the target's. The composite key is exercised on
+ *   this table by the battery's `reparentAll` (ADR-0062), not here.
+ *
+ * - `roleFor` and `workspaceIdsFor` return a role and a list of workspace ids, NOT rows, so
+ *   the projection is reconstructed from the arguments: a non-null role for (the target's
+ *   seeded workspace, the target's seeded user) can only be the target's own `memberships`
+ *   row — the fixture gives that user exactly one, in the target's tenant, and the census
+ *   premise has just read it there — and each entry `workspaceIdsFor(target's user)` returns
+ *   is likewise a row that user holds only in the target. Both are reported with
+ *   `tenant_id: target.id`, which is what makes them a leak under `judge()`. Under the shipped
+ *   policy both answer nothing.
+ *
+ * - `revoke` on the target's seeded invitation is `InvitationNotFoundError` (the contract's
+ *   404, indistinguishable from an id nobody issued); `findById` is `null`;
+ *   `listForWorkspace` on the target's seeded workspace is `[]` — for both classes.
+ */
+const invitationRepository = new InvitationRepository();
+const membershipRepository = new MembershipRepository();
+
+/** The invitation `resetTenantFixtures` seeds for a tenant with a grant on its seeded workspace. */
+function seededInvitationOf(tenant: TenantFixture): string {
+  switch (tenant.id) {
+    case TENANT_A:
+      return INVITATION_ROW_A;
+    case TENANT_B:
+      return INVITATION_ROW_B;
+    default:
+      throw new Error(
+        `no seeded invitation for tenant ${tenant.id}; resetTenantFixtures seeds A and B only`,
+      );
+  }
+}
+
+function invitationOwnerProjection(
+  rows: ReadonlyArray<{ id: string; tenantId: string; email: string }>,
+): CrossTenantAttemptResult {
+  return { rows: rows.map((row) => ({ id: row.id, tenant_id: row.tenantId, email: row.email })) };
+}
+
+function membershipOwnerProjection(
+  rows: ReadonlyArray<{ id: string; tenantId: string; userId: string }>,
+): CrossTenantAttemptResult {
+  return { rows: rows.map((row) => ({ id: row.id, tenant_id: row.tenantId, user_id: row.userId })) };
+}
+
+const invitationRepositoryAccess: TenantScopedSurfaceRegistration = {
+  subject: 'InvitationRepository',
+  table: 'invitations',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: [
+    {
+      name: 'create',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      // The foreign-key refusal ABORTS the transaction (25P02 for anything after it), so the
+      // not-found is caught OUTSIDE `withTenantTransaction`, which rolls the aborted
+      // transaction back — the header row inserted before the grant never lands.
+      attempt: async (actor, target) => {
+        try {
+          return await withTenantTransaction(actor.id, async () => {
+            const row = await invitationRepository.create({
+              email: 'planted@example.test',
+              workspaces: [{ workspaceId: seededWorkspaceOf(target), workspaceRole: 'member' }],
+              invitedByUserId: seededMembershipUserOf(actor),
+              inviterEmail: 'planter@example.test',
+              // A digest nothing in this file or any table holds; the raw token is dropped.
+              digest: issueCapabilityToken(actor.id).digest,
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            });
+
+            // Past the foreign key somehow: the row's owner decides. Under the actor it is
+            // correct (and `reset()` clears it before the next attempt); under the target
+            // it is the leak.
+            return { rowsAffected: row.tenantId === target.id ? 1 : 0 };
+          });
+        } catch (error) {
+          if (error instanceof WorkspaceNotFoundError) {
+            return { rowsAffected: 0 };
+          }
+
+          throw error;
+        }
+      },
+    },
+    {
+      name: 'listForWorkspace',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () =>
+          invitationOwnerProjection(
+            await invitationRepository.listForWorkspace(seededWorkspaceOf(target)),
+          ),
+        ),
+    },
+    {
+      name: 'findById',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const found = await invitationRepository.findById(seededInvitationOf(target));
+
+          return invitationOwnerProjection(found === null ? [] : [found]);
+        }),
+    },
+    {
+      name: 'revoke',
+      kind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, () =>
+          affectedOrNotFound(
+            () => invitationRepository.revoke(seededInvitationOf(target)),
+            InvitationNotFoundError,
+          ),
+        ),
+    },
+  ],
+};
+
+const membershipRepositoryAccess: TenantScopedSurfaceRegistration = {
+  subject: 'MembershipRepository',
+  table: 'memberships',
+  ownerColumn: 'tenant_id',
+  reset: resetTenantFixtures,
+  methods: [
+    {
+      name: 'roleFor',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const role = await membershipRepository.roleFor(
+            seededWorkspaceOf(target),
+            seededMembershipUserOf(target),
+          );
+
+          return {
+            rows:
+              role === null
+                ? []
+                : [{ id: `${seededWorkspaceOf(target)}/${seededMembershipUserOf(target)}`, tenant_id: target.id, role }],
+          };
+        }),
+    },
+    {
+      name: 'workspaceIdsFor',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const entries = await membershipRepository.workspaceIdsFor(seededMembershipUserOf(target));
+
+          return {
+            rows: entries.map((entry) => ({ id: entry.workspaceId, tenant_id: target.id, role: entry.role })),
+          };
+        }),
+    },
+    {
+      name: 'create',
+      kind: 'write',
+      reaches: 'new-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () => {
+          const created = await membershipRepository.create({
+            workspaceId: seededWorkspaceOf(actor),
+            userId: seededMembershipUserOf(target),
+            role: WORKSPACE_ROLE.member,
+          });
+
+          return { rowsAffected: created.tenantId === target.id ? 1 : 0 };
+        }),
+    },
+    {
+      name: 'listForWorkspace',
+      kind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      attempt: (actor, target) =>
+        withTenantTransaction(actor.id, async () =>
+          membershipOwnerProjection(
+            await membershipRepository.listForWorkspace(seededWorkspaceOf(target)),
+          ),
+        ),
+    },
+  ],
+};
+
 registerTenantScopedSurfaces(tenantsAccess);
 registerTenantScopedSurfaces(rlsFixtureRowsAccess);
 registerTenantScopedSurfaces(tenantMembershipsAccess);
 registerTenantScopedSurfaces(workspacesAccess);
 registerTenantScopedSurfaces(workspaceRepositoryAccess);
 registerTenantScopedSurfaces(membershipsAccess);
+registerTenantScopedSurfaces(membershipRepositoryAccess);
 registerTenantScopedSurfaces(invitationsAccess);
+registerTenantScopedSurfaces(invitationRepositoryAccess);
 registerTenantScopedSurfaces(invitationWorkspacesAccess);
 
 const PLANTED_CANARY_ROW_ID = 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f2f2';
@@ -1467,6 +1721,61 @@ const ENDPOINT_WORKSPACE_NAME = 'signed-in-seeded-workspace';
 /** The signed-in user's role on its own seeded workspace: enough for every route's minimum. */
 const ENDPOINT_MEMBERSHIP_ROLE = 'workspace_admin';
 
+/**
+ * TASK-1b-10. One pending invitation per signed-in tenant, at a fixed id, naming that
+ * tenant's seeded workspace at `member` — the row `DELETE /api/invitations/:id` and the two
+ * token routes address. Its RAW TOKEN IS HELD IN MEMORY BY THIS MODULE and nowhere else:
+ * issued once per tenant by `issueCapabilityToken`, its digest planted under the migrator
+ * on every reset (the same digest every time, so the token stays valid across resets),
+ * never written to a log, a report or an error message — the `UnverifiedAttempt` texts
+ * quote response bodies, and no response of these routes carries a token (GC-K).
+ */
+const ENDPOINT_INVITATION_A = 'e3e3e3e3-e3e3-4e3e-8e3e-e3e3e3e3e3e3';
+const ENDPOINT_INVITATION_B = 'e4e4e4e4-e4e4-4e4e-8e4e-e4e4e4e4e4e4';
+const ENDPOINT_INVITATION_EMAIL = 'signed-in-invitee@example.test';
+const ENDPOINT_INVITATION_ROLE = 'member';
+
+interface HeldCapabilityToken {
+  readonly raw: string;
+  readonly digestHex: string;
+}
+
+/** Keyed by tenant id; filled lazily so a tenant that never signs in never gets a token. */
+const heldInvitationTokens = new Map<string, HeldCapabilityToken>();
+
+/** The raw token the fixture holds for a signed-in tenant's seeded invitation. In memory only. */
+export function heldInvitationTokenFor(tenantId: string): string {
+  const held = heldInvitationTokens.get(tenantId);
+
+  if (held === undefined) {
+    const issued = issueCapabilityToken(tenantId);
+    const fresh = { raw: issued.raw, digestHex: issued.digest.toString('hex') };
+
+    heldInvitationTokens.set(tenantId, fresh);
+
+    return fresh.raw;
+  }
+
+  return held.raw;
+}
+
+function heldInvitationDigestHexFor(tenantId: string): string {
+  heldInvitationTokenFor(tenantId);
+
+  const held = heldInvitationTokens.get(tenantId);
+
+  if (held === undefined) {
+    throw new Error(`no capability token is held for tenant ${tenantId}`);
+  }
+
+  return held.digestHex;
+}
+
+/** `<uuid>.<secret>`: the secret half of a held token, for the prefix-swap attack. */
+function secretHalfOf(rawToken: string): string {
+  return rawToken.slice(rawToken.indexOf('.') + 1);
+}
+
 const WORKSPACE_ENDPOINTS: readonly EndpointAttemptSpec[] = [
   {
     name: 'create',
@@ -1553,30 +1862,59 @@ async function tokenMinter(runtime: SignedInTenants): Promise<(tenantId: string)
 }
 
 /**
- * Seeds one workspace per signed-in tenant at a fixed id, under each tenant's own flag —
- * and, since TASK-1b-06, the signed-in user's `workspace_admin` membership on it, which is
- * what the routes now require of a caller (see the docblock above). `DELETE FROM workspaces`
- * cascades the previous attempt's memberships away (`ON DELETE CASCADE` on the composite
- * key), the create attempt's row and creator membership among them. Through the migrator
- * DSN, like every seed: `memberships.user_id` references `"user"`, which `shortkit_app`
- * cannot read, and both tables carry FORCE ROW LEVEL SECURITY, so the flag is set per tenant.
+ * THE ONE RESET BOTH ENDPOINT GROUPS USE — F-123's rule applied to the signed-in fixture:
+ * it leaves the fixture complete for every endpoint subject, whichever ran last.
+ *
+ * Seeds one workspace per signed-in tenant at a fixed id, under each tenant's own flag;
+ * since TASK-1b-06 the signed-in user's `workspace_admin` membership on it, which is what
+ * the routes require of a caller (see the docblock above); and since TASK-1b-10 one pending
+ * invitation per tenant naming that workspace, whose digest is the held token's (above).
+ * `DELETE FROM workspaces` cascades the previous attempt's memberships and grants away
+ * (`ON DELETE CASCADE` on the composite key) — the create attempt's row, the creator
+ * membership and the accept's rows among them — and `invitations` has no such parent, so it
+ * is deleted by name: the create positive control's row and the accepted/revoked state of
+ * the seeded one both go. Through the migrator DSN, like every seed: `memberships.user_id`
+ * and `invitations.invited_by_user_id` reference `"user"`, which `shortkit_app` cannot read,
+ * and every table here carries FORCE ROW LEVEL SECURITY, so the flag is set per tenant.
+ *
+ * ONE TRANSACTION (TASK-1b-10, a review finding). psql runs each statement in its own
+ * transaction unless told otherwise, and a run killed — or a statement refused — between
+ * the DELETE and the INSERTs left one tenant's fixed-id rows gone and the other's in place,
+ * or a workspace re-inserted with its membership missing; the next reset then met a
+ * `duplicate key value violates unique constraint "workspaces_pkey"` on a row a previous
+ * partial reset had orphaned. `BEGIN … COMMIT` around the whole script means it either
+ * lands complete or not at all (`ON_ERROR_STOP=1` aborts the script, the connection drops,
+ * the transaction rolls back), and `set_config(…, false)` is session-scoped so the two
+ * tenant flags still take turns inside it.
  */
-function resetSignedInWorkspaces(runtime: SignedInTenants): void {
+function resetSignedInFixture(runtime: SignedInTenants): void {
   execSql(
     migrationDsn(),
-    `SELECT set_config('app.tenant_id', :'ta', false) \\g /dev/null
+    `BEGIN;
+     SELECT set_config('app.tenant_id', :'ta', false) \\g /dev/null
+     DELETE FROM invitations;
      DELETE FROM workspaces;
      INSERT INTO workspaces (id, tenant_id, name)
        VALUES (:'wa'::uuid, :'ta'::uuid, :'name');
      INSERT INTO memberships (tenant_id, workspace_id, user_id, role)
        VALUES (:'ta'::uuid, :'wa'::uuid, :'ua', :'role'::workspace_role);
+     INSERT INTO invitations (id, tenant_id, email, token_digest, expires_at, invited_by_user_id, inviter_email)
+       VALUES (:'ia'::uuid, :'ta'::uuid, :'invitee', decode(:'digest_a', 'hex'), now() + interval '7 days', :'ua', :'inviter_a');
+     INSERT INTO invitation_workspaces (tenant_id, invitation_id, workspace_id, role)
+       VALUES (:'ta'::uuid, :'ia'::uuid, :'wa'::uuid, :'invitation_role'::workspace_role);
 
      SELECT set_config('app.tenant_id', :'tb', false) \\g /dev/null
+     DELETE FROM invitations;
      DELETE FROM workspaces;
      INSERT INTO workspaces (id, tenant_id, name)
        VALUES (:'wb'::uuid, :'tb'::uuid, :'name');
      INSERT INTO memberships (tenant_id, workspace_id, user_id, role)
-       VALUES (:'tb'::uuid, :'wb'::uuid, :'ub', :'role'::workspace_role);`,
+       VALUES (:'tb'::uuid, :'wb'::uuid, :'ub', :'role'::workspace_role);
+     INSERT INTO invitations (id, tenant_id, email, token_digest, expires_at, invited_by_user_id, inviter_email)
+       VALUES (:'ib'::uuid, :'tb'::uuid, :'invitee', decode(:'digest_b', 'hex'), now() + interval '7 days', :'ub', :'inviter_b');
+     INSERT INTO invitation_workspaces (tenant_id, invitation_id, workspace_id, role)
+       VALUES (:'tb'::uuid, :'ib'::uuid, :'wb'::uuid, :'invitation_role'::workspace_role);
+     COMMIT;`,
     {
       variables: {
         ta: runtime.a.tenantId,
@@ -1587,16 +1925,203 @@ function resetSignedInWorkspaces(runtime: SignedInTenants): void {
         wb: ENDPOINT_WORKSPACE_B,
         name: ENDPOINT_WORKSPACE_NAME,
         role: ENDPOINT_MEMBERSHIP_ROLE,
+        ia: ENDPOINT_INVITATION_A,
+        ib: ENDPOINT_INVITATION_B,
+        invitee: ENDPOINT_INVITATION_EMAIL,
+        digest_a: heldInvitationDigestHexFor(runtime.a.tenantId),
+        digest_b: heldInvitationDigestHexFor(runtime.b.tenantId),
+        inviter_a: runtime.a.email,
+        inviter_b: runtime.b.email,
+        invitation_role: ENDPOINT_INVITATION_ROLE,
       },
     },
   );
 }
 
+/** Which signed-in operator owns a tenant id, for the specs that need its user or token. */
+function signedInOwnerOf(runtime: SignedInTenants, tenantId: string): SignedInTenant {
+  if (tenantId === runtime.a.tenantId) {
+    return runtime.a;
+  }
+
+  if (tenantId === runtime.b.tenantId) {
+    return runtime.b;
+  }
+
+  throw new Error(`tenant ${tenantId} is not one of the two signed-in operators`);
+}
+
 /**
- * The endpoint attempt group: the registration whose methods are the five HTTP attacks,
- * and the signed-in fixtures they run against. Built at runtime because it needs the booted
- * child and the two live sessions; the surface ids it contributes are pinned in
- * `EXPECTED_SURFACE_IDS`.
+ * ===========================================================================
+ * THE FIVE INVITATION ROUTES (TASK-1b-10, AC-1b-31, AC-1b-32; workspace-authorization.md
+ * "the five invitation rows", invitation-tokens.md, D-01, D-04, D-19).
+ * ===========================================================================
+ *
+ * Built per runtime because four of the five need the OTHER tenant's ids — its seeded
+ * workspace, its seeded invitation, its held raw token, its user — which the module-level
+ * `EndpointAttemptContext` (one `seededRowId` per group) does not carry. The group's table
+ * is `invitations`, so `ctx.seededRowId(tenant)` is that tenant's seeded invitation and the
+ * per-attempt census brackets each tenant's `invitations` rows.
+ *
+ * HOW EACH IS SCORED, AND WHY — the harness's own vocabulary:
+ *
+ * - `create` (POST /api/invitations, body naming the TARGET's workspace at `member`): 404
+ *   `not_found`, a `status` refusal. Form B in the service asserts `workspace_admin` on
+ *   every named workspace under the actor's transaction; the actor holds no `memberships`
+ *   row on the target's workspace and could not see it if it did (D-10: a non-member is
+ *   404, the same body as an id nobody issued). The positive control is the actor naming
+ *   its OWN seeded workspace: 201, a row under the actor (its after-commit dispatch renders
+ *   the mail into the Noop transport). The census on the target's `invitations` rows either
+ *   side of the attempt is what says nothing was written there.
+ * - `list` (GET /api/invitations?workspaceId=<the target's>): 404, a `status` refusal from
+ *   the interceptor's Form A (`RequireWorkspaceRole(workspace_admin)` on the query's id).
+ *   NOT `absent-from-list`: that shape needs the cross-tenant response to be 200 with an
+ *   empty list, and this route refuses before it lists. Positive control: the actor's own
+ *   workspace, 200 with its seeded invitation.
+ * - `revoke` (DELETE /api/invitations/<the target's invitation>): 404, `status`. The
+ *   service's `findById` under the actor finds nothing. Positive control: the actor revoking
+ *   its own, 200 `revoked` (undone by the next reset).
+ * - `accept` (POST /api/invitations/accept, body `{ token: <the TARGET's raw token> }`, the
+ *   actor signed in): 409 `invitation_tenant_conflict`. THIS IS NOT A POLICY ANSWER. The
+ *   accept route runs under the actor's tenant transaction, and `assertNoTenantConflict`
+ *   compares the token's prefix with the active tenant BEFORE any statement (D-04,
+ *   capability-lookup.ts) — so the 409 is the application refusing to route the token, and
+ *   on its own it proves as little as any status. It counts because (a) the positive control
+ *   is the actor accepting ITS OWN tenant's seeded invitation as a signed-in existing member,
+ *   200 (`tenantMembership: 'require'` is satisfied by the signup's owner row; the grant is
+ *   `ON CONFLICT DO NOTHING` against the seeded `workspace_admin` row, D-12), and (b)
+ *   `targetMutated` reads the target back through the migrator: its seeded invitation must
+ *   still be `pending` with no `accepted_by_user_id`, and no `memberships` row for the
+ *   ACTOR's user may exist in the target's tenant. Either changed is one affected row — a
+ *   fail. The census on the target's `invitations` rows judges the same thing a third way.
+ * - `lookup` (POST /api/invitations/lookup, ANONYMOUS, body `{ token: <the ACTOR's raw
+ *   token with its prefix replaced by the TARGET's id> }`): 404 `not_found`. THE ONE
+ *   `@Public()` ROUTE, and its semantics are D-01's: the token IS the capability, a holder
+ *   of the target's own token previews the target's invitation BY DESIGN, and that is not a
+ *   leak this harness may score — so the attempt does not send the target's token. It sends
+ *   the actor's SECRET under the target's PREFIX, which is the tenant-routing property
+ *   ADR-0021 requires a test for: `findInvitationByCapabilityToken` opens the transaction
+ *   from the prefix (the target) and its first statement is the digest lookup under the
+ *   target's isolation policy, where the actor's digest is not visible — the actor's row
+ *   is in the actor's tenant, and the table battery has already shown the target's
+ *   transaction sees none of the actor's `invitations` rows. The positive control is
+ *   `buildOwnRequest`: the actor's UNTOUCHED token, 200 with the actor's tenant name (an
+ *   argument swap would build the target's secret under the actor's prefix — a second
+ *   attack, not a control). "Zero rows read in the target" is proven by that premise plus
+ *   the digest miss and NOT by a counter: no SELECT-counting trigger exists and pg_stat's
+ *   scan counters are not tenant-attributable (the card records this). The int-spec adds
+ *   the byte-identity assertion: the swapped-prefix answer equals a never-issued token's.
+ *   The registration hand-sets `authenticated: false`, the decorator's justification and
+ *   `usesCapabilityToken: true`, which is what the report lists (AC-1b-32).
+ *
+ * `GET /api/workspaces/:workspaceId` (the card's sixth row) is already the workspace
+ * group's `get` (TASK-1b-06) and is not duplicated here.
+ */
+function invitationEndpoints(runtime: SignedInTenants): readonly EndpointAttemptSpec[] {
+  const workspaceOf = (tenantId: string): string =>
+    tenantId === runtime.a.tenantId ? ENDPOINT_WORKSPACE_A : ENDPOINT_WORKSPACE_B;
+
+  return [
+    {
+      name: 'create',
+      method: 'POST',
+      route: '/api/invitations',
+      httpKind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({
+        path: '/api/invitations',
+        body: {
+          email: ENDPOINT_INVITATION_EMAIL,
+          workspaces: [{ workspaceId: workspaceOf(target.id), workspaceRole: ENDPOINT_INVITATION_ROLE }],
+        },
+      }),
+      expectedRefusal: { kind: 'status', status: 404 },
+    },
+    {
+      name: 'list',
+      method: 'GET',
+      route: '/api/invitations',
+      httpKind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({
+        path: `/api/invitations?workspaceId=${workspaceOf(target.id)}`,
+      }),
+      expectedRefusal: { kind: 'status', status: 404 },
+    },
+    {
+      name: 'revoke',
+      method: 'DELETE',
+      route: '/api/invitations/:id',
+      httpKind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target, ctx) => ({
+        path: `/api/invitations/${ctx.seededRowId(target.id)}`,
+      }),
+      expectedRefusal: { kind: 'status', status: 404 },
+    },
+    {
+      name: 'accept',
+      method: 'POST',
+      route: '/api/invitations/accept',
+      httpKind: 'write',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      buildRequest: (_actor, target) => ({
+        path: '/api/invitations/accept',
+        body: { token: heldInvitationTokenFor(target.id) },
+      }),
+      expectedRefusal: { kind: 'status', status: 409 },
+      targetMutated: (actor, target, ctx) => {
+        const actorUser = signedInOwnerOf(runtime, actor.id).userId;
+        const [readback] = querySql<{ still_pending: boolean; actor_rows: number }>(
+          migrationDsn(),
+          `SELECT (SELECT count(*)::int FROM invitations
+                    WHERE id = :'invitation'::uuid AND tenant_id = :'target'::uuid
+                      AND state = 'pending' AND accepted_by_user_id IS NULL) = 1 AS still_pending,
+                  (SELECT count(*)::int FROM memberships
+                    WHERE tenant_id = :'target'::uuid AND user_id = :'actor_user') AS actor_rows`,
+          {
+            tenantId: target.id,
+            variables: { invitation: ctx.seededRowId(target.id), target: target.id, actor_user: actorUser },
+          },
+        );
+
+        return readback === undefined || !readback.still_pending || readback.actor_rows !== 0;
+      },
+    },
+    {
+      name: 'lookup',
+      method: 'POST',
+      route: '/api/invitations/lookup',
+      httpKind: 'read',
+      reaches: 'existing-row',
+      qualification: 'owner-qualified',
+      auth: 'anonymous',
+      buildRequest: (actor, target) => ({
+        path: '/api/invitations/lookup',
+        body: { token: `${target.id}.${secretHalfOf(heldInvitationTokenFor(actor.id))}` },
+      }),
+      buildOwnRequest: (actor) => ({
+        path: '/api/invitations/lookup',
+        body: { token: heldInvitationTokenFor(actor.id) },
+      }),
+      expectedRefusal: { kind: 'status', status: 404 },
+      authenticated: false,
+      publicJustification:
+        'the invitee holds no account yet; the capability token is the authorisation (ADR-0021)',
+      usesCapabilityToken: true,
+    },
+  ];
+}
+
+/**
+ * The workspace endpoint attempt group: the registration whose methods are the five HTTP
+ * attacks on the workspace routes, and the signed-in fixtures they run against. Built at
+ * runtime because it needs the booted child and the two live sessions; the surface ids it
+ * contributes are pinned in `EXPECTED_SURFACE_IDS`.
  */
 export async function workspaceEndpointGroup(runtime: SignedInTenants): Promise<AttemptGroup> {
   const tokenFor = await tokenMinter(runtime);
@@ -1607,7 +2132,7 @@ export async function workspaceEndpointGroup(runtime: SignedInTenants): Promise<
     subject: 'WorkspaceEndpoints',
     table: 'workspaces',
     ownerColumn: 'tenant_id',
-    reset: () => resetSignedInWorkspaces(runtime),
+    reset: () => resetSignedInFixture(runtime),
     baseUrl: runtime.server.baseUrl,
     tokenFor,
     seededRowId,
@@ -1624,14 +2149,49 @@ export async function workspaceEndpointGroup(runtime: SignedInTenants): Promise<
 }
 
 /**
+ * The invitation endpoint attempt group (TASK-1b-10): the five invitation routes over the
+ * SAME two signed-in operators and the same reset, with `invitations` as the table the
+ * per-attempt census brackets and each tenant's seeded invitation as its addressed row.
+ */
+export async function invitationEndpointGroup(runtime: SignedInTenants): Promise<AttemptGroup> {
+  const tokenFor = await tokenMinter(runtime);
+  const seededRowId = (tenantId: string): string =>
+    tenantId === runtime.a.tenantId ? ENDPOINT_INVITATION_A : ENDPOINT_INVITATION_B;
+
+  const registration = endpointAccess({
+    subject: 'InvitationEndpoints',
+    table: 'invitations',
+    ownerColumn: 'tenant_id',
+    reset: () => resetSignedInFixture(runtime),
+    baseUrl: runtime.server.baseUrl,
+    tokenFor,
+    seededRowId,
+    endpoints: invitationEndpoints(runtime),
+  });
+
+  return {
+    registrations: [registration],
+    fixtures: {
+      tenantA: { id: runtime.a.tenantId, name: 'signed-in-tenant-a' },
+      tenantB: { id: runtime.b.tenantId, name: 'signed-in-tenant-b' },
+    },
+  };
+}
+
+/**
  * Every surface id this wave covers, hand-written so a battery quietly losing a method
  * fails. IN SORTED ORDER: the suite compares it against `covered.sort()`, and `repo:`
- * sorts before `route:`, so the five route ids come last.
+ * sorts before `route:`, so the ten route ids come last.
  */
 export const EXPECTED_SURFACE_IDS = [
-  // The three 1b tables (TASK-1b-03): eight shapes each, no repository subject yet —
-  // `InvitationRepository` (TASK-1b-04) and `MembershipRepository` (TASK-1b-05) add theirs.
-  // Uppercase sorts before lowercase, so `InvitationWorkspaces…` precedes `Invitations…`.
+  // The three 1b tables (TASK-1b-03): eight shapes each — and since TASK-1b-10 the two
+  // repository subjects beside them: `InvitationRepository` on `invitations` and
+  // `MembershipRepository` on `memberships` (`invitation_workspaces` has no class of its own).
+  // Uppercase sorts before lowercase, so `InvitationR…` < `InvitationW…` < `Invitations…`.
+  'repo:InvitationRepository.create',
+  'repo:InvitationRepository.findById',
+  'repo:InvitationRepository.listForWorkspace',
+  'repo:InvitationRepository.revoke',
   'repo:InvitationWorkspacesTableAccess.deleteAll',
   'repo:InvitationWorkspacesTableAccess.deleteOwnedBy',
   'repo:InvitationWorkspacesTableAccess.findAll',
@@ -1648,6 +2208,10 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:InvitationsTableAccess.reparentAll',
   'repo:InvitationsTableAccess.updateAll',
   'repo:InvitationsTableAccess.updateOwnedBy',
+  'repo:MembershipRepository.create',
+  'repo:MembershipRepository.listForWorkspace',
+  'repo:MembershipRepository.roleFor',
+  'repo:MembershipRepository.workspaceIdsFor',
   'repo:MembershipsTableAccess.deleteAll',
   'repo:MembershipsTableAccess.deleteOwnedBy',
   'repo:MembershipsTableAccess.findAll',
@@ -1703,10 +2267,17 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:WorkspacesTableAccess.updateOwnedBy',
   // TASK-014/015: the authenticated workspace routes, attacked as HTTP by a second
   // signed-in operator — four, plus `GET /api/workspaces/:workspaceId` and the `:id` →
-  // `:workspaceId` rename (TASK-1b-06, D-07). `route:` ids sort after every `repo:` id.
+  // `:workspaceId` rename (TASK-1b-06, D-07) — and since TASK-1b-10 the five invitation
+  // routes, one of them `@Public()`. `route:` ids sort after every `repo:` id, and among
+  // them by method then path (`DELETE` < `GET` < `PATCH` < `POST`).
+  'route:DELETE /api/invitations/:id',
+  'route:GET /api/invitations',
   'route:GET /api/workspaces',
   'route:GET /api/workspaces/:workspaceId',
   'route:PATCH /api/workspaces/:workspaceId',
+  'route:POST /api/invitations',
+  'route:POST /api/invitations/accept',
+  'route:POST /api/invitations/lookup',
   'route:POST /api/workspaces',
   'route:POST /api/workspaces/:workspaceId/archive',
 ] as const;

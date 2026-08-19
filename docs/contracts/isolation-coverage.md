@@ -375,6 +375,14 @@ export interface TenantScopedMethod {
   /** REQUIRED and deliberately not defaulted. See "Attempt semantics". */
   readonly qualification: 'owner-qualified' | 'unqualified';
   readonly attempt: (actor: TenantFixture, target: TenantFixture) => Promise<CrossTenantAttemptResult>;
+  // Amended 2026-08-18 (TASK-1b-10). Three OPTIONAL fields for HTTP attempts, so the report
+  // can carry a public route's justification and the capability-token flag AC-1b-32 names
+  // before TASK-056's discovery exists: `authenticated?: boolean` (a registration that
+  // leaves it undefined is reported as authenticated — the safe direction),
+  // `publicJustification?: string` (present iff !authenticated; the decorator's own string,
+  // copied), `usesCapabilityToken?: boolean` (the lookup route sets it). `publicRoutes` in
+  // the report is populated from these today, by hand, and TASK-056 replaces the hand-set
+  // values with discovered ones.
 }
 
 export interface TenantScopedSurfaceRegistration {
@@ -1094,6 +1102,14 @@ export const UNENUMERABLE_SURFACES = [
   { id: 'handler:POST /api/gdpr/delete authorization', reason: '@NoTenantTransaction moves the owner check into the handler (F-020).', coveredBy: 'apps/api/test/gdpr/delete-authorization.int-spec.ts' },
 ] as const;
 ```
+
+Amended 2026-08-18 (TASK-1b-10): the shipped array holds **three** entries. The signup hook
+has two branches with two different writers — the invited branch accepts an invitation and
+writes `tenant_memberships` under the inviter's tenant (covered by
+`test/auth/signup-invited.int-spec.ts`), the uninvited branch creates the tenant and its
+owner membership (covered by `test/auth/signup-creates-tenant.int-spec.ts`) — and each is
+listed on its own line so the report names which test covers which. The gdpr entry is
+unchanged. Three entries here still change no exclusion count.
 
 Adding an entry here is not a substitute for an exclusion and does not change the
 exclusion count: these surfaces are covered, just not by enumeration.
