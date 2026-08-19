@@ -516,8 +516,12 @@ describe('invitations page: revoke', () => {
       `DELETE /api/bff/invitations/${PENDING.id}`,
       `GET ${INVITATIONS_URL}`,
     ]);
-    // Focus lands on the announcement: the Revoke control that had it is gone.
-    expect(document.activeElement).toBe(screen.getByRole('status'));
+    // Focus lands on the announcement: the Revoke control that had it is gone. The move is
+    // an effect, flushed in a later task than the commit the wait above settled on, so this
+    // waits for the move rather than reading the gap between commit and effect.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('status'));
+    });
   });
 
   it('409 already accepted re-fetches and says so', async () => {

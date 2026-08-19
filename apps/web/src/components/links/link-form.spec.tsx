@@ -328,7 +328,11 @@ describe('link form: a refusal lands where it belongs and the form survives it (
 
     expect(slugInput().value).toBe('spring-sale');
     expect(destinationInput().value).toBe('https://example.com/landing');
-    expect(document.activeElement).toBe(screen.getByRole('alert'));
+    // Focus is moved in an effect, a task after the commit that rendered the banner, so the
+    // wait above settles before the move. Ask for the state the form ends in.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByRole('alert'));
+    });
   });
 
   it('a server validation_failed splits across the fields it names and the banner', async () => {
@@ -462,7 +466,11 @@ describe('link form: create mode clears itself only on success', () => {
     expect(destinationInput().value).toBe('');
     expect(slugInput().value).toBe('');
     expect(expiresInput().value).toBe('');
-    expect(document.activeElement).toBe(destinationInput());
+    // Focus is moved in an effect, a task after the commit that cleared the fields, so the
+    // wait above settles before the move. Ask for the state the form ends in.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(destinationInput());
+    });
   });
 
   it('says the slug field may be left empty for a generated code', () => {

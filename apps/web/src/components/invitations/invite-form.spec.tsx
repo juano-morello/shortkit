@@ -270,7 +270,11 @@ describe('invite form: who may invite (the API is the enforcer; the screen only 
       const alert = await screen.findByRole('alert');
       expect(alert.textContent).toBe(INVITE_FORM_MESSAGES.forbidden);
       expect(alert.getAttribute('data-invitation-state')).toBe('forbidden');
-      expect(document.activeElement).toBe(alert);
+      // Focus is moved in an effect, a task after the commit that mounted the banner, so
+      // `findByRole` settles before the move. Ask for the state the form ends in.
+      await waitFor(() => {
+        expect(document.activeElement).toBe(alert);
+      });
       expect(emailInput().value).toBe(INVITEE);
       expect(onCreated).not.toHaveBeenCalled();
       expect(onFailure).not.toHaveBeenCalled();

@@ -244,7 +244,11 @@ describe('invitations list: revoke is a two-step inline confirm', () => {
     });
     expect(onRevoked).not.toHaveBeenCalled();
     expect(screen.queryByRole('group')).toBeNull();
-    expect(document.activeElement).toBe(revoke);
+    // The row moves focus in an effect, which React flushes a task after the commit that
+    // closed the confirm. The wait above settles on that commit, so ask for the end state.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(revoke);
+    });
   });
 
   it('a 429 carries the seconds to the screen', async () => {
