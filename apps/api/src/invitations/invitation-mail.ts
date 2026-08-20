@@ -123,6 +123,13 @@ export function inviteUrlFor(origin: string, rawToken: string): string {
 export interface InvitationMailInput {
   /** The raw capability token. Enters the message and nothing else. */
   readonly raw: string;
+  /**
+   * The invitation row's id (2026-08-19, debt sweep, ledger 1b-W1-08). Becomes the
+   * message's `idempotencyKey`, which `ResendMailSender` sends as `Idempotency-Key` on
+   * both attempts so its retry after a lost response cannot double-send. A uuid, not a
+   * secret. Optional so a unit test may render without a row; the service always passes it.
+   */
+  readonly invitationId?: string;
   /** The recipient — `invitations.email`, already normalised by the contract. */
   readonly to: string;
   readonly inviterEmail: string;
@@ -142,6 +149,7 @@ export function renderInvitationMail(input: InvitationMailInput): OutboundMail {
   return {
     template: 'workspace_invitation',
     to: input.to,
+    ...(input.invitationId === undefined ? {} : { idempotencyKey: input.invitationId }),
     data: {
       inviteUrl: inviteUrlFor(origin, input.raw),
       inviterEmail: input.inviterEmail,

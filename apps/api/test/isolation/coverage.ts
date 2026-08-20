@@ -1592,8 +1592,12 @@ export async function runAttemptGroups(
 
   // One surface id per surface, however many directions it was attempted in.
   const covered = [...new Set(attempts.map((outcome) => outcome.id))];
+  // 1b-W4-03: EVERY discovered surface must be attempted or named in an exclusion — the
+  // `@Public()` ones included. This previously filtered to `surface.authenticated` first,
+  // so a future public surface registered with `authenticated: false` and no attempt would
+  // have escaped the coverage net silently; public surfaces are exactly the ones an
+  // anonymous caller can reach, so they are the last ones the net may drop.
   const uncovered = discovered
-    .filter((surface) => surface.authenticated)
     .map((surface) => surface.id)
     .filter(
       (id) =>

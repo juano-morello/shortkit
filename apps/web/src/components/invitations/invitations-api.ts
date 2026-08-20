@@ -250,3 +250,20 @@ export function classifyInvitationError(error: unknown): InvitationFailure {
       return { kind: 'unknown' };
   }
 }
+
+/**
+ * The failure a screen-side control reports: the classification above plus `forbidden`
+ * for the two 403 codes the workspace-authorization interceptor answers.
+ * `classifyInvitationError` maps them to `unknown` — the accept page never meets a 403,
+ * and keeps the narrower `InvitationFailure` — but the per-workspace invitations screen
+ * does, on invite and on revoke, and says why rather than "something went wrong".
+ */
+export type InvitationScreenFailure = InvitationFailure | { kind: 'forbidden' };
+
+export function classifyInvitationScreenError(error: unknown): InvitationScreenFailure {
+  if (error instanceof ApiError && (error.code === 'insufficient_workspace_role' || error.code === 'insufficient_tenant_role')) {
+    return { kind: 'forbidden' };
+  }
+
+  return classifyInvitationError(error);
+}

@@ -149,12 +149,14 @@ const ROLE_LABELS: Record<WorkspaceRoleValue, string> = {
 };
 
 type Phase =
-  /** Before the mount effect ran: the server render and the first client paint. */
+  /** Before the mount effect ran, and through the first lookup: the same status line as 'looking-up'. */
   | { kind: 'reading' }
   /** No fragment token, nothing stored. */
   | { kind: 'missing' }
+  /** A "Try again" retry in flight; set by its click handler, so the lookup effect never sets state synchronously. */
   | { kind: 'looking-up' }
-  | { kind: 'preview'; preview: InvitationPreview }
+  /** `now` is the clock read when the preview arrived; the relative expiry is computed against it, keeping render pure. */
+  | { kind: 'preview'; preview: InvitationPreview; now: number }
   /** A failure that replaced the preview (or that the lookup produced). */
   | { kind: 'failed'; failure: InvitationFailure }
   | { kind: 'accepted' };
@@ -245,6 +247,12 @@ export function AcceptInvitation(): ReactElement {
   // Design point 2: the token, on mount. Runs once; the fragment is gone by the time it
   // returns. (Under StrictMode's double-invoke the second run finds an empty hash and the
   // stored token, and lands in the same state.)
+  //
+  // `set-state-in-effect` is off for this one effect: it is a one-shot read of client-only
+  // state — the fragment, `history`, `sessionStorage` (design point 2) — and setState is how
+  // that one-time answer enters React. There is no render-time source for any of it: the
+  // fragment must be read AND ERASED after mount, on the client, exactly once.
+  /* eslint-disable react-hooks/set-state-in-effect -- one-shot client-only init from location.hash/sessionStorage; no render-time source exists */
   useEffect(() => {
     const hash = window.location.hash;
     const named = hashNamesToken(hash);
@@ -280,6 +288,7 @@ export function AcceptInvitation(): ReactElement {
     setPhase({ kind: 'missing' });
     setAttempt((n) => n + 1);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Design point 7, the lookup leg. Aborted on unmount so a late answer never sets state.
   useEffect(() => {
@@ -288,14 +297,13 @@ export function AcceptInvitation(): ReactElement {
     }
 
     const controller = new AbortController();
-    setPhase({ kind: 'looking-up' });
 
     void (async () => {
       try {
         const preview = await apiClient({ ...lookupInvitationRequest(token), signal: controller.signal });
 
         if (!controller.signal.aborted) {
-          setPhase({ kind: 'preview', preview });
+          setPhase({ kind: 'preview', preview, now: Date.now() });
         }
       } catch (caught: unknown) {
         const failure = classifyInvitationError(caught);
@@ -417,6 +425,7 @@ export function AcceptInvitation(): ReactElement {
               className="secondary"
               aria-describedby={alertId}
               onClick={() => {
+                setPhase({ kind: 'looking-up' });
                 setLookupAttempt((n) => n + 1);
               }}
             >
@@ -446,7 +455,7 @@ export function AcceptInvitation(): ReactElement {
             </ul>
             <p className="invitation-meta">
               This invitation expires <time dateTime={phase.preview.expiresAt}>{absoluteExpiry(phase.preview.expiresAt)}</time>{' '}
-              ({relativeExpiry(phase.preview.expiresAt, Date.now())}).
+              ({relativeExpiry(phase.preview.expiresAt, phase.now)}).
             </p>
           </section>
 

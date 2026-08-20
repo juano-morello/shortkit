@@ -52,7 +52,7 @@
  * (TASK-1b-01), exactly as `tenant_role` sources from `TENANT_ROLES`, so the database enum
  * and the contract cannot disagree about the value set.
  */
-import { customType, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { customType, index, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { INVITATION_STATES } from '@shortkit/contracts';
 
 import { authUser } from './auth';
@@ -93,5 +93,13 @@ export const invitations = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('invitations_token_digest_unique').on(table.tokenDigest)],
+  (table) => [
+    uniqueIndex('invitations_token_digest_unique').on(table.tokenDigest),
+    // Added 2026-08-19 (debt sweep, ledger 1b-W1-11, migration 0004): the two `"user"`
+    // foreign keys lead no index, so the referential actions on a user deletion —
+    // CASCADE through `invited_by_user_id`, SET NULL through `accepted_by_user_id` —
+    // scan this table. `tenant_id` has its hand-appended index in migration 0003.
+    index('invitations_invited_by_user_id_idx').on(table.invitedByUserId),
+    index('invitations_accepted_by_user_id_idx').on(table.acceptedByUserId),
+  ],
 );

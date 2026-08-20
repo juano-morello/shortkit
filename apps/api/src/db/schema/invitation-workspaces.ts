@@ -45,7 +45,7 @@
  * contract refuses duplicate `workspaceId`s in the request body (D-13); this is the
  * database saying the same thing.
  */
-import { foreignKey, pgTable, unique, uuid } from 'drizzle-orm/pg-core';
+import { foreignKey, index, pgTable, unique, uuid } from 'drizzle-orm/pg-core';
 
 import { invitations } from './invitations';
 import { workspaceRole } from './memberships';
@@ -75,5 +75,11 @@ export const invitationWorkspaces = pgTable(
       columns: [table.workspaceId, table.tenantId],
       foreignColumns: [workspaces.id, workspaces.tenantId],
     }).onDelete('cascade'),
+    // Added 2026-08-19 (debt sweep, ledger 1b-W1-11, migration 0004): `workspace_id` is
+    // only the SECOND column of the UNIQUE above, so the composite-FK cascade from
+    // `workspaces` and the invitation list's workspace filter scan without this. The
+    // cascade from `invitations(id)` is covered by the UNIQUE's leading column;
+    // `tenant_id` has its hand-appended index in migration 0003.
+    index('invitation_workspaces_workspace_id_idx').on(table.workspaceId),
   ],
 );

@@ -47,20 +47,53 @@ import { idContract } from '../pagination';
 import { WORKSPACE_ROLES } from '../roles';
 
 /**
- * The name rule: trimmed, then 1 to 100 characters. THE TRIM RUNS FIRST, so `'   '` is
- * refused as empty and a hundred characters wrapped in whitespace is accepted; what the
- * endpoints store and return is the trimmed value. Input and output types are both
+ * The name rule: trimmed, then 1 to 100 characters, then no control character (2026-08-19,
+ * see below). THE TRIM RUNS FIRST, so `'   '` is refused as empty and a hundred characters
+ * wrapped in whitespace is accepted; what the endpoints store and return is the trimmed
+ * value. Input and output types are both
  * `string`, so `apps/web` can build a request body from `z.infer` and parse a response into
  * it (the rule `auth/index.ts` states for every shape here).
  */
 export const WORKSPACE_NAME_MIN_LENGTH = 1;
 export const WORKSPACE_NAME_MAX_LENGTH = 100;
 
+/**
+ * Added 2026-08-19 (debt sweep, ledger 1b-W1-09): NO CONTROL CHARACTER IN A NAME. A name
+ * containing any code point below U+0020, or U+007F (DEL), is refused with the fixed
+ * message below. The finding: a newline in a workspace or tenant name forges the console
+ * mail transport's block boundary (`console-mail-sender.ts` frames its output with fixed
+ * header/footer lines), and control characters have no place in a display name anyway.
+ * The refine runs AFTER the trim, so leading/trailing whitespace — including `\n` and
+ * `\t`, which the trim removes — never triggers it; only an interior control character
+ * refuses. `signUpRequestContract.name` (`../auth`) applies the same rule with the same
+ * message, and through it `tenants.name`, which `on-user-created.ts` copies verbatim from
+ * the signup name (F-198). The predicate and the message live here because the first name
+ * contract does; they are name-generic, not workspace-specific. A code-point scan rather
+ * than a regex, deliberately: eslint's `no-control-regex` exists because control
+ * characters in a regex are usually an accident, and a rule carve-out for the one
+ * intentional case costs more than the loop.
+ */
+export const NAME_CONTROL_CHARACTERS_MESSAGE = 'Control characters are not allowed in a name.';
+
+/** True when `value` contains any code point below U+0020, or U+007F (DEL). */
+export function containsControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+
+    if (codePoint !== undefined && (codePoint < 0x20 || codePoint === 0x7f)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export const workspaceNameContract = z
   .string()
   .trim()
   .min(WORKSPACE_NAME_MIN_LENGTH)
-  .max(WORKSPACE_NAME_MAX_LENGTH);
+  .max(WORKSPACE_NAME_MAX_LENGTH)
+  .refine((name) => !containsControlCharacter(name), NAME_CONTROL_CHARACTERS_MESSAGE);
 
 /**
  * The client shape of one workspace. `tenantId` is absent by decision (see the header);

@@ -252,6 +252,42 @@ describe('ResendMailSender', () => {
     expect(JSON.parse(String(requests[0]?.init.body)) as Record<string, unknown>).not.toHaveProperty('reply_to');
   });
 
+  describe('Idempotency-Key (debt sweep 2026-08-19, ledger 1b-W1-08)', () => {
+    /** The invitation dispatch sets the key to the invitation row's id — a uuid, not a secret. */
+    const KEYED: OutboundMail = { ...INVITATION, idempotencyKey: 'f6b2b1e2-0f6a-4bb0-9d5f-2f4f4b6f8a10' };
+
+    function sentKeys(requests: ReadonlyArray<{ init: RequestInit }>): Array<string | undefined> {
+      return requests.map((request) => (request.init.headers as Record<string, string>)['Idempotency-Key']);
+    }
+
+    it('is sent on the first attempt and IDENTICAL on the 5xx retry, so a retry after a lost response cannot double-send', async () => {
+      const { fetch, requests } = fakeFetch([503, 200]);
+
+      await new ResendMailSender(API_KEY, FROM, RESEND_ENV, { fetch }).send(KEYED);
+
+      expect(sentKeys(requests)).toEqual([KEYED.idempotencyKey, KEYED.idempotencyKey]);
+    });
+
+    it('rides the network-error retry the same way — the lost-response case the ledger names', async () => {
+      const { fetch, requests } = fakeFetch([new TypeError('fetch failed'), 200]);
+
+      await new ResendMailSender(API_KEY, FROM, RESEND_ENV, { fetch }).send(KEYED);
+
+      expect(sentKeys(requests)).toEqual([KEYED.idempotencyKey, KEYED.idempotencyKey]);
+    });
+
+    it('is absent when the message carries no key: exactly the two documented headers go out', async () => {
+      const { fetch, requests } = fakeFetch([200]);
+
+      await new ResendMailSender(API_KEY, FROM, RESEND_ENV, { fetch }).send(INVITATION);
+
+      expect(Object.keys((requests[0]?.init.headers ?? {}) as Record<string, string>).sort()).toEqual([
+        'authorization',
+        'content-type',
+      ]);
+    });
+  });
+
   it('invariant 2: a 2xx is accepted on the first attempt, no retry, no error line', async () => {
     const { fetch, requests } = fakeFetch([200]);
 

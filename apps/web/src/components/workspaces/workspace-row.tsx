@@ -70,7 +70,7 @@ export interface WorkspaceRowProps {
 }
 
 type RowMode = 'idle' | 'renaming' | 'confirming-archive';
-type FocusTarget = 'rename-input' | 'rename-button' | 'archive-button' | 'confirm-button' | null;
+type FocusTarget = 'rename-input' | 'rename-button' | 'archive-button' | 'confirm-button';
 
 export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowProps): ReactElement {
   const idBase = useId();
@@ -86,11 +86,13 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
   // Bumped per failed rename attempt so an identical failure still moves focus to the field.
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<'rename' | 'archive' | null>(null);
-  // Focus is moved in an effect, once the target is actually mounted.
-  const [focusTarget, setFocusTarget] = useState<FocusTarget>(null);
+  // Focus is moved in an effect, once the target is actually mounted. Each request is
+  // a fresh object, so asking for the same target twice still re-runs the effect and
+  // the effect never has to reset the state it depends on (react-hooks/set-state-in-effect).
+  const [focusMove, setFocusMove] = useState<{ target: FocusTarget } | null>(null);
 
   useEffect(() => {
-    switch (focusTarget) {
+    switch (focusMove?.target) {
       case 'rename-input':
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -104,12 +106,10 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
       case 'confirm-button':
         confirmButtonRef.current?.focus();
         break;
-      case null:
-        return;
+      case undefined:
+        break;
     }
-
-    setFocusTarget(null);
-  }, [focusTarget]);
+  }, [focusMove]);
 
   useEffect(() => {
     if (fieldError !== null) {
@@ -121,23 +121,23 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
     setDraft(workspace.name);
     setFieldError(null);
     setMode('renaming');
-    setFocusTarget('rename-input');
+    setFocusMove({ target: 'rename-input' });
   }
 
   function closeRename(): void {
     setMode('idle');
     setFieldError(null);
-    setFocusTarget('rename-button');
+    setFocusMove({ target: 'rename-button' });
   }
 
   function openArchiveConfirm(): void {
     setMode('confirming-archive');
-    setFocusTarget('confirm-button');
+    setFocusMove({ target: 'confirm-button' });
   }
 
   function closeArchiveConfirm(): void {
     setMode('idle');
-    setFocusTarget('archive-button');
+    setFocusMove({ target: 'archive-button' });
   }
 
   async function handleRename(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -194,7 +194,7 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
     inFlight.current = false;
     setBusy(null);
     setMode('idle');
-    setFocusTarget('rename-button');
+    setFocusMove({ target: 'rename-button' });
 
     await onChanged({ kind: 'renamed', workspace: renamed });
   }
@@ -220,7 +220,7 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
       if (failure.kind !== 'aborted') {
         // The row stays as it was; the confirm closes and the list shows the message.
         setMode('idle');
-        setFocusTarget('archive-button');
+        setFocusMove({ target: 'archive-button' });
         onFailure(failure);
       }
 
@@ -241,7 +241,7 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
     }
   }
 
-  function handleConfirmKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+  function handleConfirmKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
     if (event.key === 'Escape') {
       event.preventDefault();
       closeArchiveConfirm();
@@ -347,7 +347,6 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
               role="group"
               aria-labelledby={confirmLabelId}
               aria-busy={busy === 'archive'}
-              onKeyDown={handleConfirmKeyDown}
             >
               <p id={confirmLabelId} className="workspace-archive-question">
                 Archive {workspace.name}? This cannot be undone here.
@@ -360,11 +359,12 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
                   onClick={() => {
                     void handleArchiveConfirmed();
                   }}
+                  onKeyDown={handleConfirmKeyDown}
                 >
                   {busy === 'archive' ? 'Archiving…' : 'Confirm'}{' '}
                   <span className="visually-hidden">archiving {workspace.name}</span>
                 </button>
-                <button type="button" className="secondary" onClick={closeArchiveConfirm}>
+                <button type="button" className="secondary" onClick={closeArchiveConfirm} onKeyDown={handleConfirmKeyDown}>
                   Cancel <span className="visually-hidden">archiving {workspace.name}</span>
                 </button>
               </div>

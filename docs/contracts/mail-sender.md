@@ -16,11 +16,13 @@ export type OutboundMail =
   | {
       template: 'email_verification';
       to: string;
+      idempotencyKey?: string; // 2026-08-19, debt sweep (1b-W1-08); see the dated note below
       data: { verificationUrl: string; expiresAt: Date };
     }
   | {
       template: 'workspace_invitation';
       to: string;
+      idempotencyKey?: string; // 2026-08-19, debt sweep (1b-W1-08); see the dated note below
       data: {
         inviteUrl: string;
         inviterEmail: string;
@@ -238,6 +240,18 @@ export interface FakeMailSender extends MailSender {
 > - `readResendBinding(env)` in `mail-transport.ts` is the one reader of `RESEND_API_KEY`,
 >   `MAIL_FROM` and `MAIL_REPLY_TO`; the assertion calls it to refuse and the factory calls it
 >   to construct, so "set" means the same thing on both paths (set and non-blank).
+> - **Added 2026-08-19 (debt sweep, ledger 1b-W1-08): `OutboundMail.idempotencyKey`, and the
+>   `Idempotency-Key` header.** The retry was unsafe in one window: a network throw does not
+>   say whether the provider accepted the message before the response was lost, so the one
+>   retry could send a second copy. When a message carries `idempotencyKey`,
+>   `ResendMailSender` now sends it as the `Idempotency-Key` header on BOTH attempts — the
+>   value is identical on the first attempt and the retry, which is what lets Resend
+>   deduplicate the pair. The invitation dispatch (`invitation-mail.ts`,
+>   `invitations.service.ts`) sets it to the invitation row's id: a uuid, stable, and not a
+>   secret. A message without the field sends no such header and keeps the pre-sweep
+>   behaviour — the double-send window then stands for that caller, which today is nobody
+>   (nothing dispatches `email_verification`). Every other sender ignores the field.
+>   `senders.spec.ts` pins presence, identity across the retry, and absence.
 >   `resolveMailTransport` is the ONE literal read of `MAIL_TRANSPORT`; the assertion goes
 >   through it. `mail-transport.spec.ts` scans `apps/api/src/**` (comments and strings
 >   stripped) and asserts `mail/mail-transport.ts` is the only file naming the variable and
@@ -392,7 +406,9 @@ logs declares `console`; a stack that declares nothing stays safe.
 - The `MAIL_SENDER` provider is a `useFactory` over `resolveMailTransport(process.env)`. The
   factory is the only construction site for `ResendMailSender` in shipped code.
 - Bodies are human-facing prose and get a `stop-slop` pass (GC-12).
-- `ResendMailSender` retries once on a 5xx or a network error, never on a 4xx.
+- `ResendMailSender` retries once on a 5xx or a network error, never on a 4xx. Since
+  2026-08-19 (1b-W1-08) both attempts carry the message's `idempotencyKey` as the
+  `Idempotency-Key` header when the caller set one, so the retry cannot double-send.
 - Resend's free tier caps at 100 messages a day. Exceeding it surfaces as
   `mail_dispatch_failed`, and the operator's flow otherwise succeeded.
 - No error message and no log line interpolates `RESEND_API_KEY`, `MAIL_FROM` or the raw

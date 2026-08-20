@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 
 import { INVITATIONS_LIST_MESSAGES, InvitationsList, STATE_LABELS, displayState } from './invitations-list';
-import type { InvitationScreenFailure } from './invite-form';
+import type { InvitationScreenFailure } from './invitations-api';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
@@ -196,7 +196,8 @@ describe('invitations list: revoke is a two-step inline confirm', () => {
 
     const revoke = screen.getByRole('button', { name: 'Revoke pending@client.test' });
     fireEvent.click(revoke);
-    fireEvent.keyDown(screen.getByRole('group'), { key: 'Escape' });
+    // The key lands on the focused Confirm button, where a real keyboard user's would.
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Confirm revoking pending@client.test' }), { key: 'Escape' });
 
     expect(screen.queryByRole('group')).toBeNull();
     expect(document.activeElement).toBe(revoke);

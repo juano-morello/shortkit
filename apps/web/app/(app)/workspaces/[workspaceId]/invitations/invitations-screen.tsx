@@ -47,9 +47,13 @@ import type { Invitation, Workspace } from '@shortkit/contracts';
 
 import { RETURN_TO_PARAM, SIGN_IN_ROUTE, WORKSPACES_ROUTE } from '../../../../../src/components/auth/routes';
 import { INVITATION_MESSAGES } from '../../../../../src/components/invitations/invitation-state-message';
-import { InviteForm, classifyInvitationScreenError } from '../../../../../src/components/invitations/invite-form';
-import type { InvitationScreenFailure } from '../../../../../src/components/invitations/invite-form';
-import { INVITATIONS_ROUTE, listInvitationsRequest } from '../../../../../src/components/invitations/invitations-api';
+import { InviteForm } from '../../../../../src/components/invitations/invite-form';
+import {
+  INVITATIONS_ROUTE,
+  classifyInvitationScreenError,
+  listInvitationsRequest,
+} from '../../../../../src/components/invitations/invitations-api';
+import type { InvitationScreenFailure } from '../../../../../src/components/invitations/invitations-api';
 import { InvitationsList } from '../../../../../src/components/invitations/invitations-list';
 import { apiClient } from '../../../../../src/lib/api/client';
 
@@ -96,7 +100,9 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
   const [items, setItems] = useState<Invitation[]>(initialItems);
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [focusStatus, setFocusStatus] = useState(false);
+  // Bumped when an announcement must also take focus; a counter rather than a
+  // reset-in-effect boolean, so the effect below only reads it (react-hooks/set-state-in-effect).
+  const [focusStatus, setFocusStatus] = useState(0);
   const [reloading, setReloading] = useState(false);
   // Bumped per failure so an identical alert re-mounts and is announced again.
   const [attempt, setAttempt] = useState(0);
@@ -108,9 +114,8 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
   const [now, setNow] = useState<number>(() => Date.now());
 
   useEffect(() => {
-    if (focusStatus) {
+    if (focusStatus > 0) {
       statusRef.current?.focus();
-      setFocusStatus(false);
     }
   }, [focusStatus]);
 
@@ -156,7 +161,7 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
       setStatus(message);
 
       if (moveFocusToStatus) {
-        setFocusStatus(true);
+        setFocusStatus((n) => n + 1);
       }
     }
   }

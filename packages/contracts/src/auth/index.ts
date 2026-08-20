@@ -17,6 +17,8 @@
  */
 import { z } from 'zod';
 
+import { NAME_CONTROL_CHARACTERS_MESSAGE, containsControlCharacter } from '../workspaces';
+
 /**
  * ADR-0047. Better Auth's own floor and ceiling, adopted deliberately rather than
  * inherited from `dist/context/create-context.mjs:185-186`'s `|| 8` and `|| 128`.
@@ -34,16 +36,38 @@ export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 
 /**
+ * Added 2026-08-19 (debt sweep, ledger 1b-W1-09): the signup name gains a ceiling. The
+ * field had a floor (`min(1)`) and no ceiling; 200 characters is generous for a person's
+ * name and stops a 32 KB one riding the auth body cap into `user.name` — and from there,
+ * verbatim, into `tenants.name` (`on-user-created.ts`, F-198). Same shape as the password
+ * bounds: a constant here, asserted through the parse in `auth.spec.ts`.
+ */
+export const SIGNUP_NAME_MAX_LENGTH = 200;
+
+/**
  * `name` is REQUIRED. `better-auth@1.6.26` answers 400 to a sign-up body without it —
  * measured, and recorded at `apps/api/test/support/auth-fixture.ts:56-60`.
  *
- * There is no email-verification field on any shape in this module. Verification is off
- * in this initiative by a dated decision.
+ * Added 2026-08-19 (debt sweep, ledger 1b-W1-09): control characters are refused, with the
+ * rule and fixed message `../workspaces` exports for every name field. THIS FIELD IS ALSO
+ * THE TENANT NAME — `on-user-created.ts` copies `user.name` verbatim into `tenants.name`
+ * (F-198, Juano's ruling) — so the refusal covers the ledger's "workspace and TENANT
+ * names" both. Honest limit of the change: Better Auth is the wire enforcer for this
+ * endpoint and validates neither bound (no Nest pipe parses this schema, see the file
+ * header), so a direct HTTP signup can still plant a control character or a long name;
+ * this contract refuses it everywhere the repository parses — the web form
+ * (`credential-form.tsx`) before submit, and any future server-side reader. No trim, on
+ * purpose: Better Auth stores the field as sent, and a contract that trims would state a
+ * shape the wire does not have.
  */
 export const signUpRequestContract = z.object({
   email: z.string().email(),
   password: z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH),
-  name: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .max(SIGNUP_NAME_MAX_LENGTH)
+    .refine((name) => !containsControlCharacter(name), NAME_CONTROL_CHARACTERS_MESSAGE),
 });
 
 export type SignUpRequest = z.infer<typeof signUpRequestContract>;

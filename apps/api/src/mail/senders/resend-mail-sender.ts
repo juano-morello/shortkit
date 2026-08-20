@@ -28,6 +28,14 @@
  * `send` NEVER THROWS INTO THE CALLER (invariant 3). RETRY ONCE ON 5xx / NETWORK, NEVER 4xx.
  * ============================================================================
  *
+ * THE RETRY IS SAFE BECAUSE OF THE `Idempotency-Key` (2026-08-19, debt sweep, 1b-W1-08).
+ * A network throw does not say whether the provider accepted the message before the
+ * response was lost, so a bare retry could send twice. When the `OutboundMail` carries an
+ * `idempotencyKey` (the invitation dispatch sets the invitation id), both attempts send
+ * it as the `Idempotency-Key` header and Resend deduplicates. A message without a key
+ * keeps the pre-sweep behaviour: no header, and the double-send window stands for that
+ * caller alone.
+ *
  * By the time this runs the caller's transaction has committed (`afterCommit`, ADR-0002),
  * so a failure here cannot roll anything back and must not turn a created invitation into a
  * 5xx. The final failure is one error line, `msg: 'mail_dispatch_failed'`, fields `template`,
@@ -129,14 +137,17 @@ export class ResendMailSender implements MailSender {
       ...(this.replyTo === undefined ? {} : { reply_to: this.replyTo }),
     });
 
-    const first = await this.attempt(body);
+    const first = await this.attempt(body, message.idempotencyKey);
 
     // Exactly one retry, and only for a failure the provider did not decide (a 5xx or no
     // answer at all). A 4xx is the provider deciding, and asking again changes nothing.
-    return !first.accepted && first.retryable ? this.attempt(body) : first;
+    // The idempotency key is IDENTICAL on both attempts — that identity is the whole
+    // point (1b-W1-08): a first attempt whose response was lost after acceptance and its
+    // retry carry one key, so Resend deduplicates instead of sending twice.
+    return !first.accepted && first.retryable ? this.attempt(body, message.idempotencyKey) : first;
   }
 
-  private async attempt(body: string): Promise<Attempt> {
+  private async attempt(body: string, idempotencyKey?: string): Promise<Attempt> {
     let response: Response;
 
     try {
@@ -145,6 +156,9 @@ export class ResendMailSender implements MailSender {
         headers: {
           authorization: `Bearer ${this.apiKey}`,
           'content-type': 'application/json',
+          // 2026-08-19 (1b-W1-08): Resend deduplicates on this header. Present only when
+          // the message carries a key; the value is the caller's (the invitation id).
+          ...(idempotencyKey === undefined ? {} : { 'Idempotency-Key': idempotencyKey }),
         },
         body,
       });

@@ -198,6 +198,7 @@ export class InvitationsService {
     await dispatchInvitationMailAfterCommit(actor.tenantId, this.mail, () =>
       renderInvitationMail({
         raw: issued.raw,
+        invitationId: row.id, // 2026-08-19 (1b-W1-08): the mail's Idempotency-Key
         to: row.email,
         inviterEmail: row.inviterEmail,
         tenantName,

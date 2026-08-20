@@ -1,4 +1,6 @@
 import js from '@eslint/js';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -118,6 +120,46 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  {
+    // ========================================================================
+    // REACT HOOK RULES COVER EVERY apps/web MODULE, NOT ONLY THE .tsx ONES.
+    // ========================================================================
+    //
+    // The preset is the plugin's flat `recommended` (`configs.flat.recommended`); the
+    // spread keeps its rules and this block's `files` does the scoping the preset leaves
+    // to the consumer. Scoped to `{ts,tsx}` rather than `tsx` because hooks are not a JSX
+    // feature: `use-session.ts` is a plain .ts module and every rule here must hold in it.
+    // Scoped to `apps/web` because React exists only there — the api and contracts trees
+    // must lint identically with or without this block.
+    //
+    // `exhaustive-deps` is raised from the preset's `warn` to `error`: this repo gates on
+    // lint, and a warning is a line in a log nobody is required to read. A deliberate
+    // dependency omission is restructured (value into the effect, or `useCallback`) rather
+    // than disabled; where a documented pattern needs an extra dep the rule cannot see
+    // (the focus effects keyed by `attempt`), the dep is listed, not the rule switched off.
+    files: ['apps/web/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      ...reactHooks.configs.flat.recommended.rules,
+      'react-hooks/exhaustive-deps': 'error',
+    },
+  },
+  {
+    // ========================================================================
+    // ACCESSIBILITY RULES FOR THE MARKUP: jsx-a11y ON THE .tsx FILES.
+    // ========================================================================
+    //
+    // The plugin's flat `recommended` (`flatConfigs.recommended`), scoped to the files
+    // that contain JSX — `apps/web/**/*.tsx`, there are no .jsx files — so a .ts module
+    // or anything under apps/api and packages/contracts never pays for JSX analysis.
+    // The preset's `languageOptions` only turns on `ecmaFeatures.jsx`, which the
+    // typescript-eslint parser already does for .tsx, so only its rules are taken.
+    files: ['apps/web/**/*.tsx'],
+    plugins: { 'jsx-a11y': jsxA11y },
+    rules: {
+      ...jsxA11y.flatConfigs.recommended.rules,
     },
   },
   {
