@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { AppModule } from '../../src/app.module';
 import { dbQueryCounter } from '../../src/cache/db-query-counter';
+import { clearRedirectCache } from '../cache/cold-cache';
 import { closeDatabase, databaseTransaction } from '../../src/db/client';
 import {
   PLATFORM_TENANT_ID,
@@ -46,6 +47,14 @@ import {
  * made fast. `dbQueryCounter` is asserted here in the other direction, where a resolution
  * costs exactly four statements and a rejected shape costs none, which is the measurement
  * TASK-2-07 then drives to zero on a hit.
+ *
+ * AMENDED after item 2's first integration run against a runner. TASK-2-07 landed and this
+ * file was not revisited, so with a real Redis bound five assertions here and in
+ * `test/clicks/click-emission.int-spec.ts` measured the cache rather than what their names
+ * say. They passed locally only because a run with no `REDIS_URL` binds a cache that answers
+ * `unavailable` to every read. The premise above is now made true instead of assumed:
+ * `beforeEach` clears this run's keys, so each test starts cold. The redirect reads Postgres
+ * on every request IN THIS FILE, because this file empties the cache first.
  *
  * ============================================================================
  * HOSTNAMES ARE REAL, NOT HEADERS SOMEONE OVERRODE.
@@ -340,7 +349,12 @@ beforeAll(async () => {
  * two-tenant fixture per test would spend a psql round trip per assertion to restore state
  * no assertion can disturb.
  */
-beforeEach(() => {
+beforeEach(async () => {
+  // COLD, PER TEST, AND THE ASSERTIONS BELOW DEPEND ON IT. Every statement count here, the
+  // saturated-pool 404 and the two-domain resolution all describe a request that reaches
+  // Postgres. A cached record from the test above answers instead, and each one measured
+  // something else: see `cold-cache.ts` for the run that proved it.
+  await clearRedirectCache();
   dbQueryCounter.reset();
 });
 

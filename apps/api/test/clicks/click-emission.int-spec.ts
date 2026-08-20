@@ -24,6 +24,7 @@ import {
 } from '../../src/db/platform';
 import { REDIRECT_ROUTE_PREFIX_EXCLUSION } from '../../src/redirect/redirect.module';
 import { withTenantTransaction } from '../../src/tenancy/tenant-context';
+import { clearRedirectCache } from '../cache/cold-cache';
 import { startApiServer } from '../support/api-server';
 import { authServerEnv } from '../support/auth-fixture';
 import { execSql, querySql } from '../support/psql';
@@ -286,6 +287,10 @@ beforeEach(async () => {
   vi.stubEnv('TRUSTED_CLIENT_IP_HEADER', undefined);
   await buffer().flush();
   deleteClicks();
+  // The click a resolution enqueues carries the TENANT OF THE RECORD, so a cached record
+  // from the test above writes the row under the wrong tenant and this file's subject
+  // disappears. Cold, per test, for the reason `cold-cache.ts` gives.
+  await clearRedirectCache();
 });
 
 afterAll(async () => {
