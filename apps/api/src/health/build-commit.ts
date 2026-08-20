@@ -7,7 +7,7 @@
  * ADR-0027 settles three things this file implements: the variable is `GIT_COMMIT_SHA`,
  * its value is the full 40-character lowercase hexadecimal SHA of the commit that was
  * built, and its absence refuses. No `??`, no `||`, no default parameter and no sentinel
- * string — `commit: "unknown"` converts a broken build into a running service that lies
+ * string: `commit: "unknown"` converts a broken build into a running service that lies
  * about its identity, and F-225 records that the spec cannot tell the difference because
  * the spec always sets the variable.
  *

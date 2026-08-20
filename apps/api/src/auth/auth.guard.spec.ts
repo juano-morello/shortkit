@@ -14,7 +14,7 @@ import { InMemoryRevocationStore, RevocationStoreUnavailableError } from './revo
 import type { RevocationStore } from './revocation-store';
 
 /**
- * STORY-002 — AC-10, AC-11, AC-12, AC-13, over a real HTTP round trip. TASK-005, wave 4.
+ * STORY-002: AC-10, AC-11, AC-12, AC-13, over a real HTTP round trip. TASK-005, wave 4.
  *
  * Contract: `docs/contracts/auth-tokens.md` ("Verification, performed by `AuthGuard`",
  * "Invariants a caller may rely on" 3 and 4), `docs/contracts/error-envelope.md` (the 401
@@ -22,7 +22,7 @@ import type { RevocationStore } from './revocation-store';
  * rejecting `isRevoked`). ADR-0013, ADR-0012, ADR-0053, ADR-0024.
  *
  * ============================================================================
- * THE REAL GUARD, THE REAL FILTER, THE REAL MODULE GRAPH — AND A PROBE ROUTE BESIDE IT.
+ * THE REAL GUARD, THE REAL FILTER, THE REAL MODULE GRAPH, AND A PROBE ROUTE BESIDE IT.
  * ============================================================================
  *
  * The application is compiled from `AppModule`, the way `health.spec.ts` and
@@ -34,10 +34,10 @@ import type { RevocationStore } from './revocation-store';
  *
  * Two providers are overridden and nothing else: the key-set source, so tokens can be signed
  * here with a pair the process never fetches; and the revocation store, so a rejecting port
- * can be handed to the guard — the shipped `InMemoryRevocationStore` cannot reject and the
+ * can be handed to the guard: the shipped `InMemoryRevocationStore` cannot reject and the
  * skip-open branch is otherwise unreachable (`revocation-store.md`, "The read site must").
  *
- * The end-to-end half — a token minted by a real sign-in against a real `/api/auth/jwks` —
+ * The end-to-end half (a token minted by a real sign-in against a real `/api/auth/jwks`)
  * is `test/auth/auth-guard.int-spec.ts`.
  */
 
@@ -46,7 +46,7 @@ const TENANT_ID = '3f2a9c1e-7b4d-4e8a-9c6f-1d2e3f4a5b6c';
 const USER_ID = 'user_7d3e2f1a0b9c8d7e';
 const SESSION_ID = 'sess_1c9f0b7e2d4a6c8b';
 
-/** Every request that reached a handler, in order — AC-10's "the handler is never entered". */
+/** Every request that reached a handler, in order: AC-10's "the handler is never entered". */
 const handlerRuns: string[] = [];
 
 @Controller('api/guard-probe')
@@ -55,7 +55,7 @@ class GuardProbeController {
    * `@NoTenantTransaction` since TASK-006 (wave 5): the guard is what is under test here, and
    * this tier has no database. Without the marker the global `TenantTransactionInterceptor`
    * would open a real tenant transaction around this handler and 500 on the missing pool.
-   * The guard still runs in full for this route — that is exactly what the marker means.
+   * The guard still runs in full for this route: that is exactly what the marker means.
    */
   @Get('private')
   @NoTenantTransaction('guard spec: the guard alone is under test, and this tier has no database')

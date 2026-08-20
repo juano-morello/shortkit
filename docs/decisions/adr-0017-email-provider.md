@@ -219,8 +219,8 @@ and stays opt-in.
 - ~~TASK-010 owns~~ **Shipped 2026-08-18 by TASK-1b-02 (item 1b), TASK-010 having never
   landed:** `MailSender`, `OutboundMail`, all **four** implementations (`NoopMailSender` added
   by F-386), `assertMailTransportConfigured`, `resolveMailTransport`, the two test guards,
-  the `template` entry in `LOGGABLE_FIELDS` — **landed**, in `logger.ts` and the
-  `logging-and-headers.md` fence together — the invitation template, and a minimal
+  the `template` entry in `LOGGABLE_FIELDS` (**landed**, in `logger.ts` and the
+  `logging-and-headers.md` fence together), the invitation template, and a minimal
   verification template with no caller. The adapter is `fetch`, not the SDK; no dependency
   was added. The shipped shapes that go beyond the contract's block (the error class, the
   console block's exact bytes, the optional constructor options) are recorded as dated notes

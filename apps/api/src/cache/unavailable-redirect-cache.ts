@@ -10,7 +10,7 @@
  *
  * NOTE THE ONE DIFFERENCE FROM `RedisRedirectCache`: a deletion here RESOLVES rather than
  * rejecting. There is no cache to hold a stale key, so the invalidation TASK-2-08 performs
- * has genuinely succeeded — retrying it, or logging `cache_invalidation_failed` on a
+ * has genuinely succeeded. Retrying it, or logging `cache_invalidation_failed` on a
  * deployment that never had a cache, would be a per-mutation error line reporting a
  * condition that is not a failure. The loud part is the ONE boot warn line
  * (`boot_precondition: 'redirect_cache'`, `redis-client.ts`), which is the MAIL_TRANSPORT

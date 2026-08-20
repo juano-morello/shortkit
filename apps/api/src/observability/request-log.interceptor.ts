@@ -13,7 +13,7 @@
  *
  * `request_id`, `route`, `status`, `duration_ms`, and `tenant_id` when a `RequestContext`
  * exists. All five were named in `LOGGABLE_FIELDS` by ADR-0028's migration "ahead of the
- * request-log middleware a later TASK adds, so that TASK adds no names" — and this TASK adds
+ * request-log middleware a later TASK adds, so that TASK adds no names", and this TASK adds
  * none. The `msg` is a fixed string. Nothing from the request body, the headers, the query or
  * the concrete URL is on the record, so nothing here depends on the scan to censor it; the
  * scan is what stands behind a mistake in a later edit, not what this record leans on.
@@ -27,7 +27,7 @@
  *   - `tenant_id` IS READ FROM THE `RequestContext` THE GUARD WROTE, not from
  *     `currentTenantId()`: the guard runs before every interceptor, so the context is there
  *     whatever this interceptor's position, and the line is emitted after the transaction's
- *     store has been left. It is present only when a context exists — a `@Public()` route
+ *     store has been left. It is present only when a context exists: a `@Public()` route
  *     has none, and the line carries no `tenant_id` key rather than a null.
  *   - NO `method`. The contract's "Required fields" table does not name it, and a field
  *     reaches a line only if it is named (ADR-0028); adding it is a contract amendment first.
@@ -38,12 +38,12 @@
  *     MEASURED on @nestjs/core 11.1.28 with Express 5.2.1, before this file was written: an
  *     RxJS `finalize` on the handler's observable runs when the observable errors, which is
  *     BEFORE the promise rejection reaches Nest's router proxy and therefore before
- *     `ApiExceptionFilter` writes anything — at that moment `response.statusCode` is still
+ *     `ApiExceptionFilter` writes anything: at that moment `response.statusCode` is still
  *     the Express default `200` for a handler that threw a 404 and for one that threw a 500
  *     (`headersSent` false). On the success path Nest has already applied `@HttpCode` when
  *     the interceptor is entered (a `@Post()` reads `201` before the handler runs), so
  *     `finalize` would have been right for 2xx and wrong for every error. The response's
- *     `'finish'` event fires after the filter has written — measured `404` and `500` there —
+ *     `'finish'` event fires after the filter has written (measured `404` and `500` there)
  *     so that is the hook, with `'close'` as the fallback for a response the client
  *     abandoned before it finished (Node emits `'close'` after `'finish'` too, so the flag
  *     below keeps it to one line either way).
@@ -86,15 +86,15 @@ const REQUEST_COMPLETED = 'request completed';
 
 /**
  * What `route` says when Express has no matched route on the request. Unreachable through
- * Nest — an interceptor runs only around a matched handler, and Express sets `req.route`
- * before the handler stack runs — but a concrete path is what must NEVER be substituted, so
+ * Nest: an interceptor runs only around a matched handler, and Express sets `req.route`
+ * before the handler stack runs, but a concrete path is what must NEVER be substituted, so
  * the fallback is a fixed word rather than `req.path`.
  */
 const NO_ROUTE_PATTERN = 'unmatched';
 
 /**
  * What this interceptor reads from the request: the matched Express route (its `path` is the
- * PATTERN, `/api/workspaces/:id`, global prefix included — measured on Express 5.2.1 under
+ * PATTERN, `/api/workspaces/:id`, global prefix included; measured on Express 5.2.1 under
  * Nest's `setGlobalPrefix`), the header bag and id slot `request-id.ts` reads, and the
  * property the guard wrote. `apps/api` types the request by the members it uses rather than importing Express's
  * type, the way `exception-filter.ts` does.
@@ -153,7 +153,7 @@ export class RequestLogInterceptor implements NestInterceptor {
   }
 }
 
-/** The matched pattern, and never the concrete path — see `NO_ROUTE_PATTERN`. */
+/** The matched pattern, and never the concrete path; see `NO_ROUTE_PATTERN`. */
 function routePattern(request: LoggedRequest): string {
   const path = request.route?.path;
 

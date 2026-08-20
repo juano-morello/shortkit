@@ -34,7 +34,7 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # Not on the default branch. Cancelling is right on a feature branch or a pull request,
-  # where only the latest push matters — but two merges landing close together on `main`
+  # where only the latest push matters, but two merges landing close together on `main`
   # would cancel the first one's run, leaving that commit with a `gate` check of
   # `cancelled` and no green record.
   #
@@ -42,8 +42,8 @@ concurrency:
   # run per group, so a third merge arriving inside the same window still displaces the
   # pending middle commit, which ends up with no verdict of its own. Fully per-commit
   # verdicts would need `cancel-in-progress: false` and a queue, and the cost of that on a
-  # solo project is not worth what it buys. Cancelled is a safe direction to fail in — the
-  # `gate` job below treats it as failure — so this is bookkeeping, not a hole.
+  # solo project is not worth what it buys. Cancelled is a safe direction to fail in (the
+  # `gate` job below treats it as failure), so this is bookkeeping, not a hole.
   cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
     name: quality
     runs-on: ubuntu-latest
     # Observed 56s on the first green run (31113561948). GitHub Actions offers no
-    # separate queue timeout — `timeout-minutes` bounds queue time and execution time
+    # separate queue timeout: `timeout-minutes` bounds queue time and execution time
     # together, counted from `started_at`. 30 minutes is roughly thirty times observed
     # execution, which absorbs a slow registry, a cold Next build and a congested runner
     # pool, and still bounds the job: `pull_request` on a public repo runs an attacker's
@@ -60,7 +60,7 @@ jobs:
     # beats 360.
     #
     # F-219 (2026-08-06): a run can be CANCELLED at exactly this bound with every step
-    # unexecuted — GitHub's queue congested for over an hour and cancelled three jobs
+    # unexecuted: GitHub's queue congested for over an hour and cancelled three jobs
     # before any of them started. That run and a genuine failure both report `failure` /
     # `cancelled` at a glance. THE SIGNATURE: `gh api .../actions/runs/<id>/jobs` shows
     # ZERO STEPS EXECUTED on a queue-cancelled job, and at least one step on a job that
@@ -78,14 +78,14 @@ jobs:
     # That divergence is what makes the job-level scope above cheap: every step in this
     # job, including `pnpm install`'s build scripts, sees a random base64url string that
     # authenticates nothing. Setting this secret to the production value would silently
-    # convert that reach into a real exposure — the rule and its rotation are recorded in
+    # convert that reach into a real exposure. The rule and its rotation are recorded in
     # docs/security/ci-secrets.md, which is the file to read before changing either value.
     env:
       BFF_PROXY_SECRET: ${{ secrets.BFF_PROXY_SECRET }}
       NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
       API_BASE_URL: ${{ vars.API_BASE_URL }}
     steps:
-      # persist-credentials: false — the default writes GITHUB_TOKEN into .git/config as an
+      # persist-credentials: false. The default writes GITHUB_TOKEN into .git/config as an
       # http.extraheader, readable by every later step including dependency build scripts.
       # Nothing after checkout runs git, so nothing needs it. Its reach today is bounded
       # entirely by `permissions: contents: read`, which is exactly why it should not be
@@ -97,13 +97,13 @@ jobs:
       - uses: ./.github/actions/setup-toolchain
 
       # FAIL FAST AND SAY WHY, NEVER SKIP. `assert:no-secrets` already refuses to run
-      # without this value — correctly, since a search with nothing to search for is a
+      # without this value, correctly, since a search with nothing to search for is a
       # vacuous pass, which is the whole shape F-156 exists to prevent. What that failure
       # does not say is WHY the value is missing on this particular run, and there are two
       # non-obvious causes:
       #
       #   1. Dependabot. GitHub runs Dependabot-triggered `push` and `pull_request` events
-      #      with Dependabot secrets only — Actions secrets are not exposed — so
+      #      with Dependabot secrets only (Actions secrets are not exposed), so
       #      `secrets.BFF_PROXY_SECRET` is empty on every bump PR unless the same value is
       #      ALSO registered under Settings > Secrets and variables > Dependabot. ADR-0018
       #      makes Dependabot the only mechanism that raises a version, so this failing
@@ -113,14 +113,14 @@ jobs:
       #
       # This step is deliberately NOT a conditional skip of the AC-113 steps below. A skip
       # would report the guard as having run, which is the vacuous green the guard exists
-      # to prevent — four minutes earlier and with a friendlier log.
+      # to prevent, four minutes earlier and with a friendlier log.
       #
       # No step-level `env:` here on purpose. It would re-declare BFF_PROXY_SECRET from
       # the same expression the job-level block forty lines above declares it from, and
       # the stated reason for that block is that the value is declared exactly ONCE so no
       # two places can drift. Two identical declarations are identical only until one of
       # them is edited: change the job-level value and leave this one, and this step
-      # prints `OK: BFF_PROXY_SECRET is present.` on a run where the build got nothing —
+      # prints `OK: BFF_PROXY_SECRET is present.` on a run where the build got nothing:
       # a preflight that green-lights the exact condition it exists to catch. It reads
       # the job-level declaration instead, which is the value the build will actually see.
       - name: Assert the inlined-secret guard has a value to search for
@@ -140,7 +140,7 @@ jobs:
       # advisories: `--no-optional` (F-226, F-230) also takes every optional-peer edge out
       # of the graph, and that now includes `sharp` and the `@next/swc-*` binaries, which
       # run in the Vercel build and are real production code. That is an accepted cost,
-      # not an oversight — the weekly `dependencies` workflow still reports everything
+      # not an oversight. The weekly `dependencies` workflow still reports everything
       # this step is blind to, which downgrades detection from a red check to an email.
       # Two obligations, not one gate run twice.
       - name: Audit production dependencies
@@ -169,7 +169,7 @@ jobs:
         run: pnpm --filter @shortkit/web assert:no-secrets
 
       # AC-14, specified in test-strategy.md and revised by F-091 to two mutations.
-      # Last because it is the slowest step here — it runs the recursive typecheck twice —
+      # Last because it is the slowest step here (it runs the recursive typecheck twice),
       # and everything above fails faster.
       - name: Assert a breaking contract change fails a consumer's typecheck
         run: node .github/scripts/assert-contract-drift.mjs
@@ -178,9 +178,9 @@ jobs:
     name: integration
     runs-on: ubuntu-latest
     # Observed 51s on run 31113561948, of which 14s was pulling and starting the service
-    # container. Same 30-minute bound and the same reasoning as `quality` — see its
+    # container. Same 30-minute bound and the same reasoning as `quality` (see its
     # comment for why the bound covers queue time as well as execution, and for the
-    # zero-steps-executed signature that tells the two apart (F-219) — with one extra
+    # zero-steps-executed signature that tells the two apart, F-219), with one extra
     # margin here: `test/support/psql.ts` falls back to `docker run … psql` per statement
     # if the runner image ever stops shipping a client, which took 24s locally against
     # 10s here.
@@ -195,11 +195,11 @@ jobs:
       # the compose file does.
       DATABASE_URL: postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test
       DATABASE_MIGRATION_URL: postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test
-      # shortkit_auth (ADR-0050). No fallback to DATABASE_URL — see docker-compose.test.yml's
+      # shortkit_auth (ADR-0050). No fallback to DATABASE_URL. See docker-compose.test.yml's
       # header, which this block stays identical to.
       DATABASE_AUTH_URL: postgres://shortkit_auth:auth@127.0.0.1:55433/shortkit_test
       # Redis, on the port docker-compose.test.yml publishes, WITHOUT the fixture password
-      # that file's service carries — and the difference is a limitation, not a choice.
+      # that file's service carries, and the difference is a limitation, not a choice.
       # GitHub's `services:` has no `command:` (the same shape as its missing `configs:`,
       # noted at the postgres provisioning step below), so a service container cannot be
       # given `redis-server --requirepass`. What makes that acceptable here and not in a
@@ -209,8 +209,8 @@ jobs:
       # is one a deployment could copy into an authenticated topology.
       REDIS_URL: redis://127.0.0.1:56380
       # `ci-<run_id>`, the collision rule redirect-cache.md fixes: every key this job writes
-      # begins `sk:ci-<run_id>:`, so two concurrent CI jobs — and CI and anything else that
-      # ever shared an instance — cannot read each other's records. Never `dev` and never
+      # begins `sk:ci-<run_id>:`, so two concurrent CI jobs (and CI and anything else that
+      # ever shared an instance) cannot read each other's records. Never `dev` and never
       # `prod`. The variable is REQUIRED whenever REDIS_URL is set; boot refuses naming it.
       REDIS_KEY_NAMESPACE: ci-${{ github.run_id }}
       # The hostname the seeded system default domain carries (D-2-02). Portless: hostname
@@ -219,7 +219,7 @@ jobs:
       # The HMAC key that pseudonymises visitor addresses into `click_events.ip_hash`
       # (docs/contracts/click-events.md, D-2-17). 32 bytes base64url. A fixture, and the
       # only data it ever hashes is the fixture addresses this job's own suite invents.
-      # Not the compose value being reused as a secret — there is no secret here to reuse.
+      # Not the compose value being reused as a secret. There is no secret here to reuse.
       CLICK_IP_HASH_KEY: local-fixture-click-ip-hash-key-fake-values
     services:
       postgres:
@@ -235,14 +235,14 @@ jobs:
           - 55433:5432
         # NOT `pg_isready` (F-127). The postgres entrypoint runs initdb, starts a
         # TEMPORARY socket-only server, then stops it and starts the real one. `pg_isready`
-        # does not authenticate — its -U and -d only affect what the server logs — and with
+        # does not authenticate (its -U and -d only affect what the server logs), and with
         # no -h it uses the unix socket, so a probe landing in that window returns 0 and
         # the service is marked healthy while the next command gets ECONNREFUSED.
         #
         # This probe authenticates, over TCP, against a real database on the real server.
         # It cannot be the compose file's probe (authenticating as shortkit_app against
         # shortkit_test) because GitHub Actions has no way to create those roles before the
-        # service starts — see the provisioning step below. The rest of F-127's property is
+        # service starts. See the provisioning step below. The rest of F-127's property is
         # recovered there and in `db:check-policies`, which is the first thing to connect
         # over the host mapping as shortkit_app.
         options: >-
@@ -272,7 +272,7 @@ jobs:
           --health-retries 30
           --health-start-period 5s
     steps:
-      # persist-credentials: false — see the note on the same step in `quality`.
+      # persist-credentials: false. See the note on the same step in `quality`.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
@@ -306,7 +306,7 @@ jobs:
       # ORDER IS LOAD-BEARING. This runs after `db:migrate` and BEFORE the suite.
       # apps/api/test/support/rls-fixture.ts drops and recreates `tenants` per test and
       # drops it again on teardown, so after the suite schema `public` holds either an
-      # unprotected fixture table or nothing at all — and the migrator skips an already-
+      # unprotected fixture table or nothing at all, and the migrator skips an already-
       # recorded migration, so re-running `db:migrate` would not repair it.
       - name: Assert row-level security is on for every migrated table
         run: pnpm --filter @shortkit/api db:check-policies
@@ -322,7 +322,7 @@ jobs:
 
       # AC-114 / F-064 obligation 2. vitest already fails a run matching zero FILES
       # (passWithNoTests was removed by TASK-005), but a matched file with no tests inside
-      # it still exits 0 — a job that stands up Postgres and asserts nothing, reporting
+      # it still exits 0: a job that stands up Postgres and asserts nothing, reporting
       # green.
       - name: Assert the integration suite collected tests
         run: node .github/scripts/assert-integration-collected.mjs "${{ runner.temp }}/integration-results.json"
@@ -333,7 +333,7 @@ jobs:
   # AC-6 and minted AC-115 in its place, which makes `scripts/check-compose-stack.sh` the
   # only evidence this repository runs as a system rather than as a test suite. Until this
   # job existed it had been measured exactly once, by hand, and a change to the Dockerfile,
-  # `docker-compose.yml`, the roles SQL, the migration or the seed broke it silently — the
+  # `docker-compose.yml`, the roles SQL, the migration or the seed broke it silently, the
   # next person to find out being the next person to clone. `docs/roadmap.md` holds this
   # project to the opposite standard in its own words: the isolation harness ships its
   # negative controls "so those measurements run on every CI run rather than once on the
@@ -341,7 +341,7 @@ jobs:
   #
   # A schedule was the other defensible option and is weaker on the thing that matters.
   # `dependencies.yml` is scheduled because it re-asks a question about UNCHANGED code, and
-  # its header records the reasoning; this check is the opposite — it only ever goes red
+  # its header records the reasoning; this check is the opposite: it only ever goes red
   # because something in the tree changed, and a nightly reports that up to a day later,
   # attached to no commit. Same triggers as the rest of the gate, so the run that breaks it
   # is the run that names it.
@@ -349,7 +349,7 @@ jobs:
   # NOT PATH-FILTERED. Everything the four images are built from feeds it: the lockfile,
   # both Dockerfiles, every migration, the seed, and `apps/api/src` itself. A filter that
   # covered all of that would fire on nearly every push anyway, and the mechanism it needs
-  # — a job that skips — is exactly what the `gate` comment below says GitHub counts as
+  # (a job that skips) is exactly what the `gate` comment below says GitHub counts as
   # satisfying a required check.
   #
   # ⚠ NEVER OBSERVED ON A GITHUB RUNNER. Every measurement of this script to date was taken
@@ -357,7 +357,7 @@ jobs:
   # CI, and a red one is a result rather than a regression. What it needs is git, node,
   # Docker with Compose v2, ports 3000/3001/55432 free, and a shell with none of
   # POSTGRES_USER, SHORTKIT_MIGRATOR_PASSWORD or SHORTKIT_APP_PASSWORD exported. The script
-  # exits 2, distinctly, when it could not run at all — read a 2 as "nothing was measured",
+  # exits 2, distinctly, when it could not run at all. Read a 2 as "nothing was measured",
   # not as an AC-115 failure. The clause table it prints says which reading applies.
   compose:
     name: compose
@@ -365,12 +365,12 @@ jobs:
     # Two `up`s and a `restart` against four images built cold, with no layer cache between
     # runs. The script bounds each `up` itself at SHORTKIT_CHECK_UP_TIMEOUT (900s, left at
     # its default here), so its own worst case is around 32 minutes; this bound sits above
-    # that and absorbs checkout, install and queue time on top — see `quality` for why
+    # that and absorbs checkout, install and queue time on top. See `quality` for why
     # `timeout-minutes` covers queue time as well as execution, and for the
     # zero-steps-executed signature that tells a queue cancellation apart from a defect.
     timeout-minutes: 45
     steps:
-      # persist-credentials: false — see the note on the same step in `quality`. The script
+      # persist-credentials: false. See the note on the same step in `quality`. The script
       # DOES run git after checkout, but only `git rev-parse --show-toplevel` and
       # `git ls-files`, neither of which touches a remote.
       - uses: actions/checkout@v7
@@ -387,7 +387,7 @@ jobs:
       # the fixture passwords exported, because a value present here silently repairs a
       # missing `$$` escape in the compose file and turns a stack that is red on a clean
       # machine green on this one (F-315, F-316).
-      - name: AC-115 — the whole stack comes up from nothing
+      - name: AC-115, the whole stack comes up from nothing
         run: pnpm test:compose
 
   # ADR-0018 LAYER 1, THE PR PERFORMANCE GATE. Produced by TASK-2-11, built rather than
@@ -634,13 +634,13 @@ jobs:
   # block a merge. That is the shape F-390 filed against `check-compose-stack.sh`, which
   # existed and was wired into nothing.
   #
-  # ⚠ `needs:` ALONE DOES NOT GATE. A job whose `needs` dependency failed does not fail —
+  # ⚠ `needs:` ALONE DOES NOT GATE. A job whose `needs` dependency failed does not fail:
   # it is SKIPPED, and it publishes a check run named `gate` with conclusion `skipped`.
   # GitHub's status-check reference counts `success`, `skipped` AND `neutral` as satisfying
   # a required check, so branch protection requiring only `gate` raised no objection on a
-  # run where `quality` went red. Every control this job fans in — `pnpm audit`,
+  # run where `quality` went red. Every control this job fans in (`pnpm audit`,
   # `db:check-policies`, the AC-113 inlined-secret guard, the AC-114 collection assertion,
-  # the AC-115 stack check, the redirect p99 budget, lint, typecheck, test, build — blocked
+  # the AC-115 stack check, the redirect p99 budget, lint, typecheck, test, build) blocked
   # nothing. Not weakened
   # in the failure case: inoperative in it, which is the only case the gate exists for.
   #
@@ -649,7 +649,7 @@ jobs:
   # than quietly replaced.
   #
   # So: `if: always()` to make the job RUN whatever its dependencies did, and an explicit
-  # assertion on each result. `always()` here does not mask a failure (AC-5) — it is what
+  # assertion on each result. `always()` here does not mask a failure (AC-5): it is what
   # lets the step below observe one. `needs.<job>.result` is `success`, `failure`,
   # `cancelled` or `skipped`, and only the first passes; `cancelled` is reachable through
   # the `concurrency` block above, which cancels superseded runs on every ref except the
@@ -692,7 +692,7 @@ jobs:
           done
 
           if [ "$failed" -ne 0 ]; then
-            echo 'The merge gate fails when any job is anything but success — including skipped and cancelled.'
+            echo 'The merge gate fails when any job is anything but success, including skipped and cancelled.'
             exit 1
           fi
 

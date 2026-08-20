@@ -11,7 +11,7 @@
  *
  * ~~TODAY THIS SEED COVERS ONE TABLE, BECAUSE THE SCHEMA HAS ONE TABLE.~~ Corrected
  * 2026-08-19 (TASK-2-02): THREE TABLES, FOUR ROWS, TWO TENANTS. The schema now has ten
- * tables and this seed writes `tenants` (twice — the demo tenant and the platform
+ * tables and this seed writes `tenants` (twice: the demo tenant and the platform
  * tenant), `workspaces` (the platform workspace) and `domains` (the system default
  * domain row). It still writes no user, no membership, no invitation, no link and no
  * click event.
@@ -20,7 +20,7 @@
  * convenience nothing depends on; the platform tenant, its workspace and the system
  * default domain row are what `POST /api/links`'s foreign key resolves against and what
  * `GET /:slug` resolves a hostname to. Without them the product does not work, which
- * makes this file load-bearing in a way it was not at wave 0 — see the second group's
+ * makes this file load-bearing in a way it was not at wave 0. See the second group's
  * docblock for why a migration `INSERT` is not the alternative (F-236).
  *
  * So a passing `docker compose up` proves that those four rows exist and that
@@ -53,7 +53,7 @@
  * rather than credited.
  *
  * Node runs this by stripping the types (`.mts`, no build step), so nothing here may use
- * syntax that needs emit — no enums, no namespaces, no decorators, no parameter properties.
+ * syntax that needs emit: no enums, no namespaces, no decorators, no parameter properties.
  */
 import { pathToFileURL } from 'node:url';
 
@@ -113,7 +113,7 @@ export interface SeedUnit {
  *
  * `app.tenant_id` names ONE tenant, and `tenants_self_insert` admits exactly the tenant
  * whose context it is already in (ADR-0021), so seeding two tenants needs two
- * transactions — there is no flag value under which both inserts are policy-correct, and
+ * transactions: there is no flag value under which both inserts are policy-correct, and
  * a single transaction switching the flag half way through would defeat rule 5 for the
  * units before the switch. So the array below is groups, each group opens and commits its
  * own transaction under its own flag, and rule 5 becomes: a failing unit leaves ITS
@@ -142,7 +142,7 @@ export interface SeedTransaction {
  *     `DO UPDATE`: that clobbers a value a developer changed by hand, which is the same
  *     destruction TRUNCATE performs, arriving one row at a time.
  *  2. It may run against a non-empty database and it runs on every `up`. There is no
- *     "already seeded" marker — that would be state about state, and the database is
+ *     "already seeded" marker: that would be state about state, and the database is
  *     already the state. Running always is what makes rule 1 load-bearing.
  *  3. It never deletes and never updates. No TRUNCATE, no DELETE, no ALTER. The reset is
  *     `docker compose down -v` and it is the only one.
@@ -163,7 +163,7 @@ export const SEED_TRANSACTIONS: readonly SeedTransaction[] = [
           // `tenants` carries FORCE ROW LEVEL SECURITY and `tenants_self_insert` admits only
           // a row whose id equals current_setting('app.tenant_id'), so this insert is
           // policy-correct only because the harness set the flag first. No role in this
-          // stack can insert a tenant without it — the seed is written against that rather
+          // stack can insert a tenant without it. The seed is written against that rather
           // than around it.
           const result = await client.query(
             'insert into tenants (id, name) values ($1, $2) on conflict (id) do nothing',
@@ -184,8 +184,8 @@ export const SEED_TRANSACTIONS: readonly SeedTransaction[] = [
    * `SYSTEM_DEFAULT_DOMAIN_ID` by foreign key (D-2-12: there is no `domainId` on the
    * create body until item 3), and `resolveHost` serves only a `domains` row in state
    * `active` (F-003). So without these three rows `POST /api/links` answers 23503 and
-   * `GET /:slug` answers 404 for every slug that exists. It is seed data by mechanism —
-   * this is the only writer that can produce it — and product data by consequence, which
+   * `GET /:slug` answers 404 for every slug that exists. It is seed data by mechanism
+   * (this is the only writer that can produce it) and product data by consequence, which
    * is exactly why ADR-0063 exists and why it is written here rather than in the
    * migration.
    *
@@ -194,7 +194,7 @@ export const SEED_TRANSACTIONS: readonly SeedTransaction[] = [
    * set. An `INSERT` there is admitted by nothing: it writes ZERO ROWS and reports
    * success, the migration is green, and the failure surfaces as a foreign-key violation
    * in whatever feature runs first. Measured shape, recorded by ADR-0062 for `memberships`
-   * and repeated here because this is the first time it would have been TEMPTING — a
+   * and repeated here because this is the first time it would have been TEMPTING: a
    * migration insert is one line and this seed is a transaction.
    *
    * IT IS FOUR ROWS IN THREE TABLES AND NONE OF THEM IS READABLE BY A CUSTOMER. Nothing
@@ -240,11 +240,11 @@ export const SEED_TRANSACTIONS: readonly SeedTransaction[] = [
         async run(client: PoolClient): Promise<number> {
           // `state = 'active'` DIRECTLY, and `is_system_default = true`. Item 2 builds no
           // verification and no certificate provisioning, so nothing could transition this
-          // row into `active` the way a customer domain reaches it — and
+          // row into `active` the way a customer domain reaches it, and
           // `redirect-resolution.md` step 2 records that the seeded system default domain
           // is created there on purpose ("DNS ownership was proved and a certificate
           // issued, which is the only state in which serving someone's traffic is
-          // justified" — the platform owns this hostname by construction).
+          // justified"; the platform owns this hostname by construction).
           //
           // The hostname is NORMALISED at the one place it enters the system
           // (`systemDefaultHostname`), because `redirect-cache.md` keys on the same
@@ -282,8 +282,8 @@ interface TableRow {
  *
  * READS `pg_class`, NOT `information_schema.tables` (F-213). `information_schema` is
  * privilege-filtered by the SQL standard: it shows a relation only where the connected
- * role holds some privilege on it. This connection is `shortkit_app` deliberately — that
- * is the whole point of the file — so a table it has no grant on would be reported as
+ * role holds some privilege on it. This connection is `shortkit_app` deliberately (that
+ * is the whole point of the file), so a table it has no grant on would be reported as
  * "not there" when the truth is "I cannot see it", and the coverage line would claim
  * completeness over a schema it could not read. `pg_class` is not privilege-filtered.
  *
@@ -334,7 +334,7 @@ function connectionString(): string {
  * can run outside compose, and it writes. `docker-compose.test.yml`'s header documents a
  * workflow whose first step exports a `DATABASE_URL` pointing at `shortkit_test`; from
  * that shell, `pnpm db:seed` would write the demo tenant into the integration suite's
- * database. A host-based refusal would be wrong in both directions — it permits that
+ * database. A host-based refusal would be wrong in both directions: it permits that
  * case, because the test database is on 127.0.0.1, and rejects the legitimate one,
  * because this script's primary invocation is inside the `seed` container where the host
  * is the service name `postgres`. The database NAME separates them exactly, wherever the
@@ -342,7 +342,7 @@ function connectionString(): string {
  *
  * THE RESIDUAL: neither discriminator separates this stack from a future production
  * database, which would plausibly also be named `shortkit` and reached as `shortkit_app`.
- * Nothing needs to today — ADR-0030 records that there is no production database — and
+ * Nothing needs to today (ADR-0030 records that there is no production database), and
  * whoever provisions one decides what guard replaces this.
  */
 async function refuseUnrecognisedConnection(client: PoolClient): Promise<boolean> {
@@ -372,7 +372,7 @@ async function refuseUnrecognisedConnection(client: PoolClient): Promise<boolean
   if (connection.current_database !== REQUIRED_DATABASE) {
     console.error(
       `seed: REFUSING. This seed writes to the database "${REQUIRED_DATABASE}" and nothing ` +
-        `else. "${connection.current_database}" is not it — the integration suite's ` +
+        `else. "${connection.current_database}" is not it: the integration suite's ` +
         'shortkit_test is the likely mistake, and this demo tenant does not belong in it.',
     );
     return true;
@@ -386,7 +386,7 @@ async function refuseUnrecognisedConnection(client: PoolClient): Promise<boolean
  *
  * The flag name is an inline SQL string literal and the value is bound
  * (rls-policy-template.md, F-118). `set_config`, never `SET LOCAL`: SET accepts no bind
- * parameters. The third argument is transaction-local, so the flag is gone at commit —
+ * parameters. The third argument is transaction-local, so the flag is gone at commit,
  * which is also why each group has to set it again rather than inheriting the last one's.
  * Set once per group, before any of its units, so a unit inserting into a tenant-scoped
  * table gets a policy-correct insert without doing anything.
@@ -445,7 +445,7 @@ async function main(): Promise<void> {
 
 /**
  * The coverage boundary, computed as a diff against the live catalogue rather than
- * against a list in this file — a hardcoded list is exactly what goes stale, and a table
+ * against a list in this file: a hardcoded list is exactly what goes stale, and a table
  * nobody added to it would report as covered.
  *
  * `NOT SEEDED` is the load-bearing literal, and it is a WARNING: the exit code stays 0
@@ -456,7 +456,7 @@ async function main(): Promise<void> {
  */
 function report(present: readonly string[], inserted: ReadonlyMap<string, number>): void {
   // DISTINCT tables, not units. Two groups write `tenants`, and counting units would
-  // report "covered 4 of 14" over three tables — a coverage number larger than the truth,
+  // report "covered 4 of 14" over three tables, a coverage number larger than the truth,
   // which is the one direction this line must never be wrong in.
   const covered = new Set(
     SEED_UNITS.map((unit) => unit.table).filter((table) => present.includes(table)),
@@ -494,7 +494,7 @@ function report(present: readonly string[], inserted: ReadonlyMap<string, number
  * It was a bare `await main()` until item 2, which made the module unimportable: reading
  * `SEED_TRANSACTIONS` opened a pool, refused the connection and set `process.exitCode`.
  * `test/db/seed-platform.int-spec.ts` drives the REAL units against the integration
- * database — the actual SQL, the actual `ON CONFLICT (id) DO NOTHING`, the actual order —
+ * database (the actual SQL, the actual `ON CONFLICT (id) DO NOTHING`, the actual order),
  * which is the only way to test the seed without duplicating its statements into a
  * fixture, and duplicated statements are what would drift.
  *

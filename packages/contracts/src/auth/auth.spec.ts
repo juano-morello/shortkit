@@ -1,5 +1,5 @@
 /**
- * STORY-001 — AC-8. TASK-001.
+ * STORY-001: AC-8. TASK-001.
  *
  * Contract: docs/contracts/auth-contracts.md
  * ADR: adr-0047-password-policy.md, adr-0013-better-auth-in-nestjs.md

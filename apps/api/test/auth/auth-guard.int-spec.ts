@@ -24,7 +24,7 @@ import {
 import { assertTenantsIsMigrated } from '../support/rls-fixture';
 
 /**
- * STORY-002 — AC-10, AC-11 and AC-13's premise, end to end. TASK-005, wave 4.
+ * STORY-002: AC-10, AC-11 and AC-13's premise, end to end. TASK-005, wave 4.
  *
  * Contract: `docs/contracts/auth-tokens.md` ("Verification, performed by `AuthGuard`",
  * "Invariants a caller may rely on" 1 and 3, "What the implementer must guarantee": the JWKS
@@ -34,13 +34,13 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
  * TWO PROCESSES, ON PURPOSE: THE REAL ISSUER, AND THE REAL GUARD IN FRONT OF A PROBE.
  * ============================================================================
  *
- * The child is the composition root booted by `api-server.ts` — the only place the auth
+ * The child is the composition root booted by `api-server.ts`: the only place the auth
  * mount exists, so the only place a real sign-in can happen and a real token can be minted
  * against a real `/api/auth/jwks`. But that child carries no guarded route yet: `GET /health`
  * is public by design and TASK-006 and item 1b bring the first tenant-scoped handler. So the
  * guarded route is a probe controller registered beside `AppModule` IN THIS PROCESS, and the
  * guard in front of it is the real `APP_GUARD` from `AuthModule`, reading the real
- * `revocationStore` and the real `cachedKeySet` — nothing is overridden. `BETTER_AUTH_URL`
+ * `revocationStore` and the real `cachedKeySet`: nothing is overridden. `BETTER_AUTH_URL`
  * in this process is set to the child's origin, so the guard's `iss`/`aud` check and its
  * JWKS fetch both point at the child. A token minted by the child is verified here against
  * the key set the child served: that is the round trip AC-11 names.
@@ -160,9 +160,9 @@ describe('AuthGuard against a token minted by the real issuer', () => {
     expect(handlerRuns).toEqual(['read']);
 
     // Invariant 1: `tenantId` on the request IS the tenant the membership row names, and it
-    // came from the claims alone — the guard made no database read to get it.
+    // came from the claims alone: the guard made no database read to get it.
     const claims = jwtClaims(token);
-    // `email` since TASK-1b-05 (D-06): the claim, verbatim — the address the account was created with.
+    // `email` since TASK-1b-05 (D-06): the claim, verbatim: the address the account was created with.
     expect(result.body).toEqual({ userId, tenantId, email: EMAIL, emailVerified: false });
     expect(result.body).toEqual({ userId: claims.sub, tenantId: claims.tid, email: claims.email, emailVerified: claims.ev });
   });

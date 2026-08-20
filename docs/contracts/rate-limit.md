@@ -117,26 +117,26 @@ edit here.
 ### What shipped 2026-08-19 (debt sweep D1): the tenant write bucket, process-local
 
 The first row of the Scope table is now real. `RateLimitGuard`'s authenticated branch
-charges `checkTenant(tenantId)` — the `RequestContext`'s tenant, written by `AuthGuard`
+charges `checkTenant(tenantId)`: the `RequestContext`'s tenant, written by `AuthGuard`
 from the verified token, which is why the guard order that module comment pins is now
-load-bearing — for every request under `/api` whose method is not `GET` or `HEAD`
+load-bearing: for every request under `/api` whose method is not `GET` or `HEAD`
 (ADR-0038's rule, which is this table's four-method list closed against unexpected
 methods; a method the list does not name is limited, not free), 120 per 60 s, through the
 same `RATE_LIMIT_PORT`. The store is `LocalRateLimiter`'s second map: tenant-keyed, a
 plain LRU capped at `LOCAL_LIMITER_MAX_TENANTS = 10_000`, SEPARATE from the IP map
-(F-034), swept on the shared cadence — exactly the shape "Behaviour when Redis is
+(F-034), swept on the shared cadence: exactly the shape "Behaviour when Redis is
 unavailable" already specified for the fallback, bound as the primary until Redis exists.
 Authenticated `GET`s stay unlimited, unchanged and deliberate. `@Public()` routes keep the
 IP bucket only; the two branches are exclusive, so no request is charged twice. The 429 is
 "Response on limit"'s Nest shape (`Retry-After` plus the envelope), with its own fixed
-message. A side effect worth naming: this bounds invitation mail volume (finding 1b-W3-07)
-— `POST /api/invitations` now costs one charge of its tenant's 120 writes per minute, so a
+message. A side effect worth naming: this bounds invitation mail volume (finding 1b-W3-07):
+`POST /api/invitations` now costs one charge of its tenant's 120 writes per minute, so a
 scripted `workspace_admin` is no longer limited only by the mail transport.
 
 **Still TASK-051's:** rebinding `RATE_LIMIT_PORT` to the Redis implementation (per-fleet
 rather than per-machine, keeping `LocalRateLimiter` as ADR-0012's degraded fallback),
 `RedisAuthRateLimiter`, `redisClient` reuse (GC-3), and the `rate_limit_degraded_total`
-counter — unreachable until a store that can fail is bound. Until then the gap is
+counter: unreachable until a store that can fail is bound. Until then the gap is
 ADR-0012's stated one: the limit applies per machine, and Fly runs one machine.
 
 ### Which address "the client IP" means, under the BFF
@@ -189,10 +189,10 @@ which belongs to rate limiting alone.
 (F-033):
 
 1. `BFF_PROXY_SECRET` is set and non-empty on the API side. Unset or empty **disables
-   the trusted-proxy branch unconditionally** — the comparison in rule 3 is never
+   the trusted-proxy branch unconditionally**: the comparison in rule 3 is never
    *reached*, not merely never equal.
 2. `X-Shortkit-Proxy-Auth` is present and non-empty. An absent or empty header never
-   matches — again the comparison is never reached. Rules 1 and 2 close the naive
+   matches: again the comparison is never reached. Rules 1 and 2 close the naive
    implementation's bypass: `header === process.env.BFF_PROXY_SECRET` is
    `undefined === undefined` for a direct anonymous request with the variable unset.
 3. A constant-time comparison of the header against `BFF_PROXY_SECRET` matches. This is
@@ -290,7 +290,7 @@ the second, and that is the deployment where the secret is the only source of a 
 principal.
 
 The assertion checks **set and non-empty**, not the base64url format the Vercel half enforces.
-That divergence is F-169's and is recorded below under "BFF_PROXY_SECRET — enforced format".
+That divergence is F-169's and is recorded below under "BFF_PROXY_SECRET: enforced format".
 F-385 did not reopen it.
 
 The exact strings:
@@ -316,7 +316,7 @@ No message interpolates a configured value: an environment read is not eligible 
 declares neither variable in a real BFF deployment boots cleanly. Every browser request then
 falls through to the declared header, which under ADR-0014 is one address for the entire
 product, and the four IP buckets collapse into one. That state is loud in metrics and silent at
-boot — the BFF still sends `X-Shortkit-Proxy-Auth`, F-033 rule 1 counts every one of them, and
+boot: the BFF still sends `X-Shortkit-Proxy-Auth`, F-033 rule 1 counts every one of them, and
 `bff_proxy_auth_mismatch_total` is nonzero from the first request. A counter is weaker than a
 refusal, and ADR-0040 records it as the price.
 
@@ -347,7 +347,7 @@ implementer would have built.
 | Route | Key | Limit | Enforced by | Key format |
 |---|---|---|---|---|
 | `POST /api/auth/sign-in/email` | client IP | 10 / 5 min | Express middleware | `sk:{env}:arl:v1:ip:{ip}:signin:{window}` |
-| `POST /api/auth/sign-in/email` | email | 5 **failed** / 15 min (a success releases its charge — 2026-08-18) | **Better Auth `hooks.before`** charges, **`hooks.after`** releases | `sk:{env}:arl:v1:em:{sha256(email)}:signin:{window}` |
+| `POST /api/auth/sign-in/email` | email | 5 **failed** / 15 min (a success releases its charge, 2026-08-18) | **Better Auth `hooks.before`** charges, **`hooks.after`** releases | `sk:{env}:arl:v1:em:{sha256(email)}:signin:{window}` |
 | `POST /api/auth/sign-up/email` | client IP | 3 / hour | Express middleware | `sk:{env}:arl:v1:ip:{ip}:signup:{window}` |
 | everything else under `/api/auth/*` | client IP | 60 / min | Express middleware | `sk:{env}:arl:v1:ip:{ip}:other:{window}` |
 
@@ -355,7 +355,7 @@ The client IP is the value returned by `resolveRateLimitPrincipal(headers)`; see
 address the client IP means" above (F-031, F-320). **On `null` the row's bucket does not
 run.** The email is hashed before it becomes a key so the keyspace holds no addresses.
 
-**Better Auth's own limiter is disabled on this surface** — TASK-009 sets
+**Better Auth's own limiter is disabled on this surface**: TASK-009 sets
 `rateLimit: { enabled: false }` (ADR-0013, F-030) and owns a unit test asserting the
 composed `betterAuth` config carries it. The table above is the complete set of
 limiters on `/api/auth/*`, and invariant 3's enumeration of 429 sources depends on that
@@ -396,7 +396,7 @@ The rows above stay as written; the shipped file wins and this table records the
 
 **Amended 2026-08-18 (TASK-1b-09, item 1b wave 3; D-15).** The email bucket shipped, in
 `apps/api/src/auth/email-rate-limit-hook.ts` rather than inside `auth.config.ts` (which
-`push`es it as the FIRST `beforeHooks` entry — the ordering ADR-0013 fixes so invitation
+`push`es it as the FIRST `beforeHooks` entry, the ordering ADR-0013 fixes so invitation
 probing cannot bypass it):
 
 | Piece | Shipped file | Produced by |
@@ -406,8 +406,8 @@ probing cannot bypass it):
 | the `push` and its order; `bindEmailRateLimitPort(authRateLimitPort)` beside the mount | `apps/api/src/auth/auth.config.ts`, `apps/api/src/main.ts` | **TASK-1b-09** |
 | the four integration tests below, plus the F-027 header probe and the SC-5 scan | `apps/api/test/auth/sign-in-email-bucket.int-spec.ts` | **TASK-1b-09** |
 
-The hook charges the SAME `AuthRateLimitPort` instance the Express middleware charges —
-`main.ts` resolves `AUTH_RATE_LIMIT_PORT` once and hands it to both — so there is one
+The hook charges the SAME `AuthRateLimitPort` instance the Express middleware charges
+(`main.ts` resolves `AUTH_RATE_LIMIT_PORT` once and hands it to both) so there is one
 `LocalAuthRateLimiter`, one memory bound, and TASK-051's Redis rebinding reaches the email
 bucket for free. Unbound (the unit tier composes `auth.config.ts` without `main.ts`) the hook
 degrades OPEN with a fixed warn line once a minute, the posture invariant 5 fixes; bound, a
@@ -418,20 +418,20 @@ writes.
 2026-08-18, same card).** The consequence below already said "five failed attempts per
 fifteen minutes", and charging successes locked out a legitimate operator who signed in six
 times in a window. The before hook still charges every string-addressed attempt (it cannot
-know the outcome), and `emailRateLimitReleaseHook` — the one entry of `auth.config.ts`'s
-`afterHooks` registry, appended-never-assigned like `beforeHooks` — calls the port's new
+know the outcome), and `emailRateLimitReleaseHook` (the one entry of `auth.config.ts`'s
+`afterHooks` registry, appended-never-assigned like `beforeHooks`) calls the port's new
 `release(bucket, key, charge)` on `/sign-in/email` under the same hashed normalised key when
 the endpoint returned WITHOUT an `APIError`. `check` now resolves with the charge it made
 (`AuthRateLimitCharge = { windowStart }`); the before hook carries it to the after hook of the
 same request (a `WeakMap` keyed on the per-request `ctx.context`), and `release` acts ONLY on
-that window — a release computed from "now" could refund an unrelated attempt's charge in a
+that window: a release computed from "now" could refund an unrelated attempt's charge in a
 newer window when the window rolled in between (review of TASK-1b-09; unit-tested). Measured on 1.6.26 (`api/dispatch.mjs`): the
 dispatcher stores the endpoint's return value on `ctx.context.returned`, or the thrown
 `APIError` itself, then runs the after hooks; the numeric status is not on the context, so
 "returned without an `APIError`" is the success signal. A 401, a 400 (including a padded
 address) and a 403 stay charged; a 429 from the before hook never reaches the after hooks.
 `release` is idempotent, floors at zero (six successes then exactly five failures are
-admitted), and a store failure there degrades open with a warn — the un-released charge
+admitted), and a store failure there degrades open with a warn: the un-released charge
 expires with the window. **The sixth attempt after five failures is refused whatever the
 password is**: the address is locked for the rest of the window, which is the DoS cost stated
 under "Accepted costs" and is now literally true of failures only.
@@ -468,7 +468,7 @@ token and never touch `redisClient` directly.
 
 ```
 wave 2  TASK-009  declares AUTH_RATE_LIMIT_PORT, wires all three call sites to it,
-                  and binds LocalAuthRateLimiter — a real in-process token bucket,
+                  and binds LocalAuthRateLimiter: a real in-process token bucket,
                   same algorithm and same limits, per machine rather than per fleet.
 wave 6  TASK-030  produces redisClient.
 wave 10 TASK-051  binds RedisAuthRateLimiter to the same token. The local limiter
@@ -610,8 +610,8 @@ const key = authRateLimitKey(env, 'signInPerEmail', sha256(normalisedEmail), now
 Better Auth lowercases the address for its account lookup, so `Foo@x.com` and
 `foo@x.com` are one account. Hashing the raw string would mint a fresh allowance per
 casing, and an attacker varying the case of the local part would never bind. Only case
-folding and surrounding whitespace are normalised. **Nothing else is stripped** — no
-dot-removal, no `+tag` removal — because two addresses differing that way may be two
+folding and surrounding whitespace are normalised. **Nothing else is stripped** (no
+dot-removal, no `+tag` removal) because two addresses differing that way may be two
 real accounts at some providers, and collapsing them would let one user's failures lock
 out another's.
 
@@ -647,7 +647,7 @@ design and F-019's original failure. TASK-009 owns them.
 `CLIENT_TRUST_BOUNDARY=proxy` and `TRUSTED_CLIENT_IP_HEADER=x-test-client-ip` so the six
 attempts really come from six principals and the IP bucket cannot be the limiter that fires.
 Two facts the run pinned: (a) the case-varied test's sixth spelling is whitespace-PADDED,
-which Better Auth's own validation would answer 400 — the hook charged it first and answered
+which Better Auth's own validation would answer 400: the hook charged it first and answered
 429, which is what makes the trim half of the normalisation observable; (b) an object-typed
 `email` is the endpoint's `400 VALIDATION_ERROR`, never a 500, and a following five attempts
 for a real address are all still admitted before the sixth is refused, so the malformed one
@@ -674,7 +674,7 @@ destroys the socket once the cap is crossed, without a response body.
   knows an address can keep it at five failed attempts per fifteen minutes. The window is
   short and the account stays reachable between windows. Accepting this is the standard
   trade for binding distributed credential stuffing, and it is why the window is fifteen
-  minutes rather than a day. *Confirmed 2026-08-18: "failed" is load-bearing — the shipped
+  minutes rather than a day. *Confirmed 2026-08-18: "failed" is load-bearing: the shipped
   bucket releases a successful sign-in's charge, so an operator's own sign-ins never count
   toward the five, and the sixth attempt after five failures is 429 with the right password
   too (`sign-in-email-bucket.int-spec.ts`).*
@@ -718,7 +718,7 @@ throw new APIError(429, {
 |---|---|---|
 | Nest routes | yes | `ErrorEnvelope` |
 | `/api/auth/*` IP buckets | yes | `{ code: 'rate_limited', message, retryAfterSeconds }` |
-| `/api/auth/*` email bucket | best effort — **measured PRESENT on 1.6.26** (2026-08-18, TASK-1b-09: the hook passes `{ 'Retry-After': <n> }` as the `APIError`'s headers and `sign-in-email-bucket.int-spec.ts` asserts header = body field; a release that drops it fails that test, not the contract) | `{ code: 'rate_limited', message, retryAfterSeconds }` |
+| `/api/auth/*` email bucket | best effort: **measured PRESENT on 1.6.26** (2026-08-18, TASK-1b-09: the hook passes `{ 'Retry-After': <n> }` as the `APIError`'s headers and `sign-in-email-bucket.int-spec.ts` asserts header = body field; a release that drops it fails that test, not the contract) | `{ code: 'rate_limited', message, retryAfterSeconds }` |
 
 **`apiClient` normalises all three** into `ApiError.retryAfterSeconds`, preferring the
 header and falling back to the body field (`web-api-client.md`). TASK-052's central 429
@@ -741,8 +741,8 @@ export interface LocalRateLimiter {
 **Two maps, two key spaces** (F-034, and ADR-0012 revised to match). Tenant ids are
 produced only by authenticated callers; `@Public()` IPs are chosen by anonymous ones.
 In a shared map an attacker churning ~10,000 addresses across `@Public()` routes during
-a Redis outage would evict a tenant's write bucket and reset its 120/60s window at will
-— during exactly the window when the redirect path is already on its Postgres fallback
+a Redis outage would evict a tenant's write bucket and reset its 120/60s window at will,
+during exactly the window when the redirect path is already on its Postgres fallback
 (GC-1, GC-8). So:
 
 - `checkTenant` keeps its plain LRU at `LOCAL_LIMITER_MAX_TENANTS = 10_000`; its keys
@@ -773,8 +773,8 @@ the API does when Redis is gone.
    `retryAfterSeconds`, because that surface is mounted outside Nest and its header
    control is not guaranteed. `apiClient` normalises both into
    `ApiError.retryAfterSeconds`, so no screen sees the difference (F-027). This
-   enumeration is complete **only because Better Auth's built-in limiter — a fourth
-   429 source, on by default in production — is disabled**: `rateLimit: { enabled:
+   enumeration is complete **only because Better Auth's built-in limiter (a fourth
+   429 source, on by default in production) is disabled**: `rateLimit: { enabled:
    false }`, set and unit-tested by TASK-009 (ADR-0013, F-030).
 4. The redirect path returns 302 at any rate (AC-86).
 5. A Redis outage never produces a 5xx from the limiter and never lifts the limit
@@ -796,7 +796,7 @@ the API does when Redis is gone.
    recorded here rather than left to be inferred from the guard's no-op branch.
    **Amended 2026-08-19 (debt sweep D1):** the tenant-keyed half is built, process-local
    ("What shipped 2026-08-19" under Scope). Authenticated writes under `/api` are covered
-   unconditionally again — per machine, until TASK-051 rebinds the port to Redis.
+   unconditionally again: per machine, until TASK-051 rebinds the port to Redis.
 8. No request body larger than 32 KiB reaches Better Auth, and none larger than 100 KiB
    reaches a Nest handler.
 9. A `@Public()` route cannot be used to exhaust the connection pool the redirect path
@@ -852,21 +852,21 @@ Handled in `apiClient`, centrally, so no screen reimplements it.
 deploy. The key prefix `rl:v1:` changes only if the algorithm changes; bumping it
 resets every tenant's current window.
 
-## BFF_PROXY_SECRET — enforced format (added 2026-08-05, F-169)
+## BFF_PROXY_SECRET: enforced format (added 2026-08-05, F-169)
 
 This contract previously required only that `BFF_PROXY_SECRET` be **set and non-empty**. That is
 now insufficient to describe the system, because the Vercel half enforces a format the Fly half
 does not document.
 
-**Normative:** `BFF_PROXY_SECRET` is **base64url** — `A-Z`, `a-z`, `0-9`, `-`, `_`, **no padding**
-— and **at least 32 characters**. Generate it with:
+**Normative:** `BFF_PROXY_SECRET` is **base64url** (`A-Z`, `a-z`, `0-9`, `-`, `_`, **no padding**),
+and **at least 32 characters**. Generate it with:
 
 ```
 openssl rand 24 | base64 | tr '+/' '-_' | tr -d '='
 ```
 
 `apps/web/scripts/assert-no-inlined-secrets.mjs` rejects any value outside that alphabet before it
-scans anything, and that script is chained into `vercel.json`'s `buildCommand` — so a value that
+scans anything, and that script is chained into `vercel.json`'s `buildCommand`, so a value that
 satisfies this contract's old wording but not this one **fails the Vercel deploy**, while being
 accepted by every consumer on the API side.
 

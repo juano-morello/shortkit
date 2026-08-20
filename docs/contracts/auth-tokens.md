@@ -199,7 +199,7 @@ will miss it. Branch on `code`.
 > ROW ABOVE STOPS BEING TRUE ONCE `emailAndPassword.autoSignIn: false` LANDS IN TASK-003.**
 >
 > `sign-up.mjs:162` computes its generic-duplicate branch from `requireEmailVerification ||
-> autoSignIn === false`. With `autoSignIn` on — the state this contract was written against — a
+> autoSignIn === false`. With `autoSignIn` on (the state this contract was written against), a
 > duplicate address answers `422 USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` and a fresh one answers
 > 200, **which is an unauthenticated user-enumeration oracle**: an attacker tests an address
 > list against a public route and learns who has an account. The wave-2 design security pass
@@ -208,13 +208,13 @@ will miss it. Branch on `code`.
 >
 > Taking `autoSignIn: false` closes it, and closes a second finding with the same key: signup no
 > longer returns a session, so the failed-signup residue stops handing the caller a live
-> credential by `Set-Cookie` on its own 500 (ADR-0054). **Two findings, one key** — which is why
+> credential by `Set-Cookie` on its own 500 (ADR-0054). **Two findings, one key**, which is why
 > it was worth falsifying a frozen row for.
 >
 > **What the row becomes:** a duplicate address answers the same generic success shape as a
 > fresh one, and signup no longer establishes a session. The exact status and body are
 > ADR-0061's to state and TASK-003's to assert. **A signup flow that assumed it was logged in
-> afterwards no longer is** — that is TASK-007's and TASK-012's, both `todo`, both carrying the
+> afterwards no longer is**: that is TASK-007's and TASK-012's, both `todo`, both carrying the
 > change on their cards.
 
 `INVALID_EMAIL_OR_PASSWORD` is returned for both a wrong password and an address with no
@@ -335,7 +335,7 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
    `GET /:slug` (anonymous visitor), `GET /health` (platform probe),
    ~~`GET /api/invitations/:token` and `POST /api/invitations/:token/accept`
    (the invitee may have no account yet)~~ **`POST /api/invitations/lookup`** (the invitee
-   may have no account yet; the token travels in the body — D-03). *Amended 2026-08-18
+   may have no account yet; the token travels in the body; D-03). *Amended 2026-08-18
    (TASK-1b-05): the accept leg is `POST /api/invitations/accept` and is **authenticated**
    (D-04); an invitee with no account accepts by signing up with `invitationToken` on
    `POST /api/auth/sign-up/email`, which is Better Auth's public surface, not a Nest route.*
@@ -353,7 +353,7 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
    >
    > Under `emailAndPassword.autoSignIn: false`, a signup against an address that **already has
    > an account** also returns 200, carrying a response body byte-identical to a real creation
-   > apart from the caller's own `email` — measured against the real drizzle adapter: same key
+   > apart from the caller's own `email`, measured against the real drizzle adapter: same key
    > set, a **fresh** `id` and `createdAt` rather than the existing account's, `token: null`,
    > and **no row written**. That indistinguishability is the point: it is what closes the
    > enumeration oracle the 422 used to be.

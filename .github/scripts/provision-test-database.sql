@@ -4,7 +4,7 @@
 -- ADR: docs/decisions/adr-0003-rls-policy-template-and-roles.md
 --
 -- Both paths are written out in full because the bare `docs/contracts/...` form used
--- across apps/ and packages/ does not resolve from the repository root — there is no
+-- across apps/ and packages/ does not resolve from the repository root: there is no
 -- top-level `design/`. That short form is a repo-wide convention in files this TASK does
 -- not own; it is reported rather than half-corrected here.
 -- Produced by: TASK-002 (F-039)
@@ -56,8 +56,8 @@ BEGIN
   -- is assertAuthRoleSeparation (ADR-0050, TASK-004, wave 3); until it lands this file's
   -- own suite covers it at the two live-database sites
   -- (auth-role-provisioning.int-spec.ts, "shortkit_auth owns no relation in the migrated
-  -- schema"). CREATEROLE cannot escalate to the other two on PostgreSQL 16+ — the server
-  -- closes that path — and it is listed because this block is the contract's only
+  -- schema"). CREATEROLE cannot escalate to the other two on PostgreSQL 16+ (the server
+  -- closes that path), and it is listed because this block is the contract's only
   -- mechanical reader and was two words short of matching it.
   SELECT string_agg(rolname, ', ')
     INTO bad

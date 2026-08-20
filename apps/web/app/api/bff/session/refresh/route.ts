@@ -12,7 +12,7 @@
  * sets `sk_at`, or clears both cookies on failure), and redirects back.
  *
  * `returnTo` is an OPEN-REDIRECT surface, guarded the same way `buildUpstreamUrl` guards
- * its path: only a same-origin RELATIVE path is accepted — it must start with a single `/`,
+ * its path: only a same-origin RELATIVE path is accepted: it must start with a single `/`,
  * never `//` (protocol-relative) or a scheme, and after WHATWG normalisation against a
  * fixed `.invalid` base it must still be same-origin. Anything else falls back to `/`.
  * On refresh failure the redirect is to `/sign-in`, with both cookies already cleared.
@@ -38,7 +38,7 @@ export const DEFAULT_RETURN_TO = '/';
  * THE CHECK RUNS ON THE RESOLVED PATH, NOT ONLY ON THE RAW STRING (security review round 1,
  * BLOCKER). `/..//evil.test` starts with a single `/` and passes a raw-prefix check, but
  * WHATWG dot-segment removal turns its pathname into `//evil.test`, and handing that to
- * `new URL(target, origin)` re-parses it as a network-path reference — `https://evil.test/`.
+ * `new URL(target, origin)` re-parses it as a network-path reference: `https://evil.test/`.
  * The same holds for `/%2e%2e//evil.test`, `/a/..//evil.test` and `/..%2f%2fevil.test`
  * (the encoded slashes stay encoded, but the leading `..` still collapses). So after
  * resolution the pathname itself is refused when it starts with `//`, and the re-emitted
@@ -73,7 +73,7 @@ export function safeReturnTo(candidate: string | null): string {
     return DEFAULT_RETURN_TO;
   }
 
-  // Re-emit from the parsed parts, never the raw string — and check the emitted string too.
+  // Re-emit from the parsed parts, never the raw string, and check the emitted string too.
   const emitted = `${resolved.pathname}${resolved.search}${resolved.hash}`;
 
   if (emitted.startsWith('//') || emitted.startsWith('/\\')) {

@@ -14,7 +14,7 @@ import { NoopMailSender } from './senders/noop-mail-sender';
 import { ResendMailSender } from './senders/resend-mail-sender';
 
 /**
- * STORY-1b-01 — TASK-1b-02. The transport-to-class table in `docs/contracts/mail-sender.md`
+ * STORY-1b-01: TASK-1b-02. The transport-to-class table in `docs/contracts/mail-sender.md`
  * ("The mail transport"), and the provider shape ("What the implementer must guarantee").
  *
  * `mailSenderFor` is the factory the module's `useFactory` calls with `process.env`; it is
@@ -61,7 +61,7 @@ describe('MailModule', () => {
     vi.restoreAllMocks();
   });
 
-  it('exports MAIL_SENDER, bound by the factory over process.env — NoopMailSender in a tier that declares nothing', async () => {
+  it('exports MAIL_SENDER, bound by the factory over process.env: NoopMailSender in a tier that declares nothing', async () => {
     // Guard 1 in `vitest.setup.ts` already refused this process if it declared `resend`.
     // The class is compared with what the factory resolves for THIS process rather than
     // hard-coded, so a developer running the tier under `MAIL_TRANSPORT=console` sees a

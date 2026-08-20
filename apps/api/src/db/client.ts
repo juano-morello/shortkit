@@ -17,8 +17,8 @@
  * The fourth entry was added 2026-08-05 (F-126). The boot check reads pg_roles and
  * pg_class before the app accepts traffic, so it runs no tenant-scoped statement;
  * it is on the list because an enumeration that is silently untrue is worse than a
- * longer one. The guarantee is not that `databaseTransaction` is unreachable — any
- * module can import it — but that a transaction opened without a context flag sees
+ * longer one. The guarantee is not that `databaseTransaction` is unreachable (any
+ * module can import it) but that a transaction opened without a context flag sees
  * zero rows and can write none, which is fail-closed by policy.
  *
  * The fifth entry was added 2026-08-14 (ADR-0045). `withMembershipLookup` is the
@@ -28,7 +28,7 @@
  *
  * The sixth entry was added 2026-08-17 (ADR-0050, TASK-004). `assertAuthRoleSeparation`
  * reads `pg_class` as the application role for the first direction of the grant matrix
- * — the boot check's shape, on the boot check's terms — and reaches the AUTH pool for
+ * (the boot check's shape, on the boot check's terms), and reaches the AUTH pool for
  * its second direction through `withAuthRoleIntrospection` below, which is that
  * function's only sanctioned caller.
  *
@@ -78,7 +78,7 @@ let authDatabase: NodePgDatabase<typeof schema> | undefined;
  * connection for the whole request (ADR-0002's accepted cost), so this is the
  * dashboard API's concurrency limit, per instance. Neon's pooler multiplexes many
  * client connections onto far fewer Postgres backends, and the smallest compute
- * sizes cap those backends in the low hundreds — so the number that has to stay
+ * sizes cap those backends in the low hundreds, so the number that has to stay
  * small is this one, multiplied by the number of Fly machines, not the pooler's.
  * Raising it trades a bounded queue for a longer one; it does not create capacity.
  */
@@ -95,7 +95,7 @@ const POOL_MAX = 10;
 const AUTH_POOL_MAX = 5;
 
 /**
- * How long an acquisition waits before it fails (F-123). Zero — `pg`'s default —
+ * How long an acquisition waits before it fails (F-123). Zero (`pg`'s default)
  * means the eleventh concurrent transaction waits forever with no error and no
  * timeout, so the process looks alive and the platform health check passes while
  * requests hang.
@@ -112,7 +112,7 @@ const CONNECTION_TIMEOUT_MS = 2000;
  * `new Logger('Database')` from `@nestjs/common`, which reaches neither `LOGGABLE_FIELDS`
  * nor `serializers.err`: an ANSI-coloured, locale-clocked line on the same descriptor the
  * JSON goes to, with no `level`, no `service`, no `env` and no ISO timestamp on it. That
- * was the whole of this site's defect — the CONTENT was already within policy — and it is
+ * was the whole of this site's defect (the CONTENT was already within policy), and it is
  * the benign half of F-278. The leaking half was `tenancy/tenant-context.ts`.
  *
  * Name and SQLSTATE and nothing else: tenant-context.md rule 2 closes the readable fields
@@ -126,7 +126,7 @@ const CONNECTION_TIMEOUT_MS = 2000;
  * and the other is in `msg`. `LOGGABLE_FIELDS` has no name for a SQLSTATE, and adding one
  * is an edit to `logging-and-headers.md`'s normative fence, which is the architect's file.
  * A SQLSTATE is a five-character code from a closed vocabulary and `where` is one of two
- * module-literal strings, so nothing a caller or a driver controls is interpolated here —
+ * module-literal strings, so nothing a caller or a driver controls is interpolated here,
  * which is the property ADR-0028's message-position ruling is about, not the position.
  *
  * On a connection that died while idle in the pool both listeners fire, because the
@@ -163,7 +163,7 @@ function connectionString(): string {
  * `shortkit_app` as the role Better Auth connects as, silently, and every gate would
  * stay green while `session` and `account` were writable from the request path again.
  *
- * If sign-in is failing after migration `0001`, this is the variable — not the REVOKE.
+ * If sign-in is failing after migration `0001`, this is the variable, not the REVOKE.
  * Migration `0001` revokes `shortkit_app` on all five Better Auth tables, so a pool on
  * `DATABASE_URL` cannot read `user` at all.
  */
@@ -206,8 +206,8 @@ function attachConnectionListeners(target: pg.Pool, idle: string, checkedOut: st
   // the pool. pg-pool removes it in _acquireClient, and drizzle's
   // NodePgSession.transaction attaches nothing of its own, so a client in the
   // middle of a transaction has NO error listener at all. Postgres killing that
-  // backend — a Neon scale-to-zero, a failover, a restart, or the
-  // idle_in_transaction_session_timeout withTenantTransaction sets — reaches
+  // backend (a Neon scale-to-zero, a failover, a restart, or the
+  // idle_in_transaction_session_timeout withTenantTransaction sets) reaches
   // client.emit('error') with nobody listening, and Node takes the process down.
   //
   // 'connect', not 'acquire': pg-pool emits 'connect' once per newly created
@@ -256,7 +256,7 @@ function client(): NodePgDatabase<typeof schema> {
  * was made against a single-role model, where a second pool bought a true sentence in a
  * docblock and nothing else. With two roles a pool IS how a process holds a role, and
  * migration `0001` revokes `shortkit_app` on `user`, `session`, `account`,
- * `verification` and `jwks` — so a handle on `DATABASE_URL` cannot read `user` and
+ * `verification` and `jwks`, so a handle on `DATABASE_URL` cannot read `user` and
  * nobody can sign in. ADR-0046's narrowed-export decision, its `transaction: false` and
  * its one-caller rule are untouched.
  *
@@ -289,7 +289,7 @@ export function betterAuthDatabase(): NodePgDatabase<typeof schema> {
  * A READ ONLY TRANSACTION ON THE AUTH POOL, FOR ONE CALLER: `assertAuthRoleSeparation`.
  * ============================================================================
  *
- * ADR-0050's boot assertion has to read `pg_roles` and `pg_class` AS `shortkit_auth` — its
+ * ADR-0050's boot assertion has to read `pg_roles` and `pg_class` AS `shortkit_auth`: its
  * second direction asks whether the role this process holds on `DATABASE_AUTH_URL` reaches
  * any tenant-scoped table, holds `BYPASSRLS`, or owns anything, and `has_table_privilege(
  * current_user, ...)` is only that question when `current_user` is the auth role. The
@@ -299,8 +299,8 @@ export function betterAuthDatabase(): NodePgDatabase<typeof schema> {
  * NARROWER, NOT NARROW. `SET TRANSACTION READ ONLY` refuses every write, so nothing opened
  * here can forge a session row; it does not stop a read of `session.token`, and this is
  * therefore still a handle on the role. Who may name it is bounded the same way the adapter
- * handle is — `boot-assertions.spec.ts` asserts the identifier appears in exactly this file
- * and `auth/boot-assertions.ts` — and the sanctioned caller list is that one function.
+ * handle is (`boot-assertions.spec.ts` asserts the identifier appears in exactly this file
+ * and `auth/boot-assertions.ts`), and the sanctioned caller list is that one function.
  * Adding a second caller is an ADR-0056 conversation, not a convenience.
  *
  * It shares the auth pool with the adapter (`AUTH_POOL_MAX`, five) rather than opening a
@@ -341,11 +341,11 @@ export async function databaseTransaction<T>(
 /**
  * drizzle-orm 0.44 began wrapping a failed statement in `DrizzleQueryError`, whose
  * `cause` is the driver's own error and whose message is the literal
- * `Failed query: ${query}\nparams: ${params}` — the SQL text and every bound value.
+ * `Failed query: ${query}\nparams: ${params}`: the SQL text and every bound value.
  *
  * CORRECTED 2026-08-05 (F-120). THE WRAPPER DOES LEAVE THIS MODULE. drizzle wraps at
  * the STATEMENT boundary and this unwrap runs at the TRANSACTION boundary, so a
- * `catch` inside `fn` sits between the two and holds the wrapper — with `code` and
+ * `catch` inside `fn` sits between the two and holds the wrapper, with `code` and
  * `constraint` undefined and the bound parameters in `message`. The previous comment
  * here claimed the opposite and downstream TASKs read it. Unwrapping at the
  * transaction boundary is still right for the error a caller of
@@ -363,7 +363,7 @@ function unwrapDriverError(error: unknown): unknown {
 /**
  * The driver's own error behind whatever was caught, or undefined when what was
  * caught did not come from the driver at all. A `catch` block binds whatever was
- * thrown — including `undefined`, `null` and strings — so this answers for all of
+ * thrown (including `undefined`, `null` and strings) so this answers for all of
  * them rather than throwing a second error out of the caller's catch.
  *
  * THE ONLY PLACE IN apps/api THAT NAMES `DrizzleQueryError` OR `pg.DatabaseError`
@@ -380,7 +380,7 @@ function driverError(error: unknown): pg.DatabaseError | undefined {
  * The five-character SQLSTATE of a caught database error, or undefined when it is
  * not one. Normative in docs/contracts/tenant-context.md, "Driver errors inside
  * `fn`": every catch that branches on a Postgres condition goes through here, and
- * reading `.code` off a caught error directly is a defect — inside `fn` a silent
+ * reading `.code` off a caught error directly is a defect: inside `fn` a silent
  * one, because the branch simply never matches.
  */
 export function postgresErrorCode(error: unknown): string | undefined {
@@ -390,12 +390,12 @@ export function postgresErrorCode(error: unknown): string | undefined {
 /**
  * The name of the constraint or unique index the statement violated, or undefined
  * when the driver reported none. `23505` alone does not say WHICH constraint fired,
- * and both callers that need this — slug.md's collision loop and
- * domain-provisioning.md's verify transition — must retry on one named constraint
+ * and both callers that need this (slug.md's collision loop and
+ * domain-provisioning.md's verify transition) must retry on one named constraint
  * and surface everything else.
  *
  * The constraint name is a schema identifier and carries no row values. The fields
- * that do — `detail`, `where`, `internalQuery` — are outside the allowlist and this
+ * that do (`detail`, `where`, `internalQuery`) are outside the allowlist and this
  * module exposes no accessor for them.
  */
 export function postgresErrorConstraint(error: unknown): string | undefined {
@@ -407,7 +407,7 @@ export function postgresErrorConstraint(error: unknown): string | undefined {
  * work; the process otherwise exits only because `allowExitOnIdle` lets it.
  *
  * Both, since 2026-08-14 (ADR-0050). A pool this function forgot keeps five backends
- * open and — with `allowExitOnIdle` off, which is one edit away — the event loop with
+ * open and (with `allowExitOnIdle` off, which is one edit away) the event loop with
  * them. Each `end()` is awaited even if the other rejects, so one failing pool does not
  * strand the other's connections.
  */

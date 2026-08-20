@@ -4,7 +4,7 @@ import { startApiServer } from '../support/api-server';
 import { authServerEnv } from '../support/auth-fixture';
 
 /**
- * STORY-1b-01 — AC-1b-6. TASK-1b-02, wave 1.
+ * STORY-1b-01: AC-1b-6. TASK-1b-02, wave 1.
  *
  * Contract: `docs/contracts/mail-sender.md` ("The boot assertion", "Error strings").
  * ADR-0017 (F-386), ADR-0040 (declared bindings), GC-B.
@@ -15,7 +15,7 @@ import { authServerEnv } from '../support/auth-fixture';
  *
  * `mail-transport.spec.ts` proves the predicate and text-scans the call site; what neither
  * can prove is that a refusal crosses the process boundary as ONE labelled pino line
- * carrying `boot_precondition: 'mail_transport'` — which is what F-210's dynamic-import
+ * carrying `boot_precondition: 'mail_transport'`, which is what F-210's dynamic-import
  * arrangement in `main.ts` protects and what an operator reads. So, as
  * `auth-mount.int-spec.ts` does for the auth bindings and the trust boundaries, each case
  * builds and boots its own child through `api-server.ts` and asserts on its output.
@@ -23,7 +23,7 @@ import { authServerEnv } from '../support/auth-fixture';
  * `authServerEnv()` sets no mail variable, which is the compose stack's state and the
  * repository's: every existing integration boot resolves `none`. The refusals here set the
  * variables ON THE CHILD ONLY. This vitest process never carries `MAIL_TRANSPORT=resend` or
- * a `RESEND_API_KEY` — `vitest.setup.ts` would have refused to import if it did — and no
+ * a `RESEND_API_KEY` (`vitest.setup.ts` would have refused to import if it did), and no
  * case below declares a COMPLETE `resend` binding, so no child ever constructs the live
  * sender. A refusal is quick, but the build in front of it is not free; each case has a
  * budget of its own.

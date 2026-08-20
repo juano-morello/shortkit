@@ -3,13 +3,13 @@
 /**
  * TASK-1b-14 (STORY-1b-05, AC-1b-29: "it lists the invitations from AC-1b-23 with state
  * badges and a Revoke control per pending row"). The list half of the per-workspace
- * invitations screen: one row per invitation — address, the role for THIS workspace, a
- * state badge, created and expiry times — and the two-step revoke.
+ * invitations screen: one row per invitation (address, the role for THIS workspace, a
+ * state badge, created and expiry times), and the two-step revoke.
  *
  * Contract: docs/contracts/invitation-tokens.md (states: `pending | accepted | revoked`
  *   written; `expired` derived), docs/contracts/workspace-authorization.md
  *   (`DELETE /api/invitations/:id`: `workspace_admin` on every workspace the invitation
- *   names — 404 unknown/other-tenant, 409 `invitation_already_accepted`, 200 idempotent on
+ *   names: 404 unknown/other-tenant, 409 `invitation_already_accepted`, 200 idempotent on
  *   an already-revoked row, D-09), docs/contracts/error-envelope.md.
  * Consumes: TASK-1b-12's `revokeInvitationRequest` and `classifyInvitationScreenError`;
  *   `ROLE_LABELS` from `invite-form.tsx`.
@@ -18,28 +18,28 @@
  * (D-11; the enum value is reserved for a later sweeper): a row past its `expiresAt` still
  * reads `state: 'pending'` from the API and its token answers 410 `invitation_expired`.
  * `displayState` turns a pending row whose `expiresAt` is at or before `now` into
- * `expired` for the badge; every other state — including an API-sent `expired`, should a
- * sweeper land — renders as-is. `now` is a prop so the screen passes one clock per render
+ * `expired` for the badge; every other state (including an API-sent `expired`, should a
+ * sweeper land) renders as-is. `now` is a prop so the screen passes one clock per render
  * and a spec pins it.
  *
  * REVOKE IS OFFERED ON DISPLAYED-PENDING ROWS ONLY. An accepted row cannot be revoked
  * (409), a revoked one already is, and a derived-expired one is spent: its token answers
  * 410 already and the API's "revoke anyway" (D-09) would only change a badge that reads
  * Expired into one that reads Revoked. Not offering it keeps the row honest about what
- * a click would do. Hiding is not enforcement — the API is.
+ * a click would do. Hiding is not enforcement: the API is.
  *
  * REVOKE IS A TWO-STEP INLINE CONFIRM, the `workspace-row.tsx` archive shape: there is no
  * un-revoke (ADR-0017: revoke and re-invite), so "Revoke <address>" only reveals "Revoke
  * the invitation for <address>? [Confirm] [Cancel]" in the row, with focus on Confirm;
  * only Confirm sends the DELETE; Escape or Cancel closes it and returns focus to Revoke.
  * The row owns its one request and reports the outcome; the screen re-fetches and
- * announces (`onRevoked`) or renders the failure (`onFailure`) — 404 and 409 mean the row
+ * announces (`onRevoked`) or renders the failure (`onFailure`): 404 and 409 mean the row
  * was stale, and the screen re-syncs on both.
  *
  * THIS SCREEN'S WORKSPACE, AND "+N MORE". An invitation may name several workspaces (the
  * API's shape; this screen's form names one). The row shows the role for the workspace
  * the page is on and a "+N more" for the others; the other workspaces' names are not
- * listed here — the caller administers this workspace, and what else the invitation
+ * listed here: the caller administers this workspace, and what else the invitation
  * grants is the API's to disclose through their own pages.
  *
  * Every per-row control names its address (visually hidden text) so a screen reader

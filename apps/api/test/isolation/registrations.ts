@@ -2,7 +2,7 @@
  * WHAT THE ISOLATION SUITE COVERS. Produced by: TASK-006.
  *
  * Every tenant-scoped subject in the system registers here, and the registry is the
- * enumeration — no hand-maintained list of assertions, no `it()` per table.
+ * enumeration: no hand-maintained list of assertions, no `it()` per table.
  *
  * ⚠ THIS FILE IS THE ONE A LATER SCHEMA TASK EDITS. Adding `links` means one
  * `registerTenantScopedSurfaces()` call naming the table, its owner column and the
@@ -16,30 +16,30 @@
  * `repo:TenantsTableAccess.findAll` names a class that exists, in this file, with that
  * method on it. There is no `TenantRepository` to name instead: no repository class
  * for `tenants` exists anywhere in `apps/api/src` (the one repository that does,
- * `WorkspaceRepository`, carries `@TenantScopedRepository()` — real since TASK-006 — and is
+ * `WorkspaceRepository`, carries `@TenantScopedRepository()` (real since TASK-006) and is
  * registered below). Naming one would put a surface id in `report.json` that
  * points at nothing, and `ISOLATION_EXCLUSIONS` is keyed on exactly these strings.
  *
  * The access objects are thin on purpose. Each method issues ONE statement through
- * `withTenantTransaction` — the same production path a repository will use, against the
- * same policies — so what an attempt exercises is Postgres's row-level security, not
+ * `withTenantTransaction` (the same production path a repository will use, against the
+ * same policies), so what an attempt exercises is Postgres's row-level security, not
  * this file. When `LinkRepository` arrives it registers its own methods and the harness
  * does not notice the difference.
  *
  * SINCE TASK-011 ONE REAL REPOSITORY IS REGISTERED BESIDE THEM. `workspaces` carries two
- * subjects on one table — the shipped F-353 pattern: `WorkspacesTableAccess` is the
+ * subjects on one table, the shipped F-353 pattern: `WorkspacesTableAccess` is the
  * eight-shape statement battery every table gets, and `WorkspaceRepository` names the
  * class in `src/workspaces/workspace.repository.ts` and attempts ITS FIVE METHODS, so
  * `repo:WorkspaceRepository.rename` in `report.json` points at a method that exists.
  *
  * SINCE TASK-1b-03 THREE MORE TABLES ARE REGISTERED AS BATTERIES: `memberships`,
  * `invitations` and `invitation_workspaces` (migration 0003, ADR-0062), each the eight
- * shapes — AND SINCE TASK-1b-10 TWO OF THEM CARRY THEIR REPOSITORY BESIDE THE BATTERY:
+ * shapes. AND SINCE TASK-1b-10 TWO OF THEM CARRY THEIR REPOSITORY BESIDE THE BATTERY:
  * `InvitationRepository` (create, listForWorkspace, findById, revoke) on `invitations` and
  * `MembershipRepository` (roleFor, workspaceIdsFor, create, listForWorkspace) on
  * `memberships`, the same F-353 two-subjects-one-table pattern `workspaces` shipped.
- * `invitation_workspaces` has no repository class of its own — its rows are written and
- * read only through `InvitationRepository` and the capability-lookup functions — so it
+ * `invitation_workspaces` has no repository class of its own (its rows are written and
+ * read only through `InvitationRepository` and the capability-lookup functions), so it
  * stays a battery. The endpoint half gained a second group, the five invitation routes,
  * documented at `INVITATION_ENDPOINTS` below.
  *
@@ -130,7 +130,7 @@ import {
 import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
 
 /**
- * The EIGHT statement shapes every tenant-scoped table is attacked with — every table,
+ * The EIGHT statement shapes every tenant-scoped table is attacked with, every table,
  * with no exceptions since r4 withdrew the one decline (F-342). They are the rows of
  * isolation-coverage.md's "Attempt semantics" table, made concrete:
  *
@@ -154,7 +154,7 @@ import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
  *
  * `updateOwnedBy` and `deleteOwnedBy` name the owning tenant in a WHERE clause, and a
  * WHERE clause REFERENCES A COLUMN, so PostgreSQL applies the SELECT policies to the
- * statement — the rule `test/support/rls-fixture.ts:175-188` measured and wrote down for
+ * statement, the rule `test/support/rls-fixture.ts:175-188` measured and wrote down for
  * the eraser. A correctly scoped SELECT policy therefore hides a completely wide-open
  * UPDATE or DELETE policy from both of them: the statement can see no row of the
  * target's to modify and reports zero rows affected, which the harness scored as a pass.
@@ -169,11 +169,11 @@ import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
  *
  * The auditor measured the same asymmetry for DELETE. These two statements are the
  * ordinary shape of an admin action, a bulk operation, a migration helper, or an ORM
- * call with a forgotten `where` — GC-5 says no query path may bypass tenant scoping, and
+ * call with a forgotten `where`. GC-5 says no query path may bypass tenant scoping, and
  * this was a whole class of path the harness could not see.
  *
  * ---------------------------------------------------------------------------
- * WHAT A REGISTRATION OWES THE HARNESS SINCE r2 — READ THIS BEFORE ADDING ONE
+ * WHAT A REGISTRATION OWES THE HARNESS SINCE r2: READ THIS BEFORE ADDING ONE
  * ---------------------------------------------------------------------------
  *
  * 1. `reset()` MUST SEED A ROW FOR BOTH TENANTS. Four of the five shapes above return
@@ -197,7 +197,7 @@ import { createLeakCanary, LEAK_CANARY_TABLE } from './leak-canary';
  *    through the SELECT policy and it reports zero rows (F-302). `tableAccess()` below
  *    supplies both shapes; a hand-written registration owes them itself. Since r4 the
  *    declaration is CHECKED AGAINST THE SQL at registration time and a disagreement
- *    throws (F-345) — the label was the one thing three rounds of judgement rested on
+ *    throws (F-345): the label was the one thing three rounds of judgement rested on
  *    that no mechanism verified.
  *
  * 5. NO SHAPE MAY BE DECLINED (F-342). A table whose WITH CHECK asks for more than
@@ -228,13 +228,13 @@ interface TableAccessSpec {
    *
    * `tenant_memberships` HAS NO FREE-TEXT COLUMN. `user_id` is UNIQUE and a foreign key
    * and `role` is an enum, so a string literal assigned to either fails with a
-   * constraint or enum error rather than a policy refusal — and the harness scores that
+   * constraint or enum error rather than a policy refusal, and the harness scores that
    * `unverified`, which is a red run over a table with nothing wrong with it. So the
    * registration supplies a valid `tenant_role` instead, different from the one its
    * fixture rows carry, and BOTH shapes use it: there is no CHECK constraint on this
    * table for the two literals to have to differ against.
    *
-   * A value and not a fragment, for F-352's reason — everything the `sql` tag
+   * A value and not a fragment, for F-352's reason: everything the `sql` tag
    * interpolates that is not a fragment is bound as `$N`, so nothing spellable here can
    * reach an existing column and quietly disarm both unqualified writes.
    */
@@ -243,7 +243,7 @@ interface TableAccessSpec {
    * The owner id the insert attempt writes, and the row it writes. For a `tenant_id`
    * table this is the target tenant itself. For `tenants`, whose row identity IS its
    * owner, the target's row already exists and an insert carrying its id would fail on
-   * the primary key BEFORE any policy was evaluated — a 23505 that reads exactly like
+   * the primary key BEFORE any policy was evaluated, a 23505 that reads exactly like
    * the 42501 the policy owes us. So it plants a tenant that has never been seeded.
    */
   readonly plantedOwnerId: (target: TenantFixture) => string;
@@ -254,13 +254,13 @@ interface TableAccessSpec {
    * UNQUALIFIED UPDATES SO THEY ARE ADMITTED RATHER THAN REFUSED.
    * ==========================================================================
    *
-   * A WITH CHECK stricter than its USING is an ordinary, CORRECT policy shape — a
+   * A WITH CHECK stricter than its USING is an ordinary, CORRECT policy shape: a
    * soft-delete guard, an immutability-on-archive predicate, a plan limit. On such a
    * table `update <t> set <mutable> = <constant>` is refused by the check even though the
    * USING clause admitted only the actor's own row, and r3's rule scores that refusal
    * `unverified`: a red run, permanently, on a table with nothing wrong with it.
-   * Measured on `isolation_guarded_check_canary`, and `reparentAll` — the remedy the
-   * message used to offer — is refused identically.
+   * Measured on `isolation_guarded_check_canary`, and `reparentAll` (the remedy the
+   * message used to offer) is refused identically.
    *
    * It is deliberately NOT applied to the owner-qualified writes: those name the target
    * in a WHERE clause, PostgreSQL routes them through the SELECT policy, and a refusal on
@@ -274,9 +274,9 @@ interface TableAccessSpec {
    * r4 took a free `SQL` fragment here and claimed it "cannot hide a leak: the statement
    * still carries no WHERE clause, so it still sweeps every row the USING clause admits".
    * THE WHERE CLAUSE IS NOT WHAT KEEPS THE SELECT POLICIES OUT. A COLUMN REFERENCE
-   * ANYWHERE IN THE STATEMENT PULLS THEM BACK IN — the rule
+   * ANYWHERE IN THE STATEMENT PULLS THEM BACK IN (the rule
    * `test/support/rls-fixture.ts:175-188` measured, that F-302's entire finding rests on,
-   * and that `isolation-coverage.md:569` already states normatively — and a SET expression
+   * and that `isolation-coverage.md:569` already states normatively), and a SET expression
    * is part of the statement. Measured on the F-302 canary shape, tenant A, 2026-08-11:
    *
    *   set label = <const>                     -> UPDATE 2   the leak; 2 > 1 fires
@@ -285,21 +285,21 @@ interface TableAccessSpec {
    *   set tenant_id = <A>, status = status    -> UPDATE 1   SILENT
    *
    * One column reference in the fragment disarms BOTH unqualified writes at once, and
-   * `version = version + 1` — an optimistic-lock guard, the idiomatic thing to write here
-   * — is exactly that shape. `isolation_guarded_leak_canary` is the cost measured end to
+   * `version = version + 1` (an optimistic-lock guard, the idiomatic thing to write here)
+   * is exactly that shape. `isolation_guarded_leak_canary` is the cost measured end to
    * end: a table whose UPDATE policy admits every row of every tenant, reported entirely
    * `pass` under such a registration.
    *
-   * SO THE FIX IS THE TYPE AND NOT A CHECK. A column and a VALUE. The value is bound —
-   * `sql` renders it as `$N` — so the assignment reads `"status" = $2` whatever the value
+   * SO THE FIX IS THE TYPE AND NOT A CHECK. A column and a VALUE. The value is bound
+   * (`sql` renders it as `$N`), so the assignment reads `"status" = $2` whatever the value
    * is, and there is no way to spell a column reference in it. This is what F-345 did for
    * the WHERE invariant: the difference is that F-345 could derive the invariant from the
    * compiled SQL and throw, and this one is enforced by the shape being unable to express
    * the mistake at all.
    *
    * `column` passes through `sql.identifier()`, which quotes it and doubles any embedded
-   * quote — verified against drizzle-orm@0.45.2: `identifier('x" = version, "label')`
-   * compiles to `"x"" = version, ""label"`, one identifier — so the column name cannot
+   * quote (verified against drizzle-orm@0.45.2: `identifier('x" = version, "label')`
+   * compiles to `"x"" = version, ""label"`, one identifier), so the column name cannot
    * carry an expression either.
    */
   readonly unqualifiedWritesAlsoSet?: readonly RequiredAssignment[];
@@ -358,9 +358,9 @@ function shape(spec: StatementShape): TenantScopedMethod {
  * F-345. `qualification` IS DERIVED FROM THE STATEMENT, NOT TAKEN ON TRUST.
  * ============================================================================
  *
- * The field drives three separate judgements — the count rule (`affected > 0` versus
+ * The field drives three separate judgements: the count rule (`affected > 0` versus
  * `affected > actorOwnRowsVisible`), the F-330 refusal rule (`pass` versus `unverified`)
- * and the post-attempt `reset()` — and until now it was a string literal sitting next to
+ * and the post-attempt `reset()`. Until now it was a string literal sitting next to
  * the SQL it claimed to describe, with nothing but review between the two. A registration
  * labelling an unqualified statement `owner-qualified` restores F-330's blind spot for
  * that surface: its row-level-security refusal scores a pass again.
@@ -369,7 +369,7 @@ function shape(spec: StatementShape): TenantScopedMethod {
  * `owner-qualified` when it names the rows it may touch: an UPDATE or DELETE does that in
  * a WHERE clause, and an INSERT does it in the row it supplies. The distinction the field
  * exists for is which half of a policy a refusal is evidence about, and an INSERT policy
- * HAS NO USING CLAUSE AT ALL — only a WITH CHECK — so a WITH CHECK refusal is complete
+ * HAS NO USING CLAUSE AT ALL (only a WITH CHECK), so a WITH CHECK refusal is complete
  * evidence for that statement, which is exactly what `owner-qualified` means to the
  * runner. An UPDATE or DELETE with no WHERE is the only shape whose refusal leaves the
  * USING clause unproven.
@@ -387,7 +387,7 @@ export function qualificationOfStatement(statement: SQL): 'owner-qualified' | 'u
 }
 
 /**
- * F-345. Throws at REGISTRATION TIME — which is import time — when a shape's declared
+ * F-345. Throws at REGISTRATION TIME (which is import time) when a shape's declared
  * `qualification` disagrees with the SQL it issues.
  */
 export function assertDeclaredQualification(
@@ -402,7 +402,7 @@ export function assertDeclaredQualification(
       `${name} declares qualification '${declared}' and issues a statement the harness ` +
         `reads as '${derived}': ${new PgDialect().sqlToQuery(statement).sql}. An UPDATE or ` +
         'DELETE with no WHERE clause is unqualified; anything naming the rows it may ' +
-        'touch — a WHERE clause, or an INSERT supplying the row — is owner-qualified. ' +
+        'touch (a WHERE clause, or an INSERT supplying the row) is owner-qualified. ' +
         'The field decides whether a row-level-security refusal on this statement is a ' +
         'pass or `unverified`, so a wrong label restores F-330 for this surface.',
     );
@@ -496,7 +496,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
      * `set <col> = <constant>` is what keeps the SELECT policies out of it: a SET
      * expression reading a column would pull them back in and this attempt would become
      * `updateOwnedBy` with extra steps. The label is distinct from
-     * `overwritten-by-another-tenant` on purpose — `isolation_masked_refusal_canary`
+     * `overwritten-by-another-tenant` on purpose: `isolation_masked_refusal_canary`
      * carries a CHECK constraint rejecting that one, and a control that refuses this
      * statement with 23514 would hide the very leak it exists to expose.
      *
@@ -516,7 +516,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
       statement: () =>
         sql`update ${table} set ${mutable} = ${spec.mutableValue ?? 'overwritten-by-an-unqualified-write'}${alsoSets}`,
     }),
-    /** F-302. `DELETE FROM <t>` — the auditor's measurement: DELETE 0 qualified, DELETE 2 not. */
+    /** F-302. `DELETE FROM <t>`, the auditor's measurement: DELETE 0 qualified, DELETE 2 not. */
     shape({
       name: 'deleteAll',
       kind: 'write',
@@ -531,10 +531,10 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
      *
      * `UPDATE <t> SET <ownerColumn> = <actor>`, unqualified. It exists because F-302's
      * fix closed the half of the defect that permits OVERWRITING and left the half that
-     * permits TAKING — and the second is worse.
+     * permits TAKING, and the second is worse.
      *
-     * Widen a policy's USING and leave its WITH CHECK correct — one token away from what
-     * `tenantScopedPolicies()` emits — and every other shape in this battery reports a
+     * Widen a policy's USING and leave its WITH CHECK correct (one token away from what
+     * `tenantScopedPolicies()` emits) and every other shape in this battery reports a
      * pass. Measured on a probe carrying exactly that policy:
      *
      *   findAll / findOwnedBy        -> correct rows            -> pass
@@ -546,7 +546,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
      *
      * That last statement is this method. The WITH CHECK is satisfied precisely BECAUSE
      * the resulting row belongs to the actor, which is why it slips past the clause that
-     * refuses every other write — and why the count rule and the digest, which never see
+     * refuses every other write, and why the count rule and the digest, which never see
      * a statement that is never issued, both stayed silent.
      *
      * It is judged by the two mechanisms that already exist and needs no third: the
@@ -558,7 +558,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
      * =========================================================================
      *
      * r3 let a registration DECLINE this shape by name, and `tenants` was the first and
-     * only use — on the premise that `UPDATE tenants SET id = <actor>` is refused by the
+     * only use, on the premise that `UPDATE tenants SET id = <actor>` is refused by the
      * primary key index "before any policy is evaluated". Measured on the migrated table,
      * as `shortkit_app` in an ordinary tenant-A transaction, on 2026-08-11:
      *
@@ -570,7 +570,7 @@ function tableAccess(spec: TableAccessSpec): TenantScopedMethod[] {
      * admits only the actor's own row, so the assignment is an IDENTITY UPDATE and the key
      * is never contended. The shape separates the cases cleanly, so THE DECLINE AND THE
      * MECHANISM BEHIND IT ARE BOTH GONE. Its failing answer on such a table is a 23505,
-     * which lands as `unverified` rather than as a named leak — a red run naming the
+     * which lands as `unverified` rather than as a named leak: a red run naming the
      * surface, which is narrower than a `fail` and far more than the decline gave it.
      *
      * Ordinary code paths that issue it: a re-parent, a move-between-workspaces, an
@@ -590,10 +590,10 @@ const PLANTED_FIXTURE_ROW_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1';
 
 /**
  * The cascade root. `id` is its own owner column, and its four policies are the bespoke
- * set `apps/api/drizzle/0000_*.sql` hand-appends — not `tenantScopedPolicies()`.
+ * set `apps/api/drizzle/0000_*.sql` hand-appends, not `tenantScopedPolicies()`.
  *
  * ---------------------------------------------------------------------------
- * WHAT `tenants`'s GREEN ATTEMPTS ACTUALLY PROVE (F-329, F-334) — READ THIS BEFORE
+ * WHAT `tenants`'s GREEN ATTEMPTS ACTUALLY PROVE (F-329, F-334): READ THIS BEFORE
  * QUOTING A COUNT OF THEM
  * ---------------------------------------------------------------------------
  *
@@ -609,11 +609,11 @@ const PLANTED_FIXTURE_ROW_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1';
  * lands here, and not before.
  *
  * And the eight owner-qualified write attempts across both registered tables prove the
- * SELECT policy rather than the write policy — that is F-302's finding restated as an
+ * SELECT policy rather than the write policy. That is F-302's finding restated as an
  * accounting fact, not a separate defect.
  *
  * ---------------------------------------------------------------------------
- * SO, ON THE MIGRATED PRODUCTION TABLE — RESTATED FOR r4 (F-342), BECAUSE THE PREVIOUS
+ * SO, ON THE MIGRATED PRODUCTION TABLE, RESTATED FOR r4 (F-342), BECAUSE THE PREVIOUS
  * VERSION OF THIS PARAGRAPH RESTED ON A PREMISE THAT MEASURES FALSE
  * ---------------------------------------------------------------------------
  *
@@ -632,13 +632,13 @@ const PLANTED_FIXTURE_ROW_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1';
  *
  * TWO live unqualified write attempts per direction, one of which reports its failure as
  * `unverified` rather than as a named leak. That is the honest accounting, and it is
- * narrower than a `fail` — but a decline recorded as a fact was not evidence at all.
+ * narrower than a `fail`, but a decline recorded as a fact was not evidence at all.
  */
 const tenantsAccess: TenantScopedSurfaceRegistration = {
   subject: 'TenantsTableAccess',
   table: 'tenants',
   ownerColumn: 'id',
-  // `resetTenantFixtures`, not `createRlsFixture` — see its docblock (F-123). It calls
+  // `resetTenantFixtures`, not `createRlsFixture`. See its docblock (F-123). It calls
   // `createRlsFixture()` first and then re-seeds what that erases by cascade, so this
   // subject's reset no longer leaves another subject's table empty.
   reset: resetTenantFixtures,
@@ -687,14 +687,14 @@ const rlsFixtureRowsAccess: TenantScopedSurfaceRegistration = {
  * `FOR SELECT` token-mint escape. Every attempt below runs through
  * `withTenantTransaction`, which sets `app.tenant_id` and never
  * `app.membership_lookup_user`, so that policy reads NULL through its `nullif` and
- * admits nothing here — which is the property this registration incidentally proves on
+ * admits nothing here, which is the property this registration incidentally proves on
  * every run. If it ever admitted something, `findAll` would return the other tenant's
  * row and the harness would name it.
  *
  * ITS FIXTURE ROWS GO IN THROUGH THE MIGRATOR DSN AND SO DOES ITS `"user"` SEED, and
  * both are structural rather than convenience: migration `0001` revokes `shortkit_app`
  * on `"user"` entirely (ADR-0050), so the runtime role cannot seed the foreign key it
- * needs. `resetTenantFixtures()` above does it — and does it for every subject, not only
+ * needs. `resetTenantFixtures()` above does it, and does it for every subject, not only
  * this one, so no registration's position in this file decides whether it is seeded.
  */
 const MEMBERSHIP_ROW_A = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
@@ -708,7 +708,7 @@ const MEMBERSHIP_USER_B = 'isolationUserB01';
 /**
  * A third user, for `insertOwnedBy` alone. `UNIQUE (user_id)` is one row per user, so
  * planting under A's or B's id would be refused by 23505 BEFORE any policy was
- * evaluated — a refusal indistinguishable from the 42501 the INSERT policy owes us,
+ * evaluated, a refusal indistinguishable from the 42501 the INSERT policy owes us,
  * which is the same trap `tenants` needs `TENANT_C_NEVER_SEEDED` for.
  */
 const MEMBERSHIP_USER_PLANTED = 'isolationUserP01';
@@ -723,7 +723,7 @@ const MEMBERSHIP_SEEDED_ROLE = 'owner';
  * ===========================================================================
  *
  * The fourth registered production table and the first template-shaped one whose
- * policies come from a MIGRATION rather than from the fixture — `0002_*.sql` carries
+ * policies come from a MIGRATION rather than from the fixture: `0002_*.sql` carries
  * `tenantScopedPolicies('workspaces')` hand-appended. `id` is database-generated in
  * production; the fixture supplies fixed ids so `WorkspaceRepository`'s attempts below
  * can name the target's row without a lookup.
@@ -737,16 +737,16 @@ const WORKSPACE_SEEDED_NAME = 'seeded-workspace';
  * ===========================================================================
  * THE THREE 1b TABLES (TASK-1b-03, ADR-0062): `memberships`, `invitations`,
  * `invitation_workspaces`. Migration `0003_*.sql` carries `tenantScopedPolicies()` for
- * each, hand-appended, template unchanged — two policies per table, no bespoke policy.
+ * each, hand-appended, template unchanged: two policies per table, no bespoke policy.
  * ===========================================================================
  *
- * Seeded per tenant in `resetTenantFixtures()` below, one row each — except `invitations`,
+ * Seeded per tenant in `resetTenantFixtures()` below, one row each, except `invitations`,
  * which gets TWO per tenant, and the second exists for one reason: `invitation_workspaces`
  * is `UNIQUE (invitation_id, workspace_id)`, each tenant has one seeded workspace, so a
  * planted `invitation_workspaces` row naming the seeded (invitation, workspace) pair would
  * collide with the seeded row. Under the shipped policy the RLS refusal comes first and
- * the collision is never reached; under a WIDENED `WITH CHECK` — the defect the insert
- * shape exists to name — the row would be admitted and then refused 23505, which the
+ * the collision is never reached; under a WIDENED `WITH CHECK` (the defect the insert
+ * shape exists to name) the row would be admitted and then refused 23505, which the
  * harness scores `unverified` rather than `fail`. Naming a leak is worth one spare row, so
  * the planted pair is (the tenant's SPARE invitation, the tenant's seeded workspace) and
  * collides with nothing. `tenants` and `tenant_memberships` solve the same trap with a
@@ -762,7 +762,7 @@ const WORKSPACE_SEEDED_NAME = 'seeded-workspace';
  * REFERENCES workspaces (id, tenant_id)`. Under the shipped policy `UPDATE <t> SET
  * tenant_id = <actor>` reaches only the actor's own rows and is an identity update. Under
  * a widened USING it would rewrite the target's row to (target's workspace, actor's tenant),
- * a pair `workspaces` does not hold, and the FK refuses it 23503 — `unverified`, naming the
+ * a pair `workspaces` does not hold, and the FK refuses it 23503: `unverified`, naming the
  * surface, which is the F-342 accounting: narrower than a `fail`, still a red run. The
  * constraint refusing the theft is the property the ADR exists to record, not a gap.
  */
@@ -799,7 +799,7 @@ const INVITATION_WORKSPACE_OVERWRITE_ROLE = 'viewer';
 /**
  * ===========================================================================
  * THE THREE ITEM-2 TABLES (TASK-2-02): `domains`, `links`, `click_events`. Migration
- * `0005_*.sql` carries `tenantScopedPolicies()` for each, hand-appended — AND
+ * `0005_*.sql` carries `tenantScopedPolicies()` for each, hand-appended, AND
  * `redirectReadPolicy()` on `domains` and `links`, the FIRST APPLIED INSTANCES of the
  * redirect escape (ADR-0003's approved set, exclusion 1 of exactly 3).
  * ===========================================================================
@@ -807,7 +807,7 @@ const INVITATION_WORKSPACE_OVERWRITE_ROLE = 'viewer';
  * `domains` AND `links` ARE THE SECOND AND THIRD TABLES CARRYING A THIRD POLICY, after
  * `tenant_memberships`'s token-mint lookup. Every attempt below runs through
  * `withTenantTransaction`, which sets `app.tenant_id` and never `app.redirect_context`, so
- * `<t>_redirect_read` reads NULL through its `nullif` and admits nothing here — the property
+ * `<t>_redirect_read` reads NULL through its `nullif` and admits nothing here, the property
  * this registration incidentally proves on every run. If it ever admitted something,
  * `findAll` would return the other tenant's row and the harness would name it. That matters
  * more than it did for the lookup policy: nothing sets `app.redirect_context` at all until
@@ -828,7 +828,7 @@ const INVITATION_WORKSPACE_OVERWRITE_ROLE = 'viewer';
  * is a PARTIAL unique index over `WHERE state IN ('verified','provisioning','active')`, and
  * `updateAll` issues `UPDATE domains SET hostname = <one constant>` with no WHERE clause.
  * Under the shipped policy that reaches one row; under a WIDENED USING it reaches both, and
- * with `active` rows the second write would be refused 23505 by the index — which the harness
+ * with `active` rows the second write would be refused 23505 by the index, which the harness
  * scores `unverified` rather than `fail`. The leak would be named as "something went wrong on
  * this surface" instead of "tenant A rewrote tenant B's row". Outside the predicate the index
  * is not consulted at all, so the leak is reported as a leak. Same trap `invitation_workspaces`
@@ -836,7 +836,7 @@ const INVITATION_WORKSPACE_OVERWRITE_ROLE = 'viewer';
  * the cheaper lever, and it costs nothing because item 2 has no state machine.
  *
  * HOSTNAMES AND SLUGS ARE DISTINCT PER TENANT. Each tenant's link points at ITS OWN domain
- * row, so `links_domain_id_slug_unique` could not collide even with equal slugs — but a later
+ * row, so `links_domain_id_slug_unique` could not collide even with equal slugs, but a later
  * fixture change that pointed both at one domain would then turn `insertOwnedBy` into a 23505
  * indistinguishable from the 42501 the policy owes us. Distinct values make the policy the
  * only thing that can refuse, today and after that edit.
@@ -844,14 +844,14 @@ const INVITATION_WORKSPACE_OVERWRITE_ROLE = 'viewer';
  * THE PLANTED ROWS NAME THE TARGET'S OWN PARENTS. A planted `links` row carries the target's
  * workspace and the target's domain; a planted `click_events` row carries the target's link
  * and the target's domain. So under the shipped policy the only thing standing in the way is
- * the WITH CHECK, which is what `insertOwnedBy` exists to exercise — and a widened WITH CHECK
+ * the WITH CHECK, which is what `insertOwnedBy` exists to exercise, and a widened WITH CHECK
  * is reported as a leak rather than masked by a foreign key.
  *
  * THE COMPOSITE FOREIGN KEY IS A SECOND FLOOR UNDER `reparentAll` FOR TWO OF THE THREE
  * (ADR-0062). `domains` and `links` declare `FOREIGN KEY (workspace_id, tenant_id) REFERENCES
  * workspaces (id, tenant_id)`, so `UPDATE <t> SET tenant_id = <actor>` under a widened USING
  * would rewrite the target's row to a (workspace, tenant) pair `workspaces` does not hold and
- * be refused 23503 — `unverified`, naming the surface, the F-342 accounting. `click_events`
+ * be refused 23503: `unverified`, naming the surface, the F-342 accounting. `click_events`
  * has NO composite key (its parents are `links` and `domains`, neither carrying `tenant_id`
  * in the reference), so its `reparentAll` reaches the count rule directly and a leak there is
  * a named `fail`. The three tables between them exercise both outcomes.
@@ -879,7 +879,7 @@ const INVITATION_WORKSPACE_OVERWRITE_ROLE = 'viewer';
 const DOMAIN_ROW_A = 'a7a7a7a7-a7a7-4a7a-8a7a-a7a7a7a7a7a7';
 const DOMAIN_ROW_B = 'b7b7b7b7-b7b7-4b7b-8b7b-b7b7b7b7b7b7';
 const PLANTED_DOMAIN_ROW_ID = 'f9f9f9f9-f9f9-4f9f-8f9f-f9f9f9f9f9f9';
-/** Distinct per tenant, and OUTSIDE the partial unique index's predicate — see the docblock. */
+/** Distinct per tenant, and OUTSIDE the partial unique index's predicate (see the docblock). */
 const DOMAIN_HOSTNAME_A = 'tenant-a.isolation.test';
 const DOMAIN_HOSTNAME_B = 'tenant-b.isolation.test';
 const DOMAIN_HOSTNAME_PLANTED = 'planted.isolation.test';
@@ -908,7 +908,7 @@ const CLICK_USER_AGENT = 'isolation-fixture/1.0';
 /**
  * The seeded parents a planted row must name, keyed by the tenant that owns them. A planted
  * row that named ANOTHER tenant's parent would be refused by a foreign key rather than by the
- * WITH CHECK, and the harness scores that `unverified` — a red run that names no boundary.
+ * WITH CHECK, and the harness scores that `unverified`: a red run that names no boundary.
  */
 function seededParentsOf(tenantId: string): {
   workspaceId: string;
@@ -1000,7 +1000,7 @@ export function dropPlatformRows(): void {
 /**
  * ===========================================================================
  * THE RESET EVERY REGISTRATION IN THIS FILE USES. IT REBUILDS THE WHOLE FIXTURE,
- * NOT ONE SUBJECT'S SHARE OF IT — AND THAT IS F-123.
+ * NOT ONE SUBJECT'S SHARE OF IT. AND THAT IS F-123.
  * ===========================================================================
  *
  * `createRlsFixture()` erases the fixture tenants, and `tenant_memberships.tenant_id` is
@@ -1011,7 +1011,7 @@ export function dropPlatformRows(): void {
  *
  * The first version of this file registered `tenantMembershipsAccess` third and gave the
  * other two `reset: createRlsFixture`, so the census passed **because of registration
- * order** — and registering a fourth subject after it, the ordinary way this file grows,
+ * order**, and registering a fourth subject after it, the ordinary way this file grows,
  * would have returned four census lines where six were expected. Loud, but the diagnosis
  * is nowhere near the failure.
  *
@@ -1027,13 +1027,13 @@ function resetTenantFixtures(): void {
   createRlsFixture();
 
   // ONE psql spawn for all of it. Every registration's reset now pays for this, once per
-  // attempt, so the three round trips it replaced were worth collapsing — the tenant flag
+  // attempt, so the three round trips it replaced were worth collapsing: the tenant flag
   // is set inline per statement instead of through `execSql`'s session-level option.
   //
   // WORKSPACES ARE SEEDED HERE TOO (TASK-011), one row per tenant, under each tenant's
   // own flag: `workspaces` carries FORCE ROW LEVEL SECURITY, so the owning role's insert
   // has to satisfy the WITH CHECK like anyone else's. Erasing the fixture tenants above
-  // already cascaded every workspace row away — seeded and planted alike — so no DELETE
+  // already cascaded every workspace row away (seeded and planted alike), so no DELETE
   // is needed for them.
   //
   // AND THE THREE 1b TABLES (TASK-1b-03), in dependency order under the same flag:
@@ -1044,7 +1044,7 @@ function resetTenantFixtures(): void {
   //
   // Deleting the `"user"` rows cascades their memberships too, which is what clears a row
   // a previous attempt planted. `"user"` carries no row-level security (ADR-0044), so
-  // that half needs no tenant context — only the migrator's grant. The membership inserts
+  // that half needs no tenant context, only the migrator's grant. The membership inserts
   // do: `tenant_memberships` carries FORCE ROW LEVEL SECURITY, so even the owning role's
   // insert has to satisfy the WITH CHECK, and it admits one tenant at a time.
   //
@@ -1052,8 +1052,8 @@ function resetTenantFixtures(): void {
   // returns zero rows to four of the five shapes because there is nothing there rather
   // than because a policy denied them, and the harness scores that `unverified` (F-295).
   //
-  // Every value reaches the script through a psql variable — `:'name'` quotes it as a
-  // literal — so nothing is concatenated in, the same property `execSql`'s own `tenantId`
+  // Every value reaches the script through a psql variable (`:'name'` quotes it as a
+  // literal), so nothing is concatenated in, the same property `execSql`'s own `tenantId`
   // option has.
   execSql(
     migrationDsn(),
@@ -1137,7 +1137,7 @@ function resetTenantFixtures(): void {
         // TASK-2-02. In dependency order under the same flag: `domains` (needs the
         // workspace), `links` (needs the workspace and the domain), `click_events` (needs
         // the link and the domain). All three carry FORCE ROW LEVEL SECURITY and all three
-        // cascade from `tenants`, so the erase above already cleared them — planted rows
+        // cascade from `tenants`, so the erase above already cleared them, planted rows
         // included. The state is cast explicitly because psql's `:'name'` interpolates a
         // text literal and `domain_state` takes no implicit cast from one.
         domain_a: DOMAIN_ROW_A,
@@ -1204,8 +1204,8 @@ const workspacesAccess: TenantScopedSurfaceRegistration = {
 };
 
 /**
- * `memberships`, attacked as a TABLE (TASK-1b-03). Its repository subject —
- * `MembershipRepository`'s methods, owner-qualified — arrives with the repository
+ * `memberships`, attacked as a TABLE (TASK-1b-03). Its repository subject
+ * (`MembershipRepository`'s methods, owner-qualified) arrives with the repository
  * (TASK-1b-05), the F-353 two-subjects-one-table pattern `workspaces` shipped.
  *
  * `mutableValue` for the same reason `tenant_memberships` has one: `role` is an enum and
@@ -1260,7 +1260,7 @@ const invitationsAccess: TenantScopedSurfaceRegistration = {
 
 /**
  * `invitation_workspaces`, attacked as a TABLE (TASK-1b-03). The planted row names the
- * target's SPARE invitation and the target's seeded workspace — a pair no seeded row
+ * target's SPARE invitation and the target's seeded workspace, a pair no seeded row
  * holds, so `UNIQUE (invitation_id, workspace_id)` refuses nothing and a widened WITH
  * CHECK would be named as a leak rather than masked as 23505 (see the constants above).
  * `role` is an enum, hence `mutableValue`.
@@ -1285,7 +1285,7 @@ const invitationWorkspacesAccess: TenantScopedSurfaceRegistration = {
 
 /**
  * `domains`, attacked as a TABLE (TASK-2-02). No repository subject: item 2 ships no
- * `DomainRepository` — `POST /api/domains` and the reconciler are item 3's — and naming one
+ * `DomainRepository` (`POST /api/domains` and the reconciler are item 3's), and naming one
  * would put a surface id in `report.json` pointing at nothing.
  *
  * `hostname` is free text, so the two update shapes keep their default literals (and stay
@@ -1313,7 +1313,7 @@ const domainsAccess: TenantScopedSurfaceRegistration = {
 
 /**
  * `links`, attacked as a TABLE (TASK-2-02). `LinkRepository`'s methods arrive with the
- * repository (TASK-2-05) as a sibling subject on this same table — the F-353
+ * repository (TASK-2-05) as a sibling subject on this same table, the F-353
  * two-subjects-one-table pattern `workspaces` shipped and `memberships`/`invitations`
  * repeated. Until then the three unqualified writes on this table come from here and
  * nowhere else, which is rule 4.
@@ -1332,7 +1332,7 @@ const linksAccess: TenantScopedSurfaceRegistration = {
     table: 'links',
     ownerColumn: 'tenant_id',
     // `slug` rather than the destination: it is the column the redirect looks a link up by,
-    // so a row that crossed a boundary is named by the path that would serve it — and the
+    // so a row that crossed a boundary is named by the path that would serve it, and the
     // projection stays free of a URL the log scans would rather never see (GC-G).
     projection: ['id', 'tenant_id', 'slug'],
     mutableColumn: 'destination_url',
@@ -1387,7 +1387,7 @@ const clickEventsAccess: TenantScopedSurfaceRegistration = {
  *
  * - EVERY METHOD IS `owner-qualified`, AND THAT IS THE REPOSITORY'S CONTRACT, NOT A
  *   CONVENIENCE. Every statement it issues carries `tenant_id = currentTenantId()` in
- *   its WHERE, or sets `tenant_id` on INSERT — `workspace.repository.spec.ts` compiles
+ *   its WHERE, or sets `tenant_id` on INSERT. `workspace.repository.spec.ts` compiles
  *   all of them and asserts exactly that, which is the same property `shape()` derives
  *   from the SQL for the table battery, checked at a different time. Nothing here can
  *   be checked by `assertDeclaredQualification()` because a repository method hands the
@@ -1395,13 +1395,13 @@ const clickEventsAccess: TenantScopedSurfaceRegistration = {
  *
  * - THE UNQUALIFIED WRITES LIVE IN `workspacesAccess` ABOVE. A registration whose writes
  *   are all owner-qualified is blind to a wide-open UPDATE or DELETE policy (F-302), so
- *   the rule is satisfied for the TABLE by the sibling registration — the F-353 pattern
+ *   the rule is satisfied for the TABLE by the sibling registration, the F-353 pattern
  *   of two subjects on one table, one per way of attacking it.
  *
  * - `create` HAS NO TARGET ARGUMENT TO CROSS WITH. The repository writes under the
  *   context's tenant and takes no tenant parameter, so the attempt creates in the actor's
  *   context and reports as `rowsAffected` the number of rows it wrote that the TARGET
- *   owns — zero when the row landed under the actor, which is the only correct answer.
+ *   owns, zero when the row landed under the actor, which is the only correct answer.
  *   The per-row digest of the target's rows judges it a second way, and `reset()`
  *   clears the created row before the next attempt.
  *
@@ -1454,7 +1454,7 @@ function ownerProjection(
  * since TASK-1b-10 `InvitationNotFoundError` for `InvitationRepository.revoke` and
  * `WorkspaceNotFoundError` for `InvitationRepository.create` (the composite foreign key's
  * refusal of a grant naming a workspace outside the transaction's tenant, mapped by the
- * repository itself — invitation-tokens.md, ADR-0062). The class is named per call so a
+ * repository itself: invitation-tokens.md, ADR-0062). The class is named per call so a
  * method that starts throwing the OTHER repository's error is `unverified` rather than a pass.
  */
 async function affectedOrNotFound(
@@ -1561,11 +1561,11 @@ const workspaceRepositoryAccess: TenantScopedSurfaceRegistration = {
  * ===========================================================================
  * `invitations` AND `memberships`, attacked THROUGH THEIR REPOSITORIES (TASK-1b-10, D-19):
  * one method per public method of the class, called inside the ACTOR's tenant transaction
- * with the TARGET's ids — the `WorkspaceRepository` shape above, on the two 1b classes.
+ * with the TARGET's ids, the `WorkspaceRepository` shape above, on the two 1b classes.
  * ===========================================================================
  *
  * What is the same: every method is `owner-qualified` by the class's own contract (each
- * statement carries `tenant_id = currentTenantId()` or sets it on INSERT — the repository
+ * statement carries `tenant_id = currentTenantId()` or sets it on INSERT; the repository
  * specs compile and assert exactly that); the unqualified writes on both tables live in the
  * sibling `…TableAccess` batteries; reads project the owner column so the harness judges
  * them on it; a write that the repository answers with its OWN not-found error is zero rows,
@@ -1575,7 +1575,7 @@ const workspaceRepositoryAccess: TenantScopedSurfaceRegistration = {
  *
  * - `InvitationRepository.create` NAMES THE TARGET'S WORKSPACE in its one grant. The row it
  *   would write is (target's workspace, actor's tenant), a pair `workspaces (id, tenant_id)`
- *   does not hold, and the composite foreign key refuses it 23503 — which the repository
+ *   does not hold, and the composite foreign key refuses it 23503, which the repository
  *   maps to `WorkspaceNotFoundError`, its contract's answer to a workspace the caller cannot
  *   see (ADR-0062's "second floor" under the policy). The transaction rolls back with it, so
  *   the `invitations` header row it inserted first never lands; the per-attempt census on
@@ -1584,7 +1584,7 @@ const workspaceRepositoryAccess: TenantScopedSurfaceRegistration = {
  *   the leak. Compare `WorkspaceRepository.create`, which has no target argument to cross
  *   with; this one does, so it is crossed.
  *
- * - `MembershipRepository.create` HAS NO CONTRACT MAPPING for a foreign workspace — a grant
+ * - `MembershipRepository.create` HAS NO CONTRACT MAPPING for a foreign workspace: a grant
  *   naming the target's workspace would raise the raw 23503, which the harness cannot
  *   attribute to a policy and scores `unverified` (F-342's accounting: red, not a pass, and
  *   not evidence either). So it is attempted the way `WorkspaceRepository.create` is: the
@@ -1596,15 +1596,15 @@ const workspaceRepositoryAccess: TenantScopedSurfaceRegistration = {
  * - `roleFor` and `workspaceIdsFor` return a role and a list of workspace ids, NOT rows, so
  *   the projection is reconstructed from the arguments: a non-null role for (the target's
  *   seeded workspace, the target's seeded user) can only be the target's own `memberships`
- *   row — the fixture gives that user exactly one, in the target's tenant, and the census
- *   premise has just read it there — and each entry `workspaceIdsFor(target's user)` returns
+ *   row (the fixture gives that user exactly one, in the target's tenant, and the census
+ *   premise has just read it there), and each entry `workspaceIdsFor(target's user)` returns
  *   is likewise a row that user holds only in the target. Both are reported with
  *   `tenant_id: target.id`, which is what makes them a leak under `judge()`. Under the shipped
  *   policy both answer nothing.
  *
  * - `revoke` on the target's seeded invitation is `InvitationNotFoundError` (the contract's
  *   404, indistinguishable from an id nobody issued); `findById` is `null`;
- *   `listForWorkspace` on the target's seeded workspace is `[]` — for both classes.
+ *   `listForWorkspace` on the target's seeded workspace is `[]`, for both classes.
  */
 const invitationRepository = new InvitationRepository();
 const membershipRepository = new MembershipRepository();
@@ -1648,7 +1648,7 @@ const invitationRepositoryAccess: TenantScopedSurfaceRegistration = {
       qualification: 'owner-qualified',
       // The foreign-key refusal ABORTS the transaction (25P02 for anything after it), so the
       // not-found is caught OUTSIDE `withTenantTransaction`, which rolls the aborted
-      // transaction back — the header row inserted before the grant never lands.
+      // transaction back: the header row inserted before the grant never lands.
       attempt: async (actor, target) => {
         try {
           return await withTenantTransaction(actor.id, async () => {
@@ -2241,7 +2241,7 @@ export const ownerTheftCanaryAccess = controlAccess(
 );
 
 /**
- * F-342. The cascade root's shape — owner column IS the primary key — with the UPDATE
+ * F-342. The cascade root's shape (owner column IS the primary key) with the UPDATE
  * policy's USING widened and its WITH CHECK left correct. See `createPkOwnerCanary()`.
  * Written out rather than built by `controlAccess()`, which assumes `tenant_id`.
  */
@@ -2276,7 +2276,7 @@ export const guardedCheckCanaryAccess = controlAccess(
   createGuardedCheckCanary,
   // The one column this table's WITH CHECK asks about beyond tenancy. Without it both
   // unqualified updates are refused, score `unverified`, and the run is red over a table
-  // that is correctly isolated — which is the measurement F-344 is.
+  // that is correctly isolated, which is the measurement F-344 is.
   [{ column: 'status', value: 'active' }],
 );
 
@@ -2286,7 +2286,7 @@ export const guardedCheckCanaryAccess = controlAccess(
  * `createGuardedLeakCanary()` for the seven measured statements.
  *
  * The registration names the column the check requires, exactly as the F-344 one does.
- * What it may NOT do is derive that column's value from the column — the assignment is a
+ * What it may NOT do is derive that column's value from the column: the assignment is a
  * bound value, so the statement references no existing column and the SELECT policies
  * stay out of it, which is the only reason the unqualified writes can still see the leak.
  */
@@ -2305,15 +2305,15 @@ export const guardedLeakCanaryAccess = controlAccess(
  * The same table and the same registration, with the value an author would reach for if
  * they were trying to write a column reference and the type would not let them: the
  * COLUMN'S OWN NAME, as a string. It binds as `$N`, so the statement reads
- * `"lock_token" = $2` with the parameter `'lock_token'` — a constant, not a reference —
+ * `"lock_token" = $2` with the parameter `'lock_token'` (a constant, not a reference),
  * and the leak is still reported. Measured on this table, tenant A, 2026-08-11:
  *
  *   set label = <const>, lock_token = lock_token || 'x'  -> UPDATE 1   (unexpressible now)
  *   set label = <const>, lock_token = 'lock_token'       -> UPDATE 2   the leak, still seen
  *
  * It exists because the guarantee this round makes is about VALUES BEING BOUND, and a
- * builder that inlined them instead — `sql.raw`, a template concatenation, a future
- * "convenience" — would restore the disarm for exactly this value while every other
+ * builder that inlined them instead (`sql.raw`, a template concatenation, a future
+ * "convenience") would restore the disarm for exactly this value while every other
  * control stayed green. Under that mutation this attempt reports UPDATE 1 and this
  * control goes red.
  */
@@ -2333,8 +2333,8 @@ export const guardedLeakBoundValueCanaryAccess = controlAccess(
  *
  * SC-4's clause: "one negative control per endpoint, IN THE ISOLATION HARNESS rather than
  * in a controller test." A controller test proves the controller does what its author
- * expected; this proves the composition root — guard, tenant interceptor, filter,
- * repository, policies — refuses what the controller was never asked about, issued as a
+ * expected; this proves the composition root (guard, tenant interceptor, filter,
+ * repository, policies) refuses what the controller was never asked about, issued as a
  * SECOND signed-in operator against the first's rows.
  *
  * These run against the CHILD API `signedInTenants()` booted (the real main.ts, the real
@@ -2347,7 +2347,7 @@ export const guardedLeakBoundValueCanaryAccess = controlAccess(
  * EVERY ROUTE IS `owner-qualified`, AND THAT IS WHAT THE ENDPOINT ENFORCES, not merely what
  * the repository happens to do. Every statement the route issues carries
  * `tenant_id = currentTenantId()` in its WHERE, or sets `tenant_id` on insert, and no route
- * takes a parameter or body field naming another tenant — `docs/contracts/workspaces.md`
+ * takes a parameter or body field naming another tenant. `docs/contracts/workspaces.md`
  * ("Endpoints"): a cross-tenant reference is answered 404 `not_found`, indistinguishable
  * from a malformed or missing id. There is no unqualified HTTP shape to declare, because
  * the endpoint offers no way to express one.
@@ -2356,7 +2356,7 @@ export const guardedLeakBoundValueCanaryAccess = controlAccess(
  * (workspace-authorization.md, D-10), so the fixture below seeds each signed-in user a
  * `workspace_admin` membership on ITS OWN tenant's seeded workspace: that is what keeps the
  * positive controls green (A renaming, archiving, reading and listing A's row is 2xx) while
- * the cross-tenant attempt stays 404 — twice over now: no membership row for A on B's
+ * the cross-tenant attempt stays 404, twice over now: no membership row for A on B's
  * workspace, and B's rows invisible under the policy. A positive control that failed for
  * want of a membership would score every workspace route `unverified` (F-296).
  */
@@ -2368,11 +2368,11 @@ const ENDPOINT_MEMBERSHIP_ROLE = 'workspace_admin';
 
 /**
  * TASK-1b-10. One pending invitation per signed-in tenant, at a fixed id, naming that
- * tenant's seeded workspace at `member` — the row `DELETE /api/invitations/:id` and the two
+ * tenant's seeded workspace at `member`, the row `DELETE /api/invitations/:id` and the two
  * token routes address. Its RAW TOKEN IS HELD IN MEMORY BY THIS MODULE and nowhere else:
  * issued once per tenant by `issueCapabilityToken`, its digest planted under the migrator
  * on every reset (the same digest every time, so the token stays valid across resets),
- * never written to a log, a report or an error message — the `UnverifiedAttempt` texts
+ * never written to a log, a report or an error message: the `UnverifiedAttempt` texts
  * quote response bodies, and no response of these routes carries a token (GC-K).
  */
 const ENDPOINT_INVITATION_A = 'e3e3e3e3-e3e3-4e3e-8e3e-e3e3e3e3e3e3';
@@ -2451,7 +2451,7 @@ const WORKSPACE_ENDPOINTS: readonly EndpointAttemptSpec[] = [
   {
     // TASK-1b-06 (D-07): the read by id, `RequireWorkspaceRole(viewer)`. The actor reads its
     // own seeded row (200, it holds the seeded membership) and the target's (404: no
-    // membership, and the row is invisible under the policy — the interceptor's lookup
+    // membership, and the row is invisible under the policy; the interceptor's lookup
     // runs inside the tenant transaction). Same 404 body as an id nobody issued.
     name: 'get',
     method: 'GET',
@@ -2518,15 +2518,15 @@ async function tokenMinter(runtime: SignedInTenants): Promise<(tenantId: string)
  * the routes require of a caller (see the docblock above); and since TASK-1b-10 one pending
  * invitation per tenant naming that workspace, whose digest is the held token's (above).
  * `DELETE FROM workspaces` cascades the previous attempt's memberships and grants away
- * (`ON DELETE CASCADE` on the composite key) — the create attempt's row, the creator
- * membership and the accept's rows among them — and `invitations` has no such parent, so it
+ * (`ON DELETE CASCADE` on the composite key), the create attempt's row, the creator
+ * membership and the accept's rows among them. `invitations` has no such parent, so it
  * is deleted by name: the create positive control's row and the accepted/revoked state of
  * the seeded one both go. Through the migrator DSN, like every seed: `memberships.user_id`
  * and `invitations.invited_by_user_id` reference `"user"`, which `shortkit_app` cannot read,
  * and every table here carries FORCE ROW LEVEL SECURITY, so the flag is set per tenant.
  *
  * ONE TRANSACTION (TASK-1b-10, a review finding). psql runs each statement in its own
- * transaction unless told otherwise, and a run killed — or a statement refused — between
+ * transaction unless told otherwise, and a run killed (or a statement refused) between
  * the DELETE and the INSERTs left one tenant's fixed-id rows gone and the other's in place,
  * or a workspace re-inserted with its membership missing; the next reset then met a
  * `duplicate key value violates unique constraint "workspaces_pkey"` on a row a previous
@@ -2782,13 +2782,13 @@ function signedInOwnerOf(runtime: SignedInTenants, tenantId: string): SignedInTe
  * "the five invitation rows", invitation-tokens.md, D-01, D-04, D-19).
  * ===========================================================================
  *
- * Built per runtime because four of the five need the OTHER tenant's ids — its seeded
- * workspace, its seeded invitation, its held raw token, its user — which the module-level
+ * Built per runtime because four of the five need the OTHER tenant's ids (its seeded
+ * workspace, its seeded invitation, its held raw token, its user), which the module-level
  * `EndpointAttemptContext` (one `seededRowId` per group) does not carry. The group's table
  * is `invitations`, so `ctx.seededRowId(tenant)` is that tenant's seeded invitation and the
  * per-attempt census brackets each tenant's `invitations` rows.
  *
- * HOW EACH IS SCORED, AND WHY — the harness's own vocabulary:
+ * HOW EACH IS SCORED, AND WHY (the harness's own vocabulary):
  *
  * - `create` (POST /api/invitations, body naming the TARGET's workspace at `member`): 404
  *   `not_found`, a `status` refusal. Form B in the service asserts `workspace_admin` on
@@ -2810,28 +2810,28 @@ function signedInOwnerOf(runtime: SignedInTenants, tenantId: string): SignedInTe
  *   actor signed in): 409 `invitation_tenant_conflict`. THIS IS NOT A POLICY ANSWER. The
  *   accept route runs under the actor's tenant transaction, and `assertNoTenantConflict`
  *   compares the token's prefix with the active tenant BEFORE any statement (D-04,
- *   capability-lookup.ts) — so the 409 is the application refusing to route the token, and
+ *   capability-lookup.ts), so the 409 is the application refusing to route the token, and
  *   on its own it proves as little as any status. It counts because (a) the positive control
  *   is the actor accepting ITS OWN tenant's seeded invitation as a signed-in existing member,
  *   200 (`tenantMembership: 'require'` is satisfied by the signup's owner row; the grant is
  *   `ON CONFLICT DO NOTHING` against the seeded `workspace_admin` row, D-12), and (b)
  *   `targetMutated` reads the target back through the migrator: its seeded invitation must
  *   still be `pending` with no `accepted_by_user_id`, and no `memberships` row for the
- *   ACTOR's user may exist in the target's tenant. Either changed is one affected row — a
+ *   ACTOR's user may exist in the target's tenant. Either changed is one affected row: a
  *   fail. The census on the target's `invitations` rows judges the same thing a third way.
  * - `lookup` (POST /api/invitations/lookup, ANONYMOUS, body `{ token: <the ACTOR's raw
  *   token with its prefix replaced by the TARGET's id> }`): 404 `not_found`. THE ONE
  *   `@Public()` ROUTE, and its semantics are D-01's: the token IS the capability, a holder
  *   of the target's own token previews the target's invitation BY DESIGN, and that is not a
- *   leak this harness may score — so the attempt does not send the target's token. It sends
+ *   leak this harness may score, so the attempt does not send the target's token. It sends
  *   the actor's SECRET under the target's PREFIX, which is the tenant-routing property
  *   ADR-0021 requires a test for: `findInvitationByCapabilityToken` opens the transaction
  *   from the prefix (the target) and its first statement is the digest lookup under the
- *   target's isolation policy, where the actor's digest is not visible — the actor's row
+ *   target's isolation policy, where the actor's digest is not visible: the actor's row
  *   is in the actor's tenant, and the table battery has already shown the target's
  *   transaction sees none of the actor's `invitations` rows. The positive control is
  *   `buildOwnRequest`: the actor's UNTOUCHED token, 200 with the actor's tenant name (an
- *   argument swap would build the target's secret under the actor's prefix — a second
+ *   argument swap would build the target's secret under the actor's prefix, a second
  *   attack, not a control). "Zero rows read in the target" is proven by that premise plus
  *   the digest miss and NOT by a counter: no SELECT-counting trigger exists and pg_stat's
  *   scan counters are not tenant-attributable (the card records this). The int-spec adds
@@ -3231,7 +3231,7 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:DomainsTableAccess.reparentAll',
   'repo:DomainsTableAccess.updateAll',
   'repo:DomainsTableAccess.updateOwnedBy',
-  // The three 1b tables (TASK-1b-03): eight shapes each — and since TASK-1b-10 the two
+  // The three 1b tables (TASK-1b-03): eight shapes each, and since TASK-1b-10 the two
   // repository subjects beside them: `InvitationRepository` on `invitations` and
   // `MembershipRepository` on `memberships` (`invitation_workspaces` has no class of its own).
   // Uppercase sorts before lowercase, so `InvitationR…` < `InvitationW…` < `Invitations…`.
@@ -3291,7 +3291,7 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:RlsFixtureRowsTableAccess.updateAll',
   'repo:RlsFixtureRowsTableAccess.updateOwnedBy',
   // The third registered subject (TASK-002). Eight shapes, like the other two: no table
-  // may decline one (F-342), and `tenant_memberships` answers all eight — the two
+  // may decline one (F-342), and `tenant_memberships` answers all eight, the two
   // unqualified updates through `mutableValue`, because its only non-owner column is an
   // enum and the default literal is not a `tenant_role`.
   'repo:TenantMembershipsTableAccess.deleteAll',
@@ -3311,7 +3311,7 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:TenantsTableAccess.updateAll',
   'repo:TenantsTableAccess.updateOwnedBy',
   // The fourth table (TASK-011): the methods of the first real repository, attempted
-  // through the class itself — five, plus `listForUser` (TASK-1b-06, the membership join) —
+  // through the class itself: five, plus `listForUser` (TASK-1b-06, the membership join),
   // and the eight shapes on `workspaces`.
   'repo:WorkspaceRepository.archive',
   'repo:WorkspaceRepository.create',
@@ -3328,7 +3328,7 @@ export const EXPECTED_SURFACE_IDS = [
   'repo:WorkspacesTableAccess.updateAll',
   'repo:WorkspacesTableAccess.updateOwnedBy',
   // TASK-014/015: the authenticated workspace routes, attacked as HTTP by a second
-  // signed-in operator — four, plus `GET /api/workspaces/:workspaceId` and the `:id` →
+  // signed-in operator: four, plus `GET /api/workspaces/:workspaceId` and the `:id` →
   // `:workspaceId` rename (TASK-1b-06, D-07), since TASK-1b-10 the five invitation
   // routes, one of them `@Public()`, and since TASK-2-10 the five link routes and the
   // clicks read (D-2-12). SIXTEEN. `route:` ids sort after every `repo:` id, and among

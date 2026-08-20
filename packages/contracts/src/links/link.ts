@@ -20,7 +20,7 @@
  * ============================================================================
  *
  * Ruled 2026-08-19, during TASK-2-01. The card specified `z.coerce.date()` while also
- * saying "matching the workspace contract's convention" — and those are two different
+ * saying "matching the workspace contract's convention", and those are two different
  * things: `workspaceContract` and `invitationContract` both ship `createdAt`,
  * `updatedAt` and `archivedAt` as `z.string().datetime()`, with the API mapping
  * `Date -> toISOString()` at the service boundary (`toClientWorkspace`). The convention
@@ -30,8 +30,8 @@
  * redirect READS them, but so does every other consumer of every other timestamp here.
  *
  * So: responses carry ISO strings, requests accept and validate ISO strings, and the
- * `Date` boundary sits where it already sat for workspaces — in the service, on both
- * sides of the contract.
+ * `Date` boundary sits where it already sat for workspaces (in the service, on both
+ * sides of the contract).
  *
  * The one place a `Date` survives is `isLinkActive`, which accepts `Date | string | null`
  * per bound precisely so BOTH callers work unchanged: the redirect path hands it the
@@ -42,7 +42,7 @@
  * `destinationUrl` IS PARSED ON THE WAY IN AND PERMISSIVE ON THE WAY OUT.
  * ============================================================================
  *
- * Requests run `destinationUrlContract`. `linkContract` — a RESPONSE shape — declares
+ * Requests run `destinationUrlContract`. `linkContract` (a RESPONSE shape) declares
  * plain `z.string()`, per the rule `invitations/index.ts` states: the server produced
  * the value from a row it already accepted, and a client-side parse must not refuse it.
  * Re-running the URL parse on a response would also make a row stored before any future
@@ -83,7 +83,7 @@ import { idContract } from '../pagination';
  * Bounding only the raw input does not bound what gets STORED, because `new URL`
  * percent-encodes every non-ASCII character on the way to `href` and one code point can
  * become up to nine characters. Measured: a 2048-character input of
- * `https://example.com/` followed by `é` repeats yields an `href` of 12,188 characters —
+ * `https://example.com/` followed by `é` repeats yields an `href` of 12,188 characters,
  * a 6x blow-up that passes a raw-input bound. `links.destination_url` is unbounded
  * `text`, so nothing downstream catches it either, and the `Location` header served to
  * every anonymous visitor inherits the whole thing.
@@ -142,7 +142,7 @@ export type DestinationUrl = z.infer<typeof destinationUrlContract>;
  * inside their own tenant, so the id tells them nothing they can act on.
  *
  * `hostname` IS PRESENT and denormalised by the service from `SYSTEM_DEFAULT_DOMAIN`,
- * matching `LinkSnapshot.hostname` in `link-mutation-events.md` — the field the cache
+ * matching `LinkSnapshot.hostname` in `link-mutation-events.md`, the field the cache
  * invalidator keys `rdr:v1:{hostname}:{slug}` on with no lookup. Sending it now is what
  * keeps item 3's multi-domain rows from changing this wire shape.
  */
@@ -161,7 +161,7 @@ export const linkContract = z.object({
 export type Link = z.infer<typeof linkContract>;
 
 /**
- * Refused: an activation instant at or after the expiry instant. Equal is refused too —
+ * Refused: an activation instant at or after the expiry instant. Equal is refused too:
  * the window would be empty and the link would never serve.
  *
  * The check only sees the fields in ONE body. A PATCH naming `activatesAt` alone cannot
@@ -187,7 +187,7 @@ function hasOrderedWindow(input: {
   const activatesAt = Date.parse(input.activatesAt);
   const expiresAt = Date.parse(input.expiresAt);
 
-  // A field that already failed `.datetime()` still reaches this refinement — measured
+  // A field that already failed `.datetime()` still reaches this refinement, measured
   // on zod 4.4.3, where an object-level `.refine` runs even when a field produced an
   // issue. `NaN < NaN` is false, so without this guard a malformed timestamp would
   // report the window message ON TOP of its own, and a form would show two errors for
@@ -210,8 +210,8 @@ const linkTimestampContract = z.string().datetime();
  * The unrefined shape the two wire contracts are built from. NOT ITSELF A WIRE SHAPE.
  *
  * It is exported only because zod 4.4.3 refuses `.omit()` and `.partial()` on an object
- * carrying a refinement — measured: `.omit() cannot be used on object schemas containing
- * refinements`. So `updateLinkContract` cannot be `createLinkContract.omit(...)` as the
+ * carrying a refinement (measured: `.omit() cannot be used on object schemas containing
+ * refinements`). So `updateLinkContract` cannot be `createLinkContract.omit(...)` as the
  * card wrote it; the base is derived first and the same refinement is applied to both,
  * which keeps one source for the field set and one for the window rule.
  */
@@ -253,7 +253,7 @@ export type CreateLinkRequest = z.infer<typeof createLinkContract>;
  * `PATCH /api/links/:linkId`. `WORKSPACE_ROLE.member` (Form B, D-2-12).
  *
  * Patchable: `destinationUrl`, `slug`, `expiresAt`, `activatesAt`. `workspaceId` is
- * omitted — a link does not change workspace through this route — and an empty patch is
+ * omitted (a link does not change workspace through this route), and an empty patch is
  * valid: it answers 200 and still fires `onLinkMutated` with `before` deep-equal to
  * `after` (`link-mutation-events.md`'s firing rule, AC-2-7).
  */

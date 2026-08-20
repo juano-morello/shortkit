@@ -7,8 +7,8 @@
  *              implementation by TASK-051 (wave 10) without touching the call sites.
  *
  * The auth surface's limiter is reached through this token and never through a store client
- * directly (F-024). That is what lets a wave-3 mount be built against a dependency —
- * `redisClient`, TASK-030 — that does not exist yet, and it is why the process-local
+ * directly (F-024). That is what lets a wave-3 mount be built against a dependency
+ * (`redisClient`, TASK-030) that does not exist yet, and it is why the process-local
  * implementation is bound here rather than the surface left unlimited: from wave 3 the auth
  * surface is limited by the in-process bucket, which is the same implementation ADR-0012
  * already requires for Redis-unavailable degradation. There is no unprotected window and no
@@ -33,7 +33,7 @@ export const AUTH_RATE_LIMIT_PORT = Symbol('AUTH_RATE_LIMIT_PORT');
  * THE EMAIL-KEYED SIGN-IN BUCKET (5 per 15 min) IS THE FOURTH ROW, AND IT IS NOT CHARGED
  * FROM EXPRESS. Added 2026-08-18 (TASK-1b-09, D-15). The email is in the body and reading
  * the body from Express consumes the stream Better Auth needs (F-019), so `signInPerEmail`
- * is charged by `emailRateLimitHook` in `auth/email-rate-limit-hook.ts` — the first entry
+ * is charged by `emailRateLimitHook` in `auth/email-rate-limit-hook.ts`: the first entry
  * of `beforeHooks`, inside Better Auth, where the framework that owns the body has already
  * parsed it. The key is `sha256(normaliseEmailForKey(email))`, never the address
  * (rate-limit.md, "The email bucket runs inside Better Auth"). Same port, same
@@ -96,8 +96,8 @@ export interface AuthRateLimitPort {
    * request is admitted; rejects with `AuthRateLimitExceededError` when the bucket is
    * exhausted for that key. Callers that never release may ignore the value.
    *
-   * `key` is a principal `resolveRateLimitPrincipal` established — never a client-supplied
-   * value and never a sentinel — or, for `signInPerEmail`, the hex SHA-256 of the
+   * `key` is a principal `resolveRateLimitPrincipal` established (never a client-supplied
+   * value and never a sentinel) or, for `signInPerEmail`, the hex SHA-256 of the
    * normalised address (`normaliseEmailForKey`), never the address itself. A caller holding
    * `null` does not call this at all: the bucket does not run and the request proceeds
    * (ADR-0040, `trusted-client-address.md`; F-228 for the email hook).
@@ -105,15 +105,15 @@ export interface AuthRateLimitPort {
   check(bucket: AuthRateLimitBucket, key: string): Promise<AuthRateLimitCharge>;
 
   /**
-   * Gives back the one charge `check` made against `key` in `bucket` — in `charge`'s window
+   * Gives back the one charge `check` made against `key` in `bucket`, in `charge`'s window
    * and only there. Added 2026-08-18 (TASK-1b-09, architect ruling): the email-keyed sign-in
-   * bucket counts FAILED attempts — `rate-limit.md`'s consequence is "five failed attempts
-   * per fifteen minutes" — and the only place the outcome is known is Better Auth's
+   * bucket counts FAILED attempts (`rate-limit.md`'s consequence is "five failed attempts
+   * per fifteen minutes"), and the only place the outcome is known is Better Auth's
    * `hooks.after`, so a successful sign-in releases the charge its before hook made.
    *
    * IDEMPOTENT AND NEVER BELOW ZERO: releasing a key whose current entry is not `charge`'s
    * window (the window rolled; an unrelated attempt may have opened the new one) is a NO-OP,
-   * as is releasing a key with no entry. NEVER REJECTS THE CALLER'S FLOW in intent — a store
+   * as is releasing a key with no entry. NEVER REJECTS THE CALLER'S FLOW in intent: a store
    * failure is the same degrade-open posture `check` has (ADR-0012): the caller logs and
    * proceeds, and the un-released charge expires with the window. The local implementation
    * cannot fail.

@@ -23,7 +23,7 @@
  * A `timestamptz` that did not parse reaches `ResolvedLink` as an `Invalid Date`
  * (`redirect-read.repository.ts` keeps it that way on purpose, since `isLinkActive` fails
  * closed on a bound it cannot read). `getTime()` on one is `NaN`, which `redirect-cache.ts`'s
- * own decoder rejects — so writing it would produce a key that reads back `'unavailable'`
+ * own decoder rejects, so writing it would produce a key that reads back `'unavailable'`
  * every time, an hour of Redis memory holding a value nothing can use. `null` here means
  * "do not cache this record", the request is served from the row already in hand, and the
  * next one pays the same query.

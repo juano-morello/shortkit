@@ -13,8 +13,8 @@
  *
  * `withTenantTransaction` opens a real pooled transaction and sets `app.tenant_id`; a unit
  * spec has no database. What this file asserts about it is the SHAPE the flusher uses it in
- * — one call per tenant group, carrying that group's tenant id, with that group's rows and
- * no other tenant's — which is exactly what a recording double can prove and what the
+ * (one call per tenant group, carrying that group's tenant id, with that group's rows and
+ * no other tenant's), which is exactly what a recording double can prove and what the
  * integration spec then proves against Postgres and the policies.
  */
 import { createHook } from 'node:async_hooks';
@@ -114,7 +114,7 @@ describe('enqueue (AC-2-35, click-events.md "What the implementer must guarantee
   /**
    * MEASURED, NOT REVIEWED. `async_hooks` reports every promise the runtime CREATES, so a
    * `void this.flush()`, an `async` keyword on `enqueue`, or an `await` anywhere inside it
-   * turns this red — which is the whole of "no promise is created on the request path"
+   * turns this red, which is the whole of "no promise is created on the request path"
    * (ADR-0010). A reading of the source proves it for the version that was read.
    */
   it('creates no promise, and returns undefined rather than a thenable', () => {

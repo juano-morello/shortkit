@@ -5,7 +5,7 @@
  * the workspace, pointing at `INVITATIONS_ROUTE(id)`; absent for a member, a viewer, an
  * archived row, and a row whose `workspaceRole` the API did not send.
  *
- * Hiding is not enforcement — the API 403s a member on `POST /api/invitations` — the row
+ * Hiding is not enforcement (the API 403s a member on `POST /api/invitations`): the row
  * just does not offer what would be refused.
  */
 import { render, screen } from '@testing-library/react';

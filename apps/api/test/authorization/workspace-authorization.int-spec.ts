@@ -35,7 +35,7 @@ import { execSql, querySql } from '../support/psql';
 import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixture';
 
 /**
- * STORY-1b-04 — AC-1b-19, AC-1b-20, AC-1b-21 on a probe, against a live database. TASK-1b-05,
+ * STORY-1b-04: AC-1b-19, AC-1b-20, AC-1b-21 on a probe, against a live database. TASK-1b-05,
  * wave 2.
  *
  * Contract: `docs/contracts/workspace-authorization.md` (Form A; "Status rules"; "What the
@@ -50,16 +50,16 @@ import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixtu
  *
  * The child booted by `api-server.ts` signs users up, signs them in and mints real tokens
  * against a real `/api/auth/jwks`. The application under test is built from `AppModule` in
- * this process — the real guard, the real three interceptors in the ruled order, the real
+ * this process (the real guard, the real three interceptors in the ruled order, the real
  * filter, the real `MembershipRepository` and `TenantMembershipRepository`, nothing
- * overridden — with a probe controller beside it whose routes carry `@RequireWorkspaceRole` /
+ * overridden), with a probe controller beside it whose routes carry `@RequireWorkspaceRole` /
  * `@RequireTenantRole`. Workspaces are created through the real `POST /api/workspaces`, which
  * also shows the third interceptor leaves an undecorated route alone; `memberships` rows are
  * seeded through the migrator under the tenant's flag, because no route grants one yet.
  *
  * WHAT ONLY THIS TIER CAN SHOW. That the membership lookup runs under `app.tenant_id` and the
  * policy: tenant B's owner, with a real token for B, naming tenant A's workspace id, gets the
- * same 404 body as an id nobody issued — the row is invisible, not refused. That a
+ * same 404 body as an id nobody issued: the row is invisible, not refused. That a
  * `memberships` row updated directly applies on the caller's very next request (no cache).
  * And AC-1b-20's shape: an application whose interceptor chain lacks the tenant transaction
  * answers 500 from `TenantContextMissingError`, thrown by the repository before any statement
@@ -77,7 +77,7 @@ let server: ApiServer;
 let app: INestApplication | undefined;
 let baseUrl: string;
 
-/** AC-1b-20's application: guard, filter, the authorization interceptor — and NO tenant transaction. */
+/** AC-1b-20's application: guard, filter, the authorization interceptor, and NO tenant transaction. */
 let noTransactionApp: INestApplication | undefined;
 let noTransactionBaseUrl: string;
 
@@ -224,7 +224,7 @@ async function createWorkspace(principal: Principal, name: string): Promise<stri
  * SECURITY subjects the owner to the policy too, and the composite key needs the workspace
  * to be that tenant's. Since TASK-1b-06 `POST /api/workspaces` writes the creator's
  * `workspace_admin` row itself, so for the creator this is an UPSERT that sets the role the
- * test wants (`ON CONFLICT (workspace_id, user_id) DO UPDATE` — a fixture statement through
+ * test wants (`ON CONFLICT (workspace_id, user_id) DO UPDATE`, a fixture statement through
  * the migrator, not the app's path; D-12's `DO NOTHING` rule is about the accept path).
  */
 function seedMembership(tenantId: string, workspaceId: string, userId: string, role: string): void {
@@ -316,7 +316,7 @@ beforeEach(async () => {
     (app.getHttpServer() as Server).keepAliveTimeout = 0;
 
     // AC-1b-20's application: `AuthModule` (the guard and what it injects), the filter, and
-    // the authorization interceptor as the ONLY interceptor — no `TenantTransactionInterceptor`.
+    // the authorization interceptor as the ONLY interceptor: no `TenantTransactionInterceptor`.
     const noTransactionRef = await Test.createTestingModule({
       imports: [AuthModule, AuthorizationModule],
       controllers: [NoTransactionProbeController],
@@ -410,7 +410,7 @@ describe('the lookup runs under the tenant policy', () => {
 
     const workspaceOfA = await createWorkspace(a, 'A’s workspace');
     seedMembership(a.tenantId, workspaceOfA, a.userId, 'workspace_admin');
-    // A can reach it — the row is real.
+    // A can reach it: the row is real.
     expect((await api(`/api/authz-probe/workspaces/${workspaceOfA}`, { token: a.token })).status).toBe(200);
 
     // B, on every minimum, on the read and on the writes.
@@ -432,7 +432,7 @@ describe('the lookup runs under the tenant policy', () => {
     expect(membershipCountFor(b.tenantId)).toBe(0);
   });
 
-  it('AC-1b-21: a memberships row updated directly applies on the caller’s next request — and a deleted one is 404 at once', async () => {
+  it('AC-1b-21: a memberships row updated directly applies on the caller’s next request, and a deleted one is 404 at once', async () => {
     const a = await principalFor(EMAIL_A);
     const workspaceId = await createWorkspace(a, 'Promoted later');
     seedMembership(a.tenantId, workspaceId, a.userId, 'member');
@@ -469,7 +469,7 @@ describe('RequireTenantRole reads tenant_memberships inside the transaction', ()
     expect(asAdmin.body).toEqual({ code: 'insufficient_tenant_role', message: expect.any(String) });
     expect((await api('/api/authz-probe/tenant-admin', { method: 'POST', token: a.token })).status).toBe(200);
 
-    // Invariant 4: a tenant member — what an invitee holds — passes no tenant check.
+    // Invariant 4: a tenant member (what an invitee holds) passes no tenant check.
     setTenantRole(a.tenantId, a.userId, 'member');
     for (const path of ['/api/authz-probe/tenant-owner', '/api/authz-probe/tenant-admin']) {
       const refused = await api(path, { method: 'POST', token: a.token });
@@ -487,7 +487,7 @@ describe('AC-1b-20: no tenant transaction, no pass', () => {
     const a = await principalFor(EMAIL_A);
     const workspaceId = await createWorkspace(a, 'Unreachable without a transaction');
     seedMembership(a.tenantId, workspaceId, a.userId, 'workspace_admin');
-    // The same token reaches the same row through the shipped chain — the row and the
+    // The same token reaches the same row through the shipped chain: the row and the
     // membership are real; what the other application lacks is the transaction.
     expect((await api(`/api/authz-probe/workspaces/${workspaceId}`, { token: a.token })).status).toBe(200);
 
@@ -500,7 +500,7 @@ describe('AC-1b-20: no tenant transaction, no pass', () => {
       expect(result.status, result.raw).toBe(500);
       expect((result.body as { code: string }).code).toBe('internal_error');
       // The lookup was attempted (the guard passed, the interceptor engaged) and it threw the
-      // context error — which `tenantDb()` raises before drizzle compiles a statement, so no
+      // context error, which `tenantDb()` raises before drizzle compiles a statement, so no
       // row was read. Never a pass: the handler answers 'never' and the client saw a 500.
       expect(roleFor).toHaveBeenCalledTimes(1);
       const [outcome] = roleFor.mock.results;

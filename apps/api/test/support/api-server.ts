@@ -1,6 +1,6 @@
 /**
- * Boots the API as the platform boots it — a built process, listening on a real
- * socket — and hands back its base URL.
+ * Boots the API as the platform boots it (a built process, listening on a real
+ * socket), and hands back its base URL.
  *
  * ⚠ THIS FILE IS sdlc-test-architect'S. `apps/api/test/support/**` appears in no
  * TASK's paths and belongs to it under routing rule 0. An implementer that needs
@@ -13,7 +13,7 @@
  * `AppModule`, and that is the right shape for anything Nest routes. It is the wrong
  * shape for the auth surface. ADR-0013 mounts Better Auth's node handler on the
  * Express instance inside `main.ts`, ahead of the body parsers and **outside the Nest
- * module graph** — the ADR's own consequences say so: "the `/api/auth/*` mount sits
+ * module graph**: the ADR's own consequences say so: "the `/api/auth/*` mount sits
  * outside the Nest module graph, so AC-55's test cannot see it and no Nest guard,
  * interceptor or filter applies to it".
  *
@@ -24,9 +24,9 @@
  * forever, and the repair would be to weaken the test.
  *
  * So this boots the composition root itself. The failure modes that only the real
- * boot sequence exposes — `bodyParser: false` missing, so Better Auth reads a stream
+ * boot sequence exposes (`bodyParser: false` missing, so Better Auth reads a stream
  * something else already consumed; `setGlobalPrefix` running before the mount;
- * a boot assertion refusing to start — are exactly the ones ADR-0013 warns are silent
+ * a boot assertion refusing to start) are exactly the ones ADR-0013 warns are silent
  * or fatal, and none of them is visible to an in-graph test.
  *
  * ## Why it is built first
@@ -46,13 +46,13 @@
  * still decides its own values). If an implementer picks different names, the
  * caller's `env` callback is the single edit and no assertion weakens.
  *
- * ## Await this from `beforeEach`, not only from `beforeAll` — or a boot refusal skips
+ * ## Await this from `beforeEach`, not only from `beforeAll`, or a boot refusal skips
  * ## the file instead of failing it
  *
- * `startApiServer` rejects loudly on a boot failure — the error names the exit code,
+ * `startApiServer` rejects loudly on a boot failure: the error names the exit code,
  * the signal and the process's full captured output. But if a caller's only await of
  * it is inside `beforeAll` (`server = await startApiServer(...)`), Vitest turns that
- * rejection into `Test Files 1 failed | Tests N skipped`, not `N failed` — measured
+ * rejection into `Test Files 1 failed | Tests N skipped`, not `N failed`: measured
  * against this repository's pinned Vitest (3.2.7): a throwing `beforeAll` marks every
  * test in the file "skipped", with the loud error visible only in a separate "Failed
  * Suites" block a reader can miss beside a summary line that still says "N passed".
@@ -113,7 +113,7 @@ export interface ApiServer {
 export interface StartApiServerOptions {
   /**
    * Extra environment for the child, as a function of the base URL it will answer
-   * on — the port is chosen here, and anything configured with an absolute URL
+   * on: the port is chosen here, and anything configured with an absolute URL
    * (an issuer, an audience, a trusted origin) needs to agree with it.
    */
   readonly env?: (baseUrl: string) => Readonly<Record<string, string>>;

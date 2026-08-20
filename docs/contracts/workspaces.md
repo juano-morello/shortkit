@@ -26,7 +26,7 @@ CREATE TABLE workspaces (
 ```
 
 Migration: `apps/api/drizzle/0002_*.sql`. Template-shaped, so it takes
-`rls-policy-template.md`'s per-table template **unchanged** — `ENABLE`, `FORCE`,
+`rls-policy-template.md`'s per-table template **unchanged**: `ENABLE`, `FORCE`,
 `workspaces_tenant_isolation` (`FOR ALL`, matching `USING` and `WITH CHECK` on `tenant_id`
 through the `nullif` wrapper), `workspaces_privileged_erase` (`FOR DELETE`), and
 `workspaces_tenant_id_idx`. It is not a cascade root and carries none of `tenants`'
@@ -57,7 +57,7 @@ export interface Workspace {
   readonly updatedAt: Date;
 }
 
-/** Added 2026-08-18 (TASK-1b-06): a `listForUser` row — the workspace and the user's role. */
+/** Added 2026-08-18 (TASK-1b-06): a `listForUser` row, the workspace and the user's role. */
 export interface WorkspaceWithRole extends Workspace {
   readonly role: WorkspaceRole;       // branded, through `asWorkspaceRole`
 }
@@ -80,7 +80,7 @@ export class WorkspaceNotFoundError extends DomainError { /* code 'not_found', 4
 
 | Method | Statement | Qualification | Answer for a row the current tenant does not own |
 |---|---|---|---|
-| `create` | `INSERT ... (tenant_id, name) VALUES (currentTenantId(), $name) RETURNING *` | owner-qualified (`tenant_id` set explicitly) | n/a — the row lands under the current tenant, always |
+| `create` | `INSERT ... (tenant_id, name) VALUES (currentTenantId(), $name) RETURNING *` | owner-qualified (`tenant_id` set explicitly) | n/a: the row lands under the current tenant, always |
 | `list` | `SELECT * WHERE tenant_id = current [AND archived_at IS NULL] ORDER BY created_at, id` | owner-qualified | never returned |
 | `listForUser` (2026-08-18, TASK-1b-06) | `SELECT w.*, m.role FROM workspaces w JOIN memberships m ON m.workspace_id = w.id AND m.tenant_id = w.tenant_id WHERE w.tenant_id = current AND m.tenant_id = current AND m.user_id = $user [AND w.archived_at IS NULL] ORDER BY w.created_at, w.id` | owner-qualified **on both tables** (the join pairs `(workspace_id, tenant_id)`, the WHERE names `tenant_id = current` on each) | never returned; a user with no `memberships` row lists nothing whatever the tenant holds |
 | `findById` | `SELECT * WHERE id = $id AND tenant_id = current LIMIT 1` | owner-qualified | `null` |
@@ -89,7 +89,7 @@ export class WorkspaceNotFoundError extends DomainError { /* code 'not_found', 4
 
 - `list` defaults to active only. `includeArchived: true` returns archived rows too, with
   `archivedAt` set (AC-23). Order is `created_at`, then `id`, so two rows created in one
-  transaction — which share one `now()` — still list deterministically. `listForUser`
+  transaction (which share one `now()`) still list deterministically. `listForUser`
   (TASK-1b-06) keeps both rules and adds the membership filter; `list` stays for the isolation
   suite's repository subject and is no longer what a route calls (D-10).
 - `archive` is idempotent: `archived_at` keeps the first archival's timestamp on a second
@@ -107,7 +107,7 @@ export class WorkspaceNotFoundError extends DomainError { /* code 'not_found', 4
    `TenantContextMissingError` outside one. There is no client parameter and no
    unscoped path.
 2. No method returns, renames, archives or creates a row belonging to any tenant but the
-   one whose context is open — enforced twice, by the policy and by the statement's own
+   one whose context is open: enforced twice, by the policy and by the statement's own
    `tenant_id` predicate.
 3. `WorkspaceNotFoundError` is a `DomainError` with code `not_found`; the exception filter
    maps it to 404 with the standard envelope. Its message carries no id.
@@ -124,8 +124,8 @@ export class WorkspaceNotFoundError extends DomainError { /* code 'not_found', 4
   spec compiles every statement against a recording driver and asserts the qualification;
   a statement without `tenant_id` fails it.
 - **`tenantDb()` and nothing else.** The repository never imports `databaseTransaction`
-  from `db/client.ts` — that export has an enumerated caller list and a repository is
-  not on it — and takes no connection argument.
+  from `db/client.ts` (that export has an enumerated caller list and a repository is
+  not on it) and takes no connection argument.
 - **The three obligations of a tenant-scoped table land in one commit** (GC-A, F-239):
   the `tenant_id` column via `TENANT_ID_COLUMN_SQL`, the hand-appended
   `tenantScopedPolicies('workspaces')` block, and the `registerTenantScopedSurfaces()`
@@ -136,8 +136,8 @@ export class WorkspaceNotFoundError extends DomainError { /* code 'not_found', 4
   table's three unqualified writes and the owner-column theft attempt live;
   `WorkspaceRepository` attempts the ~~five~~ six methods above (`listForUser` since
   2026-08-18, attempted for the target's seeded member under the actor's context) through
-  the class itself, in both directions, mapping `WorkspaceNotFoundError` — and no other
-  throw — to zero rows affected. Every method there declares `qualification: 'owner-qualified'`, which is the
+  the class itself, in both directions, mapping `WorkspaceNotFoundError` (and no other
+  throw) to zero rows affected. Every method there declares `qualification: 'owner-qualified'`, which is the
   property the unit spec proves. Removing the registration fails the run naming
   `workspaces` as unregistered (AC-26, `tenantScopedTableDrift()`).
 - **`WorkspaceNotFoundError` is never wrapped.** The filter does not walk `cause`.
@@ -167,7 +167,7 @@ contract and to `apps/api/src/db/schema/workspaces.ts`'s docblock together.
 - **Normative form:** the schemas in `packages/contracts/src/workspaces/index.ts` and the
   route table below.
 - **Produced by:** TASK-012. Rulings are Design's, recorded here. **Amended 2026-08-18
-  (TASK-1b-06, item 1b; D-07, D-10):** the routes learn roles — the param is `:workspaceId`,
+  (TASK-1b-06, item 1b; D-07, D-10):** the routes learn roles: the param is `:workspaceId`,
   `GET /api/workspaces/:workspaceId` exists, `POST` writes the creator's membership, the list
   is membership-filtered, `workspaceRole` is on the wire.
 - **ADRs:** ADR-0005, ADR-0006, ADR-0024, ADR-0025, ADR-0038, ADR-0062.
@@ -184,14 +184,14 @@ and never appears on a log line.
 > column is `workspace-authorization.md`'s "Minimum role per surface", enforced by
 > `WorkspaceAuthorizationInterceptor` inside the transaction, **before the handler**: 404
 > `not_found` for no membership / another tenant's id / a non-uuid (the same body as the
-> repository's `WorkspaceNotFoundError`, byte for byte — the oracle rule below), 403
+> repository's `WorkspaceNotFoundError`, byte for byte; the oracle rule below), 403
 > `insufficient_workspace_role` for a member below the minimum, 404 before 403.
 
 | Route pattern | Minimum role (Form A decorator) | Request | Success | Errors |
 |---|---|---|---|---|
-| `POST /api/workspaces` | tenant `admin` — `@RequireTenantRole(TENANT_ROLE.admin)`; the signup `owner` passes, an invitee's tenant `member` does not | body `createWorkspaceRequestContract` `{ name }` | **201** `workspaceContract` with `workspaceRole: 'workspace_admin'`; **one `memberships` row (the creator, `workspace_admin`) is written in the same transaction** | 400 `validation_failed` (`details.fieldErrors.name`); 401 `unauthenticated`; 403 `insufficient_tenant_role`; 404 `not_found` (no `tenant_memberships` row) |
-| `GET /api/workspaces` | none — **membership-filtered in the statement** (`listForUser`), not gated: a caller with no memberships gets `{ items: [] }` | query `listWorkspacesQueryContract` `?includeArchived=true\|false` (default `false`) | **200** `workspaceListResponseContract` `{ items: Workspace[] }`, each item carrying the caller's own `workspaceRole` | 400 `validation_failed` (`details.fieldErrors.includeArchived`); 401 |
-| `GET /api/workspaces/:workspaceId` (**new**) | any membership — `@RequireWorkspaceRole(WORKSPACE_ROLE.viewer)` | no body | **200** `workspaceContract` with the caller's `workspaceRole` | 401; 404 `not_found` |
+| `POST /api/workspaces` | tenant `admin`, `@RequireTenantRole(TENANT_ROLE.admin)`; the signup `owner` passes, an invitee's tenant `member` does not | body `createWorkspaceRequestContract` `{ name }` | **201** `workspaceContract` with `workspaceRole: 'workspace_admin'`; **one `memberships` row (the creator, `workspace_admin`) is written in the same transaction** | 400 `validation_failed` (`details.fieldErrors.name`); 401 `unauthenticated`; 403 `insufficient_tenant_role`; 404 `not_found` (no `tenant_memberships` row) |
+| `GET /api/workspaces` | none, **membership-filtered in the statement** (`listForUser`), not gated: a caller with no memberships gets `{ items: [] }` | query `listWorkspacesQueryContract` `?includeArchived=true\|false` (default `false`) | **200** `workspaceListResponseContract` `{ items: Workspace[] }`, each item carrying the caller's own `workspaceRole` | 400 `validation_failed` (`details.fieldErrors.includeArchived`); 401 |
+| `GET /api/workspaces/:workspaceId` (**new**) | any membership, `@RequireWorkspaceRole(WORKSPACE_ROLE.viewer)` | no body | **200** `workspaceContract` with the caller's `workspaceRole` | 401; 404 `not_found` |
 | `PATCH /api/workspaces/:workspaceId` | `@RequireWorkspaceRole(WORKSPACE_ROLE.workspace_admin)` | body `renameWorkspaceRequestContract` `{ name }` | **200** `workspaceContract` | 400 `validation_failed` (`name`); 401; 403 `insufficient_workspace_role`; 404 `not_found` |
 | `POST /api/workspaces/:workspaceId/archive` | `@RequireWorkspaceRole(WORKSPACE_ROLE.workspace_admin)` | no body | **200** `workspaceContract`, idempotent | 401; 403 `insufficient_workspace_role`; 404 `not_found` |
 
@@ -231,7 +231,7 @@ oversight from either side.
   workspace leaves the `owner` without a membership in it, and 1b has no add-member route to
   repair that.
 - **Pre-1b volumes.** A workspace created before 1b has no `memberships` row; after 1b its
-  creator cannot list, read, rename or archive it — the row is still there, invisible. **No
+  creator cannot list, read, rename or archive it: the row is still there, invisible. **No
   backfill migration exists**, for the reason ADR-0062 records ("No backfill of
   `memberships`…": the migrator is `NOBYPASSRLS` under `FORCE`, so an `INSERT … SELECT` in a
   migration inserts zero rows and reports success, F-236's shape); ADR-0030 says there is no
@@ -254,24 +254,24 @@ export type Workspace = z.infer<typeof workspaceContract>;
 export const workspaceListResponseContract = z.object({ items: z.array(workspaceContract) });
 ```
 
-- **`tenantId` is not returned.** The caller is inside their own tenant — the guard put them
-  there and the interceptor bound every statement to it — so the id tells them nothing they
+- **`tenantId` is not returned.** The caller is inside their own tenant (the guard put them
+  there and the interceptor bound every statement to it), so the id tells them nothing they
   can act on, and it stays off the wire. The service maps the repository row through an
   explicit ~~five~~ six-field list; a column added to the table reaches the wire only when it
   is added to the contract and to that list.
-- **`workspaceRole` (2026-08-18, TASK-1b-06)** is the caller's own role in that workspace —
+- **`workspaceRole` (2026-08-18, TASK-1b-06)** is the caller's own role in that workspace:
   the literal `workspace_admin` on `POST`, the joined `memberships.role` per list item,
   `RequestContext.workspaceRole` (what the interceptor found) on the single-row routes. Named
   `workspaceRole`, never `role` (`workspace-authorization.md`: a wire field naming a role
   says which enum); unbranded on the wire (ADR-0048). **The API sends it on every response.**
   The schema admits its absence (`.optional()`) for the additive-versioning reason below: a
-  client parsing the pre-1b shape — the web workspaces screen and its test fixtures, which
-  TASK-1b-14 rewrites to render the role — must keep parsing until that card lands; removing
+  client parsing the pre-1b shape (the web workspaces screen and its test fixtures, which
+  TASK-1b-14 rewrites to render the role) must keep parsing until that card lands; removing
   the `.optional()` is that card's one-line tightening. A consumer that needs the brand goes
   through `asWorkspaceRole`.
 - The three timestamps are ISO strings because they crossed JSON (`Date` in the row,
   `timestamptz` in the table).
-- **No pagination in this initiative.** `{ items }` and nothing else — no cursor, no
+- **No pagination in this initiative.** `{ items }` and nothing else: no cursor, no
   `hasMore`. A tenant holds a handful of workspaces and no AC asks for a page; adding one
   later is an additive change to this shape. `pagination.ts`'s `paginated()` remains the shape
   for lists that grow without bound. Order is the repository's: `created_at`, then `id`.
@@ -287,15 +287,15 @@ wrapped in whitespace is accepted, and what is stored and returned is the trimme
 
 > **Amended 2026-08-19 (debt sweep, ledger 1b-W1-09): control characters are refused.** A
 > `.refine` after the bounds rejects any name containing a code point below U+0020 or U+007F
-> (DEL), with the fixed message `NAME_CONTROL_CHARACTERS_MESSAGE` — `'Control characters are
-> not allowed in a name.'` — keyed under `name` in `validation_failed` details like every
+> (DEL), with the fixed message `NAME_CONTROL_CHARACTERS_MESSAGE` (`'Control characters are
+> not allowed in a name.'`) keyed under `name` in `validation_failed` details like every
 > other name issue. The finding: a newline in a stored name forges the console mail
 > transport's block boundary. The refine runs on the TRIMMED value, so leading and trailing
 > `\n`/`\t` never trip it (the trim already removed them); only interior control characters
-> refuse. Ordinary unicode — accents, CJK, emoji — is untouched. The same rule and message
+> refuse. Ordinary unicode (accents, CJK, emoji) is untouched. The same rule and message
 > apply to the signup `name` (`signUpRequestContract`, which also gained
 > `SIGNUP_NAME_MAX_LENGTH = 200`), and through `on-user-created.ts`'s verbatim copy that
-> covers `tenants.name` — the ledger's "workspace and tenant names" both. Rows written
+> covers `tenants.name`, the ledger's "workspace and tenant names" both. Rows written
 > before this date may still hold control characters; nothing rewrites them, and the API
 > refuses only new writes.
 
@@ -303,7 +303,7 @@ wrapped in whitespace is accepted, and what is stored and returned is the trimme
 
 Only the two query-string spellings `true` and `false` are parsed, explicitly, into the
 boolean they name; a real boolean is accepted for a caller that builds the query as an
-object. Anything else — `1`, `yes`, `TRUE`, a repeated parameter — is 400
+object. Anything else (`1`, `yes`, `TRUE`, a repeated parameter) is 400
 `validation_failed` under `includeArchived`, so a typo does not silently list the wrong set.
 Absent means `false`; the default is applied by the service, not the schema, so `z.infer`
 keeps the field optional.
@@ -322,7 +322,7 @@ handler: the filter's framework-400 branch answers the same code with the issue 
 ### Not found, and what it does not disclose
 
 `:workspaceId` is **not** validated at the route. A malformed id, an id that was never issued,
-an id that belongs to another tenant **and — since 2026-08-18 — a same-tenant workspace the
+an id that belongs to another tenant **and, since 2026-08-18, a same-tenant workspace the
 caller holds no membership in** are **one answer**: 404 `not_found`, the same envelope, the
 same message, no id in the body. On the decorated routes it is the authorization interceptor
 that answers, before the handler: `MembershipRepository.roleFor` returns "no membership" for
@@ -331,8 +331,8 @@ lookup matched nothing, and `WorkspaceAccessNotFoundError` carries the **same bo
 `WorkspaceNotFoundError`, byte for byte** (`workspace-authorization.md`, "Status rules" (a);
 asserted in `workspace-authorizer.spec.ts` and again in `workspaces.int-spec.ts` against live
 responses). The repository's own `WorkspaceNotFoundError` is the floor under it, unchanged.
-Answering 400 for a malformed id and 404 for a well-formed miss — or 404 for "no such
-workspace" and anything else for "a workspace you may not see" — would let a caller tell the
+Answering 400 for a malformed id and 404 for a well-formed miss, or 404 for "no such
+workspace" and anything else for "a workspace you may not see", would let a caller tell the
 cases apart, which is a small oracle this contract rules out along with the larger one
 (`error-envelope.md` invariant 5).
 
@@ -352,8 +352,8 @@ supplied what that section deferred: `@RequireTenantRole` on create, `@RequireWo
 on the three single-row routes (read by `WorkspaceAuthorizationInterceptor`, the contract's
 `WorkspaceGuard`), a `memberships` lookup inside the tenant transaction, the creator's
 `workspace_admin` row, a membership-filtered list and `workspaceRole` on the wire. Tenancy is
-still the outer boundary — row-level security and the repository's `tenant_id` predicate
-answer another tenant's id with 404 before any role is read — and membership is now the
+still the outer boundary (row-level security and the repository's `tenant_id` predicate
+answer another tenant's id with 404 before any role is read), and membership is now the
 inner one, answered with the same 404.
 
 What is still absent, and where it lives: member add/remove/role-change routes

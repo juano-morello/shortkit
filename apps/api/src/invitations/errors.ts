@@ -5,12 +5,12 @@
  * Produced by: TASK-1b-04
  *
  * The five errors the invitation surface answers with. Every code already exists in
- * `ERROR_CODES` (GC-M: nothing is added), and every message is one fixed literal — no
+ * `ERROR_CODES` (GC-M: nothing is added), and every message is one fixed literal: no
  * invitation id, no token, no address, no tenant id. The value a caller supplied on the
  * two token legs is a bearer credential; the id on the revoke leg may be another tenant's.
  *
- * `InvitationNotFoundError` is ONE answer for three conditions — malformed token, unknown
- * digest, digest belonging to another tenant — and for an id nobody in the current tenant
+ * `InvitationNotFoundError` is ONE answer for three conditions (malformed token, unknown
+ * digest, digest belonging to another tenant), and for an id nobody in the current tenant
  * owns. Distinguishing them would tell an anonymous caller which tenants and which tokens
  * exist (invitation-tokens.md, "404 is one body").
  *

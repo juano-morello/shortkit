@@ -6,7 +6,7 @@
  * ## Why it exists
  *
  * A suite that asserts on the BYTES the shared logger writes has to read file descriptor 1,
- * and the only way to read another process's fd 1 is to be its parent — so those suites
+ * and the only way to read another process's fd 1 is to be its parent, so those suites
  * spawn a child and capture its stdout (`src/observability/logger.spec.ts` is the first).
  * A child that has to boot Nest imports `@Module` and `@Catch`, and neither of Node's own
  * TypeScript modes will load them: `--experimental-strip-types` and
@@ -15,15 +15,15 @@
  * (ADR-0001) and that is what swc is here for in the first place.
  *
  * `test/support/api-server.ts` solves the same problem by running `tsup` and spawning
- * `dist/main.js`. That is right for a suite about the composition root — it boots the API
- * the way the platform does — and wrong for one that needs no database: `main.ts` refuses to
+ * `dist/main.js`. That is right for a suite about the composition root (it boots the API
+ * the way the platform does), and wrong for one that needs no database: `main.ts` refuses to
  * start until it has connected to Postgres and checked the runtime role (F-116, F-245), so
  * it can only run behind `docker-compose.test.yml`. A child that builds the app from
  * `AppModule` opens no socket but its own, which is what keeps the suite in `pnpm test`.
  *
  * ## What it does not do
  *
- * No type checking — `pnpm typecheck` owns that — and no source maps, so a stack trace out
+ * No type checking (`pnpm typecheck` owns that), and no source maps, so a stack trace out
  * of the child names transformed line numbers. It transforms `.ts` on load and resolves the
  * extensionless relative specifiers TypeScript source is written with; nothing else.
  *

@@ -1,5 +1,5 @@
 /**
- * STORY-1b-05 — AC-1b-25, AC-1b-26, AC-1b-27 at the function level, and the ADR-0021 test
+ * STORY-1b-05: AC-1b-25, AC-1b-26, AC-1b-27 at the function level, and the ADR-0021 test
  * route enumeration cannot replace: a token whose tenant half names another tenant finds
  * nothing there and writes nothing anywhere.
  *
@@ -10,7 +10,7 @@
  * index cannot be faked. Everything runs against the MIGRATED `invitations`,
  * `invitation_workspaces`, `memberships` and `tenant_memberships` tables as `shortkit_app`
  * (neither SUPERUSER nor BYPASSRLS; the fixture refuses otherwise). Rows that cross the
- * `"user"` grant boundary — the users themselves and tenant B's membership — go in through
+ * `"user"` grant boundary (the users themselves and tenant B's membership) go in through
  * the migrator DSN, exactly as `test/isolation/registrations.ts` seeds them.
  *
  * WHAT THIS FILE PROVES.
@@ -18,7 +18,7 @@
  * - The repository stores SHA-256 of the secret half and NOTHING ELSE of the token: the row
  *   cast to text does not contain the secret, and the digest column equals the hash.
  * - `findInvitationByCapabilityToken` opens the token's tenant transaction, verifies the
- *   digest, and returns the preview fields — never a digest, never the token — and it
+ *   digest, and returns the preview fields (never a digest, never the token), and it
  *   joins an already-open matching context (invariant 5).
  * - The single-use race (AC-1b-27): two concurrent accepts of one token → exactly one
  *   `accepted` transition, one set of membership rows, one tenant membership; the loser is
@@ -370,7 +370,7 @@ describe('capability tokens: create → lookup → accept, under RLS', () => {
         acceptInvitationByCapabilityToken(swapped, { userId: INVITEE, tenantMembership: 'create' }),
       ).rejects.toBeInstanceOf(InvitationNotFoundError);
 
-      // The claimed tenant holds no invitation with that digest — the row is the owner's.
+      // The claimed tenant holds no invitation with that digest: the row is the owner's.
       expect(countInvitationsIn(claimed)).toBe(0);
       expect(invitationStateIn(owner, row.id)?.state).toBe('pending');
       expect(membershipsIn(claimed)).toEqual([]);

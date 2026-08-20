@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * AC-116, SITE 3 — F-278. The two connection-error lines `db/client.ts` writes.
+ * AC-116, SITE 3: F-278. The two connection-error lines `db/client.ts` writes.
  *
  * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
  * Nothing may opt out"; `docs/contracts/tenant-context.md` rule 2, which closes the
@@ -19,8 +19,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  *
  * `client.ts:55` constructs `new Logger('Database')` from `@nestjs/common` and
  * `discardedConnection` at line 93 writes through it. The CONTENT of that line is already
- * within policy — the error's name and its SQLSTATE and nothing else, which is what
- * `tenant-context.md` rule 2 allows — so the defect here is the PIPELINE alone, not a leak.
+ * within policy: the error's name and its SQLSTATE and nothing else, which is what
+ * `tenant-context.md` rule 2 allows, so the defect here is the PIPELINE alone, not a leak.
  *
  * Grading this together with `tenancy/tenant-context.ts:247` is what made F-243 clause 3
  * read as "two stale logger comments" for six days while a raw `error.message` sat on a
@@ -31,9 +31,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * What this site still owes AC-116: the line must come out of the pino instance registered
  * at the composition root, so an operator can filter it by `level`, correlate it by
  * `service` and `env`, and get a timestamp that is not a locale-formatted clock. And what
- * no fix may spend to get there: the two connection states have to stay distinguishable —
+ * no fix may spend to get there: the two connection states have to stay distinguishable:
  * `client.ts` writes TWO lines for one dead connection by design, because both listeners
- * fire when a pooled client dies idle — and the SQLSTATE has to survive, because it is the
+ * fire when a pooled client dies idle, and the SQLSTATE has to survive, because it is the
  * only thing on the line that says what Postgres did.
  *
  * ============================================================================
@@ -42,7 +42,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  *
  * `discardedConnection` is module-private and its only two entry points are the listeners
  * `client()` attaches to the pool. So the child builds the real pool through the real
- * `databaseTransaction` — the only thing that reaches `client()` — and then fires the two
+ * `databaseTransaction` (the only thing that reaches `client()`) and then fires the two
  * events `pg` fires: `pool.on('error')` for a connection that died IDLE IN THE POOL
  * (F-123), and the `client.on('error')` that `pool.on('connect')` installs for one that
  * died while CHECKED OUT (F-137).
@@ -56,7 +56,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * BOTH STREAMS ARE COLLECTED. Measured on @nestjs/common 11.1.28: `ConsoleLogger` routes
  * `error` and `fatal` to fd 2 and every other level, `warn` included, to fd 1. Reading one
  * descriptor would make the harness depend on which level a fix picks, and a line that
- * moved streams would look like a line that vanished — which turns every assertion below
+ * moved streams would look like a line that vanished, which turns every assertion below
  * into a vacuous pass. `LOG_LEVEL=trace` for the same reason.
  */
 
@@ -94,7 +94,7 @@ interface EmittedLine {
   readonly raw: string;
   /** Which descriptor carried it. The registered pino instance writes fd 1. */
   readonly stream: 'stdout' | 'stderr';
-  /** The parsed record, or `undefined` when the line is not a JSON object at all — which is the state at HEAD. */
+  /** The parsed record, or `undefined` when the line is not a JSON object at all, which is the state at HEAD. */
   readonly record: Record<string, unknown> | undefined;
 }
 
@@ -155,7 +155,7 @@ terminated.internalQuery = "select * from tenants where name = '${DRIVER_INTERNA
 pools[0].emit('error', terminated);
 
 // 1. F-137: a connection that died while CHECKED OUT. Different event and different
-//    listener — pg-pool's idle listener is removed in _acquireClient, so \`client.ts\`
+//    listener: pg-pool's idle listener is removed in _acquireClient, so \`client.ts\`
 //    installs its own on 'connect' and that is the one that fires here.
 const checkedOut = new EventEmitter();
 pools[0].emit('connect', checkedOut);
@@ -189,7 +189,7 @@ beforeAll(() => {
 
   // THE VACUITY GUARD. Every assertion below is about a line one of the two listeners
   // writes, and neither listener exists until `client()` has built the pool. A child that
-  // built no pool, or built two, fires its events at the wrong object and emits nothing —
+  // built no pool, or built two, fires its events at the wrong object and emits nothing,
   // which would make "no forbidden marker on the line" hold because there is no line.
   const observations = JSON.parse(readFileSync(observationsPath, 'utf8')) as Observations;
 
@@ -259,7 +259,7 @@ function connectionRecord(state: string): Record<string, unknown> {
 describe('the lines db/client writes when a pooled connection dies', () => {
   it('AC-116 site 3 (F-278): the idle pooled connection failure is a JSON record on fd 1, not an unstructured Nest line', () => {
     // F-123's listener. At HEAD: `[Nest] … WARN [Database] idle pooled connection failed
-    // and was discarded: error (sqlstate 57P01)` — ANSI escapes and a locale clock, beside
+    // and was discarded: error (sqlstate 57P01)`: ANSI escapes and a locale clock, beside
     // the JSON every other line on this process is.
     const line = connectionLine(IDLE_POOLED);
 
@@ -282,7 +282,7 @@ describe('the lines db/client writes when a pooled connection dies', () => {
     // composition root, `level` from `formatters.level`, `time` from
     // `pino.stdTimeFunctions.isoTime`. A second pino instance built inside `client.ts`
     // would produce JSON and satisfy the two tests above while carrying `pid` and
-    // `hostname` and none of these — which is the hole F-268 names and the reason
+    // `hostname` and none of these, which is the hole F-268 names and the reason
     // "structured" is not the property AC-116 asks for.
     for (const state of [IDLE_POOLED, CHECKED_OUT]) {
       const record = connectionRecord(state);
@@ -296,8 +296,8 @@ describe('the lines db/client writes when a pooled connection dies', () => {
 
   it("AC-116 site 3 (F-278): both lines keep the driver's SQLSTATE and carry no other field of the driver error", () => {
     // The benign content, which is what this site has to still be worth reading for. The
-    // SQLSTATE is the only thing on the line that says what Postgres did — `57P01` is a
-    // scale-to-zero or a restart, `53300` is a pool that is too large — and a fix that
+    // SQLSTATE is the only thing on the line that says what Postgres did: `57P01` is a
+    // scale-to-zero or a restart, `53300` is a pool that is too large, and a fix that
     // buys structure by dropping it leaves an operator a line saying a connection failed
     // and nothing else. `detail` and `internalQuery` are the other side of the same rule:
     // `tenant-context.md` rule 2 closes the readable fields to name and SQLSTATE, and

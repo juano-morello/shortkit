@@ -2,7 +2,7 @@
 
 /**
  * TASK-013 (STORY-004, AC-22, AC-23 as the screen sees them). One workspace in the list:
- * its name, an "Archived" text badge when it is archived, and — for an active workspace —
+ * its name, an "Archived" text badge when it is archived, and (for an active workspace)
  * the inline rename control and the archive control.
  *
  * Contract: docs/contracts/workspaces.md ("Endpoints": `PATCH /api/workspaces/:id`,
@@ -23,7 +23,7 @@
  * and returns focus to the Archive button. The API call itself is idempotent.
  *
  * An archived row shows the badge and NO rename or archive controls: the API allows renaming
- * an archived workspace, but the screen keeps the archived row read-only — there is nothing
+ * an archived workspace, but the screen keeps the archived row read-only: there is nothing
  * to do with an archived client here yet, and a control on a row that reads "Archived" is
  * an invitation to confusion. That is a screen decision, not a contract one.
  *
@@ -37,7 +37,7 @@
  * or viewer, a row whose `workspaceRole` the API did not send (the field is additive and
  * optional on the contract until TASK-1b-06's `.optional()` is removed), and an archived
  * row get no link: the API answers 403 to a member and 400 to an invite on an archived
- * workspace, and the row does not offer what would be refused. HIDING IS NOT ENFORCEMENT —
+ * workspace, and the row does not offer what would be refused. HIDING IS NOT ENFORCEMENT:
  * the API is (workspace-authorization.md, "Minimum role per surface"). Rename and archive
  * are left as they were (shown on every active row; the API refuses a non-admin with 403).
  *

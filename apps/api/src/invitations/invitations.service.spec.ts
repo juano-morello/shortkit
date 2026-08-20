@@ -1,5 +1,5 @@
 /**
- * TASK-1b-08 — InvitationsService, the parts decidable without a database.
+ * TASK-1b-08: InvitationsService, the parts decidable without a database.
  *
  * Contract: docs/contracts/invitation-tokens.md, workspace-authorization.md (D-09, Form B),
  * mail-sender.md, error-envelope.md, tenant-context.md (invariant 6). GC-H, GC-K.
@@ -10,7 +10,7 @@
  * database, the policy and the real transaction are the integration tier's. Decidable here:
  *
  *   1. CREATE ORDER. Form B on every grant, in the request's order, BEFORE any workspace read
- *      and before any write; the first refusal stops everything — no read, no create, no mail.
+ *      and before any write; the first refusal stops everything: no read, no create, no mail.
  *   2. What `create` hands the repository: the 32-byte digest and never the raw token,
  *      `expiresAt = now + INVITATION_TTL_SECONDS`, `invitedByUserId` and `inviterEmail` from
  *      the actor.
@@ -71,7 +71,7 @@ const ACTOR: RequestContext = {
   emailVerified: false,
 };
 
-/** Every call the fakes saw, in order — the ordering assertions read this. */
+/** Every call the fakes saw, in order: the ordering assertions read this. */
 const trace: string[] = [];
 const queuedHooks: Array<() => Promise<void> | void> = [];
 let tenantNameRows: Array<{ name: string }> = [{ name: TENANT_NAME }];
@@ -406,7 +406,7 @@ describe('create: the mail leaves after commit, once, and carries the token that
         expiresAt: new Date(created.expiresAt),
       },
     });
-    // The response never carries the token — not the field, not the bytes.
+    // The response never carries the token: not the field, not the bytes.
     expect(created).not.toHaveProperty('token');
     const bytes = JSON.stringify(created);
     expect(bytes).not.toContain(raw);

@@ -69,7 +69,7 @@ files under `apps/api/src` containing the identifier `betterAuthDatabase` is exa
 `db/client.ts` and `auth/auth.config.ts`. ADR-0046 keeps its rule and loses its deferral;
 this ADR amends it on that one point.**
 
-**That is scan 1. Three more scans were added in rounds 2 and 3 — see the direction table
+**That is scan 1. Three more scans were added in rounds 2 and 3; see the direction table
 below: scans 1, 3 and 4 are equalities and scan 2 is a subset.** Scan 1 alone bounds an
 identifier rather than the role, which is what the rest exist to close.
 
@@ -170,7 +170,7 @@ collide with `RLS_VERDICT_PREFIX = 'DATABASE_URL connect'` (`main.ts:48`), and
 and holds no handle, and the cheapest way to green a red gate is to widen `PERMITTED` to
 whatever the tree contains. **The wave-3 shape is therefore decided here rather than at the
 point it is red**: `main.ts` and `auth/boot-assertions.ts` are in scan 2's permitted set from
-the day it lands, with the reason written beside them in the spec — *they name the variable,
+the day it lands, with the reason written beside them in the spec: *they name the variable,
 they do not connect with it*.
 
 Scan 3 is what enforces that reason. It matches the use and not the mention, so `main.ts`
@@ -208,7 +208,7 @@ it is:
 
 **A fifth scan was added 2026-08-16 (F-207), and the list above was written when there were
 four.** The implement-phase security audit measured what none of the four bounded: the composed
-`auth` this card exports is **itself a second handle on `shortkit_auth`** — through
+`auth` this card exports is **itself a second handle on `shortkit_auth`**: through
 `auth.$context.adapter` it reads plaintext session tokens, the `account` password hashes and
 `jwks.private_key`, and it created a session row for another user. **All four scans were green
 throughout.** Scans 1–4 bound the construction of a *new* pool; scan 5 bounds importing the
@@ -220,10 +220,10 @@ architect found it by planting twelve spellings against the implementer's seven,
 found by measurement belongs in the list rather than in a memory.
 
 **The non-vacuity argument for scan 5 was wrong as first stated, which is worth more than the
-scan.** It was proposed on the grounds that `main.ts` already matches — but that match is a
+scan.** It was proposed on the grounds that `main.ts` already matches, but that match is a
 **comment** at `main.ts:138` quoting the import TASK-004 must write, and **no file under
 `apps/api/src` imports `auth.config.ts` at all` today**. On a subset assertion, rewording that
-one comment would leave scan 5 matching nothing and passing silently — a control defeated by an
+one comment would leave scan 5 matching nothing and passing silently: a control defeated by an
 edit to prose. It therefore ships with a **positive control on the pattern itself**, over
 planted text that no prose edit can reach, and was mutation-checked: a planted importer turns it
 red.

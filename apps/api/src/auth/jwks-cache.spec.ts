@@ -5,13 +5,13 @@ import { JWKS_CACHE_TTL_MS, JWKS_PATH, createJwksCache, fetchKeySetOverHttp, jwk
 import type { JsonWebKeySet } from './jwks-cache';
 
 /**
- * STORY-002 — no AC states this; ADR-0013 does ("fetches `/api/auth/jwks` once and caches
+ * STORY-002: no AC states this; ADR-0013 does ("fetches `/api/auth/jwks` once and caches
  * the key set in process for 10 minutes"). TASK-005, wave 4.
  *
  * Contract: `docs/contracts/auth-tokens.md` ("Verification", step 2; "What the implementer
  * must guarantee": fetched over loopback, not the public internet). ADR-0013.
  *
- * TIME AND THE FETCH ARE INJECTED, NOT FAKED — the convention `revocation-store.spec.ts`
+ * TIME AND THE FETCH ARE INJECTED, NOT FAKED: the convention `revocation-store.spec.ts`
  * started and says why. The cache under test is a fresh instance per test, built by the same
  * factory the process-wide one is built by, so the singleton the guard reads is never touched.
  */

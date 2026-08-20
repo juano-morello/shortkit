@@ -1,6 +1,6 @@
 /**
  * TASK-013 (STORY-004). The requests the workspace screen issues, the query parameter the
- * page reads, and the copy its errors render — in one module so the server page, the client
+ * page reads, and the copy its errors render, in one module so the server page, the client
  * list, the create form and the row agree on every string, and so TASK-017's compose check
  * can read the exact paths off one file.
  *
@@ -46,7 +46,7 @@ export const WORKSPACE_ARCHIVE_PATH = '/workspaces/:id/archive';
 /**
  * `?archived=1` on `/workspaces` shows archived workspaces too. The page reads it, sends the
  * matching `includeArchived` to the API, and hands the flag to the client list, which
- * honours it on every re-fetch — so the server render and the browser's refreshes agree on
+ * honours it on every re-fetch, so the server render and the browser's refreshes agree on
  * what "archived" means (TASK-013 card; AC-23 is the API's rule, this only exposes it).
  */
 export const ARCHIVED_PARAM = 'archived';

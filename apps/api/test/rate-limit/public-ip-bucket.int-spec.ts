@@ -16,7 +16,7 @@ import type { ApiServer } from '../support/api-server';
 import { authServerEnv } from '../support/auth-fixture';
 
 /**
- * STORY-1b-08 — AC-1b-37 and AC-1b-38 against a live database and a real boot. TASK-1b-07,
+ * STORY-1b-08: AC-1b-37 and AC-1b-38 against a live database and a real boot. TASK-1b-07,
  * wave 1 of item 1b.
  *
  * Contract: `docs/contracts/rate-limit.md` ("Scope", "Response on limit", "What the
@@ -27,7 +27,7 @@ import { authServerEnv } from '../support/auth-fixture';
  * TWO PROCESSES, AS `request-tenant-binding.int-spec.ts`: THE PROBE HERE, `/health` THERE.
  * ============================================================================
  *
- * No `@Public()` business route exists yet — the invitation lookup is wave 3 — so the route
+ * No `@Public()` business route exists yet (the invitation lookup is wave 3) so the route
  * under the bucket is a probe registered BESIDE `AppModule` in this process, with the real
  * `APP_GUARD`s, the real filter and the real port binding, nothing overridden. What the probe
  * DOES is what F-018 is about: it opens a tenant transaction from inside the handler, exactly
@@ -35,7 +35,7 @@ import { authServerEnv } from '../support/auth-fixture';
  * leave that count where it was.
  *
  * `GET /health` is asserted against the CHILD process `api-server.ts` boots, because the
- * exemption is by path — outside the `/api` prefix `main.ts` sets — and only the child has
+ * exemption is by path (outside the `/api` prefix `main.ts` sets), and only the child has
  * that prefix; an application compiled from `AppModule` in-process has no global prefix and
  * would prove the exemption for the wrong reason. The child is booted with the trusted header
  * declared, the way `auth-mount.int-spec.ts` boots its server.

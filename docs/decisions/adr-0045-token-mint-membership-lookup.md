@@ -20,7 +20,7 @@ date: 2026-08-12
 >
 > The premise was wrong; the decision was not. The escape's shape, its narrowing and its
 > controls all stand. What changed is that the predicate it relies on had to be repaired
-> first, and the repair belongs to the shared template rather than to this policy —
+> first, and the repair belongs to the shared template rather than to this policy:
 > **ADR-0049**, which also covers `redirectReadPolicy`'s table, the privileged eraser, and
 > the plain out-of-context read that no escape is involved in.
 >
@@ -30,7 +30,7 @@ date: 2026-08-12
 
 `definePayload` must put `tid` in every token (ADR-0013, GC-D). `tid` comes from
 `tenantIdForUser(user.id)`, a single-row lookup on `tenant_memberships`'
-`UNIQUE (user_id)` index (ADR-0015). It runs at token-mint time, when no tenant is known —
+`UNIQUE (user_id)` index (ADR-0015). It runs at token-mint time, when no tenant is known:
 that is the whole reason the claim exists.
 
 `tenant_memberships` is a tenant-scoped table. GC-A and GC-E fix that: it carries
@@ -108,7 +108,7 @@ were a constraint, and it was wrong to rest on it.** `user.id` is `text PRIMARY 
 `CHECK` and no non-empty constraint. With one `"user"` row whose `id` is `''` and a
 membership referencing it, measured on a warm backend as `shortkit_app`: a no-flag read
 returned that row, and **tenant A's ordinary transaction returned tenant B's full membership
-row** — `tenant_id`, `user_id` and `role` — through the permissive OR. That falsifies
+row** (`tenant_id`, `user_id` and `role`) through the permissive OR. That falsifies
 `rls-policy-template.md` invariant 1, which this wave amended one round earlier.
 
 Latent, not live: `parseUserInput` drops `id` on the sign-up route, so nothing creates the row
@@ -125,7 +125,7 @@ policies.
 ~~The isolation policy beside it is what raised.~~ The isolation policy beside it **did**
 raise, on every warm connection, and that is ADR-0049's subject rather than this one's. The
 two policies are ORed into the same `SELECT`, so a raise in either aborts the statement
-whatever the other would have returned — which is why repairing only this policy would have
+whatever the other would have returned, which is why repairing only this policy would have
 changed nothing.
 
 **No `TO` clause, deliberately. Ruled 2026-08-14 (F-121, folding in F-110), after four agents
@@ -153,7 +153,7 @@ makes that visible, and a fourth role is when this gets revisited.
 ### The setter
 
 `apps/api/src/auth/membership-lookup.ts`, a new file, following the shape of the two
-existing escapes — each lives in its own feature directory, not in `tenancy/`.
+existing escapes: each lives in its own feature directory, not in `tenancy/`.
 
 ```ts
 export type MembershipLookupDb = PgTransaction<any, typeof schema, any> & {
@@ -200,7 +200,7 @@ export class NoTenantMembershipError extends Error;
 ```
 
 It resolves to the lower-cased uuid on that user's single membership row, and throws
-`NoTenantMembershipError` when there is no row — never `null`, never `''`. It contains no
+`NoTenantMembershipError` when there is no row: never `null`, never `''`. It contains no
 flag string and does not import `databaseTransaction`; `withMembershipLookup` is its only
 database reach.
 
@@ -229,7 +229,7 @@ Keep the truncation, on the grounds that are true:
   builds a fixed field set rather than copying the error's own properties (F-244). Truncating
   the message costs a caller nothing.
 - **This error is thrown inside `definePayload`, on the Better Auth mount, outside the Nest
-  graph** — so `ApiExceptionFilter` never sees it and the code that does is the dependency's.
+  graph**, so `ApiExceptionFilter` never sees it and the code that does is the dependency's.
   ADR-0052 binds that logger and drops its positional `args`, which closes the channel the
   auditor identified; it closes it by a decision made in the same round, not by a property
   that predates this one.
@@ -337,7 +337,7 @@ TASK-056 is the card that raises this control to A1's full form**: it drops the 
 occurrence are not a failure" clause and asserts exactly-one. It extends this control rather
 than replacing it, and the file does not move. Until then the control is half-armed by design
 rather than by accident. **Without it, this ADR's narrowness argument rests on four
-declarations and nothing else** — the pattern foundation's retro named as decisions whose
+declarations and nothing else**: the pattern foundation's retro named as decisions whose
 validity conditions nothing enforces.
 
 **Text scan, not an AST parse, and that is the contract's choice rather than a shortcut.**
@@ -377,12 +377,12 @@ added to `CONTEXT_FLAG_OWNERS` at `coverage.ts:1718-1722` by the same card.
 
 The four controls, with what actually runs marked:
 
-1. **Clause A1** — `app.membership_lookup_user` is set in exactly one file in the scan set,
+1. **Clause A1**: `app.membership_lookup_user` is set in exactly one file in the scan set,
    `apps/api/src/auth/membership-lookup.ts`. It is the **fourth** flag, not the third:
    `CONTEXT_FLAG_OWNERS` (`coverage.ts:1718-1722`) already holds `app.tenant_id`,
    `app.redirect_context` and `app.privileged_erase`, so this adds a fourth row and a fourth
    permitted `app.` name (corrected 2026-08-13, F-006).
-2. **Clause A2** — the string appears in exactly that file and `rls.ts`.
+2. **Clause A2**: the string appears in exactly that file and `rls.ts`.
 3. **The `databaseTransaction` file list** in `tenant-context.md` grows from four paths to
    five, and TASK-056's grep asserts set equality.
 4. **New: `withMembershipLookup` is imported by exactly one file**,
@@ -395,9 +395,9 @@ The four controls, with what actually runs marked:
 
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
-| Denormalise the tenant id onto Better Auth's `user` table via `user.additionalFields`, written by `onUserCreated`, read by `definePayload` from the `user` object | **No database read at mint time at all**, no third flag, no third exclusion, exclusion count stays at two. Cheapest by a wide margin | The column would be named `tenantId`. `check-policies.mts`'s cross-check reads `pg_attribute` for a column named literally `tenant_id`, so `user` keeps its exemption while carrying tenant data — the guardrail is defeated by camelCase. Naming it `tenant_id` instead makes the cross-check refuse the exemption and demand RLS on `user`, and Better Auth's login-by-email lookup runs with no tenant context, so sign-in returns zero rows for everyone. It also creates a second source of truth for a fact `UNIQUE (user_id)` was chosen to make structural, with no constraint keeping the two equal | Honest naming breaks authentication; dishonest naming defeats the check. ADR-0015 rejected the same shape for the RLS half of this reason and the naming half is worse |
+| Denormalise the tenant id onto Better Auth's `user` table via `user.additionalFields`, written by `onUserCreated`, read by `definePayload` from the `user` object | **No database read at mint time at all**, no third flag, no third exclusion, exclusion count stays at two. Cheapest by a wide margin | The column would be named `tenantId`. `check-policies.mts`'s cross-check reads `pg_attribute` for a column named literally `tenant_id`, so `user` keeps its exemption while carrying tenant data: the guardrail is defeated by camelCase. Naming it `tenant_id` instead makes the cross-check refuse the exemption and demand RLS on `user`, and Better Auth's login-by-email lookup runs with no tenant context, so sign-in returns zero rows for everyone. It also creates a second source of truth for a fact `UNIQUE (user_id)` was chosen to make structural, with no constraint keeping the two equal | Honest naming breaks authentication; dishonest naming defeats the check. ADR-0015 rejected the same shape for the RLS half of this reason and the naming half is worse |
 | A separate lookup table `user_tenant_index(user_id text PRIMARY KEY, tenant_id uuid)`, unscoped | Keeps `tenant_memberships` purely tenant-scoped | It carries a `tenant_id` column, so `check-policies.mts` refuses to exempt it and demands the standard policy set, which puts it back behind `app.tenant_id`. Exempting it needs the same camelCase evasion as above. And it duplicates the row `tenant_memberships` already holds, without the unique constraint that makes the cardinality structural | Same dead end, plus a second copy of the data |
-| A `SECURITY DEFINER` function owned by `shortkit_migrator` returning the tenant id | No new flag, no new policy, no application-side escape | `FORCE ROW LEVEL SECURITY` applies policies to the table owner too, so a definer function running as the owner is still filtered — it works only if its owner holds `BYPASSRLS`, which `assertRuntimeRoleCannotBypassRls` exists to forbid. Worse, an escape expressed as a function body is invisible to `check-policies.mts`, to the four grep clauses and to the `pg_policies` shape assertion | Moves the escape somewhere no control can enumerate it, and needs the one role attribute the boot check refuses |
+| A `SECURITY DEFINER` function owned by `shortkit_migrator` returning the tenant id | No new flag, no new policy, no application-side escape | `FORCE ROW LEVEL SECURITY` applies policies to the table owner too, so a definer function running as the owner is still filtered: it works only if its owner holds `BYPASSRLS`, which `assertRuntimeRoleCannotBypassRls` exists to forbid. Worse, an escape expressed as a function body is invisible to `check-policies.mts`, to the four grep clauses and to the `pg_policies` shape assertion | Moves the escape somewhere no control can enumerate it, and needs the one role attribute the boot check refuses |
 | Make `tenant_memberships` a second cascade root with a bespoke policy set instead of `tenantScopedPolicies()` | One policy set instead of a template plus an addendum | Contradicts GC-A, GC-E and TASK-002's card, all of which fix `tenantScopedPolicies('tenant_memberships')`, and removes the standard isolation policy that in-tenant member reads will need in item 1b. It also does not avoid the second predicate: the mint-time read has no tenant whatever the policy set is called | Changes an approved shape without removing the problem |
 | Read `tenant_memberships` through `databaseTransaction` and accept zero rows | No design at all | `tid` is never minted, no token works, the product does not function | Not an option; recorded because it is what the code does if nobody decides |
 
@@ -426,7 +426,7 @@ The four controls, with what actually runs marked:
 
   **Two of those edits are more than a number** (added 2026-08-13, F-007 and F-008).
   `rls.ts:10-19`'s header enumerates the three permitted flag strings by name and calls
-  itself exhaustive — `membershipLookupPolicy()` puts a fourth string in that file, so the
+  itself exhaustive: `membershipLookupPolicy()` puts a fourth string in that file, so the
   header is false in the same commit unless it moves. And the AC-12 test is *titled*
   "AC-12: exactly two isolation exclusions are declared"; moving only the assertion leaves a
   green test whose name contradicts what it asserts, which is what a reader greps for. The
@@ -442,22 +442,22 @@ The four controls, with what actually runs marked:
 - **The narrowing control on the caller is a grep over file names, not a type or a runtime
   guard.** Any module can import `withMembershipLookup`; nothing throws if a controller
   does. The guarantee is that the import is a reviewed diff, and TASK-056 is what turns it
-  into an assertion — until then it is a rule.
+  into an assertion; until then it is a rule.
 - The escape returns a tenant uuid for any user id the caller supplies. In the mint path the
   user id is the authenticated subject, so this is not a leak. ~~if the file-level control
   ever fails, the leak is a routing identifier rather than tenant data.~~
 
   **Corrected 2026-08-13 (F-025). That sentence is true in one direction only and understates
   the failure.** Measured: in a transaction where **both** `app.tenant_id` (tenant A) and
-  `app.membership_lookup_user` (tenant B's user) are set, a whole-table read returned two rows
-  — A's own and tenant B's complete membership row, `tenant_id`, `user_id` and `role`.
+  `app.membership_lookup_user` (tenant B's user) are set, a whole-table read returned two rows:
+  A's own and tenant B's complete membership row, `tenant_id`, `user_id` and `role`.
   PostgreSQL ORs permissive policies. So a second setter of the lookup flag anywhere on a
   request path is **a cross-tenant read of tenant data**, not of a routing identifier. That is
   what the file-level control is holding back, and it is a larger thing than this ADR said.
 
   Two adjacent claims were re-measured and both hold: `FOR SELECT` does **not** widen `UPDATE`
-  or `DELETE` — both returned zero rows under the same two flags, because PostgreSQL requires
-  the `ALL`/`UPDATE` `USING` policy independently of `SELECT` visibility — and
+  or `DELETE`: both returned zero rows under the same two flags, because PostgreSQL requires
+  the `ALL`/`UPDATE` `USING` policy independently of `SELECT` visibility, and
   `SET TRANSACTION READ ONLY` does block a write to the RLS-exempt auth tables
   (`cannot execute UPDATE in a read-only transaction`).
 - `withMembershipLookup` takes a pooled connection for the duration of a token mint, so
@@ -476,7 +476,7 @@ The four controls, with what actually runs marked:
   migration `0001` beside `tenantScopedPolicies('tenant_memberships')`, writes
   `membership-lookup.ts` and `tenant-id-for-user.ts`, adds the fifth entry to `client.ts`'s
   docblock caller list, adds the third `ISOLATION_EXCLUSIONS` entry, and corrects the
-  five "exactly two" sites — plus **`rls.ts`'s own header docblock at lines 10-19**, which
+  five "exactly two" sites, plus **`rls.ts`'s own header docblock at lines 10-19**, which
   names the three permitted flag strings and calls itself exhaustive (F-007), and the
   **AC-12 test's title and comment** (F-008).
 - TASK-002 also carries ADR-0049's repair, which lands in the same `rls.ts` and the same
@@ -487,14 +487,14 @@ The four controls, with what actually runs marked:
   two originally specified here could not observe F-003.** Both were written with no
   reference to connection state, both are true on a cold backend, and
   `test/support/rls-fixture.ts` seeds through the migrator DSN, which leaves the application
-  pool cold — so both would have gone green over the blocker. **Connection state is the
+  pool cold, so both would have gone green over the blocker. **Connection state is the
   variable, so every control names it:**
 
   1. **Warm-connection mint.** Commit a `withTenantTransaction` first, in the same process
      and the same pool, then call `tenantIdForUser` and assert it resolves to the right
      tenant id. This is the only control that would have failed before ADR-0049 and it is
      the one that matters. `POOL_MAX` is 10, so the test must either exhaust or pin the pool
-     to guarantee the mint reuses a used backend rather than a fresh one — asserting on a
+     to guarantee the mint reuses a used backend rather than a fresh one: asserting on a
      connection you did not choose is asserting on luck.
   2. **Warm-connection isolation.** In the same state, with the lookup flag set to user A, a
      whole-table read returns exactly A's row and not tenant B's. Verified by hand:
@@ -515,6 +515,6 @@ The four controls, with what actually runs marked:
   than replacing it, and drops the "rows with no occurrence are not a failure" clause. This
   bullet is the only place that obligation is recorded, because TASK-056 is deferred out of
   this initiative and has no card here.
-- `docs/contracts/tenant-context.md` is amended in this initiative — the fifth consumer,
+- `docs/contracts/tenant-context.md` is amended in this initiative: the fifth consumer,
   the third exclusion, and the four-versus-three caller-count note at `client.ts:21-22`
   that was already stale.

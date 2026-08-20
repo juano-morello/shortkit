@@ -55,7 +55,7 @@ function assertTableName(table: string): string {
  * FORCE ROW LEVEL SECURITY matters: without it the table owner bypasses every policy,
  * producing an RLS configuration that looks correct and enforces nothing.
  *
- * `current_setting(name, true)` — the second argument is load-bearing. Without it an
+ * `current_setting(name, true)`: the second argument is load-bearing. Without it an
  * unset flag raises rather than returning NULL, and the AC-10 read outside any tenant
  * context would fail with an error instead of returning zero rows.
  *
@@ -65,14 +65,14 @@ function assertTableName(table: string): string {
  * reset value is the empty string, not NULL, and `pg.Pool` returns the backend with no
  * reset query. So from the first committed tenant transaction onward every later checkout
  * of that physical connection reads `''`, `''::uuid` is evaluated, and the statement
- * raises `22P02 invalid input syntax for type uuid: ""` — the out-of-context read failing
+ * raises `22P02 invalid input syntax for type uuid: ""`, the out-of-context read failing
  * on the only connection state the application actually runs in.
  *
  * `nullif` collapses unset and reset to NULL alike, so the predicate is NULL, the policy
  * treats it as false, and the read returns zero rows on a cold backend and a warm one.
  * An `AND` guard is NOT a substitute and was measured raising anyway: PostgreSQL does not
  * guarantee left-to-right evaluation of `AND` operands inside a policy predicate. Every
- * reference to a context flag in this file is wrapped, cast or not — `''` is dangerous
+ * reference to a context flag in this file is wrapped, cast or not: `''` is dangerous
  * because of the comparison and not because of the cast (F-021), and a rule with
  * exceptions cannot be checked mechanically. `db:check-policies` counts the wrappers.
  */
@@ -120,7 +120,7 @@ export function tenantScopedPolicies(table: string): PolicySet {
  * AMENDED 2026-08-19 (TASK-2-02). BOTH INSTANCES ARE APPLIED. `apps/api/drizzle/0005_*.sql`
  * creates `domains` and `links` and hand-appends `redirectReadPolicy('domains')` and
  * `redirectReadPolicy('links')` beside each table's `tenantScopedPolicies()` block, in the
- * SAME migration and the same commit — the amended GC-A, because a policy appended in a
+ * SAME migration and the same commit: the amended GC-A, because a policy appended in a
  * later migration is a second F-239 window. The ADR-0049 repair the struck paragraph
  * described was to this function alone and both applied instances inherited the wrapped
  * form, which `db:check-policies` now counts over two real `pg_policies` rows rather than
@@ -128,7 +128,7 @@ export function tenantScopedPolicies(table: string): PolicySet {
  *
  * NOTHING SETS `app.redirect_context` YET. `withRedirectRead` is TASK-2-06's, so until it
  * lands the flag is never set, `nullif(current_setting(...), '')` is NULL on every backend,
- * the predicate is NULL, and both policies admit nothing — which is what the isolation
+ * the predicate is NULL, and both policies admit nothing, which is what the isolation
  * suite's `domains` and `links` batteries incidentally prove on every run.
  */
 export function redirectReadPolicy(table: 'domains' | 'links'): PolicySet {
@@ -155,7 +155,7 @@ export function redirectReadPolicy(table: 'domains' | 'links'): PolicySet {
  * by design and a parameter would invite a second.
  *
  * THE `nullif` IS REQUIRED EVEN THOUGH THIS POLICY NEVER CASTS (F-021). The earlier form
- * compared the flag raw and rested on "no `"user"` row has id `''`" — a data property
+ * compared the flag raw and rested on "no `"user"` row has id `''`", a data property
  * stated as if it were a constraint, where `user.id` is `text PRIMARY KEY` with no CHECK.
  * With such a row present, measured on a warm backend: a no-flag read returned it, and
  * tenant A's ordinary transaction returned tenant B's full membership row through the
@@ -191,14 +191,14 @@ interface RuntimeRolePrivileges extends Record<string, unknown> {
  * the whole isolation claim becomes decorative while every test that runs against a
  * correctly provisioned database still passes. Nothing in the application can detect
  * that at runtime; this check is the only thing that does. It throws rather than
- * calling process.exit so the caller can close what it already opened — main.ts's
+ * calling process.exit so the caller can close what it already opened: main.ts's
  * bootstrap handler exits non-zero (ADR-0003).
  *
  * THREE PROPERTIES, NOT TWO (F-129). Table ownership is the third, and ADR-0003 says
  * it is the one that gets missed: a table's owner is exempt from its own policies
  * wherever FORCE ROW LEVEL SECURITY is absent, and that line is hand-appended per
  * table by whoever writes the migration. The count is of tables `current_user` owns,
- * not of tables that exist — a check on the latter would refuse the correctly
+ * not of tables that exist: a check on the latter would refuse the correctly
  * provisioned database, where shortkit_app owns nothing and shortkit_migrator owns
  * everything.
  *

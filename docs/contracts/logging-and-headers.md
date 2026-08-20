@@ -11,7 +11,7 @@
   of the claim. What enforces it, what it costs and what it still does not reach are stated
   once, in "What the implementer must guarantee" below. ADR-0041 rules how far "or any other
   logger" reaches; ADR-0042 rules where the enforced tree ends.
-- **ADRs:** ADR-0022, and ADR-0028 which supersedes its redaction clause only — ADR-0022's
+- **ADRs:** ADR-0022, and ADR-0028 which supersedes its redaction clause only. ADR-0022's
   CORS decision and header table stand. ADR-0041 rules how far "or any other logger" reaches;
   ADR-0042 rules which prohibition follows the source tree and which follows the package.
   Enforces GC-9.
@@ -30,7 +30,7 @@ rather than by reading.
 any shipped file (F-283 the `toJSON` class, F-281 the request/response sniff).** Two claims this
 document made were measured false: that F-265's `toJSON` class was closed, and that pino's
 request mapping is what keeps a whole request object off the line. Both are corrected where they
-appeared — this section's ADR-0028 summary, "Door six", "The residuals", and invariants 1 and 2.
+appeared: this section's ADR-0028 summary, "Door six", "The residuals", and invariants 1 and 2.
 `logger-contract-drift.spec.ts` still passes 6 of 6, which is what says the fence was untouched.
 
 **This contract is the single normative source for the logger's configuration.** ADR-0022
@@ -85,8 +85,8 @@ claims moved:
   `ip_hash` residual are removed rather than kept as history.
 - **Two of the three residuals closed as a class. The third, F-265's `toJSON`, is narrowed
   rather than eliminated, and this bullet claimed otherwise until 2026-08-10 (F-283).** A
-  container the scan cannot inspect *by walking* — past the depth bound, or with a prototype
-  that is neither `Object.prototype` nor `null`, a class instance included — is censored
+  container the scan cannot inspect *by walking* (past the depth bound, or with a prototype
+  that is neither `Object.prototype` nor `null`, a class instance included) is censored
   rather than passed through. A plain object carrying an own **non-enumerable** `toJSON` is
   not that container: it has `Object.prototype`, so the scan walks it, and if its own
   enumerable keys are all named or absent then nothing is replaced, `fieldsCensored` returns
@@ -94,19 +94,19 @@ claims moved:
   which no scan over keys ever saw. Measured at round 7 across thirteen routes: **two closed,
   both in the message position, by F-277's fix at `43e10e7`; nine still emit `toJSON`'s return
   value; two never reached the mechanism.** The nine are enumerated in "The residuals: two
-  closed as a class, one narrowed" below. **F-265 stays open and narrowed** — ADR-0028, "What
-  this ADR does not decide". Severity minor: the shape requires a container carrying a hidden
+  closed as a class, one narrowed" below. **F-265 stays open and narrowed** (ADR-0028, "What
+  this ADR does not decide"). Severity minor: the shape requires a container carrying a hidden
   `toJSON`, no library in this tree produces one, and no shipped call site reaches it. Do not
   read this contract as saying a hidden `toJSON` cannot fire.
 - **Invariant 1 is true**, and the mechanism is this module's key rule rather than pino's
-  request mapping — corrected 2026-08-10 (F-281). A request- or response-shaped record is
+  request mapping, corrected 2026-08-10 (F-281). A request- or response-shaped record is
   re-shaped by pino into `{ req: … }` or `{ res: … }` before anything here runs, and the
   re-shaping censors nothing; `req` and `res` are not in `LOGGABLE_FIELDS`, so the whole thing
   is `[redacted]` and there is no header list to keep current. See "Door six" for what the
   re-shaping does and does not do.
 - **Invariant 5 narrowed.** An `Error` at depth 1 still emits `err_name` and `err_stack` under
   any key spelling, because an `Error` value is reduced by policy before any key decision. An
-  error nested under a key that is not named — `{ ctx: { err: e } }` — is censored with its
+  error nested under a key that is not named (`{ ctx: { err: e } }`) is censored with its
   container and lost, rather than reduced. Measured: `"ctx":"[redacted]"`. That is a
   diagnostic loss, priced and accepted in the ADR. Pass the error at the top level.
 - The cost the ADR accepted: **a field a TASK forgets to name ships as `[redacted]`, and the
@@ -119,9 +119,9 @@ claims moved:
 **Read this before removing anything named above.** Until ADR-0028 the record path had two
 censoring layers: pino's `redact` over 25 paths, and the error scan. `redact` is gone, so a
 bug in `fieldsCensored`, or a call site that gets past it, has nothing behind it. ADR-0028
-priced that and accepted it — two censoring mechanisms with opposite polarity is the
+priced that and accepted it (two censoring mechanisms with opposite polarity is the
 comprehension hazard that let a reader of the six `req.headers.*` paths conclude that logging
-a whole request was a covered act — but the consequences are structural and they are these:
+a whole request was a covered act), but the consequences are structural and they are these:
 
 - **`childOptionsChecked` is load-bearing rather than defence in depth.**
   `logger.child(b, { formatters: { log: (o) => o } })` replaces the scan for that child, and
@@ -144,8 +144,8 @@ is a finding and an ADR amendment, not a patch.
 
 The fence is the **normative region**: `apps/api/src/observability/logger.ts` from its
 `import` through the end of `readIndexedProperty`, which is the whole logger configuration
-and the scan. Everything after it in that file — `RequestLogFields`, `ErrorLogFields`,
-`errorLogFields` and its helpers — belongs to `error-envelope.md` and is deliberately not
+and the scan. Everything after it in that file (`RequestLogFields`, `ErrorLogFields`,
+`errorLogFields` and its helpers) belongs to `error-envelope.md` and is deliberately not
 reproduced here. (`isWalkable` used to be the last declaration in the region. ADR-0028
 removed it: its prototype test is inlined in `valueCensored`, which censors what it cannot
 inspect instead of passing it through.)
@@ -156,7 +156,7 @@ single space, then cut the region out of the source between two anchors and comp
 fence for **equality**. The anchors are the literal text `import pino from 'pino';` and
 `export interface RequestLogFields`, the first declaration `error-envelope.md` owns rather
 than this one. Whitespace inside a string is left alone, because the strings are the payload
-here — the censor, the fixed context message, the child-options refusal.
+here: the censor, the fixed context message, the child-options refusal.
 
 Comments are stripped on both sides, so the explanatory comments inside the fence are free
 and may differ from the source's docblocks. Everything else fails: a reordered declaration, a
@@ -187,7 +187,7 @@ follow, and the ADR-0028 migration paid for each of them:
 (F-270).** A substring is open at both ends, so dropping the last declaration from the fence
 left a shorter needle that was still found, and adding a declaration to the source just after
 the region left the same needle found in a longer haystack. Both stayed green when measured
-on copies, and the end of the region is exactly where a new wrapper gets appended — which is
+on copies, and the end of the region is exactly where a new wrapper gets appended, which is
 the shape F-251 and F-258 both had. **Anything a later round inserts before
 `RequestLogFields` is inside the region by this contract's definition and belongs in the
 fence.**
@@ -448,7 +448,7 @@ function messageWouldBeTakenFromTheError(record: unknown): record is object {
 }
 
 /**
- * How far in the scan looks. A container at or below this depth is CENSORED, not walked —
+ * How far in the scan looks. A container at or below this depth is CENSORED, not walked:
  * the inversion ADR-0028 turns on. Raising it lets a deeper NAMED field keep its value;
  * lowering it censors more. Either way it is additive to safety now. See "Versioning".
  */
@@ -485,7 +485,7 @@ function fieldsCensored<T extends object>(record: T, depth: number): T {
 
     if (replaced !== value) {
       // The array branch keeps `fieldsCensored<T>(…): T` honest for an array passed AS the
-      // record. It changes no emitted byte — measured, both forms — so it is a type
+      // record. It changes no emitted byte (measured, both forms), so it is a type
       // guarantee, not a behavioural one. See "An array as the whole record".
       replacement ??= (Array.isArray(record) ? [...record] : { ...record }) as T;
       (replacement as Record<string, unknown>)[key] = replaced;
@@ -496,7 +496,7 @@ function fieldsCensored<T extends object>(record: T, depth: number): T {
 }
 
 // The policy for a value whose key has already been allowed, or that arrived under no key at
-// all — an array element, or a format argument. A container this cannot inspect is CENSORED,
+// all: an array element, or a format argument. A container this cannot inspect is CENSORED,
 // not passed through: a class instance, a `Buffer`, anything at or past `MAX_SCAN_DEPTH`.
 function valueCensored(value: unknown, depth: number): unknown {
   if (value instanceof Error) {
@@ -586,14 +586,14 @@ the path list as a whole.
 
 `serializers.err` also owns the non-error case under that key. `logger.error({ err: { body:
 '…' } })` emits `{"err":{"err_name":"non-error throwable (object)"}}`. `fieldsCensored`
-deliberately does not do that, because it reduces `Error` instances only — a non-`Error`
+deliberately does not do that, because it reduces `Error` instances only: a non-`Error`
 under a key that is not named is censored rather than described.
 
 **`hooks.logMethod` closes the same hole by its other door (F-244, F-252).** A log call with
 no context string leaves pino to derive one, and where it derives it from is the error's
-message. `msg` is a top-level key and free text by construction — no key-based scheme can
+message. `msg` is a top-level key and free text by construction (no key-based scheme can
 censor it without censoring every log line's text, which is why `msg` is on
-`LOGGABLE_FIELDS` — so the message is the one field the policy withholds everywhere else.
+`LOGGABLE_FIELDS`), so the message is the one field the policy withholds everywhere else.
 Measured on pino 10.3.1: `bare.error(err)` emits `"msg":"boom DSNMARK"`.
 
 **Both call shapes are covered, not only the positional one.** `write` (`proto.js:223`)
@@ -603,7 +603,7 @@ clean. The hook's second branch supplies the context string pino would otherwise
 the error, and hands the caller's own record through unchanged so its fields survive.
 
 The coverage condition on the record branch is **the record has an `err` key and no own
-`msg`** — not that `err` holds an `Error`. That is deliberate and it is what pino reads:
+`msg`**, not that `err` holds an `Error`. That is deliberate and it is what pino reads:
 `proto.js:223` does not check `instanceof`, so a decorated plain object under `err`, which
 is the shape `catch (err)` binds and the shape `serializers.err` reduces to `err_name`,
 puts its own `message` in `msg` by the same route. Testing for `Error` would be the
@@ -634,7 +634,7 @@ before the fix. Adding `serializers.error` and `serializers.cause` would be the 
 F-244 rejected and would not reach the nested shape at all.
 
 **Two rules, in this order, and the order is the point.** An `Error` value is reduced by
-`errorLogFields` whatever its key, and the key check never runs on it — an error is a value
+`errorLogFields` whatever its key, and the key check never runs on it: an error is a value
 with a policy, not a field with a name. Every other key survives only if `LOGGABLE_FIELDS`
 names it. So a plain object a call site chose to log is no longer that call site's decision:
 it reaches the line if its key is named, is walked one level deeper if it is a plain record,
@@ -655,7 +655,7 @@ deferred their rationale to it, which is the rationale the message-position leak
 
 `_asJson` builds a line out of the RECORD, and `asChindings` out of BINDINGS. Neither of them
 builds `msg`. `genLog`'s `LOG` (`tools.js:47-77`) calls
-`format(msg, formatParams, formatOpts)` — `quick-format-unescaped` — before `write()` runs, so
+`format(msg, formatParams, formatOpts)` (`quick-format-unescaped`) before `write()` runs, so
 no serialiser, formatter or bindings wrapper is anywhere on that path. **The argument list is
 the third place a line is built, and the only mechanism on it is `hooks.logMethod`.**
 
@@ -686,7 +686,7 @@ argument list decides by type and by value.
 **The re-shaping censors nothing, and this paragraph said otherwise until 2026-08-10 (F-281).**
 Read in pino-std-serializers 7.1.0: `reqSerializer` (`lib/req.js:66-93`) builds
 `Object.create(pinoReqProto)` and assigns `id`, `method`, `url`, `headers`, `remoteAddress`,
-`remotePort` — plus `query` and `params` when the request carries them — as own enumerable
+`remotePort` (plus `query` and `params` when the request carries them) as own enumerable
 properties, and hangs the **original request object** off a non-enumerable `raw`. `resSerializer`
 (`lib/res.js:35-42`) is the same shape and carries `res.getHeaders()`, which is where a
 `Set-Cookie` lives. Measured 2026-08-10 by calling `mapHttpRequest` directly: the returned `req`
@@ -701,13 +701,13 @@ emits `"req":"[redacted]"` and `logger.info(responseLike, '…')` emits `"res":"
 
 - **Bindings skip the sniff and are covered anyway.** `asChindings` never calls `LOG`, so a
   request-shaped object in `logger.child(bindings)` is not re-shaped. Measured:
-  `"method":"[redacted]","url":"[redacted]","headers":"[redacted]","socket":"[redacted]"` —
+  `"method":"[redacted]","url":"[redacted]","headers":"[redacted]","socket":"[redacted]"`,
   each key censored on its own, because none of them is named.
 - **Naming `req` would not open it.** `reqSerializer`'s output has prototype `pinoReqProto`,
   which is neither `Object.prototype` nor `null`, so `valueCensored` censors it as a non-plain
   container even if a future TASK adds `req` to `LOGGABLE_FIELDS`. Measured: the prototype
   identity check is false for both `mapHttpRequest` and `mapHttpResponse` output. Adding `req`
-  or `res` to the allowlist stays forbidden — both are on "The never-allowlist" — but the
+  or `res` to the allowlist stays forbidden (both are on "The never-allowlist"), but the
   reason a hypothetical slip would not leak is the prototype rule, not the mapping.
 
 That is why the invariant-1 row reads `"req":"[redacted]"` for a whole request object rather
@@ -716,8 +716,8 @@ too**. Measured:
 `logger.info({ request_id, route, method, headers, socket }, '…')` emits
 `"req":"[redacted]"` and nothing else, so `request_id` and `route` are gone, while the same
 record without `headers` and `socket` keeps both and censors `method`. Invariant 2 does not
-hold for a record that trips either door. The consequence is an observability defect — a
-correlation id vanishing from an audit line — and not a leak. The remedy is the one this
+hold for a record that trips either door. The consequence is an observability defect (a
+correlation id vanishing from an audit line) and not a leak. The remedy is the one this
 contract prescribes twice: log named fields, never a request or response object.
 
 **Why the message position is moved rather than reduced in place.** `format` returns a
@@ -810,7 +810,7 @@ non-error case under `err` stops being covered at all.
 **What the suite pins, exactly (F-254).** Measured by striking each half and running
 `logger.spec.ts` against the 18-test suite of 2026-08-08: dropping `serializers.err` alone
 failed 12 tests, dropping the depth-1 `err` skip alone failed 6, and dropping **both
-together** failed exactly one — the non-`Error` under the top-level `err` key. The counts
+together** failed exactly one: the non-`Error` under the top-level `err` key. The counts
 move as tests are added; the shape is what matters. That single case is what makes this a
 partition rather than a redundancy, and it is the only thing standing between the "these two
 overlap, let me unify them" refactor and F-244's shape coming back under `err`. A contract reader who wants to
@@ -825,8 +825,8 @@ reopens F-251 and F-258 with every gate green.
 
 `formatters.log` is applied by `_asJson` to the record a log call passes. Child bindings
 never reach it: they are serialised once, at `logger.child(…)` or `logger.setBindings(…)`,
-by `asChindings` (`tools.js:238`). So `logger.child({ error: e })` wrote F-244's payload —
-body-parser's verbatim request body — under a key one character away from the one key that
+by `asChindings` (`tools.js:238`). So `logger.child({ error: e })` wrote F-244's payload
+(body-parser's verbatim request body) under a key one character away from the one key that
 was covered, and `exception-filter.ts:125` already builds a child logger per request.
 
 **`formatters.bindings` reaches neither path on pino 10.3.1.** Measured, not assumed. It is
@@ -843,13 +843,13 @@ entry reopens both findings and every gate stays green.**
 one.** `asChindings` applies the bindings formatter at `tools.js:247` and `serializers[key]`
 at `:258`, the same order `_asJson` uses, so the partition above holds identically here and
 both wrappers scan at **depth 1, keeping the top-level `err` exemption**. The two paths do
-differ in one respect — `child()` swaps the bindings formatter for the identity function
-first and `setBindings` (`proto.js:189-192`) does not — and they agree only on
+differ in one respect (`child()` swaps the bindings formatter for the identity function
+first and `setBindings` (`proto.js:189-192`) does not), and they agree only on
 `serializers[key]`, which is why the exemption had to be checked twice.
 
 **Depth 2 is the plausible wrong fix on both paths.** A wrapper that scanned from depth 2
 turns the leak assertions green while degrading `logger.child({ err: e })` and
-`setBindings({ err: e })` to `{"err_name":"non-error throwable (object)"}` — the error's
+`setBindings({ err: e })` to `{"err_name":"non-error throwable (object)"}`: the error's
 name and every frame gone. `logger.spec.ts` fails on that for each path.
 
 **`setBindings` was worth wrapping despite having no call site.** It needs no child logger,
@@ -943,8 +943,8 @@ key to a named one and the mechanism fires. That distinction is what this sectio
 lose, and it is the whole of F-283.
 
 **What replaced the two that closed is a diagnostic loss, and it is a cost rather than a
-residual.** An `Error` nested inside a container that is not a named field —
-`{ ctx: { err: e } }`, F-248's third shape — is censored **with** its container instead of being
+residual.** An `Error` nested inside a container that is not a named field
+(`{ ctx: { err: e } }`, F-248's third shape) is censored **with** its container instead of being
 reduced to `err_name` and `err_stack`. The remedy is the one this contract already prescribes:
 pass the error at the top level, where it is reduced under any key spelling.
 
@@ -958,7 +958,7 @@ self-referential record terminate.
 **The mechanism.** A plain object carrying an own **non-enumerable** `toJSON` has
 `Object.prototype`, so `valueCensored` walks it rather than censoring it. If its own enumerable
 keys are all named or absent, `fieldsCensored` replaces nothing and returns **the same object by
-reference**. `JSON.stringify` inside pino then serialises it from `toJSON`'s return value — a
+reference**. `JSON.stringify` inside pino then serialises it from `toJSON`'s return value, a
 value no scan over keys ever saw. A scan over keys cannot see it, which is why no widening of
 `LOGGABLE_FIELDS` or of `MAX_SCAN_DEPTH` addresses it.
 
@@ -991,7 +991,7 @@ library-supplied container as safe under a named key.
 
 **What a caller may rely on, stated as a boundary.** Under a **named** key, a value this module
 returns by reference is serialised by pino, not by this module, and pino honours `toJSON`. So:
-put fields under named keys, not containers you did not build. `err` is exempt from this — it is
+put fields under named keys, not containers you did not build. `err` is exempt from this: it is
 reduced by `errorLogFields` to three fields and never handed on whole.
 
 **What would close it and why it is not done here:** a key-by-key rebuild of every walked
@@ -1030,7 +1030,7 @@ to fd 1 redirected to `/dev/null`:
 Removing `redact` refunds more than the allowlist spends: 2.66 µs per flat line, 4.74 µs on a
 record carrying `req.headers`. The error record's 1.3 µs over bare pino is `errorLogFields`
 building frames, not the walk. **Use the absolute numbers, not a percentage of a whole-call
-baseline** — the 5.8–9 µs baseline earlier rounds quoted has never been reproduced. Against
+baseline**: the 5.8–9 µs baseline earlier rounds quoted has never been reproduced. Against
 GC-1's 25 ms ceiling one line is 0.010%.
 
 **What the message-position fix added on top, measured the same way at `43e10e7`:**
@@ -1047,7 +1047,7 @@ claimed the opposite and was measured false.
 
 **ADR-0028 collapsed four throw sites into one, and the caller sees no difference.**
 Re-measured 2026-08-10 against the shipped module by hanging a throwing getter off a record
-and reading the stack. Every shape now throws from the same line, `logger.ts:650` — the scan's
+and reading the stack. Every shape now throws from the same line, `logger.ts:650`, the scan's
 own copy, `{ ...record }`:
 
 | shape | throws from, before ADR-0028 | throws from, now |
@@ -1059,7 +1059,7 @@ own copy, `{ ...record }`:
 
 **Why it collapsed.** `readIndexedProperty` used to catch its own read and `continue`, leaving
 the key for pino to read again. Under ADR-0028 rule 4 the unreadable key is censored instead,
-and censoring it **is** a change — so that one key triggers the copy, and the copy re-invokes
+and censoring it **is** a change, so that one key triggers the copy, and the copy re-invokes
 the getter. The throw is now unconditional rather than depending on some other key having
 changed. **The observable outcome is identical in all four rows and identical to bare pino:
 the log call throws and no line is emitted.**
@@ -1067,8 +1067,8 @@ the log call throws and no line is emitted.**
 **Why a sentinel was rejected. The ruling stands, and ADR-0028 sharpened rather than
 overturned it (F-271).** The old reasoning turned on reach: the scan was bounded at depth 4
 and declined to walk a class instance, so a sentinel bought a bounded guarantee, and the two
-call sites that need it — the exception filter's `headersSent` arm, outside the try/catch
-F-092 added, and `main.ts`'s last-chance boot handler — had no way to check the bound before
+call sites that need it (the exception filter's `headersSent` arm, outside the try/catch
+F-092 added, and `main.ts`'s last-chance boot handler) had no way to check the bound before
 calling. That objection is now weaker: past the depth bound and inside a class instance both
 become `[redacted]`, so there are no unreachable containers left.
 
@@ -1076,7 +1076,7 @@ What replaced it is stronger. **A sentinel alone is now worth exactly nothing**,
 copy that throws happens before any sentinel could be written, on every record that carries a
 hostile getter rather than on some of them. F-259's key-by-key copy is therefore a
 precondition of a sentinel being worth anything at all, not a companion to it. Whether the
-pair is worth its cost — a key-by-key copy on the path every log line takes — is a decision
+pair is worth its cost (a key-by-key copy on the path every log line takes) is a decision
 for whoever owns F-253 and F-259 next. It is not made here.
 
 **What is guaranteed, and it is the half these two call sites actually meet.** A hostile
@@ -1086,8 +1086,8 @@ for whoever owns F-253 and F-259 next. It is not made here.
 carrying `err_name` and do not rethrow. Those two arms log an unknown *throwable*, not an
 unknown *record*.
 
-**What a caller must therefore do.** A record built by spreading caller-controlled data —
-a parsed body, a request object, anything a library handed over — may carry a hostile getter,
+**What a caller must therefore do.** A record built by spreading caller-controlled data
+(a parsed body, a request object, anything a library handed over) may carry a hostile getter,
 and a log call on it may throw. In a place with nowhere left to escape to, wrap the log call.
 That is unbounded, local, and it is the pattern F-092 already established in the same file.
 
@@ -1096,8 +1096,8 @@ That is unbounded, local, and it is the pattern F-092 already established in the
 This section used to explain which spelling `REDACT_PATHS` was keyed to, because `ipHash` was
 censored and `ip_hash` was not: `{ ipHash: 'CAMEL', ip_hash: 'SNAKE' }` emitted
 `"ipHash":"[redacted]","ip_hash":"SNAKE"`. **Both are censored now**, and so is every other
-spelling, because neither is in `LOGGABLE_FIELDS`. The residual it named — a raw driver row
-logged whole, carrying Postgres column names verbatim — closed with it.
+spelling, because neither is in `LOGGABLE_FIELDS`. The residual it named (a raw driver row
+logged whole, carrying Postgres column names verbatim) closed with it.
 
 The one place casing still matters is the allowlist itself. `LOGGABLE_FIELDS` holds the
 logger's own snake_case field names (`request_id`, `tenant_id`, `duration_ms`, `err_name`),
@@ -1155,7 +1155,7 @@ Normative. GC-9.
 
 ### The never-allowlist: names that may never be added to `LOGGABLE_FIELDS`
 
-Normative. **This is a prohibition, not a mechanism.** Nothing in the build enforces it —
+Normative. **This is a prohibition, not a mechanism.** Nothing in the build enforces it:
 these names are censored today only because they are not on the allowlist, which is the same
 reason every other unnamed name is censored. What this list does is answer the question a
 TASK asks at step 3 of "What a TASK does to log a new field": *may I name this one?* For
@@ -1207,7 +1207,7 @@ prohibited wherever it appears.
 
 **The two `x-shortkit-*` names are here ahead of the headers existing** (F-032).
 `x-shortkit-client-ip` carries a raw client IP on every browser-originated API request, and
-`x-shortkit-proxy-auth` carries `BFF_PROXY_SECRET` verbatim — a leaked log line would let
+`x-shortkit-proxy-auth` carries `BFF_PROXY_SECRET` verbatim: a leaked log line would let
 anyone forge `X-Shortkit-Client-IP` against Fly directly and defeat every IP-keyed auth
 bucket. The `BFF_PROXY_SECRET` value is never logged on the Vercel side either
 (`web-api-client.md`).
@@ -1216,7 +1216,7 @@ bucket. The `BFF_PROXY_SECRET` value is never logged on the Vercel side either
 `formatters.log` keep an error's own properties and its message off the line under every key,
 whatever it is named, and the `logger.child` and `logger.setBindings` wrappers do the same on
 the bindings path. See "Why each mechanism is here" and "The two wrappers". The one surface no
-mechanism reaches is `msg` and `err_stack`, which are free text by construction — see the last
+mechanism reaches is `msg` and `err_stack`, which are free text by construction. See the last
 bullet of "What the implementer must guarantee".
 
 ### The exception filter's error line
@@ -1232,7 +1232,7 @@ who owns changing it", is normative for that policy and names the two call sites
 `includeMessage: true`.
 
 **The constraint the policy rests on, stated once. No censoring scheme can reach inside a
-string** — not the path denylist that shipped until ADR-0028, and not the field allowlist that
+string**: not the path denylist that shipped until ADR-0028, and not the field allowlist that
 replaced it. A field is censored whole or emitted whole, so a message carrying a Postgres DSN
 goes to the log intact or not at all. That is why the answer is which fields `errorLogFields`
 builds rather than which fields to censor, and it is also why the stack is emitted as frames
@@ -1241,7 +1241,7 @@ with the `${name}: ${message}` header stripped at construction: `err.stack` open
 
 An earlier version of this section claimed a path list "cannot help either way: it matches
 paths, and neither a message nor a stack has one." That was measured false in one direction
-and the correction is kept for the reader who remembers it — once a serialiser turned an error
+and the correction is kept for the reader who remembers it: once a serialiser turned an error
 into an object, `err.message` and `err.stack` were ordinary paths and pino censored them.
 Moot since ADR-0028; `err_message` and `err_stack` are on the allowlist, and what protects the
 message is that `errorLogFields` does not build it unless the call site opts in.
@@ -1265,7 +1265,7 @@ which is the actual defect.
 `app.use(helmet({ frameguard: { action: 'deny' } }))` on the app in `main.ts`, immediately
 after `NestFactory.create` and **before** `setGlobalPrefix`. On the app rather than inside a
 module, so it covers the branded 404 `ApiExceptionFilter` builds and anything mounted outside
-the Nest module graph (ADR-0013) — module middleware covers the routed responses and misses
+the Nest module graph (ADR-0013): module middleware covers the routed responses and misses
 the error ones, which is the half that goes wrong quietly.
 
 | Header | Value | Scope |
@@ -1293,7 +1293,7 @@ one that is enforced.** The rejected alternative was to keep `'self'` and re-lab
 `X-Frame-Options` as legacy in this table; ADR-0022 records why it lost.
 
 **`frame-ancestors` does not fall back to `default-src`.** A response that replaces this CSP
-with its own — the branded 404 below is the one that does — carries no framing policy at all
+with its own (the branded 404 below is the one that does) carries no framing policy at all
 unless its own directive list names `frame-ancestors`. That is a requirement on
 `redirect-resolution.md`, not on this file, and it was met there on 2026-08-19 (D-2-14,
 TASK-2-06); the exception table below quotes the corrected list.
@@ -1339,7 +1339,7 @@ direction that file's own instruction fixes. The served header is asserted in
    **What holds it, corrected 2026-08-10 (F-281): this module's key rule, in every position.**
    In the record position pino re-shapes a request- or response-shaped record into `{ req: … }`
    or `{ res: … }` first (`tools.js:51-52` and `tools.js:53-54`), and **that re-shaping censors
-   nothing** — `reqSerializer` carries `headers`, `remoteAddress` and the raw request straight
+   nothing**: `reqSerializer` carries `headers`, `remoteAddress` and the raw request straight
    through. The value is `[redacted]` because `req` and `res` are not in `LOGGABLE_FIELDS`, and
    it would equally be `[redacted]` had pino left the record alone, key by key. The proof is the
    bindings path, which never runs that sniff: a request-shaped object passed as the whole
@@ -1380,7 +1380,7 @@ direction that file's own instruction fixes. The served header is asserted in
 
    **One measured exception, 2026-08-10, and it is the call sites' to avoid rather than the
    logger's to fix.** A record pino reads as an HTTP request (`tools.js:51-52`) or as a
-   response (`tools.js:53-54`, `typeof o.setHeader === 'function'` — two doors, not one) is
+   response (`tools.js:53-54`, `typeof o.setHeader === 'function'`: two doors, not one) is
    replaced whole before any mechanism here runs; see "Door six". So
    `logger.info({ request_id, route, method, headers, socket }, '…')` emits `"req":"[redacted]"`
    and neither named field, and a record carrying a `setHeader` method emits `"res":"[redacted]"`
@@ -1397,8 +1397,8 @@ direction that file's own instruction fixes. The served header is asserted in
    two agreeing, and the eighth integration test is what keeps them agreeing.
 5. **An `Error` reaches the line only as `err_name` and an `err_stack` of frames.** Not
    `message`, not `body`, not `detail`, not any property a library assigned. Holds under any
-   key spelling and at any depth the scan reaches — `{ err: e }`, `{ error: e }`,
-   `{ cause: e }`, `[e, e]`, `log.error(e)`, `log.error(e, 'context')` — and it holds whether
+   key spelling and at any depth the scan reaches (`{ err: e }`, `{ error: e }`,
+   `{ cause: e }`, `[e, e]`, `log.error(e)`, `log.error(e, 'context')`), and it holds whether
    the error arrived in the log record or in **logger bindings**, through either
    `logger.child(bindings)` or `logger.setBindings(bindings)`.
 
@@ -1462,7 +1462,7 @@ direction that file's own instruction fixes. The served header is asserted in
   call; add the name to `LOGGABLE_FIELDS` in the same commit, one name per line, sorted, with
   the owning file in a trailing comment; then check it against "What may never appear in a log
   line" and the never-allowlist. If the field is a raw IP, a token, a password, a digest, a
-  request body, a concrete URL path or a foreign `tenant_id`, the answer is not to name it —
+  request body, a concrete URL path or a foreign `tenant_id`, the answer is not to name it;
   it is that the field may not be logged. A field that skips step 2 emits
   `"<field>":"[redacted]"`, which is the designed failure and is visible in the TASK's own dev
   run.
@@ -1475,7 +1475,7 @@ direction that file's own instruction fixes. The served header is asserted in
   that emits the wrong bytes, which is how F-244 and F-248 both reached the branch. Twenty
   tests defend this today, each proven by a mutation that fails exactly it.
 - **Always pass a fixed context string**: `logger.error({ err }, 'what was being done')`.
-  The hook supplies one when a call omits it, so an omission is not a leak — but the string
+  The hook supplies one when a call omits it, so an omission is not a leak, but the string
   it supplies names the call shape and not the failure, which costs the operator the only
   human-written field on the line.
 - **Never pass `includeMessage: true` without a reason at the call site.** Two call sites
@@ -1499,8 +1499,8 @@ direction that file's own instruction fixes. The served header is asserted in
   prohibition stops, and why `apps/api/scripts` and `apps/api/test` are outside it on purpose,
   is ADR-0042. **One named exemption since 2026-08-18 (item 1b, TASK-1b-02):**
   `apps/api/src/mail/senders/console-mail-sender.ts`, the `MAIL_TRANSPORT=console` delivery
-  channel (`mail-sender.md`). It writes a rendered mail body — recipient, invitation URL,
-  token — to stdout with one `console.log`, because that content may never go through the
+  channel (`mail-sender.md`). It writes a rendered mail body (recipient, invitation URL,
+  token) to stdout with one `console.log`, because that content may never go through the
   logger (`to` and the URL are on the never-allowlist) and stdout is where an operator who
   declared `console` asked to read it. It is a mail transport sharing a descriptor with the
   log, not a log line; it is bound only by explicit declaration (absence binds a sender that
@@ -1524,8 +1524,8 @@ direction that file's own instruction fixes. The served header is asserted in
   serialiser, formatter or wrapper reaches. Pass `{ err: e }` and a fixed context string
   instead. **This bullet got sharper with ADR-0028: `msg` and `err_stack` are the only
   uncensored surfaces left, so they are the only ones worth attacking.** The arguments path is
-  covered for format parameters — `hooks.logMethod` reduces every value pino would interpolate
-  before `format` runs (F-260) — the message position is covered since `43e10e7` (F-277), and a
+  covered for format parameters (`hooks.logMethod` reduces every value pino would interpolate
+  before `format` runs, F-260), the message position is covered since `43e10e7` (F-277), and a
   string a call site built itself is reachable by nothing here.
 
   **No call site interpolates an error's message today (TASK-060, 2026-08-11).**
@@ -1622,7 +1622,7 @@ as breaking every saved log query. That rename needs both contracts amended.
 `childOptionsChecked` are not removable by a TASK. Each closes a leak that shipped once, each
 is defended by tests in `logger.spec.ts`, and a change to any of them needs a finding and an
 ADR amendment before the code moves. Replacing either wrapper with a `formatters.bindings`
-entry is a removal, not a refactor — see "The two wrappers".
+entry is a removal, not a refactor. See "The two wrappers".
 
 **`MAX_SCAN_DEPTH`'s versioning rule inverted with the polarity.** It used to be that raising
 it was additive and lowering it was a removal, because past the bound a value was passed
@@ -1638,7 +1638,7 @@ a copy of the `pino({…})` call until 2026-08-08; that copy went stale the day 
 and is now removed rather than synced (F-250), because three copies in three artifacts is
 what produced F-244, F-248, F-249 and F-250 in sequence. ADR-0022 still owns the CORS
 decision and the header table, and changing either requires amending it. Its redaction clause
-is **superseded by ADR-0028** — censoring is now a field allowlist, not a path denylist — and
+is **superseded by ADR-0028** (censoring is now a field allowlist, not a path denylist), and
 that is the only clause ADR-0028 touches. The wave-1 stub at
 `design/stubs/apps/api/src/observability/logger.ts` is superseded and carries a banner
 saying so. **A fourth artifact carrying this configuration is a finding, not a convenience.**

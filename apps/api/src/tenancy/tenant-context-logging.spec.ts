@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * AC-116, SITE 1 — F-247. The `afterCommit` failure line.
+ * AC-116, SITE 1: F-247. The `afterCommit` failure line.
  *
  * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
  * Nothing may opt out" and "What may never appear in a log line". Policy: ADR-0028, the
- * field allowlist. Invariant: `docs/contracts/tenant-context.md` invariant 6 — a throw
+ * field allowlist. Invariant: `docs/contracts/tenant-context.md` invariant 6: a throw
  * out of an `afterCommit` hook "is logged and does not propagate". Enforces GC-9.
  *
  * ============================================================================
@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  *   logger.error(`afterCommit hook failed: ${error.name}: ${error.message}`)
  *
  * through a `Logger` constructed from `@nestjs/common` at line 136. THE LINE NEVER REACHES
- * pino AT ALL. It is not a redaction gap inside the pipeline — it is outside the pipeline,
+ * pino AT ALL. It is not a redaction gap inside the pipeline: it is outside the pipeline,
  * so there is no `level`, no `service`, no `env`, no timestamp, no field allowlist and no
  * `serializers.err` anywhere on its path, and what lands on fd 1 is an ANSI-coloured
  * unstructured line beside the JSON. Measured at HEAD:
@@ -32,7 +32,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  *   failed: Error: connect failed: postgres://app:DSNMARK@db.internal:5432/x
  *
  * F-274 was filed against this line claiming the message was interpolated into `msg`
- * "before pino sees it", and that premise is false — it was corrected. It matters here
+ * "before pino sees it", and that premise is false: it was corrected. It matters here
  * because it names the WRONG FIX: routing this call through pino's MESSAGE ARGUMENT
  * reproduces the seven-door problem ADR-0028 exists to solve, and door seven (F-277) was a
  * blocker closed only days ago. `msg` is on `LOGGABLE_FIELDS` and is free text by
@@ -42,7 +42,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * So the assertions below are written against the ALLOWLIST, not against the channel. The
  * hook error carries two markers: one inside its `message`, shaped like the DSN a pg
  * connection failure carries, and one on an OWN ENUMERABLE PROPERTY, which is the shape
- * body-parser gave F-244 and the shape `serializers.err` — and only `serializers.err` —
+ * body-parser gave F-244 and the shape `serializers.err` (and only `serializers.err`)
  * reduces away. A fix that reaches pino but interpolates fails the first; a fix that
  * reaches a SECOND pino instance rather than the registered one fails the second and the
  * `service`/`env` assertion, because those come from the registered instance's `base`.
@@ -52,7 +52,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * ============================================================================
  *
  * The child imports THE SHIPPED `tenant-context.ts` and calls `withTenantTransaction` for
- * real — the same function a request path calls — so the emission under test is the real
+ * real (the same function a request path calls) so the emission under test is the real
  * one and not a copy of it. The shared logger writes fd 1 synchronously, and the only way
  * to read another process's fd 1 is to be its parent (`src/observability/logger.spec.ts`
  * established this shape).
@@ -61,19 +61,19 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * @nestjs/common 11.1.28: `ConsoleLogger` routes `error` and `fatal` to **fd 2** and every
  * other level to fd 1, so at HEAD the line under test is not on stdout at all. A harness
  * that read fd 1 alone would see nothing, and "no marker on the line" would hold because
- * there was no line — the vacuous pass this suite exists to make impossible. So the child's
+ * there was no line: the vacuous pass this suite exists to make impossible. So the child's
  * two streams are unioned into one ordered set of lines, the count is asserted, and WHICH
  * stream carried it is part of the first assertion: the registered instance writes fd 1.
  * The child runs under `--no-warnings` and writes nothing of its own to either stream, so
  * anything unexpected on them shows up as a line-count failure that prints every line.
  *
- * THE ONLY THING REPLACED IS THE SOCKET. `pg.Pool` is subclassed — the REAL `pg.Pool`, so
- * drizzle receives the object it expects — with `connect()` overridden to hand back a
+ * THE ONLY THING REPLACED IS THE SOCKET. `pg.Pool` is subclassed (the REAL `pg.Pool`, so
+ * drizzle receives the object it expects) with `connect()` overridden to hand back a
  * client that answers every statement with an empty result. `client.ts` reads `pg.Pool`
  * lazily inside `client()`, so the swap lands before the pool is built. Postgres is a
  * genuine external boundary and `pnpm test` runs from a clean clone with no database
- * (ADR-0001); everything above the socket — drizzle's transaction, the three `set_config`
- * statements, the settled-context guard, the hook loop — is the shipped code.
+ * (ADR-0001); everything above the socket (drizzle's transaction, the three `set_config`
+ * statements, the settled-context guard, the hook loop) is the shipped code.
  *
  * `LOG_LEVEL=trace` so that the assertions do not depend on which level the fix chooses.
  */
@@ -97,7 +97,7 @@ const HOOK_ERROR_PROPERTY_MARKER = 'hook-error-own-property-marker';
 
 /**
  * `base` on the registered instance, hand-copied from `logging-and-headers.md`'s fence
- * rather than imported from `logger.ts` — an expected value read out of the code under test
+ * rather than imported from `logger.ts`: an expected value read out of the code under test
  * agrees with it whatever it does.
  */
 const SERVICE = 'shortkit-api';
@@ -126,7 +126,7 @@ interface EmittedLine {
   readonly raw: string;
   /** Which descriptor carried it. The registered pino instance writes fd 1; Nest's `Logger.error` writes fd 2. */
   readonly stream: 'stdout' | 'stderr';
-  /** The parsed record, or `undefined` when the line is not a JSON object at all — which is the state at HEAD. */
+  /** The parsed record, or `undefined` when the line is not a JSON object at all, which is the state at HEAD. */
   readonly record: Record<string, unknown> | undefined;
 }
 
@@ -214,7 +214,7 @@ beforeAll(() => {
 
   // THE VACUITY GUARD. Every assertion below is about a line the hook loop writes, and the
   // hook loop is reached only after COMMIT. A child whose transaction threw, or whose hook
-  // never ran, emits nothing and turns "no marker on the line" into "no line" — which is
+  // never ran, emits nothing and turns "no marker on the line" into "no line", which is
   // the shape that passes a leak assertion while proving nothing. It is also invariant 6
   // itself, so a fix that lets the hook's throw propagate fails here loudly rather than
   // silently.
@@ -298,7 +298,7 @@ function reportedErrorFields(record: Record<string, unknown>): Record<string, un
 describe('the line tenant-context writes when an afterCommit hook throws', () => {
   it('AC-116 site 1 (F-247): the hook failure is one JSON record on fd 1, not an unstructured Nest line on fd 2', () => {
     // The channel. At HEAD this is `[Nest] … ERROR [TenantTransaction] afterCommit hook
-    // failed: …` on STDERR — ANSI escapes, a locale-formatted clock, no JSON — while every
+    // failed: …` on STDERR (ANSI escapes, a locale-formatted clock, no JSON) while every
     // other line this process writes is JSON on stdout. Nothing downstream can index it,
     // and a collector reading fd 1 never sees it at all.
     const line = afterCommitLine();
@@ -324,7 +324,7 @@ describe('the line tenant-context writes when an afterCommit hook throws', () =>
     // THE LEAK. `error.message` is the field ADR-0028 makes default-deny everywhere else,
     // and this is a per-request tenant path: a pg error here carries the DSN, an
     // application hook's error can carry row data. Asserted against the RAW BYTES, so it
-    // holds wherever the message would land — inside `msg`, inside `err_message`, or
+    // holds wherever the message would land: inside `msg`, inside `err_message`, or
     // interpolated into a format argument. A fix that routes the call through pino's
     // MESSAGE ARGUMENT rather than through the field allowlist fails exactly here, which
     // is the fix F-274's false premise pointed at.
@@ -335,7 +335,7 @@ describe('the line tenant-context writes when an afterCommit hook throws', () =>
     // The allowlist half, and the half that keeps the line worth having. `err_name` and
     // `err_stack` are what `errorLogFields` builds with `includeMessage: false`; a fourth
     // field means the record went through pino's DEFAULT `err` serialiser, which copies
-    // every own enumerable property — F-244's exact mechanism — and `err_message` means
+    // every own enumerable property (F-244's exact mechanism), and `err_message` means
     // the message was opted back in. Requiring `err_name` is what stops a "fix" that
     // silences the line: invariant 6 says the throw IS logged.
     const record = afterCommitRecord();

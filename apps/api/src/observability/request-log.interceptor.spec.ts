@@ -13,7 +13,7 @@ import { NoTenantTransaction, Public } from '../tenancy/tenant-context';
 import { LOGGABLE_FIELDS, REDACT_CENSOR, logger } from './logger';
 
 /**
- * STORY-006 — AC-33 (the line exists), AC-34 (its fields), over a real HTTP round trip.
+ * STORY-006: AC-33 (the line exists), AC-34 (its fields), over a real HTTP round trip.
  * TASK-016, wave 8.
  *
  * Contract: `docs/contracts/logging-and-headers.md`, "Required fields" (`request_id`, `route`
@@ -25,8 +25,8 @@ import { LOGGABLE_FIELDS, REDACT_CENSOR, logger } from './logger';
  * ============================================================================
  *
  * The application is compiled from `AppModule` the way `auth.guard.spec.ts` and
- * `tenant-transaction.interceptor.spec.ts` do it — the real `APP_GUARD`, both real
- * `APP_INTERCEPTOR`s in the order `app.module.ts` registers them, the real filter — with the
+ * `tenant-transaction.interceptor.spec.ts` do it (the real `APP_GUARD`, both real
+ * `APP_INTERCEPTOR`s in the order `app.module.ts` registers them, the real filter), with the
  * `/api` global prefix `main.ts` sets, so the `route` asserted below is the pattern a client's
  * URL matches and not a test-only spelling. The probe controller is a fixture registered
  * BESIDE the module: it is `@NoTenantTransaction()` because this tier has no database, and
@@ -41,7 +41,7 @@ import { LOGGABLE_FIELDS, REDACT_CENSOR, logger } from './logger';
  * destination is the in-process equivalent. If pino renames the symbol the lookup below
  * throws in `beforeAll` rather than letting the suite pass over nothing.
  *
- * `LOG_LEVEL` is unset, which is `info` — the level the deployed image runs at (no
+ * `LOG_LEVEL` is unset, which is `info`: the level the deployed image runs at (no
  * `LOG_LEVEL` in the `Dockerfile`), and the level the request line is written at.
  */
 
@@ -68,14 +68,14 @@ const REQUEST_COMPLETED = 'request completed';
 const UNHANDLED = 'unhandled';
 
 /**
- * The keys pino's own configuration puts on every line — `base` is `{ service, env }`, the
+ * The keys pino's own configuration puts on every line: `base` is `{ service, env }`, the
  * level formatter emits `level`, `timestamp` is `time`. Not `LOGGABLE_FIELDS`' business: they
  * are bindings pino writes, not fields a call site names, and the contract lists them under
  * "What the implementer must guarantee" as the shape a shipper depends on.
  */
 const PINO_OWN_KEYS = new Set(['level', 'time', 'service', 'env']);
 
-/** The one key `formatters.log` leaves to `serializers.err` — the partition in `logger.ts`. */
+/** The one key `formatters.log` leaves to `serializers.err`: the partition in `logger.ts`. */
 const ERROR_KEY = 'err';
 
 const PROBE = '/api/request-log-probe';
@@ -252,7 +252,7 @@ beforeAll(async () => {
     .useValue(new InMemoryRevocationStore())
     .compile();
 
-  // `logger: false` silences NEST's own logger. The pino singleton is untouched — its lines
+  // `logger: false` silences NEST's own logger. The pino singleton is untouched: its lines
   // are the subject.
   app = moduleRef.createNestApplication({ logger: false });
   // The same prefix and exclusion `main.ts` sets (ADR-0006), so `route` below is the pattern
@@ -397,7 +397,7 @@ describe('tenant_id is present only when a RequestContext exists', () => {
     );
   });
 
-  it('GET /health — the one route excluded from the global prefix — logs the pattern `/health` with no tenant_id', async () => {
+  it('GET /health (the one route excluded from the global prefix) logs the pattern `/health` with no tenant_id', async () => {
     const result = await probe('/health');
     expect(result.status, result.raw).toBe(200);
 

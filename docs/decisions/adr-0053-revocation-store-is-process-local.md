@@ -204,7 +204,7 @@ because both hold the port.
 - TASK-005 catches `RevocationStoreUnavailableError` and skips open, per `auth-tokens.md`
   step 5. Its own card already says so.
 - TASK-030 binds a Redis implementation to the same port and removes mechanisms 1 and 2 in
-  that commit. **Superseded 2026-08-19 — see the note immediately below.**
+  that commit. **Superseded 2026-08-19: see the note immediately below.**
 
 ### `redisClient` now exists, and this store still does not use it (2026-08-19, D-2-01)
 
@@ -219,15 +219,15 @@ not in this initiative", and the follow-up above.
 **Juano ruled DEFER (D-2-01, 2026-08-19).** The revocation store stays
 `InMemoryRevocationStore` and the three rate limiters stay process-local
 (`LocalAuthRateLimiter`, `rate-limit.md`'s per-machine tenant bucket). One process is still
-the only topology — ADR-0030 stands, `docker-compose.yml` runs one `api`, and there is still
-no deploy manifest — so a Redis-backed store buys nothing behaviourally at N=1 except
+the only topology (ADR-0030 stands, `docker-compose.yml` runs one `api`, and there is still
+no deploy manifest), so a Redis-backed store buys nothing behaviourally at N=1 except
 revocations surviving an API restart, bounded at 300 s, and it would put a new moving part
 on the auth path in the same wave the cache's failure posture is being proven. The cost of
 deferring is this paragraph; the cost of taking it was degraded-path parity tests for three
 limiters and a store, spent on a property no running topology exhibits.
 
 **The trigger moves with the ruling.** This ADR's replacement condition is no longer "when
-`redisClient` exists" — it exists. It is now **the ADR that supersedes ADR-0030, or the
+`redisClient` exists". It exists. It is now **the ADR that supersedes ADR-0030, or the
 first topology running more than one API process, whichever comes first.** That is the same
 condition mechanism 3 already names, so the two now agree instead of the earlier one firing
 first and silently.

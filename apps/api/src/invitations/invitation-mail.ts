@@ -1,6 +1,6 @@
 /**
  * Contract: docs/contracts/mail-sender.md (`OutboundMail`, the `workspace_invitation` arm),
- *           invitation-tokens.md ("Where the raw token actually travels" — mechanism A),
+ *           invitation-tokens.md ("Where the raw token actually travels", mechanism A),
  *           tenant-context.md (invariants 5 and 6), logging-and-headers.md (GC-G)
  * ADR: adr-0002-tenant-context-binding.md (third-party I/O in `afterCommit`),
  *      adr-0021-tenant-routing-capability-tokens.md, adr-0028 (the field allowlist),
@@ -11,7 +11,7 @@
  * The invitation mail: what the message says, where its link points, and when it leaves.
  *
  * ============================================================================
- * THE LINK. `<webOrigin>/invitations/accept#token=<raw>` — THE FRAGMENT, AND NOTHING ELSE (D-03).
+ * THE LINK. `<webOrigin>/invitations/accept#token=<raw>`: THE FRAGMENT, AND NOTHING ELSE (D-03).
  * ============================================================================
  *
  * The raw token rides in the URL FRAGMENT. A fragment is never sent to any server, never
@@ -21,11 +21,11 @@
  * path or the query is F-300 all over again and is the one thing this file must never do.
  *
  * `webOrigin` IS THE FIRST CONCRETE ENTRY OF `WEB_APP_ORIGINS`. `webAppOrigins()` returns
- * every origin the dashboard is served from, in the operator's order, normalised — except
+ * every origin the dashboard is served from, in the operator's order, normalised, except
  * wildcard entries (`https://shortkit-*.vercel.app`), which come back verbatim because a
  * pattern is not an address a browser can open. The link's base is therefore the first
- * entry that carries no wildcard metacharacter. When there is none — the variable is unset,
- * or holds only patterns — no link can be built and `InviteUrlOriginMissing` is thrown from
+ * entry that carries no wildcard metacharacter. When there is none (the variable is unset,
+ * or holds only patterns) no link can be built and `InviteUrlOriginMissing` is thrown from
  * the render, which the dispatch hook below turns into one `mail_dispatch_failed` line
  * carrying `err_name: 'InviteUrlOriginMissing'` and `template`, and nothing else. The
  * invitation row is already committed by then and the request already answered 201: the
@@ -60,10 +60,10 @@
  *
  * `renderInvitationMail` returns an `OutboundMail` whose `data.inviteUrl` carries the token;
  * that object goes to the bound `MailSender` and nowhere else. The dispatch hook logs on
- * failure only, with `template` and the error's name and stack — never `to`, never the URL,
+ * failure only, with `template` and the error's name and stack: never `to`, never the URL,
  * never the message. `errorLogFields(…, { includeMessage: false })`: whatever a sender throws
- * is reduced to `err_name` and `err_stack`, and the message — the one field that could quote
- * an address or a URL — is dropped. `mail_dispatch_failed` is the same fixed `msg`
+ * is reduced to `err_name` and `err_stack`, and the message (the one field that could quote
+ * an address or a URL) is dropped. `mail_dispatch_failed` is the same fixed `msg`
  * `ResendMailSender` uses for a provider failure, so an operator greps for one string.
  */
 import type { WorkspaceRole } from '@shortkit/contracts';
@@ -130,7 +130,7 @@ export interface InvitationMailInput {
    * secret. Optional so a unit test may render without a row; the service always passes it.
    */
   readonly invitationId?: string;
-  /** The recipient — `invitations.email`, already normalised by the contract. */
+  /** The recipient: `invitations.email`, already normalised by the contract. */
   readonly to: string;
   readonly inviterEmail: string;
   readonly tenantName: string;
@@ -163,8 +163,8 @@ export function renderInvitationMail(input: InvitationMailInput): OutboundMail {
 /**
  * Registers `send(build())` to run after the AMBIENT tenant transaction commits.
  *
- * `build` runs inside the hook, after COMMIT, so the `OutboundMail` — the only object that
- * carries the token — is constructed at the last moment and lives only for the send. A
+ * `build` runs inside the hook, after COMMIT, so the `OutboundMail` (the only object that
+ * carries the token) is constructed at the last moment and lives only for the send. A
  * failure of either step is logged as `mail_dispatch_failed` and swallowed: the row is
  * committed and the response is already decided (invariant 6). Nothing here throws to the
  * caller, and nothing here runs before COMMIT.

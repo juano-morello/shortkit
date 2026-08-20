@@ -30,7 +30,7 @@ column below is which variable each one reads.
 `shortkit_app` can run no DDL.
 
 **`db:check-policies` takes `DATABASE_URL`, and that is not an oversight.** It inspects
-the catalog as `shortkit_app` — the role whose access the policies exist to constrain —
+the catalog as `shortkit_app` (the role whose access the policies exist to constrain),
 so the check runs over the same connection the API uses rather than over the owner's
 (`apps/api/scripts/check-policies.mts` records the decision). Export only
 `DATABASE_MIGRATION_URL` and it exits 1 naming what is missing. Point `DATABASE_URL` at
@@ -39,10 +39,10 @@ assert.
 
 There are two local databases and they are different databases. For work against the
 integration suite's container, `DATABASE_URL` and `DATABASE_MIGRATION_URL` point at
-`docker-compose.test.yml` on port 55433; the header of that file has the export lines —
+`docker-compose.test.yml` on port 55433; the header of that file has the export lines:
 three since TASK-018 (`DATABASE_AUTH_URL` alongside the two these commands read). The
 development stack (`docker-compose.yml`, port 55432, database `shortkit`) applies its own
-migrations as part of `docker compose up` and needs none of the three exported — it needs
+migrations as part of `docker compose up` and needs none of the three exported: it needs
 `BETTER_AUTH_SECRET` instead (ADR-0051), for every `docker compose` subcommand against
 that file, not only `up`: nothing in this file is committed for it, so `docker-compose.yml`
 fails at parse time until it is exported or set in a project-root `.env`. See the
@@ -55,7 +55,7 @@ that exported the suite's DSN.
 ## Policies are appended by hand
 
 Drizzle Kit does not generate policy DDL. After `db:generate`, append the output of
-`tenantScopedPolicies('<t>')` (`apps/api/src/db/rls.ts` builds it — see `rls.md`) to
+`tenantScopedPolicies('<t>')` (`apps/api/src/db/rls.ts` builds it; see `rls.md`) to
 the generated `.sql`, in the same commit as the schema file. A table
 shipped without it is readable and writable by every tenant, and nothing else in the
 build will tell you: the grants come from `ALTER DEFAULT PRIVILEGES` and already exist,
@@ -79,7 +79,7 @@ compared to anything.
 
 So **editing a migration that has already been applied does nothing.** Not on your
 machine, not on any other. Append the policy block to an applied migration and
-`db:migrate` reports success, having executed no statement — the table stays
+`db:migrate` reports success, having executed no statement: the table stays
 unprotected, and the migration file in git says otherwise.
 
 Two consequences:
@@ -94,7 +94,7 @@ Two consequences:
     service re-applies everything against the empty volume. `down -v` and nothing weaker:
     the volume is what holds the already-applied state, and it survives
     `docker compose down` (ADR-0032). Both commands parse `docker-compose.yml`, so
-    `BETTER_AUTH_SECRET` (ADR-0051) has to be exported before either — in a shell where it
+    `BETTER_AUTH_SECRET` (ADR-0051) has to be exported before either. In a shell where it
     is not, `down -v` fails at parse time naming the variable, the volume is not
     destroyed, and this repair silently did not run.
 
@@ -118,8 +118,8 @@ column.
 
 `apps/api/test/support/rls-fixture.ts` drops and recreates `tenants` and its own fixture
 table before every test, so after `pnpm test:integration` the database holds a `tenants`
-built by the fixture rather than by the migration — without the four policies the
-migration applies to it — or, after the last teardown, no `tenants` at all.
+built by the fixture rather than by the migration (without the four policies the
+migration applies to it) or, after the last teardown, no `tenants` at all.
 
 Re-running `db:migrate` does **not** repair this. The migration is already recorded in
 `__drizzle_migrations`, and by the rule above the migrator skips it.
@@ -134,7 +134,7 @@ itself does not care: it builds what it needs in `beforeEach`.
 ## Rebasing a branch that added a migration
 
 When two branches each add a table, the second to merge regenerates. Do not hand-merge
-`_journal.json` or a snapshot — `.gitattributes` marks both `-merge` so git raises a
+`_journal.json` or a snapshot: `.gitattributes` marks both `-merge` so git raises a
 conflict instead of producing a plausible wrong file.
 
 1. Take the merged schema TypeScript (`git checkout --theirs`) and resolve those files
@@ -204,5 +204,5 @@ Whoever chooses a platform reads that list first. This document is the local pro
 
 Write migrations to be transactional where you can. A run that fails halfway through a
 non-transactional migration leaves the database in a state no file describes, and
-`docker compose down -v` is then the only repair — against the development stack, with
+`docker compose down -v` is then the only repair, against the development stack, with
 `BETTER_AUTH_SECRET` exported first (ADR-0051), for the same reason given above.

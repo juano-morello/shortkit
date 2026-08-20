@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 /**
- * AC-6, the in-process half — TASK-003.
+ * AC-6, the in-process half: TASK-003.
  *
  * AC-6 reads: "Given the API deployed to Fly.io, when `GET /health` is requested over
  * HTTPS, then it returns 200 with a JSON body containing a `status` field equal to
@@ -14,14 +14,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
  * answers 200, the body carries `status: "ok"`, and `commit` is the value the build-time
  * SHA source supplied rather than an empty string, a hardcoded constant or a placeholder.
  * "Deployed to Fly.io" and "over HTTPS" are exempt and verified by `sdlc-product-auditor`
- * against the deployed URL — a test against a live host reports red for Fly being down,
+ * against the deployed URL: a test against a live host reports red for Fly being down,
  * for DNS, for deployment protection, and cannot go red at all before a deploy exists.
  *
  * **Why a real HTTP round trip.** The assertions go over loopback against an application
  * built from `AppModule`, the way `common/errors/exception-filter.spec.ts` does, rather
  * than calling a controller method directly. AC-6 is about the response the platform
  * health probe receives; calling a handler would pass even with the controller never
- * registered in the composition root, which is the failure mode F-217 describes — the
+ * registered in the composition root, which is the failure mode F-217 describes: the
  * `/health` prefix exclusion at `main.ts:47-49` already exists while nothing answers the
  * route, so it 404s today.
  *
@@ -36,7 +36,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
  *
  * **The source name is pinned here because no artifact named it.** Searched 2026-08-07:
  * no ADR, contract, TASK, `.env.example` or workflow in this repository named the variable
- * carrying the build's git SHA — TASK-003 owns `Dockerfile` and `fly.toml`, where it is
+ * carrying the build's git SHA: TASK-003 owns `Dockerfile` and `fly.toml`, where it is
  * introduced. (`apps/api/.env.example` and the root `.env.example` name `GIT_COMMIT_SHA`
  * since TASK-009, matching what this test decided.) This test therefore decides it, and records the decision rather than
  * assuming it: the Dockerfile takes the SHA as a build argument and exposes it to the
@@ -62,8 +62,8 @@ let baseUrl: string;
 
 beforeAll(async () => {
   // Set before the module graph is loaded, so this holds whether the implementation reads
-  // the variable once at import time — legitimate, since a build-time value never changes
-  // in a running process — or on every request. `AppModule` is therefore imported
+  // the variable once at import time (legitimate, since a build-time value never changes
+  // in a running process) or on every request. `AppModule` is therefore imported
   // dynamically: a static import is hoisted above this assignment.
   vi.stubEnv(COMMIT_SHA_ENV, BUILD_COMMIT_SHA);
 

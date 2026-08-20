@@ -1,6 +1,6 @@
 /**
- * TASK-011 — WorkspaceRepository, the parts decidable without a database.
- * TASK-1b-06 — `listForUser`: the membership join is owner-qualified on BOTH tables.
+ * TASK-011: WorkspaceRepository, the parts decidable without a database.
+ * TASK-1b-06: `listForUser`: the membership join is owner-qualified on BOTH tables.
  *
  * Contract: docs/contracts/workspaces.md ("What the implementer must guarantee"),
  * tenant-context.md invariant 4, isolation-coverage.md ("qualification is derived from
@@ -11,10 +11,10 @@
  *   1. the class carries `TENANT_SCOPED_REPOSITORY_METADATA`, read the way ADR-0020's
  *      discovery reads it;
  *   2. every method throws `TenantContextMissingError` outside a tenant context, because
- *      the only handle it holds is `tenantDb()` — the accessor is REAL here, not mocked,
+ *      the only handle it holds is `tenantDb()`: the accessor is REAL here, not mocked,
  *      so this asserts the repository's dependency and not a stub's behaviour;
- *   3. every statement it compiles is owner-qualified — carries `tenant_id` in its WHERE,
- *      or sets it on INSERT — asserted over the SQL a real drizzle instance hands the
+ *   3. every statement it compiles is owner-qualified (carries `tenant_id` in its WHERE,
+ *      or sets it on INSERT) asserted over the SQL a real drizzle instance hands the
  *      driver. The driver is the fake: it records what it was asked and answers one row.
  *      Nothing about row-level security is claimed here; that is the integration suite's.
  *

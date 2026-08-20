@@ -6,8 +6,8 @@
  * (`AuthorizationModule`, TASK-1b-05). A module rather than a controller on `AppModule`, for
  * the reason `workspaces.module.ts` gives.
  *
- * `WorkspaceRepository` — which the service needs for `findById` on each named workspace's
- * name and archive state — comes from `WorkspacesModule`, which exports it. Item 1b shipped
+ * `WorkspaceRepository` (which the service needs for `findById` on each named workspace's
+ * name and archive state) comes from `WorkspacesModule`, which exports it. Item 1b shipped
  * it PROVIDED here a second time because `WorkspacesModule` did not export it then, and
  * noted the double registration for close (1b-W3-08); one provider, one instance, is the
  * rule `AuthorizationModule`'s `MembershipRepository` already follows and the shape TASK-056's

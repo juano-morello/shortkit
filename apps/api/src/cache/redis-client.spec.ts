@@ -22,18 +22,18 @@ import { RedisRedirectCache } from './redirect-cache';
 import { UnavailableRedirectCache } from './unavailable-redirect-cache';
 
 /**
- * STORY-2-06 — AC-2-30 (the option set), AC-2-32 (the boot binding). TASK-2-03, wave 1.
+ * STORY-2-06, AC-2-30 (the option set), AC-2-32 (the boot binding). TASK-2-03, wave 1.
  *
  * Contract: `docs/contracts/redirect-cache.md` ("Keys": `REDIS_KEY_NAMESPACE` is required
  * and the process refuses to boot without it). ADR-0012 (the six options, verbatim),
  * D-2-09 (absence binds the degraded cache loudly), ADR-0029 (no configured value in
- * error text — a Redis URL carries a password), GC-B (no behavioural choice on `NODE_ENV`).
+ * error text: a Redis URL carries a password), GC-B (no behavioural choice on `NODE_ENV`).
  *
  * THE PREDICATE IS TESTED HERE; THE PROCESS IS TESTED BY THE BOOT CHECK IN THE TASK REPORT
- * AND BY `test/cache/redirect-cache.int-spec.ts` — the same split `mail-transport.spec.ts`
+ * AND BY `test/cache/redirect-cache.int-spec.ts`, the same split `mail-transport.spec.ts`
  * records, for the same reason: a predicate that reads an env record and returns needs no
- * child process, and the one thing that does — that `main.ts` calls it, unconditionally,
- * before it listens — is the text scan at the bottom of this file (importing `main.ts`
+ * child process, and the one thing that does (that `main.ts` calls it, unconditionally,
+ * before it listens) is the text scan at the bottom of this file (importing `main.ts`
  * boots the API).
  */
 
@@ -79,7 +79,7 @@ describe('readRedisBinding', () => {
   );
 
   it.each([['prod:1'], ['a b'], ['sk:prod'], ['dev\t']])(
-    'GC-P: %j is refused — a namespace carrying a colon or whitespace would not survive `sk:{env}:` key parsing',
+    'GC-P: %j is refused (a namespace carrying a colon or whitespace would not survive `sk:{env}:` key parsing)',
     (namespace) => {
       expect(
         outcomeOf(() => readRedisBinding({ REDIS_URL: 'redis://127.0.0.1:6379', REDIS_KEY_NAMESPACE: namespace })),
@@ -183,7 +183,7 @@ describe('redirectCacheFor (the bound cache)', () => {
 
   it('an invalid binding refuses rather than falling back to the degraded cache', () => {
     // A factory reached without `main.ts`'s assertion (a testing module) must not turn a
-    // typo into a silently degraded redirect — the `resolveMailTransport` rule.
+    // typo into a silently degraded redirect, the `resolveMailTransport` rule.
     expect(outcomeOf(() => redirectCacheFor({ REDIS_URL: 'redis://127.0.0.1:6379' }))).toEqual(
       refused(REDIS_KEY_NAMESPACE_UNSET_MESSAGE),
     );
@@ -201,7 +201,7 @@ describe('createRedisClient (ADR-0012, the six options verbatim)', () => {
 
   it('AC-2-30: the constructed client carries the ADR-0012 option set', () => {
     // Port 1 is closed: the client is constructed, inspected and disconnected. It never
-    // reaches a server, and `lazyConnect: false` means the connect attempt is real — the
+    // reaches a server, and `lazyConnect: false` means the connect attempt is real. The
     // `error` listener the factory attaches is what keeps that from taking the process down.
     const client = createRedisClient({ url: 'redis://127.0.0.1:1', namespace: 'dev' });
 
@@ -230,7 +230,7 @@ describe('createRedisClient (ADR-0012, the six options verbatim)', () => {
     }
   });
 
-  it('the exported option set is the one the client is built from — no second copy to drift', () => {
+  it('the exported option set is the one the client is built from: no second copy to drift', () => {
     const client = createRedisClient({ url: 'redis://127.0.0.1:1', namespace: 'dev' });
 
     try {
@@ -254,7 +254,7 @@ describe('createRedisClient (ADR-0012, the six options verbatim)', () => {
 
   it('GC-O: a client that cannot connect emits `error` at the client and never as an unhandled event', async () => {
     // Without a listener, ioredis re-emits a connection failure as an unhandled `error`
-    // event and Node takes the process down — the `pg` failure mode F-123 already cost us.
+    // event and Node takes the process down, the `pg` failure mode F-123 already cost us.
     const client = createRedisClient({ url: 'redis://127.0.0.1:1', namespace: 'dev' });
 
     try {
@@ -309,7 +309,7 @@ describe('who reads the Redis variables (GC-B, D-2-09)', () => {
   it('REDIS_URL and REDIS_KEY_NAMESPACE are named in code by exactly cache/redis-client.ts', () => {
     // A SUBSTRING match, the idiom `mail-transport.spec.ts` uses: `REDIS_URL_ENV` and the
     // three message constants all carry the token, and any of them imported into a second
-    // file is that file taking an interest in the variable — which is what this is for.
+    // file is that file taking an interest in the variable, which is what this is for.
     const naming = shippedSources()
       .filter(({ code }) => code.includes('REDIS_URL') || code.includes('REDIS_KEY_NAMESPACE'))
       .map(({ path }) => path)
@@ -329,7 +329,7 @@ describe('who reads the Redis variables (GC-B, D-2-09)', () => {
 
   it('the raw client is not import-anywhere: `redisClient` is named only under apps/api/src/cache/**', () => {
     // ADR-0012 is one client and one failure posture. TASK-051-era reuse (the limiters, the
-    // revocation store) is a deliberate export later — D-2-01 deferred it — not an import
+    // revocation store) is a deliberate export later (D-2-01 deferred it), not an import
     // somebody adds. Consumers hold the `REDIRECT_CACHE` token instead.
     const offenders = shippedSources()
       .filter(({ code }) => /\bredisClient\b/.test(code))
@@ -358,7 +358,7 @@ describe('the call site in main.ts', () => {
     });
   });
 
-  it('the call is unconditional — the gating is inside the function (GC-B)', () => {
+  it('the call is unconditional: the gating is inside the function (GC-B)', () => {
     const line = code.split('\n').find((candidate) => candidate.includes('assertRedisConfigured('));
 
     expect(line?.trim()).toBe('assertRedisConfigured(process.env);');

@@ -1,6 +1,6 @@
 /**
  * Contract: `docs/contracts/rate-limit.md` ("Which address the client IP means, under the
- *           BFF" — normative for the BFF branch; "The BFF trust boundary" — the exact strings)
+ *           BFF": normative for the BFF branch; "The BFF trust boundary": the exact strings)
  *           `docs/contracts/trusted-client-address.md` ("The two callers", the declared-header
  *           fallback and what `null` means)
  * ADR: adr-0040-trusted-client-address-is-declared-and-may-be-absent.md, adr-0014 (the BFF
@@ -13,7 +13,7 @@
  * ============================================================================
  *
  * Under ADR-0014 the browser never talks to this API: `/api/auth/*` arrives from the Next.js
- * BFF, so the peer address — and any platform header a hop in front might set — is the BFF's
+ * BFF, so the peer address (and any platform header a hop in front might set) is the BFF's
  * egress address FOR EVERY USER. Keyed on that, the four IP buckets collapse into one shared
  * bucket, which is a product outage rather than a limiter (F-031, measured on paper: 3
  * signups per hour across the entire product). So the BFF forwards the browser's address in
@@ -86,7 +86,7 @@ let lastMismatchWarnAt = Number.NEGATIVE_INFINITY;
  * `null` is a real return (ADR-0040): the IP-keyed bucket does not run and the request
  * proceeds. It is never coerced to a sentinel, the empty string or the peer address, because
  * a shared sentinel bucket would let one caller exhaust an allowance every other caller falls
- * into — the collapsed-bucket outage by a different road.
+ * into: the collapsed-bucket outage by a different road.
  *
  * Never throws: a throw here lands inside Express middleware ahead of Better Auth and turns
  * a header an attacker chose into a 500 on the credential surface.
@@ -118,7 +118,7 @@ export function resolveRateLimitPrincipal(
  *
  * A PRESENT header that fails rule 1, 2 or 3, and a valid secret whose forwarded value fails
  * rule 4, is a mismatch and is signalled. An ABSENT header is a direct request and is
- * silent — under `BFF_TRUST_BOUNDARY=direct` that is every request.
+ * silent: under `BFF_TRUST_BOUNDARY=direct` that is every request.
  */
 function bffForwardedAddress(
   headers: TrustedAddressHeaders,

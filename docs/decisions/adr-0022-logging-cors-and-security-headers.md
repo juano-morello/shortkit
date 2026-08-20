@@ -46,8 +46,8 @@ This costs nothing now and three TASK reworks later.
 >
 > **Amended 2026-08-09 (F-272). Wave claims in this ADR's body are superseded by the TASK
 > cards.** The paragraph below said TASK-003 ships the `x-shortkit-*` entries "in wave 1,
-> before TASK-009"; `TASK-003.md:55` corrected that on 2026-08-06 — TASK-003 and TASK-009 are
-> both in wave 2 and run concurrently — and the sentence is corrected in place below. The
+> before TASK-009"; `TASK-003.md:55` corrected that on 2026-08-06 (TASK-003 and TASK-009 are
+> both in wave 2 and run concurrently), and the sentence is corrected in place below. The
 > general rule is the point: this ADR records decisions, and when it names a wave, the TASK
 > card wins.
 >

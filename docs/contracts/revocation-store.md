@@ -56,7 +56,7 @@ export interface RevocationStore {
 /**
  * A source of the current time in epoch milliseconds. `Date.now` satisfies it.
  *
- * ADDED 2026-08-16, Juano's ruling at the wave-2 Test gate — see the amendment note below.
+ * ADDED 2026-08-16, Juano's ruling at the wave-2 Test gate; see the amendment note below.
  */
 export type Clock = () => number;
 
@@ -75,7 +75,7 @@ export const revocationStore: RevocationStore;
 value the JWT carries as `jti` (ADR-0013, F-227). It is **not** `session.token`, which is the
 credential and must never reach this module, a log line or a key.
 
-## Amendment: the injected clock — 2026-08-16, Juano's ruling
+## Amendment: the injected clock, 2026-08-16, Juano's ruling
 
 > **This contract froze at the wave-2 Design gate on 2026-08-16 and was amended the same day.
 > Recorded here rather than patched, because a quietly-changed frozen contract is the one thing
@@ -85,7 +85,7 @@ credential and must never reach this module, a log line or a key.
 `Date.now`; tests pass their own and advance it by hand.
 
 **Why a constructor parameter and not fake timers.** Invariant 5 says an entry lives at most
-`REVOCATION_TTL_SECONDS`, and invariant 4 makes `revoke` idempotent with a refreshed TTL — both
+`REVOCATION_TTL_SECONDS`, and invariant 4 makes `revoke` idempotent with a refreshed TTL: both
 are statements about elapsed time, and neither can be observed without either waiting 300
 seconds or controlling the clock. This repository has **no fake-timer usage anywhere**, so
 whatever the first time-dependent test does becomes the convention. `vi.useFakeTimers` is a
@@ -96,7 +96,7 @@ needs it.
 **It is a seam, not scaffolding.** A later Redis-backed store (TASK-030) keys expiry off the
 server's clock and ignores this parameter entirely, which is the correct shape: the parameter
 belongs to the in-memory implementation, not to the `RevocationStore` port. **The port is
-unchanged** — `revoke` and `isRevoked` keep their signatures, and no caller of the interface
+unchanged**: `revoke` and `isRevoked` keep their signatures, and no caller of the interface
 sees a difference.
 
 **What the eviction-order test needs it for.** `revoke` must `delete` before `set`, or a
@@ -109,7 +109,7 @@ structural assertion nor a real wait can give.
 The block above is what the implementation writes: `constructor(now: Clock = Date.now)` stored
 as `private readonly now`. `design/stubs/.../revocation-store.ts` instead takes a plain
 underscored parameter and stores nothing, because every stub body throws, so a stored property
-is never read and `noUnusedLocals` (`tsconfig.base.json:9`) rejects the file — and TypeScript's
+is never read and `noUnusedLocals` (`tsconfig.base.json:9`) rejects the file, and TypeScript's
 underscore exemption covers unused *parameters*, not unused private *properties*. Compiled both
 ways to confirm. **Store it when you implement it.**
 

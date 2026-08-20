@@ -21,7 +21,7 @@
  *
  * FAILURES BY `code`, never by status: `unauthenticated` mid-use navigates to sign-in with
  * a `returnTo` back to THIS page; `not_found` / `invitation_already_accepted` on a revoke
- * mean the row was stale — re-fetch and say so; `forbidden` (the two 403 codes) says this
+ * mean the row was stale: re-fetch and say so; `forbidden` (the two 403 codes) says this
  * account cannot revoke here; `rate_limited` says how long; the rest is one retry line.
  *
  * AN ARCHIVED WORKSPACE gets the list (viewing) and no form: the API answers 400
@@ -118,7 +118,7 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
   // One clock per list change, so every row's derived Expired badge agrees. Taken once at
   // first render and again after each re-fetch (a row is only ever re-judged when the list
   // is). The server and client renders read clocks milliseconds apart; a row whose expiry
-  // falls in that gap would hydrate with a different badge — accepted, it self-corrects on
+  // falls in that gap would hydrate with a different badge. Accepted: it self-corrects on
   // the next change and the API's own answer to its token is unaffected.
   const [now, setNow] = useState<number>(() => Date.now());
 

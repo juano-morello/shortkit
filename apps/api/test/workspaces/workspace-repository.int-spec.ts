@@ -1,13 +1,13 @@
 /**
- * STORY-004 — AC-25, and the repository behaviour AC-21 to AC-23 rest on.
+ * STORY-004: AC-25, and the repository behaviour AC-21 to AC-23 rest on.
  *
  * Produced by: TASK-011.
  * Contract: docs/contracts/workspaces.md, rls-policy-template.md, tenant-context.md.
  *
  * Integration only, by ADR-0001: row-level security cannot be faked, and every
- * assertion here runs against the MIGRATED `workspaces` table — created by
+ * assertion here runs against the MIGRATED `workspaces` table (created by
  * `apps/api/drizzle/0002_*.sql` with the hand-appended `tenantScopedPolicies('workspaces')`
- * block — as `shortkit_app`, which holds neither SUPERUSER nor BYPASSRLS. The fixture
+ * block), as `shortkit_app`, which holds neither SUPERUSER nor BYPASSRLS. The fixture
  * refuses to run otherwise.
  *
  * WHAT THIS FILE PROVES AND WHAT IT LEAVES TO OTHERS.
@@ -25,7 +25,7 @@
  *   not-found, and the row is unchanged afterwards. The eight-shape statement battery
  *   over the TABLE is the isolation suite's (`test/isolation/registrations.ts`); this
  *   file attempts the METHODS.
- * - Outside a context, every method throws `TenantContextMissingError` — decidable in
+ * - Outside a context, every method throws `TenantContextMissingError`: decidable in
  *   the unit spec too, repeated here against the real accessor and a real pool because
  *   the guarantee is what makes an unscoped read a crash rather than a leak.
  */

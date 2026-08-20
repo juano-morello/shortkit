@@ -10,13 +10,13 @@ CREATE TABLE "workspaces" (
 ALTER TABLE "workspaces" ADD CONSTRAINT "workspaces_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 -- ===========================================================================
 -- EVERYTHING BELOW IS APPENDED BY HAND (TASK-011). Drizzle Kit generates no
--- policy DDL, so the three things this table owes — its column, its policies
--- and its registry entry — land in this one commit or the table is writable by
+-- policy DDL, so the three things this table owes (its column, its policies
+-- and its registry entry) land in this one commit or the table is writable by
 -- every tenant from the moment it exists (GC-A, F-239): ALTER DEFAULT
 -- PRIVILEGES already granted shortkit_app full DML on it.
 --
 -- Every statement below is tenantScopedPolicies('workspaces') from
--- apps/api/src/db/rls.ts, verbatim — the template unchanged, because
+-- apps/api/src/db/rls.ts, verbatim: the template unchanged, because
 -- workspaces is a template-shaped table and not a cascade root. The workspace
 -- integration suite compares this block against the function's output and
 -- against pg_policies, so a drift between the three fails a test rather than

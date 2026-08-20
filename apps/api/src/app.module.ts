@@ -38,7 +38,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
  * would run the guard twice. `APP_INTERCEPTOR` → `TenantTransactionInterceptor` is bound HERE
  * (TASK-006), for the reason the filter is: it has to be in place for every app built from
  * this module, the test harness included. Nest runs every guard before any interceptor, so
- * the interceptor always sees the `RequestContext` the guard wrote — ADR-0002's ordering —
+ * the interceptor always sees the `RequestContext` the guard wrote (ADR-0002's ordering),
  * and a route that carries `@Public()` is exempt from both while `@NoTenantTransaction()`
  * exempts it from the interceptor alone. `GET /health` is `@Public('platform probe')`.
  *
@@ -53,7 +53,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
  *
  * `APP_GUARD` → `RateLimitGuard` IS BOUND IN `RateLimitModule` (TASK-1b-07, F-018), AND THAT
  * MODULE IS IMPORTED AFTER `AuthModule` ON PURPOSE. Nest applies `APP_GUARD` providers in
- * module scan order — this import list's order — and runs global guards in that order, so
+ * module scan order (this import list's order) and runs global guards in that order, so
  * `AuthGuard` runs first and `RateLimitGuard` second, which is what `rate-limit.md` fixes
  * ("after `AuthGuard`, before `TenantTransactionInterceptor`"; the second half is Nest's
  * lifecycle, every guard before any interceptor). Today the guard's real branch is the
@@ -72,14 +72,14 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
  * `withTenantTransaction` and this one's `intercept()` runs from that call, under the ambient
  * store. So the chain is RequestLog → TenantTransaction → WorkspaceAuthorization: the log line
  * still measures everything, the transaction still wraps the check and the handler, and the
- * check reads `memberships` / `tenant_memberships` through `tenantDb()` — no transaction, no
+ * check reads `memberships` / `tenant_memberships` through `tenantDb()`: no transaction, no
  * row, a 500, never a pass. Registered before the tenant interceptor it would run OUTSIDE the
  * transaction and every decorated route would 500. `AuthorizationModule` is imported so the
  * interceptor's two repositories resolve in this context; the property is on the interceptor
  * itself, and `app.module.spec.ts` asserts the resolved order.
  */
 @Module({
-  // `RateLimitModule` after `AuthModule` — see the docblock; swapping them changes the guard order.
+  // `RateLimitModule` after `AuthModule`. See the docblock; swapping them changes the guard order.
   //
   // ⚠ `RedirectModule` (TASK-2-06) IS THE LAST ENTRY IN THIS LIST, AND IT LANDED.
   // Express matches in registration order and the redirect's `:slug` route is excluded from
@@ -110,11 +110,11 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
   ],
   providers: [
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
-    // Outermost first — see the docblock. Swapping these two lines changes what
+    // Outermost first. See the docblock. Swapping these two lines changes what
     // `duration_ms` measures and is a change to `logging-and-headers.md`'s "Required fields".
     { provide: APP_INTERCEPTOR, useClass: RequestLogInterceptor },
     { provide: APP_INTERCEPTOR, useClass: TenantTransactionInterceptor },
-    // Third, inside the transaction the second opens — see the docblock. Moving this line
+    // Third, inside the transaction the second opens. See the docblock. Moving this line
     // above the tenant interceptor puts the membership lookup outside any transaction.
     { provide: APP_INTERCEPTOR, useClass: WorkspaceAuthorizationInterceptor },
   ],

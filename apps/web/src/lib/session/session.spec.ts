@@ -3,8 +3,8 @@
  *
  * `next/headers` `cookies()`/`headers()` and `next/navigation` `redirect()` are mocked:
  * they throw outside a request scope, so a mock is the only way to exercise these units.
- * `fetch` is mocked for the refresh mint. Everything else — the cookie descriptors, the JWT
- * decode — is real.
+ * `fetch` is mocked for the refresh mint. Everything else (the cookie descriptors, the JWT
+ * decode) is real.
  *
  * Contract: docs/contracts/web-api-client.md ("Cookies", "Session"), auth-tokens.md.
  */
@@ -63,7 +63,7 @@ function jwtWith(claims: Record<string, unknown>): string {
 }
 
 const FAR_FUTURE = 4_102_444_800; // 2100-01-01
-/** The subset the web app validates (sub, email, ev, exp — a `.pick` of the shared claim contract). */
+/** The subset the web app validates (sub, email, ev, exp; a `.pick` of the shared claim contract). */
 const LIVE_CLAIMS = { sub: 'user-1', email: 'op@agency.test', ev: true, exp: FAR_FUTURE };
 
 function httpsOrigin(): void {
@@ -265,7 +265,7 @@ describe('refreshAccessToken', () => {
   });
 });
 
-describe('mintAccessToken — the one mint path', () => {
+describe('mintAccessToken: the one mint path', () => {
   it('returns the JWT from GET {API}/api/auth/token with Bearer <sk_rt> and writes no cookie itself', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

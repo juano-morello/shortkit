@@ -3,18 +3,18 @@ import { spawnSync } from 'node:child_process';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * F-244 — the shared logger does not write an error's incidental fields, or its
+ * F-244: the shared logger does not write an error's incidental fields, or its
  * message, into a log line.
  *
  * Contract: `docs/contracts/logging-and-headers.md`, "What may never appear in a log
  * line" and "What the implementer must guarantee". Policy:
  * `docs/contracts/error-envelope.md`, "What the 500 log line carries, and who owns
- * changing it". Enforces GC-9 — no PII in log bodies.
+ * changing it". Enforces GC-9: no PII in log bodies.
  *
  * WHY THIS SUITE EXISTS AND WHY IT IS SHAPED THIS WAY. F-244 was a live credential
  * leak. pino's default `err` serialiser copies every own enumerable property of the
  * error onto the record, and body-parser attaches the VERBATIM REQUEST BODY to
- * `err.body` on the 400 it raises for malformed JSON — so one idiomatic
+ * `err.body` on the 400 it raises for malformed JSON, so one idiomatic
  * `log.error({ err }, '…')` wrote an unauthenticated POST's password in the clear. The
  * remedy is configuration on a logger every later TASK imports, and configuration is
  * exactly the shape that let F-244 exist: a policy held by convention rather than by
@@ -26,9 +26,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * What is asserted here is what the process actually writes to file descriptor 1.
  *
  * HOW. `logger` is a module-level singleton whose destination is pino's default, fd 1,
- * and it is written to synchronously. Rather than rebuild an equivalent pino instance —
- * which would assert against a copy of the config and could not catch a change to the
- * real one — the suite spawns a Node process, imports THE SHIPPED MODULE, emits one
+ * and it is written to synchronously. Rather than rebuild an equivalent pino instance
+ * (which would assert against a copy of the config and could not catch a change to the
+ * real one) the suite spawns a Node process, imports THE SHIPPED MODULE, emits one
  * line per call shape, and captures stdout. Every assertion below is made against those
  * bytes.
  *
@@ -72,8 +72,8 @@ const TOP_LEVEL_SECRET_MARKER = 'top-level-secret-marker';
 
 /**
  * A library-assigned field on a NON-`Error` thrown value, logged under `err`. `catch (err)`
- * binds `unknown`, so `logger.error({ err }, '…')` — the most idiomatic shape in the
- * codebase — reaches this arm whenever the thrown value is a plain object. F-254.
+ * binds `unknown`, so `logger.error({ err }, '…')` (the most idiomatic shape in the
+ * codebase) reaches this arm whenever the thrown value is a plain object. F-254.
  */
 const NON_ERROR_BODY_MARKER = 'nonerror-body-marker';
 
@@ -83,14 +83,14 @@ const CALLER_FIELD_MARKER = 'caller-field-marker';
 /**
  * The binding a PARENT child logger carries, read off a GRANDCHILD's line. F-264: the
  * wrapper is installed as an own property of the singleton and a child receives it only
- * through the prototype chain, so nothing about a grandchild is installed — and nothing
+ * through the prototype chain, so nothing about a grandchild is installed, and nothing
  * has ever built one.
  */
 const GRANDCHILD_PARENT_BINDING_MARKER = 'grandchild-parent-binding-marker';
 
 /**
  * A value the ROOT logger censors today, logged through the root and through a child that
- * brought its own `redact` (F-263). Nothing below asserts that this key is censored — the
+ * brought its own `redact` (F-263). Nothing below asserts that this key is censored: the
  * two lines are compared with each other, so the property holds whatever `REDACT_PATHS`
  * becomes.
  */
@@ -102,13 +102,13 @@ const REDACT_PROBE_KEY = 'password';
 /**
  * What the emitter appends to the CONTEXT STRING when a child-options call REFUSED rather
  * than emitted. F-263's required change is "refuse or merge", and the tests below accept
- * either — asserting one of the two would pick the implementation instead of the property.
+ * either: asserting one of the two would pick the implementation instead of the property.
  *
  * IN `msg`, NOT UNDER A KEY OF ITS OWN, and the reason is ADR-0028. This signal used to be
  * `{ child_options_refused: true }` on the record. Under a field allowlist a key this suite
  * invented is not a named field, so it would be emitted as `[redacted]`, the three tests
  * below would stop taking their early return, and each would fail reading a record that
- * carries nothing else — three failures that say "F-263 regressed" when nothing about F-263
+ * carries nothing else: three failures that say "F-263 regressed" when nothing about F-263
  * moved. `msg` is a named field by construction, so the signal survives either policy.
  */
 const CHILD_OPTIONS_REFUSED = ' [child options refused]';
@@ -116,7 +116,7 @@ const CHILD_OPTIONS_REFUSED = ' [child options refused]';
 /**
  * `logging-and-headers.md`, "What the implementer must guarantee": the serialised output
  * contains neither value and contains `[redacted]`. Hand-copied from the contract rather
- * than imported from `logger.ts` — an expected value read out of the code under test
+ * than imported from `logger.ts`: an expected value read out of the code under test
  * agrees with it whatever it does.
  */
 const CENSOR = '[redacted]';
@@ -127,7 +127,7 @@ const POSITIONAL_CONTEXT = 'the same error, passed positionally';
 
 /**
  * Lines are addressed by ORDINAL, not by their `msg`. pino writes fd 1 synchronously so
- * the order is the emission order — and, unlike a `msg` lookup, an ordinal still
+ * the order is the emission order, and, unlike a `msg` lookup, an ordinal still
  * addresses the right line when a regression changes what `msg` says, which is precisely
  * the regression the positional cases below exist to catch.
  */
@@ -176,8 +176,8 @@ const STACK_FRAME = /^\s+at /;
 /**
  * Emitted in a subprocess so that the module under test is the real singleton writing to
  * the real file descriptor. Held as source text rather than as a sibling `.ts` file for
- * one reason: it has to do to an `Error` what a JavaScript library does to one — bolt
- * `body` onto a `SyntaxError`, redefine `name` as a throwing getter — and expressing
+ * one reason: it has to do to an `Error` what a JavaScript library does to one (bolt
+ * `body` onto a `SyntaxError`, redefine `name` as a throwing getter), and expressing
  * that in checked TypeScript would take casts that hide the shape being reproduced.
  *
  * `LOG_LEVEL` and `NODE_ENV` are pinned by the caller so the output does not depend on
@@ -253,7 +253,7 @@ logger.error({ cause: parseFailure }, 'the same error under the cause key');
 // 8. F-248: one level down, under a key the call site chose.
 logger.error({ ctx: { err: parseFailure } }, 'the same error one level down');
 
-// 9. F-248: reached ONLY through \`err.cause\`, under the TOP-LEVEL \`err\` key — so this line
+// 9. F-248: reached ONLY through \`err.cause\`, under the TOP-LEVEL \`err\` key, so this line
 //    is built by \`serializers.err\`, and what it locks is that \`errorLogFields\` does not
 //    descend. The walk's own non-descent is ordinal 15 (F-256).
 const chained = new Error('a wrapper around the parse failure', { cause: parseFailure });
@@ -262,7 +262,7 @@ logger.error({ err: chained }, 'an error chained to the leaking one');
 // 10-12. F-251: the same three shapes again, as CHILD-LOGGER BINDINGS rather than as the
 //        record handed to a log method. pino builds bindings through \`asChindings\`, a
 //        different code path, and the exception filter already creates a child logger per
-//        request — so this is the same door with a different handle on it.
+//        request, so this is the same door with a different handle on it.
 logger.child({ error: parseFailure }).error('a child binding under the error key');
 logger.child({ ctx: { err: parseFailure } }).error('a child binding one level down');
 logger.child({ err: parseFailure }).error('a child binding under the err key');
@@ -293,7 +293,7 @@ logger.error({ error: chained }, 'an error chained to the leaking one, under the
 logger.error({ a: { b: { c: { err: parseFailure } } } }, 'an error four levels into the record');
 
 // 17-19. F-260, DOOR SIX. pino builds \`msg\` out of the call's ARGUMENTS, through
-//        quick-format-unescaped, BEFORE \`write()\` runs — so a format placeholder
+//        quick-format-unescaped, BEFORE \`write()\` runs, so a format placeholder
 //        interpolates whatever the argument is into the one top-level field no redact path
 //        may censor. \`hooks.logMethod\` reads only args[0] and args[1], and neither
 //        \`serializers.err\`, nor \`formatters.log\`, nor either bindings wrapper is on this
@@ -312,7 +312,7 @@ logger.error({ request_id: '${CALLER_FIELD_MARKER}' }, 'parse failed: %o', parse
 logger.error({ request_id: '${CALLER_FIELD_MARKER}' }, parseFailure);
 
 // 22. F-269: a trailing argument with NO matching placeholder. quick-format drops it today,
-//     so nothing leaks and nothing is reported either — one character from the line above.
+//     so nothing leaks and nothing is reported either: one character from the line above.
 //     Asserted so that a fix for F-260 that folds stray arguments into the record cannot
 //     reopen the leak here.
 logger.error('parse failed', parseFailure);
@@ -338,7 +338,7 @@ try {
 }
 
 // 25. F-263: child options merge serialisers PER KEY (\`proto.js:118-134\`), so a child that
-//     supplies its own \`err\` serialiser replaces the one that owns the top-level \`err\` key —
+//     supplies its own \`err\` serialiser replaces the one that owns the top-level \`err\` key:
 //     the half of the partition the scan deliberately does not cover.
 try {
   logger
@@ -358,7 +358,7 @@ try {
   logger.error('a child with its own log formatter${CHILD_OPTIONS_REFUSED}');
 }
 
-// 27. F-264: a GRANDCHILD, which nothing has ever built. Both halves are on this one line —
+// 27. F-264: a GRANDCHILD, which nothing has ever built. Both halves are on this one line:
 //     the parent's binding survives the wrapper's receiver, and the grandchild's own
 //     bindings are still scanned.
 logger
@@ -471,7 +471,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     }
   });
 
-  it('F-244: log.error(err, context) — the positional form — is covered the same way', () => {
+  it('F-244: log.error(err, context) (the positional form) is covered the same way', () => {
     // pino files a positional Error under `err` itself, so this shape reaches the same
     // serialiser. Asserted rather than assumed: it is a different pino code path, and the
     // hook that guards the no-context form must leave this one alone.
@@ -501,14 +501,14 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     // The top level is where a call site that spreads a parsed body reaches first, and it is
     // the level the denylist missed: a pino wildcard path matched EXACTLY ONE level, so
     // `*.password` covered `req.body.password` and left `password` on the record itself in
-    // the clear. ADR-0028 removed the paths and the key rule covers this now — a key
+    // the clear. ADR-0028 removed the paths and the key rule covers this now: a key
     // `LOGGABLE_FIELDS` does not name carries `[redacted]` at every depth, the first
     // included, and none of these four is a named field.
     //
     // `req` IS THE ASSERTION THAT MOVED, AND IT MOVED OUTWARDS. It used to be walked so that
     // `req.body.password` was censored inside it; an unnamed key now takes its whole value
-    // with it, so what is read is `req` itself. Strictly stronger on this shape — the
-    // concrete URL and the `authorization` header F-261 found go with it — and the cost is
+    // with it, so what is read is `req` itself. Strictly stronger on this shape (the
+    // concrete URL and the `authorization` header F-261 found go with it), and the cost is
     // the diagnostic loss ADR-0028 states, not coverage.
     const line = lines[LINE.topLevelSecrets];
 
@@ -547,19 +547,19 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   it('F-248: the same error under any other key, or one level down, is covered the same way', () => {
     // A serialiser is keyed by FIELD NAME, so `serializers.err` covers exactly `err`.
     // `message` and `stack` are non-enumerable and do not survive pino's ordinary object
-    // path — but body-parser ASSIGNS `body`, so it is own and enumerable and travels under
+    // path, but body-parser ASSIGNS `body`, so it is own and enumerable and travels under
     // whatever key the call site picked. `{ error: e }` is as idiomatic as `{ err: e }`,
     // `cause` is ES2022's own name for a chained error, and `{ ctx: { err: e } }` is the
     // same key one level down. Adding `serializers.error` and `serializers.cause` is the
-    // enumeration F-244 rejected — one key name later it is back — so what is asserted here
+    // enumeration F-244 rejected (one key name later it is back) so what is asserted here
     // is the property: no error's incidental fields reach a line, under any key.
     //
     // THE THREE SHAPES SPLIT AT ADR-0028 AND THE FINDING DID NOT. `{ error: e }` and
     // `{ cause: e }` are an `Error` VALUE at the top level, and rule 1 reduces a value with a
-    // policy before any key is consulted — so those two are unchanged. `{ ctx: { err: e } }`
+    // policy before any key is consulted, so those two are unchanged. `{ ctx: { err: e } }`
     // is an error inside a container whose key nobody named, and rule 2 now censors the
     // container whole: `"ctx":"[redacted]"`, measured. That is invariant 5 narrowing, which
-    // the ADR states as its cost — the incidental fields are still absent, which is F-248,
+    // the ADR states as its cost: the incidental fields are still absent, which is F-248,
     // and the frames are gone with them, which is the trade.
     const errorValuesAtTheTopLevel = [
       [LINE.frameworkErrorUnderErrorKey, (record: Record<string, unknown>) => record.error],
@@ -581,7 +581,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     }
 
     // The third shape, one level down. The container is what is read, because the container
-    // is what the line carries — nothing under `ctx` reaches it, at any depth and whatever
+    // is what the line carries: nothing under `ctx` reaches it, at any depth and whatever
     // that error hangs off itself.
     const oneLevelDown = lines[LINE.frameworkErrorOneLevelDown];
 
@@ -598,7 +598,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     //
     // WHAT THIS LINE DOES AND DOES NOT LOCK (F-256). A top-level `err` is skipped by the
     // scan and handled by `serializers.err`, so the boundary this line holds is
-    // `errorLogFields`' — which is worth holding: pino-std-serializers, the default this
+    // `errorLogFields`', which is worth holding: pino-std-serializers, the default this
     // serialiser displaced, DOES follow `cause` and appends the chained error to the stack,
     // so dropping the override reopens the leak here. The walk's own non-descent is a
     // different line; see the F-256 test below.
@@ -612,7 +612,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   it('F-256: an error the walk replaced is not descended into through `cause` either', () => {
     // The line above is built by the SERIALISER. This one is built by the WALK: `error` is
     // a key `errorsReplaced` owns, so a change that made the walk follow a replaced error's
-    // `cause` — the plausible "improve the error serialiser" edit — shows up here and only
+    // `cause` (the plausible "improve the error serialiser" edit) shows up here and only
     // here. Same property, aimed at the other mechanism.
     const line = lines[LINE.chainedErrorUnderErrorKey];
 
@@ -645,15 +645,15 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
   it("F-251: an error nested inside a child logger's bindings is covered too", () => {
     // The nested shape, asserted separately from the flat one because a fix that only
-    // re-keyed the top level of the bindings would pass the test above and leak here — and
+    // re-keyed the top level of the bindings would pass the test above and leak here, and
     // because `bindingsScanned` is a wrapper someone can delete on its own, which is exactly
     // the shape F-251 had.
     //
     // NARROWED WITH THE RECORD PATH, and it is the same rule doing it: bindings go through
     // `fieldsCensored`, `ctx` is not a named field, so the container is censored whole
     // instead of being walked into. `"ctx":"[redacted]"`, measured. The diagnostic half of
-    // this path is held by the lines either side of it — ordinals 10 and 12 both still carry
-    // `err_name` and frames — so a scan that censored everything does not get past this file.
+    // this path is held by the lines either side of it (ordinals 10 and 12 both still carry
+    // `err_name` and frames) so a scan that censored everything does not get past this file.
     const line = lines[LINE.childBindingOneLevelDown];
 
     expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
@@ -663,7 +663,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
   it('F-251: an error under `err` in child bindings still reports the policy fields, not `non-error throwable`', () => {
     // THE SEAM, on the bindings path. `asChindings` applies `formatters.bindings` BEFORE
-    // `serializers[key]`, exactly as `_asJson` applies `formatters.log` before them — so a
+    // `serializers[key]`, exactly as `_asJson` applies `formatters.log` before them, so a
     // bindings-side scan that replaced the top-level `err` would hand `serializers.err` an
     // ordinary object, and this line would degrade to `non-error throwable (object)` with
     // no frames. This shape is the one child binding that is safe today; it must stay safe.
@@ -681,7 +681,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   it('F-252: log.error({ err }) with no context string does not put the message into msg', () => {
     // The third door. `hooks.logMethod` rewrites the POSITIONAL form, but pino also fills
     // `msg` from the record's own `err.message` when a log call carries no message of its
-    // own — so the record form walks past the hook and lands the message in the one
+    // own, so the record form walks past the hook and lands the message in the one
     // top-level field no redact path can censor without censoring every line's text. On the
     // framework-400 arm that message quotes raw request bytes (F-108).
     const line = lines[LINE.errorRecordWithoutContext];
@@ -701,8 +701,8 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     // THE ONE PROPERTY THAT NEEDS BOTH HALVES OF THE PARTITION. `serializers.err` reduces a
     // non-`Error` under `err` to `err_name`, and it only ever receives that value because
     // the scan skips the top-level `err` key. Drop either half alone and another test goes
-    // red; drop BOTH — "these two mechanisms overlap, let me unify them", the one refactor a
-    // later reader is most likely to propose — and this is the only test that fires. What
+    // red; drop BOTH ("these two mechanisms overlap, let me unify them", the one refactor a
+    // later reader is most likely to propose), and this is the only test that fires. What
     // ships instead is the value verbatim, with `password` censored by name, which is the
     // enumeration F-244 rejected.
     const line = lines[LINE.nonErrorUnderErrKey];
@@ -719,7 +719,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     // F-257 was a leak at depth 4 that the scan of the day did not reach, and the guarantee
     // that answers it changed shape with ADR-0028. It used to be the depth bound: the error
     // was walked to and REPLACED, and the assertion was on `a.b.c.err`'s policy fields. Under
-    // the key rule the walk never gets that far — `a` is not a named field, so the whole
+    // the key rule the walk never gets that far: `a` is not a named field, so the whole
     // branch is censored at depth 1 and everything below it goes with it. Measured:
     // `"a":"[redacted]"`.
     //
@@ -739,7 +739,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   it('F-258: an error bound through `setBindings` is covered under a key other than `err`', () => {
     // The second door onto `asChindings`, and the one `child` was not wrapped for.
     // `setBindings` hands its argument to the same function child bindings go through, so the
-    // shapes leak identically — and it needs no child logger, so a call site reaches it with
+    // shapes leak identically, and it needs no child logger, so a call site reaches it with
     // one line. Both shapes are read off the same line because one `setBindings` call carries
     // them; a fix that re-keyed only the top level would still leave `ctx.err` here.
     const line = lines[LINE.bindingsSetUnderOtherKeys];
@@ -747,8 +747,8 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     expect(line.raw).not.toContain(RAW_REQUEST_BODY_MARKER);
     expect(line.raw).not.toContain(ERROR_MESSAGE_MARKER);
 
-    // Not bought by binding nothing: under `error` — an `Error` value at the top level of the
-    // bindings, which rule 1 reduces before any key is consulted — the operator still gets
+    // Not bought by binding nothing: under `error` (an `Error` value at the top level of the
+    // bindings, which rule 1 reduces before any key is consulted) the operator still gets
     // the name and the frames and nothing else.
     const fields = line.record.error as Record<string, unknown>;
 
@@ -763,7 +763,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   });
 
   it('F-258: an error under `err` in `setBindings` still reports the policy fields, not `non-error throwable`', () => {
-    // THE SEAM, on the `setBindings` path — MEASURED to exist here, not assumed to carry over
+    // THE SEAM, on the `setBindings` path: MEASURED to exist here, not assumed to carry over
     // from `child`: `asChindings` consults `serializers[key]` for these bindings too, so this
     // shape is already covered and already carries frames. A scan added for the line above
     // that replaced the top-level `err` would hand `serializers.err` an ordinary object and
@@ -783,11 +783,11 @@ describe('what the shared logger writes when an error reaches a log call', () =>
     // DOOR SIX, and a mechanism distinct from every one above it. pino builds `msg` from
     // the call's ARGUMENTS through quick-format-unescaped before `write()` is reached, so
     // none of `serializers.err`, `formatters.log`, the `child` wrapper or the `setBindings`
-    // wrapper is on this path — they all act on the RECORD or on BINDINGS, and this is
+    // wrapper is on this path: they all act on the RECORD or on BINDINGS, and this is
     // neither. `hooks.logMethod` is the only thing that sees the arguments and it reads
     // args[0] and args[1] only.
     //
-    // %o and %j reach the properties a library assigned to the error — body-parser's
+    // %o and %j reach the properties a library assigned to the error: body-parser's
     // verbatim request body among them. %s reaches `String(error)`, which is
     // `${name}: ${message}`, and the message is the field the policy withholds everywhere
     // else.
@@ -816,7 +816,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   });
 
   it("F-260: the object-first format shape is covered, and the caller's own fields survive", () => {
-    // `log.error({ request_id }, 'parse failed: %o', err)` — the shape a request-scoped
+    // `log.error({ request_id }, 'parse failed: %o', err)`: the shape a request-scoped
     // call site writes. pino takes args[0] as the record and formats args[1..] into `msg`,
     // so the hook's second argument is the format STRING and the error is never inspected.
     const line = lines[LINE.placeholderAfterACallerRecord];
@@ -828,8 +828,8 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   });
 
   it('F-260: an Error in the message position never becomes the message', () => {
-    // No placeholder involved: pino writes args[1] as `msg` directly, so the whole error —
-    // every own enumerable property a library hung off it — lands in the one top-level
+    // No placeholder involved: pino writes args[1] as `msg` directly, so the whole error
+    // (every own enumerable property a library hung off it) lands in the one top-level
     // field no redact path may censor.
     const line = lines[LINE.errorInTheMessagePosition];
 
@@ -844,7 +844,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
   it('F-269: an argument with no matching placeholder puts no fragment of the error on the line', () => {
     // GREEN TODAY, and named anyway: quick-format DROPS a trailing argument that no
-    // placeholder consumes, so `log.error('parse failed', err)` reports nothing at all —
+    // placeholder consumes, so `log.error('parse failed', err)` reports nothing at all:
     // one character from the leaking shape above. This asserts the security half only. A
     // fix for F-260 that folds stray arguments into the record instead of discarding them
     // is a legitimate answer to the silence, and this is what stops that answer from
@@ -856,14 +856,14 @@ describe('what the shared logger writes when an error reaches a log call', () =>
   });
 
   it('F-263: a child that supplies its own `redact` still censors what the root censors', () => {
-    // pino's child options REPLACE the instance's redact list outright — `proto.js` says
-    // so in a comment, "replace redact directly" — and the wrapper installed for F-251
+    // pino's child options REPLACE the instance's redact list outright (`proto.js` says
+    // so in a comment, "replace redact directly"), and the wrapper installed for F-251
     // scans the bindings and then hands `options` to pino unexamined. So a TASK adding one
     // child-scoped redact path silently removes every path the root censors, on that
     // child, with nothing in the output to say so.
     //
     // THE ASSERTION IS DIFFERENTIAL, ON PURPOSE. The same record goes through the root and
-    // through the child, and what is compared is the two lines' treatment of it — never
+    // through the child, and what is compared is the two lines' treatment of it, never
     // which spellings `REDACT_PATHS` happens to hold, which is being decided elsewhere.
     // The property survives that decision whatever it lands on.
     //
@@ -887,7 +887,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
   it('F-263: a child that supplies its own `err` serialiser still reduces the error to the policy fields', () => {
     // Child options merge serialisers PER KEY, so a child supplying `serializers.err`
-    // displaces the one that owns the top-level `err` key — the half of the partition the
+    // displaces the one that owns the top-level `err` key: the half of the partition the
     // record scan deliberately skips. Nothing else covers that key, so the error arrives
     // at `JSON.stringify` with every property a library assigned to it.
     const line = lines[LINE.childWithItsOwnErrSerialiser];
@@ -908,8 +908,8 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
   it('F-263: a child that supplies its own `formatters.log` still covers an error under any other key', () => {
     // The third replacement vector, and the widest: `formatters.log` is the scan that owns
-    // every key other than the top-level `err`, at every depth. A child that supplies one —
-    // to add a field to every line, say — removes F-248's entire mechanism on that child.
+    // every key other than the top-level `err`, at every depth. A child that supplies one
+    // (to add a field to every line, say) removes F-248's entire mechanism on that child.
     const line = lines[LINE.childWithItsOwnLogFormatter];
 
     if (String(line.record.msg).includes(CHILD_OPTIONS_REFUSED)) {
@@ -927,7 +927,7 @@ describe('what the shared logger writes when an error reaches a log call', () =>
 
   it("F-264: a grandchild keeps its parent's bindings and still covers an error in its own", () => {
     // NOTHING HAS EVER BUILT ONE. Both wrappers are installed as OWN properties of the
-    // singleton, and a child has zero own properties — it receives them through the
+    // singleton, and a child has zero own properties: it receives them through the
     // prototype chain `Object.create(this)` builds. So grandchild coverage is inherited
     // rather than installed, and the two ways it disappears are both silent: a wrapper
     // that called pino's `child` on the SINGLETON rather than on its own receiver would

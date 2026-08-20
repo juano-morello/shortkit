@@ -2,14 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     // tsup bundles this workspace, so bundler resolution is what actually runs at
-    // build time. It also reads package `exports` maps, which node10 ignored — a
+    // build time. It also reads package `exports` maps, which node10 ignored: a
     // dependency publishing types only through an exports subpath resolved to
     // TS2307 before. node16/nodenext would demand explicit `.js` extensions in
     // `packages/contracts`, which Turbopack then fails to resolve back to `.ts`.
     "module": "Preserve",
     "moduleResolution": "Bundler",
     // TASK-2-02. `scripts/*.mts` are run by `node` with no build step, so their imports
-    // are resolved by Node's ESM resolver, which needs the real filename — `seed.mts`
+    // are resolved by Node's ESM resolver, which needs the real filename: `seed.mts`
     // imports `../src/db/platform.ts` (the frozen platform uuids, ADR-0063) and an
     // extensionless specifier is ERR_MODULE_NOT_FOUND at runtime, measured. Without this
     // flag tsc rejects the only specifier that works. It is safe because `noEmit` is set:

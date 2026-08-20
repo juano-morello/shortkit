@@ -135,7 +135,7 @@ barrel's namespace alongside every product table.
 4. `id` is `text` on all five, so a foreign key into `user(id)` is `text`.
 5. `betterAuthDatabase()` from `apps/api/src/db/client.ts` is typed over exactly this schema
    (ADR-0046), and is built on the **auth** pool, `DATABASE_AUTH_URL`, connecting as
-   `shortkit_auth` (ADR-0050, which supersedes ADR-0046's one-pool decision — F-028).
+   `shortkit_auth` (ADR-0050, which supersedes ADR-0046's one-pool decision, F-028).
 
 ## What the implementer must guarantee
 
@@ -143,8 +143,8 @@ barrel's namespace alongside every product table.
    throws `BetterAuthError: The field "<key>" does not exist in the "<model>" Drizzle
    schema` at runtime on the first statement touching a missing one.
 2. ~~`apps/api/src/db/schema/auth.spec.ts`~~ **`apps/api/src/db/auth-schema.spec.ts`**
-   (corrected 2026-08-13, F-045) runs on `pnpm test` — the unit tier, no database, no
-   network — and asserts against `getSchema({ plugins: [jwt(), bearer()] })`:
+   (corrected 2026-08-13, F-045) runs on `pnpm test` (the unit tier, no database, no
+   network) and asserts against `getSchema({ plugins: [jwt(), bearer()] })`:
    table names, field sets, `required` against `.notNull()`, `unique` against `.unique()`,
    and `references` (target model, target field, `onDelete`) against `.references()`.
    It does **not** compare SQL types; the mapping above is this repository's and is asserted
@@ -174,7 +174,7 @@ barrel's namespace alongside every product table.
 
 | Situation | Shape | Where it surfaces |
 |---|---|---|
-| A Drizzle property is missing or misspelled | `BetterAuthError`, message `The field "<key>" does not exist in the "<model>" Drizzle schema. Please update your drizzle schema or re-generate using "npx auth@latest generate".` | Runtime, on the first request touching that model. The advice in the message is not this repository's procedure — see ADR-0043 |
+| A Drizzle property is missing or misspelled | `BetterAuthError`, message `The field "<key>" does not exist in the "<model>" Drizzle schema. Please update your drizzle schema or re-generate using "npx auth@latest generate".` | Runtime, on the first request touching that model. The advice in the message is not this repository's procedure; see ADR-0043 |
 | `betterAuthSchema` is missing a model key | `BetterAuthError`, message `[# Drizzle Adapter]: The model "<model>" was not found in the schema object. Please pass the schema directly to the adapter options.` | Runtime |
 | A `better-auth` upgrade adds or removes a field | ~~`auth.spec.ts`~~ `apps/api/src/db/auth-schema.spec.ts` fails (F-045) | `pnpm test`, CI `quality` job |
 | `auth.config.ts` adds a schema-shaping option | `auth.config.spec.ts` fails | `pnpm test`, CI `quality` job |
@@ -199,5 +199,5 @@ contract edit in one commit. The drift test is what makes the upgrade fail loudl
 than at runtime.
 
 There is no backward compatibility to preserve: no database holds rows in these tables yet,
-and ADR-0004's forward-only posture applies — a corrected shape is a new migration, never an
+and ADR-0004's forward-only posture applies: a corrected shape is a new migration, never an
 edit to an applied one.

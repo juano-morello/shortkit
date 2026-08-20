@@ -1,18 +1,18 @@
 /**
- * STORY-001 — AC-8. TASK-001.
+ * STORY-001: AC-8. TASK-001.
  *
  * ADR: adr-0048-role-brands-are-applied-after-parsing.md, adr-0023-branded-role-types.md,
  *      adr-0015-user-tenant-cardinality.md
  *
  * `asTenantRole` and `tenantRoleRank` have thrown `not implemented` since `roles.ts`
  * shipped, because nothing had a caller for them. `parseTenantMembership` is that caller
- * (ADR-0048), so TASK-001 implements both — and only both. `asWorkspaceRole` and `roleRank`
+ * (ADR-0048), so TASK-001 implements both, and only both. `asWorkspaceRole` and `roleRank`
  * stayed throwing through 1a: workspace membership was out of scope and a function with no
  * caller has nothing to assert against.
  *
  * TASK-1b-01 (STORY-1b-01, item 1b) implements the other two. `parseWorkspaceMembership`
- * (`members/index.ts`) is `asWorkspaceRole`'s first caller and `meetsWorkspaceRole` — every
- * workspace-role check in 1b — is `roleRank`'s. The workspace tables below mirror the tenant
+ * (`members/index.ts`) is `asWorkspaceRole`'s first caller and `meetsWorkspaceRole` (every
+ * workspace-role check in 1b) is `roleRank`'s. The workspace tables below mirror the tenant
  * ones, plus the two inherited-property keys (`toString`, `__proto__`) that a bare
  * `undefined` check on the rank lookup would let through.
  *
@@ -108,13 +108,13 @@ describe('asTenantRole', () => {
    * F-090. THESE TWO ARE GREEN ON ARRIVAL, DELIBERATELY. DO NOT DELETE THEM.
    * ==========================================================================
    *
-   * `asTenantRole` already refuses already-branded input today — `Unbranded<T>` resolves
+   * `asTenantRole` already refuses already-branded input today: `Unbranded<T>` resolves
    * to `never` for a branded argument, so all three of the reviewer's probes fail TS2345.
    * The defect F-090 records is that NOTHING ASSERTED IT. Every other test in this file
    * and in `members.spec.ts` passes plain strings, and `members.spec.ts:91,138` pin the
    * WIRE type rather than this parameter guard. So a later TASK that hits a brand mismatch
    * could "fix" it by widening the signature to `<T extends string>(_value: T)` and leave
-   * the suite green, `pnpm typecheck` green, and every existing directive still used —
+   * the suite green, `pnpm typecheck` green, and every existing directive still used,
    * while `asTenantRole(ctx.workspaceRole)` starts compiling. That is precisely the
    * laundering `roles.ts:81-85` claims is a compile error.
    *
@@ -124,14 +124,14 @@ describe('asTenantRole', () => {
    * ZERO with these directives removed, and to two "Unused '@ts-expect-error' directive"
    * errors with them present. They are the only thing that fails.
    *
-   * THE DIRECTIVE IS THE ASSERTION, and it runs under `pnpm typecheck`, not `pnpm test` —
+   * THE DIRECTIVE IS THE ASSERTION, and it runs under `pnpm typecheck`, not `pnpm test`:
    * vitest transpiles with swc and never typechecks. An unused `@ts-expect-error` is
    * itself a typecheck error, which is what makes this a live assertion rather than a
    * comment. Same mechanism as `members.spec.ts:91,138`.
    *
    * The reviewer's third probe, `asTenantRole(TENANT_ROLE.owner)`, is deliberately absent:
    * it fails and passes in lockstep with the first one under every mutation tried, and the
-   * one break it could have caught alone — the `TENANT_ROLE` constants losing their brand —
+   * one break it could have caught alone (the `TENANT_ROLE` constants losing their brand)
    * is already caught by the annotated local below and by `roles.ts:155,158`.
    */
   it('AC-8 (ADR-0023, F-090): it refuses an already-branded TenantRole, so a brand cannot be re-applied', () => {
@@ -154,7 +154,7 @@ describe('asTenantRole', () => {
 
     // AND THE RUNTIME GUARD DOES NOT CATCH IT. `member` is a value in BOTH enums, so
     // `TENANT_ROLES.includes` passes and a workspace-scoped role comes back branded
-    // `tenant` — the Form B hole in roles.ts:19-23. The parameter type is the only thing
+    // `tenant`, the Form B hole in roles.ts:19-23. The parameter type is the only thing
     // standing between `ctx.workspaceRole` and a tenant-role check.
     expect(laundered).toBe('member');
   });
@@ -240,7 +240,7 @@ describe('asWorkspaceRole', () => {
     expect(rebranded).toBe('viewer');
   });
 
-  it('AC-1b-1 (ADR-0023, F-090): it refuses a branded TenantRole — `assert(wsId, asWorkspaceRole(ctx.tenantRole))` is roles.ts:81-85 exactly', () => {
+  it('AC-1b-1 (ADR-0023, F-090): it refuses a branded TenantRole: `assert(wsId, asWorkspaceRole(ctx.tenantRole))` is roles.ts:81-85 exactly', () => {
     const tenantRole: TenantRole = TENANT_ROLE.member;
 
     // @ts-expect-error Unbranded<T> is `never` for a branded argument (TS2345). This is

@@ -55,10 +55,10 @@ export interface CredentialFormProps {
    * (that route has no invited branch). Checked against `capabilityTokenContract`
    * (`asCapabilityToken`, the one web-side shape check) BEFORE it is spread: an empty or
    * malformed value is treated as absent (key omitted, nothing posted), so the form never
-   * sends anything but a token-shaped string — the same outcome the API's
+   * sends anything but a token-shaped string: the same outcome the API's
    * `invitationTokenFrom` predicate gives a non-string (AC-1b-10), one hop earlier. The
-   * signup contract is a strict-keys object, so the token is spread AFTER the parse —
-   * `signUpRequestContract` would strip it — onto the body the API's schema
+   * signup contract is a strict-keys object, so the token is spread AFTER the parse
+   * (`signUpRequestContract` would strip it) onto the body the API's schema
    * (`.and(z.record(...))`) admits.
    */
   invitationToken?: string;
@@ -220,7 +220,7 @@ export function CredentialForm({ mode, onSuccess, invitationToken }: CredentialF
     event.preventDefault();
 
     // The submit control is `aria-disabled`, not `disabled`, so it keeps keyboard focus
-    // mid-submit (review round 1, medium); this ref, not the rendered state, is the guard —
+    // mid-submit (review round 1, medium); this ref, not the rendered state, is the guard:
     // a second submit in the same tick would still see the stale closure's `submitting`.
     if (inFlight.current) {
       return;

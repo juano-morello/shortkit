@@ -19,7 +19,7 @@ import {
 } from './boot-assertions';
 
 /**
- * STORY-001 — TASK-003, wave 2. No AC states these; three ADRs do.
+ * STORY-001: TASK-003, wave 2. No AC states these; three ADRs do.
  *
  * Contract: `docs/contracts/auth-config-surface.md` ("The declared bindings",
  * "`BETTER_AUTH_URL`: `http:` is loopback-only", "Wildcard rules for `WEB_APP_ORIGINS`").
@@ -29,14 +29,14 @@ import {
  * THE PREDICATE IS TESTED HERE; THE CALL SITE IS ASSERTED SEPARATELY, AT THE BOTTOM.
  * ============================================================================
  *
- * Ruled by Juano, 2026-08-16. No child process is spawned. The alternative — boot the built
- * bundle with a bad environment and assert on the refusal — would put a five-minute
+ * Ruled by Juano, 2026-08-16. No child process is spawned. The alternative (boot the built
+ * bundle with a bad environment and assert on the refusal) would put a five-minute
  * integration tier's cost on a predicate that reads `process.env` and returns, and this
  * repository has no spawn helper for a boot that is EXPECTED to fail (`api-server.ts`
  * rejects on one, and its only consumer today always expects success).
  *
  * The cost is stated rather than hidden: nothing below executes the real boot path, so the
- * last test in this file — that `main.ts` calls all three before it listens — is
+ * last test in this file (that `main.ts` calls all three before it listens) is
  * LOAD-BEARING rather than decorative. It is a text scan, and it is one deliberately: the
  * shape `db/context-flag-owners.spec.ts` already runs and the reasoning
  * `isolation-coverage.md:527-532` records apply, and an assertion that resolved the call
@@ -70,7 +70,7 @@ type Outcome =
  * A refusal is reported by its class NAME and its `binding`, never by its message: the
  * message is prose an author may improve, and `binding` is what `main.ts` maps onto
  * `boot_precondition` so the log line names which rule fired. A throw that is not an
- * `AuthBindingError` — including the stub's `not implemented` — stringifies instead, so it
+ * `AuthBindingError` (including the stub's `not implemented`) stringifies instead, so it
  * fails the comparison loudly rather than being counted as a correct refusal.
  */
 function outcomeOf(run: () => unknown): Outcome {
@@ -130,12 +130,12 @@ describe('betterAuthSecret', () => {
     // It must never return `''` or `undefined`, and the reason is the `||` chain at
     // `create-context.mjs:70`: a falsy return is not an override, it falls straight through
     // to `env.BETTER_AUTH_SECRET`, then `env.AUTH_SECRET`, then the published constant.
-    // Asserting the returned value — rather than "it did not throw" — is what catches an
+    // Asserting the returned value (rather than "it did not throw") is what catches an
     // implementation that validates and then returns nothing.
     expect(secretUnder(AT_THE_FLOOR_SECRET)).toEqual({ returned: AT_THE_FLOOR_SECRET });
   });
 
-  it('ADR-0058: refuses exactly three values — unset, empty, under the floor, and the published default', () => {
+  it('ADR-0058: refuses exactly three values: unset, empty, under the floor, and the published default', () => {
     // THREE REJECTIONS, NOT FOUR (settled 2026-08-15). F-074 added a fourth for the compose
     // default `development-compose-better-auth-secret-not-a-real-value`; F-144 then removed
     // that literal from `docker-compose.yml`, which is now `${BETTER_AUTH_SECRET:?...}` with
@@ -159,10 +159,10 @@ describe('betterAuthSecret', () => {
     // The secret is a credential and is in no `LOGGABLE_FIELDS` entry, and `main.ts` writes
     // this message verbatim with `includeMessage: true` on the boot path. A message quoting
     // a prefix or a length is a disclosure into a log stream, and it is the natural thing to
-    // write — ADR-0045's user-id prefix is precedent for the OPPOSITE case, where the value
+    // write: ADR-0045's user-id prefix is precedent for the OPPOSITE case, where the value
     // is not a credential.
     // ⚠ `refusedWith` IS IN THE ASSERTION AND IS NOT DECORATION. Without it this test passes
-    // against ANY throw whose message happens not to contain the fixture string — including
+    // against ANY throw whose message happens not to contain the fixture string, including
     // the stub's `not implemented`, and including a `TypeError` from a half-written
     // predicate. Measured on the wave-2 red run, where it was the one test in this file that
     // went green against a module whose every body throws.
@@ -349,7 +349,7 @@ describe('webAppOrigins', () => {
   it('ADR-0059: an unset variable resolves to the empty list, which is legal', () => {
     // The resolved trusted list always contains the API's own origin
     // (`context/helpers.mjs:61-70`), which is what lets the integration tier pass with this
-    // variable unset — `authServerEnv()` does not set it. Refusing an unset value here would
+    // variable unset: `authServerEnv()` does not set it. Refusing an unset value here would
     // make every integration suite fail on a binding none of them needs.
     expect(originsUnder(undefined)).toEqual({ returned: [] });
   });
@@ -383,7 +383,7 @@ describe('webAppOrigins', () => {
 
   it('ADR-0059: `https://*.vercel.app` is refused by name, not only the bare wildcard', () => {
     // Named because frozen `auth-tokens.md:159-162` rules exactly this entry out in exactly
-    // these words — "it trusts every application on the platform" — and because measuring it
+    // these words ("it trusts every application on the platform"), and because measuring it
     // is unambiguous: it matches `https://evil.vercel.app`, and end to end it let a
     // cross-origin sign-up through with 200. Naming the entry the frozen contract names is
     // what stops the rule drifting back to the version that admitted it.
@@ -392,7 +392,7 @@ describe('webAppOrigins', () => {
 
   it('ADR-0059 rule 2: a metacharacter in either of the final two labels is refused', () => {
     // So the registrable domain is literal. `https://app.example.co?` trusts
-    // `https://app.example.com` — measured — which is a different registrable domain that
+    // `https://app.example.com` (measured) which is a different registrable domain that
     // someone else owns.
     const outcomes = [
       originsUnder('https://shortkit-*.app'),
@@ -457,8 +457,8 @@ describe('assertTrustedClientIpHeaderConfigured', () => {
   it('ADR-0040: unset and direct assert nothing, whatever the header variable holds', () => {
     // A stack that declares no boundary asserts nothing, establishes no principal, and fails
     // open with signal. That is `docker compose up` today, and it is the case F-380 was filed
-    // on. A malformed header under `direct` is NOT refused here — the read returns null for it
-    // — because the boundary governs whether forgetting the header is an error, never what
+    // on. A malformed header under `direct` is NOT refused here (the read returns null for it)
+    // because the boundary governs whether forgetting the header is an error, never what
     // is read.
     const outcomes = [
       outcomeOf(() => assertTrustedClientIpHeaderConfigured({})),
@@ -560,7 +560,7 @@ describe('assertBffProxySecretConfigured', () => {
   });
 
   it('rate-limit.md: an unrecognised boundary value refuses whatever else is set', () => {
-    // "`BFF_TRUST_BOUNDARY=Bff` refuses whatever else is set" — the contract's second boot
+    // "`BFF_TRUST_BOUNDARY=Bff` refuses whatever else is set": the contract's second boot
     // test, with the siblings that share its shape.
     const outcomes = ['Bff', 'true', 'proxy', '1', ' bff'].map((value) =>
       outcomeOf(() =>
@@ -600,7 +600,7 @@ describe('the wave-3 modules and NODE_ENV', () => {
    * docblock saying "never reads NODE_ENV" must not satisfy the scan, and neither must the
    * contracts' own refusal text ("It is not NODE_ENV and it is not a boolean"), which two of
    * these files carry verbatim as constants. What is left is code, and a read is
-   * `process.env.NODE_ENV`, `env.NODE_ENV`, the bracket form or a destructuring — so the bare
+   * `process.env.NODE_ENV`, `env.NODE_ENV`, the bracket form or a destructuring, so the bare
    * token is what is scanned for.
    */
   const files = [
@@ -651,15 +651,15 @@ describe('the call site in main.ts', () => {
    * Nothing above executes the real boot path, so a repository where all three predicates
    * are perfect and none of them is called is green everywhere except here. That state is
    * not hypothetical: `assertRuntimeRoleCannotBypassRls()` shipped in TASK-005 with NO
-   * CALLER, and F-116 is the finding that found it — a `DATABASE_URL` pointing at a
+   * CALLER, and F-116 is the finding that found it: a `DATABASE_URL` pointing at a
    * `BYPASSRLS` role started the API normally for as long as it sat there.
    *
    * It reads `main.ts` rather than importing it, for the reason `context-flag-owners.spec.ts`
    * gives for the same idiom, plus one of its own: importing `main.ts` runs `bootstrap()`.
    *
    * SIX SINCE WAVE 3 (TASK-004): the two trust-boundary assertions and the auth-role
-   * separation join the three bindings. All are called UNCONDITIONALLY — the gating is inside
-   * each function — so a call wrapped in an `if` on any variable would still be found here
+   * separation join the three bindings. All are called UNCONDITIONALLY (the gating is inside
+   * each function) so a call wrapped in an `if` on any variable would still be found here
    * and would need the integration tier to catch.
    */
   const main = readFileSync(fileURLToPath(new URL('../main.ts', import.meta.url)), 'utf8');
@@ -677,7 +677,7 @@ describe('the call site in main.ts', () => {
     const called = main.indexOf(`${assertion}(`);
 
     // Two failures, one assertion, and they are different defects: `-1` is "never wired in",
-    // and an index after `.listen(` is "wired in after the process is already serving" —
+    // and an index after `.listen(` is "wired in after the process is already serving",
     // which is a window in which an auth surface answers requests on the published constant.
     expect({ called: called !== -1, beforeListen: called !== -1 && called < LISTEN }).toEqual({
       called: true,

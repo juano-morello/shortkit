@@ -14,7 +14,7 @@ accepted_at: 2026-08-11
 > conflict is flagged. It was flagged, and this is the ruling.
 >
 > **The narrowing is upheld as written**: an image that cannot reach traffic may report an
-> unknown commit; an image that can, may not. The architect's reasoning carried it — ADR-0027
+> unknown commit; an image that can, may not. The architect's reasoning carried it: ADR-0027
 > rejected a sentinel because it "keeps the Fly check green, which keeps the deploy
 > succeeding", and ADR-0030 removes the premise that there is a deploy. The alternative,
 > `${GIT_COMMIT_SHA:?...}` plus an amendment to AC-115, was rejected: AC-115 was minted the

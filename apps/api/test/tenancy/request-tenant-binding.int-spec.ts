@@ -39,7 +39,7 @@ import {
 } from '../support/rls-fixture';
 
 /**
- * STORY-002 — AC-14 end to end, and AC-15's "no tenant transaction is opened" half against
+ * STORY-002: AC-14 end to end, and AC-15's "no tenant transaction is opened" half against
  * the database. TASK-006, wave 5.
  *
  * Contract: `docs/contracts/tenant-context.md` ("SQL issued by `withTenantTransaction`",
@@ -53,8 +53,8 @@ import {
  * The child booted by `api-server.ts` is the only place a real sign-in can happen and a real
  * token can be minted against a real `/api/auth/jwks`; it still carries no tenant-scoped
  * route. So the guarded route is a probe controller registered beside `AppModule` IN THIS
- * PROCESS — the real `APP_GUARD`, the real `APP_INTERCEPTOR`, the real filter, nothing
- * overridden — with `BETTER_AUTH_URL` pointed at the child so the guard verifies the child's
+ * PROCESS (the real `APP_GUARD`, the real `APP_INTERCEPTOR`, the real filter, nothing
+ * overridden), with `BETTER_AUTH_URL` pointed at the child so the guard verifies the child's
  * token against the child's key set. What is new against the guard suite is what the probe
  * DOES: it asks Postgres, from inside the handler, which tenant the connection is bound to,
  * and it writes a row through the ambient `tenantDb()` so that commit and rollback are
@@ -62,7 +62,7 @@ import {
  *
  * The row goes into `rls_fixture_rows`, the template-shaped tenant-scoped table
  * `test/support/rls-fixture.ts` builds from the production policy builder, under the tenant
- * the signup created — its `tenants` row is what the fixture table's foreign key needs, and
+ * the signup created: its `tenants` row is what the fixture table's foreign key needs, and
  * `tenant_isolation`'s WITH CHECK is what admits the insert only because the interceptor set
  * the flag to that tenant. The rows are read back through the migrator with the tenant flag
  * set, the way `tenant-context.int-spec.ts` reads its seeded rows: FORCE ROW LEVEL SECURITY
@@ -233,7 +233,7 @@ beforeEach(async () => {
     // longer than Node's default 5 s `keepAliveTimeout`. `fetch` pools the socket the last
     // probe used; the server's idle timer, overdue when the loop unblocks, tears that
     // socket down at the same moment the next probe is written to it, and the probe fails
-    // with `SocketError: other side closed` — roughly every other test, measured. Undici
+    // with `SocketError: other side closed`: roughly every other test, measured. Undici
     // drops a `connection: close` request header as a forbidden name, so the fix is on the
     // server: `0` disables the idle timeout (Node docs), and `app.close()` still closes the
     // idle sockets through `server.close()`.
@@ -278,7 +278,7 @@ describe('a real token binds the request to its tenant transaction', () => {
 
     expect(result.status, result.raw).toBe(200);
     // Visible AFTER the response, through a different connection: the transaction the
-    // interceptor opened has committed, and it committed under this tenant's id — the
+    // interceptor opened has committed, and it committed under this tenant's id: the
     // policy's WITH CHECK admitted the row for no other reason.
     expect(rowsOwnedBy(tenantId)).toEqual([{ label: 'committed-by-the-request' }]);
   });

@@ -19,13 +19,13 @@
  * 404 BEFORE 403. A caller with no membership learns nothing about whether the workspace
  * exists (error-envelope.md invariant 5); a member below rank learns they are a member. The
  * lookup runs inside the request's tenant transaction, so another tenant's workspace answers
- * "no membership" from the policy before this class sees anything — that is what makes the
+ * "no membership" from the policy before this class sees anything: that is what makes the
  * two indistinguishable, and why the 404 body is `WorkspaceNotFoundError`'s byte for byte.
  *
  * FORM B READS THE CALLER FROM `currentActor()`, which the authorization interceptor
- * establishes for the request; a call outside a request throws (500). Form C — a
+ * establishes for the request; a call outside a request throws (500). Form C (a
  * `@NoTenantTransaction` handler calling `assertTenant(TENANT_ROLE.owner)` inside its own
- * first `withTenantTransaction` — is the same call, and the repository joins that transaction.
+ * first `withTenantTransaction`) is the same call, and the repository joins that transaction.
  */
 import { Inject, Injectable } from '@nestjs/common';
 import { meetsTenantRole, meetsWorkspaceRole } from '@shortkit/contracts';

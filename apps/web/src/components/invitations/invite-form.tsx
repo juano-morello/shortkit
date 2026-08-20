@@ -8,7 +8,7 @@
  * happens next (the re-fetch, the announcement, the session-expiry navigation).
  *
  * Contract: docs/contracts/workspace-authorization.md ("Minimum role per surface":
- *   `POST /api/invitations` is `workspace_admin` on every named workspace — Form B; a
+ *   `POST /api/invitations` is `workspace_admin` on every named workspace: Form B; a
  *   workspace the caller is not admin of is 404 `not_found`, D-09; an archived one is 400
  *   `validation_failed` under `workspaces`), docs/contracts/error-envelope.md,
  *   docs/contracts/rate-limit.md (429 with `Retry-After`).
@@ -21,13 +21,13 @@
  * multi-workspace invitation is the API's shape, reachable through it, and the list renders
  * one when it meets it ("+N more"); the first UI offers one to stay small.
  *
- * THE ROLE PICKER OFFERS `INVITABLE_WORKSPACE_ROLES` — `workspace_admin` and `member`, no
+ * THE ROLE PICKER OFFERS `INVITABLE_WORKSPACE_ROLES`: `workspace_admin` and `member`, no
  * `viewer` (roles.ts: nothing in launch-core grants it outside fixtures; the API accepts it,
  * the UI does not offer it). Default `member`, the role an invitee usually gets.
  *
  * CLIENT-SIDE VALIDATION IS THE SHARED CONTRACT'S `safeParse`
- * (`createInvitationRequestContract`): the normalised body it returns — trimmed,
- * lower-cased address — is what goes on the wire, so a malformed address is refused here
+ * (`createInvitationRequestContract`): the normalised body it returns (trimmed,
+ * lower-cased address) is what goes on the wire, so a malformed address is refused here
  * with `INVITE_FORM_MESSAGES.emailRule` and never sent, exactly as the API would refuse it.
  * A server `validation_failed` under `email` renders that message under the field (the
  * `create-workspace-form.tsx` precedent for a field the operator typed); one under
@@ -37,9 +37,9 @@
  * WHO MAY INVITE IS THE API'S CALL. The row on `/workspaces` only offers the link to a
  * `workspace_admin`, but hiding is not enforcement: a 403 `insufficient_workspace_role` /
  * `insufficient_tenant_role` here renders `INVITE_FORM_MESSAGES.forbidden` (the shared
- * classifier has no 403 branch — `classifyInvitationScreenError` in `invitations-api.ts`
- * adds one for the two screens) and a 404 `not_found` — the caller no longer administers this workspace,
- * or it is gone — renders `workspaceGone`. 429 renders the seconds when the API sent them.
+ * classifier has no 403 branch; `classifyInvitationScreenError` in `invitations-api.ts`
+ * adds one for the two screens) and a 404 `not_found` (the caller no longer administers this workspace,
+ * or it is gone) renders `workspaceGone`. 429 renders the seconds when the API sent them.
  *
  * THE ADDRESS is the operator's own input: echoed in the field and in the screen's
  * announcement, sent in the request BODY, never put in a URL, an `href` or a log line.
@@ -105,7 +105,7 @@ export interface InviteFormProps {
   /** Called once per created invitation, after the API answered 201 with a body the contract accepts. */
   onCreated: (invitation: Invitation) => void | Promise<void>;
   /**
-   * Called for the failures this form cannot render itself — today only `unauthenticated`,
+   * Called for the failures this form cannot render itself: today only `unauthenticated`,
    * which the screen turns into a navigation. Everything else is shown here.
    */
   onFailure: (failure: InvitationScreenFailure) => void;

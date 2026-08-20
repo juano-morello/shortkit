@@ -59,7 +59,7 @@ CREATE POLICY tenant_memberships_membership_lookup ON tenant_memberships
 `FOR SELECT` and it stays `FOR SELECT`.
 
 **The `nullif` is required even though this policy never casts** (F-021, ADR-0049's widened
-rule). The earlier form compared the flag raw and rested on "no `"user"` row has id `''`" —
+rule). The earlier form compared the flag raw and rested on "no `"user"` row has id `''`":
 a data property stated as if it were a constraint. `user.id` is `text PRIMARY KEY` with no
 `CHECK`. With such a row present, measured on a warm backend: a no-flag read returned it, and
 **tenant A's ordinary transaction returned tenant B's full membership row** through the
@@ -126,7 +126,7 @@ reaches the five RLS-exempt Better Auth tables, where a write would be unconstra
 
 `userId` is asserted non-empty and at most 255 characters before it reaches `set_config`,
 and `InvalidLookupUserIdError` is thrown otherwise. Its message carries an eight-character
-prefix and the length, never the whole value — the F-132 rule, and load-bearing here for the
+prefix and the length, never the whole value: the F-132 rule, and load-bearing here for the
 reason in `tenantIdForUser` below.
 
 ## `tenantIdForUser`
@@ -196,7 +196,7 @@ and this is the one path that holds a user id and an email at the same time.
    `assertUuid` unchanged.
 2. A user with no membership row produces a rejected promise carrying
    `NoTenantMembershipError`, never a resolved `null`, `undefined` or `''`. Token minting
-   therefore fails and an orphaned account never receives a JWT — ADR-0015's primary stop.
+   therefore fails and an orphaned account never receives a JWT: ADR-0015's primary stop.
 3. The read touches exactly one user's row. It cannot return another user's membership, and
    it cannot return a second row.
 4. No tenant context is opened, entered or required. `tenantDb()` and `currentTenantId()`
@@ -220,7 +220,7 @@ and this is the one path that holds a user id and an email at the same time.
    fifth entry, in the same commit.
 5. `ISOLATION_EXCLUSIONS` gains `repo:TenantMembershipLookup.tenantIdForUser`, and the
    AC-12 assertion in `cross-tenant-isolation.int-spec.ts` moves to `toHaveLength(3)` with
-   the id added — **in TASK-002's commit, not a later one**.
+   the id added, **in TASK-002's commit, not a later one**.
 6. The three "exactly two" claims at `rls.ts:72`, `rls.ts:87` and `coverage.ts:490-499` are
    corrected to three in the same commit, along with `rls.ts:10-19`'s header, which
    enumerates three permitted flag strings and calls itself exhaustive while this commit adds
@@ -257,7 +257,7 @@ must not receive a credential.
 ## Isolation controls this owes
 
 TASK-002 ships three in `apps/api/test/auth/tenant-memberships.int-spec.ts`. **All three run
-on a WARM pooled connection** — one that has already committed a `withTenantTransaction` in
+on a WARM pooled connection**: one that has already committed a `withTenantTransaction` in
 the same process and the same pool. Corrected 2026-08-13 (F-004): the two originally
 specified here named no connection state, and both are true on a cold backend, so both would
 have passed over F-003. `test/support/rls-fixture.ts` seeds through the migrator DSN and

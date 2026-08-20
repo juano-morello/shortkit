@@ -9,7 +9,7 @@
  * The two Form A decorators. Each writes ONE metadata key and nothing else; the reader is
  * `workspace-authorization.interceptor.ts` beside this file, which reads handler first and
  * then class (`Reflector.getAllAndOverride`), so a class-level decorator covers every handler
- * on the controller and a handler-level one covers itself alone — the same reading
+ * on the controller and a handler-level one covers itself alone: the same reading
  * `@Public()` and `@NoTenantTransaction()` get.
  *
  * THE MINIMUM IS VALIDATED AT DECORATION TIME, WHICH IS MODULE LOAD. `roleRank` /
@@ -19,7 +19,7 @@
  * runtime backstop for a cast.
  *
  * `RequireTenantRole` takes `AuthorisingTenantRole`, so `TENANT_ROLE.member` (rank 0, every
- * user in the tenant) cannot be a minimum — by type, and the rank check below does not need
+ * user in the tenant) cannot be a minimum: by type, and the rank check below does not need
  * to know.
  */
 import { SetMetadata } from '@nestjs/common';
@@ -40,7 +40,7 @@ export const TENANT_ROLE_METADATA = Symbol('TENANT_ROLE_METADATA');
  * `workspace_id_required`. The status table is `workspace-authorization.md`'s.
  */
 export function RequireWorkspaceRole(min: WorkspaceRole): MethodDecorator & ClassDecorator {
-  // Throws for a value outside WORKSPACE_ROLES — a boot failure, not a request failure.
+  // Throws for a value outside WORKSPACE_ROLES: a boot failure, not a request failure.
   roleRank(min);
 
   return SetMetadata(WORKSPACE_ROLE_METADATA, min);

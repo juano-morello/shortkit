@@ -4,7 +4,7 @@
  *
  * The page is an async server component: jsdom cannot render it, so the page function is
  * awaited for its element (with `next/headers` mocked, as `workspaces.spec.tsx` does) and
- * the element — the client `<InvitationsScreen>` under the page's heading — is rendered.
+ * the element (the client `<InvitationsScreen>` under the page's heading) is rendered.
  * `requireAuth`, `serverApiClient` and `notFound` are wrapped through `vi.mock` so the CALL
  * ORDER can be asserted (redirect-before-fetch; workspace-before-list) and the initial data
  * answered without a network. The browser legs (`apiClient`) go through a `fetch` spy
@@ -414,7 +414,7 @@ describe('invitations page: what it renders', () => {
 });
 
 describe('invitations page: invite', () => {
-  it('a success re-fetches the list, shows the new row and announces it — the address in bodies only', async () => {
+  it('a success re-fetches the list, shows the new row and announces it (the address in bodies only)', async () => {
     signedIn();
     routeFetch({
       [`POST ${CREATE_URL}`]: () => jsonResponse(201, CREATED),

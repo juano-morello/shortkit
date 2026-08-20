@@ -28,7 +28,7 @@ The reason is what the value is used *for* on each side. On Vercel it is real: t
 every IP-keyed rate-limit bucket into one shared by the whole product (ADR-0014,
 `docs/contracts/web-api-client.md`).
 
-That match is **not implemented yet** — it is TASK-012's, and
+That match is **not implemented yet**: it is TASK-012's, and
 `grep -rn "timingSafeEqual\|BFF_PROXY_SECRET" apps/api/src` currently returns nothing.
 Stated as a requirement rather than as behaviour, because the rule below has to hold from
 the day the secret exists rather than from the day something reads it.
@@ -39,8 +39,8 @@ the built output. CI never talks to Fly. A random base64url string does the job 
 well.
 
 That divergence is what makes the workflow's job-level `env:` cheap. The secret is
-declared once for the whole `quality` job — deliberately, so the build and the check
-cannot see different environments (F-156) — which puts it in scope for every step in that
+declared once for the whole `quality` job, deliberately, so the build and the check
+cannot see different environments (F-156), which puts it in scope for every step in that
 job, including `pnpm install --frozen-lockfile` and the build scripts of `@swc/core` and
 `esbuild`. Today that reach is worth nothing because the value authenticates nothing. Set
 the two to the same value and the same structure hands a compromised transitive build
@@ -57,7 +57,7 @@ Generate a CI value the same way as any other:
 openssl rand 24 | base64 | tr '+/' '-_' | tr -d '='
 ```
 
-32 base64url characters, no padding — the floor `assert-no-inlined-secrets.mjs` enforces.
+32 base64url characters, no padding: the floor `assert-no-inlined-secrets.mjs` enforces.
 
 ## Register `BFF_PROXY_SECRET` twice
 
@@ -67,7 +67,7 @@ Secrets and variables > Dependabot**, with the same value.
 GitHub runs Dependabot-triggered `push` and `pull_request` events with a read-only
 `GITHUB_TOKEN` and with Dependabot secrets only; Actions secrets are not exposed to them.
 Without the second registration `secrets.BFF_PROXY_SECRET` is empty on every Dependabot
-run, and `quality` fails — correctly, since a guard with nothing to search for would
+run, and `quality` fails, correctly, since a guard with nothing to search for would
 otherwise pass having checked nothing.
 
 That failure is not cosmetic. ADR-0018 makes Dependabot the only mechanism in the project
@@ -85,7 +85,7 @@ loudly is the right direction to fail in.
 
 ## What CI deliberately does not hold
 
-No Fly, Vercel, Neon or Upstash credentials, and no deploy step — Vercel deploys through
+No Fly, Vercel, Neon or Upstash credentials, and no deploy step: Vercel deploys through
 its own git integration rather than through Actions. `permissions: contents: read` at
 workflow level in both workflows, with `permissions: {}` on `gate`; nothing requests a
 write scope. A compromised action would get a token that can read a repository the whole

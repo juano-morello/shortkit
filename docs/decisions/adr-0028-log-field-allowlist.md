@@ -11,7 +11,7 @@ accepted_at: 2026-08-09
 > **Ledger correction, 2026-08-10.** This card read `status: proposed` until now, while
 > `state.yaml`'s design gate recorded Juano reapproving it on 2026-08-09 and the implement
 > log narrated it as partly implemented (F-260 and F-263 closed against it). The vault mirror
-> caught the discrepancy and declined to reconcile it, which was correct — the card is the
+> caught the discrepancy and declined to reconcile it, which was correct: the card is the
 > source of truth, so the card is what had to change. Same class as the drift the 2026-08-09
 > re-scope found in `state.yaml`: a status field with no writer after the event that should
 > have set it.
@@ -35,8 +35,8 @@ and the header it reads is `x-shortkit-client-ip`. Nothing on the list matches e
 
 A request-shaped record emits `remoteAddress`, `remotePort` and the concrete `url`
 (`/l/abc?token=SEKRIT`) verbatim (F-261). GC-9's first prohibition is a raw client IP in any
-field from any header, so contract invariant 1 — "Logging a whole request or response object
-never emits a credential, an IP, or a cookie" — is measured false today.
+field from any header, so contract invariant 1 ("Logging a whole request or response object
+never emits a credential, an IP, or a cookie") is measured false today.
 
 `sessionToken`, `apiKey`, `api_key`, `passwordHash` and a bare `authorization` or `cookie`
 outside `req.headers` are uncensored (F-266). `token` and `*.token` match a key spelled
@@ -118,7 +118,7 @@ an unnamed field is a compile error.
   line that typechecks.
 - **Cons.** Types are erased, so it is not a mechanism, it is a convention with tooling.
   `logger.info(parsedBody, '…')`, a spread of anything typed `any` or `unknown`, and any
-  `Record<string, unknown>` defeat it — and a spread of caller-controlled data is the exact
+  `Record<string, unknown>` defeat it, and a spread of caller-controlled data is the exact
   shape every leak in this TASK has taken. It also means shadowing pino's six level methods
   and their overloads to change one parameter type.
 - **Why it lost as the sole mechanism.** It cannot answer the class test: a field nobody
@@ -263,8 +263,8 @@ The implementer disclosed two departures from the fence above rather than absorb
 Both are **accepted into the contract**; the shipped source stands and neither is a finding.
 
 **1. `fieldsCensored`'s copy keeps `Array.isArray(record) ? [...record] : { ...record }`.**
-Accepted. The reason given for it — that the bare spread would change what an operator reads
-for `logger.info([e, e], '…')`, contract invariant 5's own shape — is **measured false**. Both
+Accepted. The reason given for it (that the bare spread would change what an operator reads
+for `logger.info([e, e], '…')`, contract invariant 5's own shape) is **measured false**. Both
 copy forms emit the same bytes: pino's `_asJson` writes own enumerable keys either way, so the
 line is `"0":{"err_name":…},"1":{"err_name":…}` under both. Measured 2026-08-10 on pino 10.3.1
 with the two formatters side by side.
@@ -273,19 +273,19 @@ The ternary is kept for two reasons that do hold. The function is declared
 `<T extends object>(record: T, depth: number): T`, and spreading an array into an object
 literal makes the `as T` a false statement about the value; a cast that lies is worth one
 ternary to avoid. And it is the form the previous shipped scan had, so keeping it is the
-existing pattern rather than a new one — this ADR gave no reason to change it, and changing it
+existing pattern rather than a new one: this ADR gave no reason to change it, and changing it
 was not among the things it decided. Nothing tests the shape, before or after, and that gap is
 recorded in the contract rather than closed here.
 
 **2. `interpolationSafe` became `valueCensored(value, 1)`, the constant moving 2 → 1.**
 Accepted, and this ADR should have specified the format path rather than leaving it to be
-inferred. A format argument arrives under no key, so the key rule cannot apply to it —
+inferred. A format argument arrives under no key, so the key rule cannot apply to it:
 `logger.error('a %s', 'b')` has to interpolate `b`, and there is no field name to decide
 about. Routing it through the value half of the policy is the only coherent answer.
 
 The constant's meaning changed with it, and the load-bearing property survives. It used to be
 the depth a *container* was walked from; it is now the depth the *argument itself* is scanned
-at, and `valueCensored` walks a container it holds at `depth + 1` — so a container is still
+at, and `valueCensored` walks a container it holds at `depth + 1`, so a container is still
 walked from 2, where the top-level `err` exemption does not fire, and
 `logger.error('ctx %o', { err: e })` stays closed. Defended by four tests in `logger.spec.ts`
 (F-260's `%o`, `%j`, `%s`, and F-269's no-placeholder shape), all green.
@@ -429,8 +429,8 @@ Negative, and the cost accepted:
   `"msg":"callers own msg","msg":"an error was logged with no context string"`, because the
   record keeps its own `msg` and pino is handed the fixed string as well. A parser that keeps
   the last key reads the fixed string and the call site's own message is shadowed. **This is
-  not new with F-277** — the same shape with an `Error` in the message position took the same
-  branch before, measured on the shipped singleton — but F-277 widens it from `Error` to every
+  not new with F-277** (the same shape with an `Error` in the message position took the same
+  branch before, measured on the shipped singleton), but F-277 widens it from `Error` to every
   non-null object. Not a leak: both values are `msg`, which is on the allowlist and free text
   either way. Closing it means teaching `errorMovedOntoTheRecord` about a record-supplied `msg`,
   which is a second policy on the position, so it is accepted rather than fixed here.
@@ -441,8 +441,8 @@ Negative, and the cost accepted:
   with the record and the fixed string, so the second argument goes nowhere. **Disclosed by the
   implementer from the branch conditions and verified by emitting, 2026-08-10:** the line
   carries the real error's `err_name` and `err_stack` and no trace of the container. This is
-  the safe direction of the two — no leak, and the real error survives where the shape above
-  loses it — and the cost is that a caller who passes a container there gets no signal that it
+  the safe direction of the two (no leak, and the real error survives where the shape above
+  loses it), and the cost is that a caller who passes a container there gets no signal that it
   was discarded. No call site produces this shape.
 
 - **One more shape where both the container and the error vanish, and pino rather than this
@@ -490,7 +490,7 @@ Negative, and the cost accepted:
    cost this decision accepts.
 7. **`msg`, `level`, `time`, `pid`, `hostname`, `service` and `env` are outside the scan.**
    Measured on pino 10.3.1: `formatters.log` receives only the log call's own record, so a
-   positional message never reaches the allowlist and a record-supplied `msg` does — which is
+   positional message never reaches the allowlist and a record-supplied `msg` does, which is
    why `msg` is on the list. `service` and `env` are `base`, serialised at construction from
    module literals. **What covers a positional message is not this rule but the argument-list
    table above** (F-277): the key rule never sees it, and the message argument is covered by
@@ -554,8 +554,8 @@ is still redaction.
   exactly which field is missing and what it is called, and that the fix is one line in one
   file that any TASK can land. They do not remove the cost.
 - **Invariant 5 narrows.** An `Error` under a key at depth 1 still emits `err_name` and
-  `err_stack` under any spelling, but an error nested inside a container that is not named —
-  `{ ctx: { err: e } }` — is now lost entirely rather than reduced to policy fields. Measured:
+  `err_stack` under any spelling, but an error nested inside a container that is not named
+  (`{ ctx: { err: e } }`) is now lost entirely rather than reduced to policy fields. Measured:
   `"ctx":"[redacted]"`. That shape is F-248's third case and it is a real diagnostic loss.
   The remedy is the shape the contract already prescribes: pass the error at the top level.
 - **The escape hatch is `msg`, and this decision pushes traffic toward it.** ADR-0022's
@@ -685,8 +685,8 @@ The order below is the order the work happened in, and step 1 was not optional.
      earlier version of this step said it had none, which was wrong and is corrected here.
 
    **CORRECTED 2026-08-10 (F-278). The sweep enumerated eight sites and two of them are not
-   on this logger at all.** The claim it made about them — "pass a string and no record, so
-   the key rule does not reach them, `msg` covers what they emit" — reads as though they were
+   on this logger at all.** The claim it made about them ("pass a string and no record, so
+   the key rule does not reach them, `msg` covers what they emit") reads as though they were
    shared-logger call sites whose fields happen to be safe. They are a second log surface
    with none of the six mechanisms:
 
@@ -863,7 +863,7 @@ Three steps, and it is deliberately three:
    name per line, with a trailing comment naming the file that emits it.
 3. Check it against "What may never appear in a log line". If the field is a raw IP, a token,
    a password, a digest, a request body, a concrete URL path or a foreign `tenant_id`, the
-   answer is not to add it to the list — it is that the field may not be logged.
+   answer is not to add it to the list: it is that the field may not be logged.
 
 A field that skips step 2 emits `"<field>":"[redacted]"`. That is the designed failure and
 it is visible in the line the TASK's own dev run prints.
@@ -974,7 +974,7 @@ the five deltas.
 
 **So the allowlist is both safer and faster than the 25-path denylist**, and the cost this ADR
 accepted was never throughput. It was the missing field, and it still is. What stands between
-an unnamed field and a log line is now exactly one mechanism, by design — see
+an unnamed field and a log line is now exactly one mechanism, by design; see
 `logging-and-headers.md`, "One mechanism between an unnamed field and the line", for what that
 makes load-bearing.
 

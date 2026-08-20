@@ -21,7 +21,7 @@
  * normative) and docs/contracts/error-envelope.md.
  *
  * `fetch` is the only thing stubbed. It is the genuine external boundary; everything
- * else — the response objects, the zod contracts, the error classes — is real. Response
+ * else (the response objects, the zod contracts, the error classes) is real. Response
  * bodies are real `Response` instances and the contracts come from `@shortkit/contracts`,
  * so a fixture "fails validation" because the shared schema rejects it, not because this
  * file decided it does. The two premise guards below enforce exactly that.
@@ -71,7 +71,7 @@ function bodyFailingTheContract(): unknown {
 /**
  * Premise guard, mirrored. AC-15 asks the client to distinguish a contract violation from
  * an error the API deliberately returned, so the 4xx fixture has to be a body the API
- * really could send — i.e. one `errorEnvelopeContract` accepts.
+ * really could send, i.e. one `errorEnvelopeContract` accepts.
  */
 function wellFormedEnvelope(code: ErrorCode, message: string): unknown {
   const envelope = { code, message };
@@ -187,7 +187,7 @@ describe('apiClient response validation', () => {
  *
  * Two conventions carried from above: `fetch` is still the only thing stubbed, and every
  * fixture is still a real `Response` validated by a real shared contract. What is new is
- * that the stub's ARGUMENTS are now read — that is the whole of F-290.
+ * that the stub's ARGUMENTS are now read: that is the whole of F-290.
  */
 
 /**
@@ -195,7 +195,7 @@ describe('apiClient response validation', () => {
  * (`invitation-tokens.md`), a bearer credential granting workspace membership. It is the
  * value the security auditor measured reaching `Error.message` and the own enumerable
  * `path` property. Every character is URL-unreserved, so `encodeURIComponent` leaves it
- * byte-identical — hand-checked, so the URL assertions below can spell the result out.
+ * byte-identical, hand-checked, so the URL assertions below can spell the result out.
  */
 const INVITATION_SECRET = 'V1StGXR8Z5jdHi6B-myT-aB3cDeFgHiJkLmNoPqRsTu';
 const INVITATION_TOKEN = `0f8fad5b-d9cb-469f-a165-70867728950e.${INVITATION_SECRET}`;
@@ -242,7 +242,7 @@ function fetchCallCount(): number {
 
 /**
  * What the client handed `fetch`. `web-api-client.md` step 5: "The string built at step 5
- * is what reaches `fetch`" — a `Request` or absolute `URL` would be a different contract,
+ * is what reaches `fetch`": a `Request` or absolute `URL` would be a different contract,
  * so it is refused here as a broken premise rather than coerced.
  */
 function sentRequest(): { url: string; init: RequestInit } {
@@ -560,7 +560,7 @@ describe('a caller-initiated abort is not a transport failure (F-292)', () => {
     expect(outcome).toBeInstanceOf(errorClassFromClient('RequestAbortedError'));
     expect(outcome).not.toBeInstanceOf(NetworkError);
     // F-335. The READ leg has its own abort branch, and until this line the only test
-    // reaching it asserted the class alone — so a branch reading the caught rejection
+    // reaching it asserted the class alone, so a branch reading the caught rejection
     // instead of the signal survived the whole suite. The two readings genuinely differ
     // here, which the round-3 note got wrong: `networkAbortsWhileReadingBody` errors the
     // stream with `new Error('socket closed')` while `abort(reason)` carries this
@@ -568,8 +568,8 @@ describe('a caller-initiated abort is not a transport failure (F-292)', () => {
     // reasoned: `caught === streamErr` is true and `caught === signal.reason` is false.
     //
     // Identity, not a redacted-surface check. `toBe` is strictly stronger than any
-    // `deepErrorSurface` assertion could be — if `cause` IS the object the caller handed
-    // `abort()`, nothing from the platform rejection is reachable through it at all — and
+    // `deepErrorSurface` assertion could be: if `cause` IS the object the caller handed
+    // `abort()`, nothing from the platform rejection is reachable through it at all, and
     // it does not inherit `util.inspect`'s blind spots (F-339).
     expect((outcome as Error).cause).toBe(reason);
   });
@@ -695,7 +695,7 @@ describe('the exports the BFF proxy implementer reads (F-288)', () => {
     // Retitled 2026-08-11 (F-337). It read "names every method the proxy checks Origin on",
     // which ADR-0038 made false: the constant is DESCRIPTIVE, `isMutatingMethod` does not
     // read it, and OPTIONS is checked without appearing here. What the assertion pins is
-    // unchanged — the exported list TASK-012's implementer reads — but a reader who took the
+    // unchanged (the exported list TASK-012's implementer reads), but a reader who took the
     // old title at face value would rebuild the four-item allowlist as the predicate, which
     // is F-233's 403 with every test green. The definition is asserted at 'F-305:
     // isMutatingMethod is true for OPTIONS' and 'NON_MUTATING_METHODS ... names GET and HEAD'.
@@ -726,14 +726,14 @@ describe('the exports the BFF proxy implementer reads (F-288)', () => {
  *
  * Everything above this line is unchanged. Two findings, one shape each:
  *
- * F-306 (major, contract) — path construction step 2 compares the placeholder COUNT plus
+ * F-306 (major, contract): path construction step 2 compares the placeholder COUNT plus
  * `Object.hasOwn` instead of the placeholder SET web-api-client.md:93-95 specifies, so a
  * template that REPEATS a placeholder lets an unrelated extra key satisfy the count. The
  * failure is not fail-safe: one param's value is substituted into a segment that means
  * something else, and the value the caller actually supplied for that segment is dropped.
  * Filed independently by the reviewer and, as its own F-309, by the security auditor.
  *
- * F-307 (minor, behavior) — `appendQuery` omits `undefined` values (web-api-client.md:100-101)
+ * F-307 (minor, behavior): `appendQuery` omits `undefined` values (web-api-client.md:100-101)
  * and no test passes one, so the guard can be deleted with all 31 tests still green. The
  * behaviour is correct today; what is missing is the assertion that keeps it correct.
  *
@@ -799,7 +799,7 @@ describe('params must match the template, as a SET (F-306)', () => {
   it('F-306: refuses a repeated placeholder even when params carry exactly its one key', async () => {
     // GREEN before the fix, and it has to stay green after it. The cheapest fix for the two
     // tests above is to compare `new Set(placeholders)` against the key set, which ACCEPTS
-    // this call and builds '/api/bff/a/v/v' — one supplied value silently expanded into two
+    // this call and builds '/api/bff/a/v/v': one supplied value silently expanded into two
     // segments. F-306's required change is explicit that a duplicated placeholder is
     // rejected "regardless of what params carries", and the shipped client already rejects
     // this one on the count; nothing here may make it start passing.
@@ -858,24 +858,24 @@ describe('the query string apiClient builds (F-307)', () => {
  *
  * Five rulings, and what each one costs a test:
  *
- * F-305 — mutating means anything that is not GET or HEAD. The PREDICATE is the definition;
+ * F-305: mutating means anything that is not GET or HEAD. The PREDICATE is the definition;
  * `MUTATING_METHODS` becomes descriptive and `isMutatingMethod` no longer reads it. OPTIONS
  * is mutating, and `isMutatingMethod('OPTIONS') === true` is the ONLY assertion that
- * separates the two readings — which is exactly why round 2 could not tell them apart.
+ * separates the two readings, which is exactly why round 2 could not tell them apart.
  *
- * F-311 — the predicate uppercases its own input and defaults to mutating, i.e. fails
+ * F-311: the predicate uppercases its own input and defaults to mutating, i.e. fails
  * CLOSED. Measured reachability: `new Request(u, { method: 'post' }).method` normalises to
  * `POST`, but `{ method: 'patch' }` stays lowercase, because PATCH is absent from the Fetch
- * spec's normalise list — and PATCH is one of the four methods `ApiRequest.method` allows.
+ * spec's normalise list, and PATCH is one of the four methods `ApiRequest.method` allows.
  *
- * F-310 — `NetworkError` and `ContractViolationError` carry NO `cause`. `RequestAbortedError`
+ * F-310: `NetworkError` and `ContractViolationError` carry NO `cause`. `RequestAbortedError`
  * carries `{ cause: req.signal.reason }`, read off the SIGNAL, which also closes the
  * abort/transport race. The assertion is on the PROPERTY: `cause` is non-enumerable, so
  * `JSON.stringify({...e})`, `Object.keys` and `getOwnPropertyNames` all came back clean in
  * round 1 while `util.inspect` printed the credential. `errorSurface()` above is blind to it
  * BY CONSTRUCTION; `deepErrorSurface()` below is the one that sees.
  *
- * F-312 / F-314 — a value `encodeURIComponent` cannot encode leaves step 3 by the same exit
+ * F-312 / F-314: a value `encodeURIComponent` cannot encode leaves step 3 by the same exit
  * as the other unusable values, and the message widens to name that fourth condition. F-312
  * shipped in round 2 as production code with no covering test; the implementer disclosed it
  * rather than leaving it, and this is where it closes.
@@ -889,7 +889,7 @@ describe('the query string apiClient builds (F-307)', () => {
 const LONE_SURROGATE = '\uD800';
 
 /**
- * The rejection Node's `fetch` hands the `catch` — it carries the RESOLVED URL in its own
+ * The rejection Node's `fetch` hands the `catch`: it carries the RESOLVED URL in its own
  * message, and therefore the credential the route template kept out of `message`, `path`,
  * the spread and the stack. This is the value ADR-0029 measured arriving in a log body as
  * `[cause]: [TypeError: Failed to parse URL from /api/bff/invitations/<full token>`. A
@@ -929,8 +929,8 @@ function networkFailsWhileReadingBody(rejection: Error): void {
 /**
  * The race the tie-breaking rule already covers: the signal aborts and the transport fails
  * in the SAME tick, so `fetch` rejects with a platform value that is NOT `signal.reason`.
- * `networkAbortsInFlight` above cannot show this, because it rejects with the reason itself
- * — which is why reading the rejection and reading the signal look identical there.
+ * `networkAbortsInFlight` above cannot show this, because it rejects with the reason itself,
+ * which is why reading the rejection and reading the signal look identical there.
  */
 function networkAbortsAndAlsoFails(
   controller: AbortController,

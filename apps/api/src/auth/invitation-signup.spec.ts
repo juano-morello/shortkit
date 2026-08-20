@@ -26,7 +26,7 @@ import {
 import * as OnUserCreated from './on-user-created';
 
 /**
- * STORY-1b-02 — AC-1b-8, AC-1b-9, AC-1b-10 at the hook level. TASK-1b-09 (item 1b, wave 3).
+ * STORY-1b-02: AC-1b-8, AC-1b-9, AC-1b-10 at the hook level. TASK-1b-09 (item 1b, wave 3).
  *
  * Contract: `docs/contracts/invitation-tokens.md` ("The invited-signup branch uses the same
  * entry point"), `docs/contracts/auth-config-surface.md` (invariants 4, 5; the error-cases
@@ -34,10 +34,10 @@ import * as OnUserCreated from './on-user-created';
  *
  * WHAT IS HERE: the one predicate both hooks share, the path predicate, the mapping from
  * the lookup's answers to the five `APIError`s (status, code, fixed message), the F-228 rule
- * (nothing but an `APIError` leaves the hook — an unexpected throw becomes a 500 WITH a
+ * (nothing but an `APIError` leaves the hook: an unexpected throw becomes a 500 WITH a
  * body, logged once with no message), and `provisionForNewUser`'s branch. WHAT IS NOT: the
- * lookup and the accept themselves — those open real tenant transactions and are
- * `capability-lookup.spec.ts`'s and `test/invitations/capability-token.int-spec.ts`'s —
+ * lookup and the accept themselves: those open real tenant transactions and are
+ * `capability-lookup.spec.ts`'s and `test/invitations/capability-token.int-spec.ts`'s,
  * and whether Better Auth really hands the after hook the request body, which
  * `test/auth/signup-invited.int-spec.ts` proves against the child.
  *
@@ -103,7 +103,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('invitationTokenFrom — the one predicate both hooks share (D-18)', () => {
+describe('invitationTokenFrom: the one predicate both hooks share (D-18)', () => {
   it('a non-empty string under invitationToken is the token, verbatim', () => {
     expect(invitationTokenFrom({ [INVITATION_TOKEN_BODY_KEY]: TOKEN })).toBe(TOKEN);
     expect(INVITATION_TOKEN_BODY_KEY).toBe('invitationToken');
@@ -173,7 +173,7 @@ describe('invitationValidationHook', () => {
   });
 
   it.each([
-    ['null (malformed / unknown / wrong-tenant — one answer, ADR-0021)', null, 404, INVITATION_HOOK_CODES.notFound, INVITATION_NOT_FOUND_MESSAGE],
+    ['null (malformed / unknown / wrong-tenant; one answer, ADR-0021)', null, 404, INVITATION_HOOK_CODES.notFound, INVITATION_NOT_FOUND_MESSAGE],
     ['InvitationExpiredError', new InvitationExpiredError(), 410, INVITATION_HOOK_CODES.expired, INVITATION_EXPIRED_MESSAGE],
     ['InvitationRevokedError', new InvitationRevokedError(), 410, INVITATION_HOOK_CODES.revoked, INVITATION_REVOKED_MESSAGE],
     ['InvitationAlreadyAcceptedError', new InvitationAlreadyAcceptedError(), 409, INVITATION_HOOK_CODES.alreadyAccepted, INVITATION_ALREADY_ACCEPTED_MESSAGE],
@@ -264,7 +264,7 @@ describe('invitationValidationHook', () => {
   });
 });
 
-describe('provisionForNewUser — the after hook’s branch (ADR-0015, D-18)', () => {
+describe('provisionForNewUser: the after hook’s branch (ADR-0015, D-18)', () => {
   it('a token → acceptInvitationByCapabilityToken(token, { userId, tenantMembership: "create" }) and NO tenant is created', async () => {
     accept.mockResolvedValueOnce({ tenantId: '11111111-1111-4111-8111-111111111111', workspaces: [] });
 
@@ -294,7 +294,7 @@ describe('provisionForNewUser — the after hook’s branch (ADR-0015, D-18)', (
     expect(accept).not.toHaveBeenCalled();
   });
 
-  it('ADR-0054 part 2: a failing accept propagates verbatim — nothing is swallowed and no tenant is created instead', async () => {
+  it('ADR-0054 part 2: a failing accept propagates verbatim: nothing is swallowed and no tenant is created instead', async () => {
     const failure = new Error('the accept transaction failed');
     accept.mockRejectedValueOnce(failure);
 

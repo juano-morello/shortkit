@@ -1,6 +1,6 @@
 /**
- * STORY-2-01 — AC-2-4 (the contract half: which destinations are storable).
- * STORY-2-05 — AC-2-27 (the pure-function half: the validity window per branch).
+ * STORY-2-01, AC-2-4 (the contract half: which destinations are storable).
+ * STORY-2-05, AC-2-27 (the pure-function half: the validity window per branch).
  * TASK-2-01.
  *
  * Contract: docs/contracts/slug.md, error-envelope.md, redirect-resolution.md,
@@ -19,7 +19,7 @@
  * That makes the F-006 class apply here exactly as it did to `fallbackUrl`: if
  * `javascript:` can be stored, it can be served, from the platform's own origin, to an
  * anonymous visitor. Parsing with `new URL` rather than matching a regex is what makes
- * `java\nscript:` and a leading-space variant refuse too — the WHATWG parser strips
+ * `java\nscript:` and a leading-space variant refuse too: the WHATWG parser strips
  * tabs, newlines and leading C0/space before reading the scheme, and a regex written
  * against the raw string does not.
  */
@@ -64,7 +64,7 @@ function destinationIssues(input: unknown): string[] {
   return toValidationDetails(outcome.error).fieldErrors.destinationUrl ?? [];
 }
 
-describe('destinationUrlContract — what may be stored, and in what form', () => {
+describe('destinationUrlContract: what may be stored, and in what form', () => {
   it('AC-2-4: `http://plain.example` is accepted (a shortener must accept http targets)', () => {
     expect(destinationUrlContract.parse('http://plain.example')).toBe('http://plain.example/');
   });
@@ -122,7 +122,7 @@ describe('destinationUrlContract — what may be stored, and in what form', () =
 
   describe('the binding length check is on `href`, not on the input', () => {
     // Percent-encoding on the way to `href` can multiply a string several times over, so
-    // a raw-input bound does not bound what gets STORED — and `destination_url` is
+    // a raw-input bound does not bound what gets STORED, and `destination_url` is
     // unbounded `text`, so nothing downstream catches the overflow either.
     const percentEncoded = (repeats: number): string =>
       `https://example.com/${'é'.repeat(repeats)}`;
@@ -130,8 +130,8 @@ describe('destinationUrlContract — what may be stored, and in what form', () =
     it('a percent-encoding-heavy URL that passes the RAW bound is refused on its href', () => {
       const input = percentEncoded(2028);
 
-      // Measured: 2048 characters in, 12,188 characters of `href` out — a 6x blow-up
-      // that a raw-input bound waves straight through.
+      // Measured: 2048 characters in, 12,188 characters of `href` out (a 6x blow-up
+      // that a raw-input bound waves straight through).
       expect(input.length).toBe(DESTINATION_URL_MAX_LENGTH);
       expect(new URL(input).href.length).toBe(12_188);
       expect(destinationIssues(input)).toEqual([DESTINATION_URL_TOO_LONG_MESSAGE]);
@@ -190,7 +190,7 @@ describe('destinationUrlContract — what may be stored, and in what form', () =
   });
 });
 
-describe('linkContract — the wire shape of one link (D-2-19)', () => {
+describe('linkContract: the wire shape of one link (D-2-19)', () => {
   const WIRE_LINK = {
     id: LINK_ID,
     workspaceId: WORKSPACE_ID,
@@ -263,7 +263,7 @@ describe('linkContract — the wire shape of one link (D-2-19)', () => {
   });
 });
 
-describe('createLinkContract — POST /api/links (D-2-12)', () => {
+describe('createLinkContract: POST /api/links (D-2-12)', () => {
   it('the minimum body is a workspace and a destination', () => {
     expect(
       createLinkContract.parse({
@@ -273,7 +273,7 @@ describe('createLinkContract — POST /api/links (D-2-12)', () => {
     ).toEqual({ workspaceId: WORKSPACE_ID, destinationUrl: 'https://example.com/a' });
   });
 
-  it('D-2-12: there is no `domainId` field — item 3 adds it, and it is stripped until then', () => {
+  it('D-2-12: there is no `domainId` field (item 3 adds it, and it is stripped until then)', () => {
     const parsed = createLinkContract.parse({
       workspaceId: WORKSPACE_ID,
       destinationUrl: 'https://example.com/a',
@@ -377,7 +377,7 @@ describe('createLinkContract — POST /api/links (D-2-12)', () => {
     it('a malformed timestamp reports ITS OWN issue only, not the window message too', () => {
       // Measured on zod 4.4.3: an object-level `.refine` runs even when a field already
       // produced an issue. `Date.parse('garbage')` is NaN and `NaN < NaN` is false, so
-      // without the guard in `hasOrderedWindow` a single typo would show two errors —
+      // without the guard in `hasOrderedWindow` a single typo would show two errors,
       // one true, one invented.
       const outcome = createLinkContract.safeParse({
         workspaceId: WORKSPACE_ID,
@@ -401,7 +401,7 @@ describe('createLinkContract — POST /api/links (D-2-12)', () => {
   });
 });
 
-describe('updateLinkContract — PATCH /api/links/:linkId (D-2-12)', () => {
+describe('updateLinkContract: PATCH /api/links/:linkId (D-2-12)', () => {
   it('every field is optional: an empty patch parses (and still fires `updated`)', () => {
     // `toEqual({})` would NOT prove this: vitest ignores keys whose value is `undefined`,
     // so a schema that filled every field with `undefined` would pass it. The key list is
@@ -432,7 +432,7 @@ describe('updateLinkContract — PATCH /api/links/:linkId (D-2-12)', () => {
   });
 
   it('null clears a timestamp, which is how an operator removes an expiry', () => {
-    // The key must be PRESENT and null — an absent key means "leave it alone", and the
+    // The key must be PRESENT and null: an absent key means "leave it alone", and the
     // two are the whole difference between clearing an expiry and ignoring the request.
     const parsed = updateLinkContract.parse({ expiresAt: null });
 
@@ -462,7 +462,7 @@ describe('updateLinkContract — PATCH /api/links/:linkId (D-2-12)', () => {
   });
 });
 
-describe('clickEventContract — the read surface of one click (D-2-19)', () => {
+describe('clickEventContract: the read surface of one click (D-2-19)', () => {
   const WIRE_CLICK = {
     id: CLICK_ID,
     linkId: LINK_ID,
@@ -512,7 +512,7 @@ describe('clickEventContract — the read surface of one click (D-2-19)', () => 
   });
 });
 
-describe('clickQueryContract — GET /api/links/:linkId/clicks', () => {
+describe('clickQueryContract: GET /api/links/:linkId/clicks', () => {
   it('carries the pagination fields, with the shared default of 25', () => {
     expect(clickQueryContract.parse({})).toEqual({ limit: 25 });
   });
@@ -541,7 +541,7 @@ describe('clickQueryContract — GET /api/links/:linkId/clicks', () => {
   });
 });
 
-describe('isLinkActive — AC-2-27, one branch at a time (ADR-0009, D-2-11)', () => {
+describe('isLinkActive: AC-2-27, one branch at a time (ADR-0009, D-2-11)', () => {
   const NOW = new Date('2026-08-19T12:00:00.000Z');
   const BEFORE = new Date('2026-08-19T11:00:00.000Z');
   const AFTER = new Date('2026-08-19T13:00:00.000Z');
@@ -618,7 +618,7 @@ describe('isLinkActive — AC-2-27, one branch at a time (ADR-0009, D-2-11)', ()
           { activatesAt: null, expiresAt: new Date('garbage') },
           NOW,
         ),
-        // The empty string is the likeliest way an unreadable bound actually arrives —
+        // The empty string is the likeliest way an unreadable bound actually arrives:
         // a cleared form field serialised as `''` rather than omitted or nulled. It takes
         // the same NaN path, so it must fail closed too and not read as "no bound".
         emptyStringExpiry: isLinkActive({ activatesAt: null, expiresAt: '' }, NOW),

@@ -1,7 +1,7 @@
 /**
  * SQL access for the integration suite's fixtures, without a Node driver.
  *
- * ⚠ THIS FILE IS sdlc-test-architect'S TO REPLACE — NOT TASK-005'S.
+ * ⚠ THIS FILE IS sdlc-test-architect'S TO REPLACE, NOT TASK-005'S.
  *
  * `apps/api/test/support/**` appears in no TASK's paths and belongs to
  * sdlc-test-architect under routing rule 0, so no implementer may edit it. TASK-005's
@@ -14,7 +14,7 @@
  * The suite needs three things the production API deliberately does not expose:
  * DDL as the migrator role, seeding, and a read on the runtime role that is NOT
  * wrapped in a tenant transaction (AC-10). `apps/api/src/db/client.ts` never
- * exports an unscoped client — that is the point of ADR-0002 — so the fixture
+ * exports an unscoped client (that is the point of ADR-0002) so the fixture
  * needs its own connection.
  *
  * `pg` is not a dependency of `apps/api` at the time these tests were written.
@@ -52,7 +52,7 @@ export interface SqlOptions {
   /**
    * Sets `app.tenant_id` for the psql session before the statement runs, so a
    * fixture can read or seed an RLS-protected table. psql interpolates it through
-   * `:'tenant_id'`, which quotes it as a literal — the value never reaches the
+   * `:'tenant_id'`, which quotes it as a literal: the value never reaches the
    * statement by string concatenation (rls-policy-template.md).
    */
   readonly tenantId?: string;
@@ -66,8 +66,8 @@ export interface SqlOptions {
    *
    * `tenantId` above is the same mechanism with one flag name baked in, and it stays
    * because every existing caller uses it. This exists for the other two flags the
-   * migrated policies read — `app.membership_lookup_user` (ADR-0045) and
-   * `app.privileged_erase` (F-005) — which wave 2 is the first fixture to need.
+   * migrated policies read: `app.membership_lookup_user` (ADR-0045) and
+   * `app.privileged_erase` (F-005), which wave 2 is the first fixture to need.
    *
    * ⚠ THE VALUE IS INTERPOLATED BY psql, THE NAME IS NOT. `:'flag_<n>'` quotes the value
    * as a literal, the same route `tenantId` takes; the flag name is concatenated into the

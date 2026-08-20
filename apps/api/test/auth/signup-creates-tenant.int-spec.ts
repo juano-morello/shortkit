@@ -24,7 +24,7 @@ import type { AuthResponse } from '../support/auth-fixture';
 import { assertTenantsIsMigrated } from '../support/rls-fixture';
 
 /**
- * STORY-001 — AC-1 and AC-3. TASK-003, wave 2.
+ * STORY-001: AC-1 and AC-3. TASK-003, wave 2.
  *
  * Contract: `docs/contracts/auth-config-surface.md` ("What the implementer must
  * guarantee", invariants 2, 12 and 13), `docs/contracts/auth-tokens.md`
@@ -52,8 +52,8 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
  *
  * It read "exactly one `tenants` row exists", which is a GLOBAL count that no DSN this suite
  * is given can produce: `tenants` carries FORCE ROW LEVEL SECURITY and `tenants_self_select`
- * admits only the row whose id equals `app.tenant_id`, so one context sees at most one row —
- * its own — and every role the suite connects as is NOBYPASSRLS by design
+ * admits only the row whose id equals `app.tenant_id`, so one context sees at most one row
+ * (its own), and every role the suite connects as is NOBYPASSRLS by design
  * (`docker-compose.test.yml`: "a superuser is exempt from every policy and would make
  * AC-8..AC-11 vacuous"). See `auth-fixture.ts`'s `tenantRow`.
  *
@@ -62,7 +62,7 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
  * membership read below asserts, through `app.membership_lookup_user`, so a second
  * membership under a second tenant appears in the count rather than being filtered out of
  * it. THE RESIDUAL THE AMENDMENT ACCEPTS is a second, orphaned `tenants` row with no
- * membership pointing at it — a shape no assertion here can see, recorded on the AC.
+ * membership pointing at it: a shape no assertion here can see, recorded on the AC.
  */
 
 /** The account AC-1 and AC-3 are stated over. */
@@ -110,7 +110,7 @@ function theUser(email: string): { readonly id: string; readonly emailVerified: 
  *
  * `id`, `createdAt` and `updatedAt` are the card's three. `email` is the fourth and it comes
  * from the amended invariant 8 in `auth-tokens.md`: a duplicate response is "byte-identical
- * to a real creation APART FROM THE CALLER'S OWN `email`" — the two branches are probed with
+ * to a real creation APART FROM THE CALLER'S OWN `email`": the two branches are probed with
  * two different addresses, so an unnormalised `email` makes the comparison fail for the one
  * reason that proves nothing.
  *
@@ -175,7 +175,7 @@ describe('signup provisions a tenant', () => {
     // other half already contradicted.
     //
     // The membership read is keyed on `app.membership_lookup_user`, so it returns this user's
-    // rows ACROSS EVERY TENANT — a second membership under a second tenant appears in the
+    // rows ACROSS EVERY TENANT: a second membership under a second tenant appears in the
     // count rather than being filtered out of it, which is what makes "exactly one" a
     // statement.
     await signUp(server, SIGNUP_EMAIL, POLICY_COMPLIANT_PASSWORD);
@@ -214,7 +214,7 @@ describe('signup provisions a tenant', () => {
     // Ruled by Juano 2026-08-16 on F-198, which this Test phase raised: `tenants.name` is
     // `text NOT NULL` and NO ARTIFACT SAID WHAT SIGNUP WRITES THERE, while
     // `createTenantForNewUser` took an `email` whose only plausible use was that column. The
-    // ruling is the name, verbatim — nothing derived, nothing parsed, no placeholder — and
+    // ruling is the name, verbatim (nothing derived, nothing parsed, no placeholder), and
     // `email` left the signature rather than staying in it implying a use it did not have.
     //
     // `SIGNUP_NAME` is what the fixture sends as the signup body's `name`, and it CANNOT BE
@@ -233,10 +233,10 @@ describe('signup provisions a tenant', () => {
   it('ADR-0061 invariant 13: a successful signup issues no session row and no Set-Cookie', async () => {
     // THE PREMISE AC-3's AMENDMENT RESTS ON. `autoSignIn: false` stops signup establishing a
     // session, which is what closes the status-code oracle AND what keeps a live credential
-    // off ADR-0054's failure path — the 500 for a failed provisioning used to arrive with a
+    // off ADR-0054's failure path: the 500 for a failed provisioning used to arrive with a
     // session cookie on it. A caller that needs a session signs in.
     // ⚠ THE STATUS IS IN THE ASSERTION AND IS NOT DECORATION. "No session and no cookie" is
-    // trivially true of a signup that did not happen — measured on the wave-2 red run, where
+    // trivially true of a signup that did not happen: measured on the wave-2 red run, where
     // this was one of two tests in this file that went GREEN against an API with no auth
     // mount at all, because a 404 also creates no session. The clause is about a SUCCESSFUL
     // signup, so the success belongs in the same assertion.
@@ -253,13 +253,13 @@ describe('signup provisions a tenant', () => {
 describe('the claim set on a token minted for a sign-in session', () => {
   it('AC-3: sub, tid, email, ev and jti are the signup’s own values and exp minus iat is 300', async () => {
     // ONE ASSERTION, SIX CLAUSES, because AC-3 is one sentence about one token. Every
-    // expected value is read from the database or is a literal — none is computed by the
+    // expected value is read from the database or is a literal: none is computed by the
     // path that produced the token.
     //
     // `jti` IS THE SESSION ID AND IS NOT A PER-TOKEN NONCE (F-227, `sign.mjs:49` only sets
     // the claim when `definePayload` puts it there). That is what makes one revocation entry
-    // cover every token a session ever minted, and it is why sign-out — which holds a session
-    // and no token — can revoke at all.
+    // cover every token a session ever minted, and it is why sign-out (which holds a session
+    // and no token) can revoke at all.
     //
     // `exp - iat` is the clause F-168 would have broken: `expirationTime: 300` as a NUMBER
     // is returned unchanged as the `exp` claim (`utils.mjs:15-19`), so every token would be
@@ -306,7 +306,7 @@ describe('the claim set on a token minted for a sign-in session', () => {
     // the same `kid`, both verified, and both satisfied `shortkitJwtClaimsContract`, which
     // types `iss` as `z.string().min(1)`. `AuthGuard` step 4 compares `iss` and `aud`
     // against the configured value, so a token minted under an attacker's Host is a token
-    // the guard rejects — or accepts, if the guard derives its expectation the same way.
+    // the guard rejects, or accepts, if the guard derives its expectation the same way.
     //
     // The mint goes through `node:http` rather than `fetch`: undici DROPS a `Host` header
     // SILENTLY (measured on Node 24.19), so a test written on `fetch` would assert that the
@@ -361,7 +361,7 @@ describe('a signup against an address that already has an account', () => {
     // `sign-up.mjs:162` computes its generic-duplicate branch from
     // `requireEmailVerification || autoSignIn === false`. With auto-sign-in on, a duplicate
     // answered `422 USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL` and a fresh address answered 200,
-    // which is an unauthenticated enumeration oracle on a public route — and
+    // which is an unauthenticated enumeration oracle on a public route, and
     // `rateLimit: { enabled: false }` removes the library's own brake in the same card while
     // the replacement limiter is IP-keyed and lands a wave later.
     await signUp(server, SIGNUP_EMAIL, POLICY_COMPLIANT_PASSWORD);
@@ -375,7 +375,7 @@ describe('a signup against an address that already has an account', () => {
     // The 200 is a SYNTHETIC user (amended invariant 8: "a 200 no longer means a user was
     // created"), so the state assertion is what says the row count did not move. A duplicate
     // that provisioned a second tenant would leave this user holding one membership and the
-    // database holding two tenants — and `tenant_memberships_user_unique` would then be the
+    // database holding two tenants, and `tenant_memberships_user_unique` would then be the
     // only thing between that and two memberships.
     await signUp(server, SIGNUP_EMAIL, POLICY_COMPLIANT_PASSWORD);
 
@@ -407,7 +407,7 @@ describe('a signup against an address that already has an account', () => {
     //
     // ADR-0061 closes the status-code oracle. Whether it closes the ORACLE was undetermined:
     // measured on better-auth's in-memory adapter, an existing address returned a `user`
-    // object carrying an `image` key and a fresh one did not — present if and only if the
+    // object carrying an `image` key and a fresh one did not: present if and only if the
     // address exists, deterministically, with no timing analysis. Under the real drizzle
     // adapter the two branches may both serialise a stored row and converge, since
     // `user.image` is nullable in migration `0001`.
@@ -424,7 +424,7 @@ describe('a signup against an address that already has an account', () => {
     const fresh = await signUp(server, FRESH_EMAIL, POLICY_COMPLIANT_PASSWORD);
 
     // ⚠ THE PREMISE, AND IT IS NOT CEREMONY. Two responses that are equal because BOTH
-    // FAILED satisfy the comparison below perfectly — measured on the wave-2 red run, where
+    // FAILED satisfy the comparison below perfectly: measured on the wave-2 red run, where
     // this test went green against an API with no auth mount, both branches answering the
     // same branded 404. The same hazard `security-headers.int-spec.ts` opens with, for the
     // same reason.

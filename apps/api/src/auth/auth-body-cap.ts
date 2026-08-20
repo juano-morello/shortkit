@@ -12,7 +12,7 @@
  * The auth mount sits outside the Nest graph with `bodyParser: false`, because Better Auth
  * reads the raw request stream (ADR-0013). That is also why `express.json({ limit })` cannot
  * be the cap here: it would consume the stream, and `better-call`'s `getRequest` would then
- * build a `Request` with no body — the symptom is `undefined` rather than an error. And it
+ * build a `Request` with no body: the symptom is `undefined` rather than an error. And it
  * is why this middleware attaches NO `data` listener: attaching one switches the stream to
  * flowing mode, and `authRateLimit` behind it awaits its store before calling `next()`, so
  * every chunk emitted in that gap would be delivered to nobody Better Auth ever hears from.
@@ -23,15 +23,15 @@
  *     hands a byte of the body to anything behind it. HOW the 413 is delivered depends on the
  *     size, and the reason is a TCP fact measured in `auth-mount.int-spec.ts`: a socket that
  *     is closed while unread bytes are still arriving answers them with a RST, and a RST
- *     discards whatever the peer has not yet read — including the 413 sitting in its receive
+ *     discards whatever the peer has not yet read, including the 413 sitting in its receive
  *     buffer. So a moderately oversized body (up to `LINGER_MAX_BYTES`) is READ AND DISCARDED
  *     first and the 413 written after, which is what makes the status reach the client; that
  *     costs bandwidth and no memory, since nothing buffers a discarded stream. Beyond that
  *     ceiling the 413 is written at once and the socket is dropped on flush, so an absurd
  *     declared length is not paid for on the wire, and the client may see a reset instead of
- *     the status — the same accepted cost as the chunked case below.
- *   - A body with NO `Content-Length` (chunked) — or, defensively, one that delivers more
- *     than it declared — is counted as it passes through the parser's `push` into the
+ *     the status: the same accepted cost as the chunked case below.
+ *   - A body with NO `Content-Length` (chunked) (or, defensively, one that delivers more
+ *     than it declared) is counted as it passes through the parser's `push` into the
  *     request stream, and the socket is destroyed once the cap is crossed. No response body:
  *     a status written to a stream still being fed would sit behind the upload. A legitimate
  *     oversized upload therefore sees a connection reset rather than a 413, which ADR-0013

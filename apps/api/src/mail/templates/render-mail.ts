@@ -6,7 +6,7 @@
  * Produced by: TASK-1b-02
  *
  * The one place a message becomes bytes. Every sender that renders (`console`, `resend`)
- * calls `renderMail`, and its `switch` is exhaustive over `OutboundMail['template']` — the
+ * calls `renderMail`, and its `switch` is exhaustive over `OutboundMail['template']`: the
  * `never` at the bottom is what turns "add a template" into a compile error until a
  * renderer exists, which is the guarantee `mail-sender.md` asks the implementer for.
  */

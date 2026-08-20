@@ -15,7 +15,7 @@ date: 2026-08-04
 >   of the mail link and in request bodies, never in a path or query). Existing-account
 >   acceptance is the **authenticated** `POST /api/invitations/accept { token }`, which
 >   runs inside the interceptor's transaction on the caller's `tid` and answers 409
->   `invitation_tenant_conflict` — before any statement — when the token's prefix names
+>   `invitation_tenant_conflict` (before any statement) when the token's prefix names
 >   another tenant (D-04). The third anonymous path is the sign-up hook
 >   (`hooks.before` + the invited `onUserCreated` branch), unchanged in shape.
 >   `GET /api/invitations/:token` and `POST /api/invitations/:token/accept` are not built.

@@ -45,15 +45,15 @@ constructs the Drizzle client and its header says, in capitals, that it does not
 > and no context flag, which is the hole GC-5 exists to close.
 
 What leaves the module is `databaseTransaction`, and Better Auth cannot use it. The adapter
-issues one statement at a time on its own schedule — a select during sign-in, an insert
-during sign-up, a delete during sign-out — from inside a handler mounted outside the Nest
+issues one statement at a time on its own schedule (a select during sign-in, an insert
+during sign-up, a delete during sign-out) from inside a handler mounted outside the Nest
 graph. There is no callback boundary to hand it.
 
 The docblock's own reasoning is what makes the answer available. It says the guarantee is
 not unreachability:
 
-> The guarantee is not that `databaseTransaction` is unreachable — any module can import it
-> — but that a transaction opened without a context flag sees zero rows and can write none,
+> The guarantee is not that `databaseTransaction` is unreachable (any module can import it)
+> but that a transaction opened without a context flag sees zero rows and can write none,
 > which is fail-closed by policy.
 
 A client used outside any transaction runs each statement in its own implicit transaction
@@ -74,7 +74,7 @@ import { betterAuthSchema } from './schema/auth';
  *
  * Typed over betterAuthSchema, which is the five RLS-exempt tables and no others
  * (ADR-0044). A statement issued here against a tenant-scoped table runs outside any
- * transaction and therefore with no context flag, so it sees zero rows and writes none —
+ * transaction and therefore with no context flag, so it sees zero rows and writes none:
  * the same fail-closed property databaseTransaction relies on.
  */
 export function betterAuthDatabase(): NodePgDatabase<typeof betterAuthSchema>;
@@ -110,7 +110,7 @@ by them: `config.schema[model]` and `db.query[model]`
 `auth`-prefixed names so that `export * from './auth'` in the schema barrel does not put
 `user`, `session` and `account` into a namespace shared with every product table.
 
-TASK-003 passes it twice, which is deliberate rather than redundant — once through the
+TASK-003 passes it twice, which is deliberate rather than redundant: once through the
 client's type and once explicitly, so neither resolution path falls back to scanning:
 
 ```ts
@@ -136,7 +136,7 @@ under `apps/api/src`: `db/client.ts` and `auth/auth.config.ts`. Same control as 
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
 | A second `pg.Pool` | `client.ts`'s "does not export it" sentence stays literally true | Duplicates the two connection-error listeners that F-123 and F-137 each cost a finding to get right, and a missing one takes the API down on a Neon scale-to-zero rather than rejecting a promise. Doubles the effective connection ceiling without doubling the database's, so `POOL_MAX`'s capacity reasoning stops describing the process. Two pools also need two `closeDatabase` paths, and the one that is forgotten keeps the event loop alive | ~~Buys a true sentence with a second copy of the hardest-won code in the module~~ **TAKEN 2026-08-13 (ADR-0050, F-028).** The Cons column is still accurate and every cost in it is now paid. What it does not buy is a true sentence: it buys a second database role. The second pool is constructed in `client.ts`, not in `auth.config.ts`, so `client.ts` stays the only file constructing a Drizzle client |
-| Export the full `NodePgDatabase<typeof schema>` | One export, no model map, adapter resolves everything by itself | Hands every importer a typed path to every product table with no transaction and no flag. RLS still fail-closes, so it is not a data leak — but it makes "reaches only auth tables" a comment instead of a type, and the next author who needs a quick read has a sanctioned tool for it | The narrowing is the whole value of the export; without it this is the hole the docblock describes |
+| Export the full `NodePgDatabase<typeof schema>` | One export, no model map, adapter resolves everything by itself | Hands every importer a typed path to every product table with no transaction and no flag. RLS still fail-closes, so it is not a data leak, but it makes "reaches only auth tables" a comment instead of a type, and the next author who needs a quick read has a sanctioned tool for it | The narrowing is the whole value of the export; without it this is the hole the docblock describes |
 | Pass a raw `pg.Pool` and use Better Auth's built-in Kysely adapter instead of `drizzleAdapter` | No Drizzle schema needed for Better Auth's own reads; no model map | Contradicts ADR-0013, which fixes `drizzleAdapter`. The tables still have to exist in the Drizzle schema for ADR-0004's single migration system and ADR-0019's enumeration, so nothing is saved, and Better Auth's own migrator becomes a second thing that might create tables | Fixed by an accepted ADR, and saves nothing it does not also cost |
 | Give the adapter a wrapper that opens `databaseTransaction` per statement | No new export shape; every statement goes through the sanctioned path | The adapter's interface is not statement-at-a-time in a way a wrapper can intercept cleanly, and a transaction per statement on a ten-connection pool serialises sign-in behind whatever else is running. It also adds a fifth `databaseTransaction` consumer whose reach is every auth table | Cost of a transaction per read, to restate a guarantee RLS already gives |
 
@@ -152,13 +152,13 @@ under `apps/api/src`: `db/client.ts` and `auth/auth.config.ts`. Same control as 
   gets a compile error rather than a silent empty result.~~
   **Struck 2026-08-16 (F-172, Juano's ruling). THIS CONSEQUENCE IS FALSE AGAINST THE SHIPPED
   FILE.** `client.ts:41` is `import * as schema from './schema'` and `:259` returns
-  `NodePgDatabase<typeof schema>` — the **full product schema**, which is the alternative this
+  `NodePgDatabase<typeof schema>`: the **full product schema**, which is the alternative this
   ADR rejected by name in its own Alternatives table. There is no compile error and never was.
   The narrowing was the stated value of the export and it did not get built.
 
   **Measured before being priced, and it is not a reach.** As `shortkit_auth`, `SELECT` on
   `tenants` and on `tenant_memberships` both answer `permission denied for table`, and
-  enumerating `role_table_grants` shows the role holds DML on exactly the five auth tables — it
+  enumerating `role_table_grants` shows the role holds DML on exactly the five auth tables: it
   never received a default privilege, so the `REVOKE` never needed to be symmetric. **This is a
   missing compile-time guard over a path the database already refuses.** The reach that matters
   is write access to those five unprotected tables, which ADR-0056's caller-list scans bound.
@@ -182,9 +182,9 @@ under `apps/api/src`: `db/client.ts` and `auth/auth.config.ts`. Same control as 
 - `docs/contracts/tenant-context.md`'s "What the implementer must guarantee" opens with
   the sentence this decision falsifies. It is amended in this initiative.
 - Better Auth's statements now run outside any transaction, so a sign-up that inserts a
-  `user` row and then fails has no rollback. That is already true — ADR-0013 and ADR-0015
+  `user` row and then fails has no rollback. That is already true: ADR-0013 and ADR-0015
   both record that signup is not atomic and that an orphaned `user` row is the accepted
-  failure mode — but this decision is where the mechanism for it is chosen rather than
+  failure mode, but this decision is where the mechanism for it is chosen rather than
   inherited.
 - `betterAuthSchema` is a second place the five table names are written, after the Drizzle
   declarations themselves. ADR-0043's drift test compares the Drizzle tables to
@@ -194,7 +194,7 @@ under `apps/api/src`: `db/client.ts` and `auth/auth.config.ts`. Same control as 
 ### Follow-ups this creates
 
 - TASK-002 writes `betterAuthDatabase()` and `betterAuthSchema`, and rewrites the two
-  affected paragraphs of `client.ts`'s docblock in the same commit — the export sentence
+  affected paragraphs of `client.ts`'s docblock in the same commit: the export sentence
   and the sanctioned-caller list, which also gains `withMembershipLookup` (ADR-0045).
 - **Added 2026-08-13 (ADR-0050, F-028): TASK-002 also builds the auth pool.**
   `betterAuthDatabase()` is not implementable from this ADR alone. Read ADR-0050's

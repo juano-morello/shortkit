@@ -15,7 +15,7 @@
 #   pnpm test:integration
 #   docker compose -f docker-compose.test.yml down -v
 #
-# REDIS_KEY_NAMESPACE is required whenever REDIS_URL is set — the process refuses to
+# REDIS_KEY_NAMESPACE is required whenever REDIS_URL is set: the process refuses to
 # boot rather than defaulting to a namespace that might collide (redirect-cache.md).
 # `test` here, `ci-<run_id>` in CI so two concurrent jobs cannot collide either, `dev`
 # in docker-compose.yml. A suite run against a clone that never started this stack
@@ -23,7 +23,7 @@
 # a 50 ms command timeout are what make that true (ADR-0012).
 #
 # The CI equivalent is a `services:` container in the `integration` job and belongs
-# to TASK-002 (F-039), not here — Redis included, with one difference recorded there:
+# to TASK-002 (F-039), not here. Redis included, with one difference recorded there:
 # GitHub's `services:` has no `command:`, so the CI container cannot be given
 # `--requirepass` and its DSN carries no password.
 #
@@ -45,11 +45,11 @@
 # someone reaches for under time pressure. Half of it is meant to be copied and
 # half of it must not be.
 #
-# Reusable — this is rls-policy-template.md's "Roles" section, applied:
+# Reusable. This is rls-policy-template.md's "Roles" section, applied:
 #   - all three roles NOBYPASSRLS, all three with attribute defaults otherwise;
 #   - shortkit_app owns nothing and receives DML only through
 #     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator; shortkit_auth owns
-#     nothing and receives no default privilege at all — its DML is hand-written
+#     nothing and receives no default privilege at all: its DML is hand-written
 #     per table (ADR-0050);
 #   - USAGE on schema public and nothing more.
 #
@@ -88,8 +88,8 @@ services:
     healthcheck:
       # Executes a statement AS shortkit_app, over TCP, against shortkit_test
       # (F-127). All three halves are load-bearing, and `pg_isready` has none of
-      # them: it does not authenticate — its -U and -d only affect what the server
-      # logs — and with no -h it uses the unix socket. The postgres entrypoint runs
+      # them: it does not authenticate (its -U and -d only affect what the server
+      # logs), and with no -h it uses the unix socket. The postgres entrypoint runs
       # initdb, starts a TEMPORARY socket-only server, runs the init script, stops
       # it, then starts the real one. A `pg_isready` probe landing in that window
       # returns 0 and marks the container healthy, so `up -d --wait` returns and the
@@ -145,7 +145,7 @@ services:
       # server ERROR reply, so an unauthenticated probe against a `--requirepass` server
       # gets `NOAUTH Authentication required.` and would still report healthy. With the
       # grep, this container is healthy only when the password in this file is the password
-      # the server has — the property ADR-0036 gives the Postgres probe over in the dev
+      # the server has: the property ADR-0036 gives the Postgres probe over in the dev
       # stack, and the one the probe above deliberately does NOT have.
       test:
         - 'CMD-SHELL'
@@ -180,7 +180,7 @@ configs:
       \connect shortkit_test
 
       -- A default privilege for shortkit_auth would grant it DML on every table
-      -- the migrator creates, including every tenant-scoped one — the split cannot
+      -- the migrator creates, including every tenant-scoped one. The split cannot
       -- be expressed as a default privilege in either direction
       -- (rls-policy-template.md "Roles", ADR-0050). shortkit_auth's DML on the five
       -- Better Auth tables is hand-written per table in migration 0001 (TASK-002).

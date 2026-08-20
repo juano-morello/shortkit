@@ -1,7 +1,7 @@
 /**
  * Contract: docs/contracts/slug.md
  * ADR: adr-0007-short-code-generation.md, adr-0006-http-surface-partitioning.md
- * Produced by: TASK-007 (constants), TASK-2-01 (validateSlug, isReservedSlug — item 2's
+ * Produced by: TASK-007 (constants), TASK-2-01 (validateSlug, isReservedSlug; item 2's
  *              renumbering of the card slug.md still calls TASK-024)
  *
  * Single source of truth. TASK-2-05 (the generator and the routes) and TASK-2-13 (the
@@ -61,8 +61,8 @@ export type SlugValidation =
 /**
  * The character set `SLUG_PATTERN` admits, with nothing said about position.
  *
- * `SLUG_PATTERN` conflates two rules an operator experiences separately — which
- * characters are allowed, and where a separator may sit — because one regex has to
+ * `SLUG_PATTERN` conflates two rules an operator experiences separately (which
+ * characters are allowed, and where a separator may sit) because one regex has to
  * express both. `validateSlug` splits them so a form can say WHICH rule broke, and the
  * spec asserts the split reconstructs the pattern exactly rather than drifting from it.
  * Neither constant may be edited alone.

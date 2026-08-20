@@ -15,7 +15,7 @@
  * `auth-tokens.md` invariant 4: "`token_expired` means the signature verified and the clock
  * passed `exp`. Refreshing is the correct response. `unauthenticated` means it is not, and
  * re-login is." A forged token that also happens to be expired must therefore answer
- * `unauthenticated`, which is only true if the signature is checked before `exp` — jose does
+ * `unauthenticated`, which is only true if the signature is checked before `exp`; jose does
  * that. And an expired token whose `iss` is also wrong must answer `token_expired`, which
  * jose does NOT do on its own: `jwt_claims_set.js` validates `iss` and `aud` before `exp`
  * when they are passed as options. So `iss` and `aud` are checked here, after `jwtVerify`
@@ -40,8 +40,8 @@
  * `includeMessage: true` (`exception-filter.ts`), and `msg` is the one key
  * `LOGGABLE_FIELDS` cannot censor. Every message below is a fixed string. jose's own
  * errors quote nothing from the payload in their messages either, but they are wrapped
- * anyway — as `cause`, which never reaches the body, and reaches a log line only where the
- * filter chooses to log a refusal at all (today it does not log an ordinary 401) — so a
+ * anyway: as `cause`, which never reaches the body, and reaches a log line only where the
+ * filter chooses to log a refusal at all (today it does not log an ordinary 401), so a
  * library upgrade cannot change what a stranger sees.
  */
 import { createLocalJWKSet, errors as joseErrors, jwtVerify } from 'jose';
@@ -68,7 +68,7 @@ export const TOKEN_EXPIRED_MESSAGE = 'The access token has expired.';
  *
  * `keySet` is the JSON the process's own `/api/auth/jwks` served, handed in by the guard
  * from `jwks-cache.ts`; nothing here fetches. `env` is where the expected `iss` and `aud`
- * come from — `BETTER_AUTH_URL`, normalised to its origin exactly as
+ * come from: `BETTER_AUTH_URL`, normalised to its origin exactly as
  * `boot-assertions.ts`'s `betterAuthUrl()` normalises it (`new URL(value).origin`), because
  * that is the value `auth.config.ts` writes into both claims. The guard passes `process.env`;
  * a spec passes its own. Boot has already refused an unset or malformed value before a
@@ -77,7 +77,7 @@ export const TOKEN_EXPIRED_MESSAGE = 'The access token has expired.';
  *
  * Throws `DomainError('token_expired')` when the signature verified and `exp` has passed,
  * and `DomainError('unauthenticated')` for every other refusal. Anything that is not a
- * refusal — a `keySet` that is not a key set, a missing binding — propagates as itself.
+ * refusal (a `keySet` that is not a key set, a missing binding) propagates as itself.
  */
 export async function verifyAndReadClaims(
   token: string,
@@ -115,7 +115,7 @@ export async function verifyAndReadClaims(
     throw error;
   }
 
-  // Step 4 — after `exp`, see the docblock. `aud` is a single string on every token this
+  // Step 4: after `exp`, see the docblock. `aud` is a single string on every token this
   // issuer mints (`sign.mjs:45`, one `setAudience` value; `packages/contracts` note 3), so an
   // array is refused rather than searched.
   if (payload.iss !== expectedOrigin || payload.aud !== expectedOrigin) {
@@ -131,7 +131,7 @@ export async function verifyAndReadClaims(
 }
 
 /**
- * Step 6 of `auth-tokens.md`'s verification — the backstop ADR-0015's F-029 correction added.
+ * Step 6 of `auth-tokens.md`'s verification: the backstop ADR-0015's F-029 correction added.
  * Without it a tid-less or malformed-tid token passes the guard and is stopped one layer down
  * by `withTenantTransaction`'s own uuid validation, surfacing as a 500 instead of a 401.
  *
@@ -147,7 +147,7 @@ export async function verifyAndReadClaims(
  * below". The other reason not to `safeParse` the whole contract here is `email`: it is
  * validated at signup by better-auth's own zod and re-validating its FORMAT on every request
  * makes a disagreement between two zod builds lock a real account out of every route. What
- * the card asks for is asserted — `tid` uuid-shaped, `sub` non-empty, `ev` boolean — plus
+ * the card asks for is asserted (`tid` uuid-shaped, `sub` non-empty, `ev` boolean) plus
  * the structural presence of the rest, which is what `asserts claims is ShortkitJwtClaims`
  * promises. `jti` non-empty is load-bearing: `revocation-store.md` gives `''` its own row,
  * and this is what keeps the guard from ever asking about it.
@@ -196,9 +196,9 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
- * Every jose error class is a verdict on the token — malformed compact serialisation, an
+ * Every jose error class is a verdict on the token (malformed compact serialisation, an
  * unknown `kid`, an algorithm off the list, a signature that does not verify, a claim
- * check — and all of them are `unauthenticated` except `JWTExpired`, handled before this
+ * check), and all of them are `unauthenticated` except `JWTExpired`, handled before this
  * is asked. Anything else that escapes `jwtVerify` is not a verdict.
  */
 function isJoseRefusal(error: unknown): boolean {

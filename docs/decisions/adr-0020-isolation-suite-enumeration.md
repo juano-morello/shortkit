@@ -100,7 +100,7 @@ in `isolation-coverage.md` lists which mechanism catches which arrival path.
 which is ADR-0019's and TASK-053's. What runs today is `pnpm db:check-policies`, which
 asserts `relrowsecurity` and `relforcerowsecurity` against an exception list and does **not**
 match policies against approved shapes. It is also carrying part of the load of TASK-006's
-registry drift check, so the two are a composite gate rather than two independent ones —
+registry drift check, so the two are a composite gate rather than two independent ones,
 stated in `isolation-coverage.md` so that whoever replaces either half knows.
 
 **Exclusions are data with justifications, and the count is asserted.**
@@ -136,8 +136,8 @@ tenant could destroy. The rule now depends on whether the statement names the ow
 in a `WHERE` clause, a refusal proves only what the `WITH CHECK` clause decides, and a read
 that raised proves nothing at all. **The normative statement is
 `docs/contracts/isolation-coverage.md`, "Attempt semantics", and it is not restated here.**
-The decision this ADR is making — that attempts are generated from a descriptor rather than
-hand-written per surface — is unchanged.
+The decision this ADR is making (that attempts are generated from a descriptor rather than
+hand-written per surface) is unchanged.
 
 ~~**AC-95's write check runs once after the suite.** A single query asserts no row's
 `tenant_id` changed against a snapshot taken before the run.~~
@@ -145,7 +145,7 @@ hand-written per surface — is unchanged.
 **Amended 2026-08-11 (F-302, F-328, F-327).** That was the only ownership check the harness
 had and it is now neither the only one nor the strongest: ownership is compared either side
 of **every individual attempt**, which names the method that moved a row, and the post-run
-check is the weaker form kept for TASK-056 — weaker still because an unqualified write that
+check is the weaker form kept for TASK-056, weaker still because an unqualified write that
 affected rows triggers a fixture reset immediately after the attempt. Where that weakening
 is bounded, and the one place it is not, is in `isolation-coverage.md`, "AC-95's post-run
 check".
@@ -154,8 +154,8 @@ check".
 a CI artifact~~: discovered surfaces, covered, excluded with justifications, public
 routes with justifications, and the run's verdict. This is the artifact SC-1 points at.
 
-**Amended 2026-08-11 (F-297, F-331, F-327).** Two corrections. **No upload step exists** —
-the path is gitignored and `ci.yml` has none — so the artifact lives only in the workspace of
+**Amended 2026-08-11 (F-297, F-331, F-327).** Two corrections. **No upload step exists**
+(the path is gitignored and `ci.yml` has none), so the artifact lives only in the workspace of
 whichever job ran the suite; building it is F-297's, and it must fail the job when the
 artifact's `runAt` predates the job. And the five fields listed above are a strict subset of
 what is written: the shape, the three values `verdict` now takes, and the write discipline

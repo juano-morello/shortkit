@@ -30,7 +30,7 @@ import { execSql, querySql } from '../support/psql';
 import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixture';
 
 /**
- * STORY-1b-01 — AC-1b-3, AC-1b-4, AC-1b-5: the mail leaves through the port, after commit,
+ * STORY-1b-01, AC-1b-3, AC-1b-4, AC-1b-5: the mail leaves through the port, after commit,
  * exactly once per 201 and never for a non-2xx; with no transport bound the request still
  * answers 201 and the process writes one `mail_suppressed` warn line carrying `template`
  * and nothing else. TASK-1b-08, wave 3.
@@ -209,7 +209,7 @@ afterAll(async () => {
   await server?.stop();
 });
 
-describe('AC-1b-3: MAIL_TRANSPORT=fake — exactly one OutboundMail per 201, handed to the sender after commit', () => {
+describe('AC-1b-3: MAIL_TRANSPORT=fake: exactly one OutboundMail per 201, handed to the sender after commit', () => {
   it('one workspace_invitation to the invitee with the workspaces, the inviter, the tenant name, the row’s expiry and a fragment link whose token verifies against the stored digest', async () => {
     const { a, W1, W3 } = await fixture(fakeBaseUrl);
     const tenantName = tenantRow(a.tenantId)?.name;
@@ -280,8 +280,8 @@ describe('AC-1b-5: a request that does not answer 2xx hands the sender nothing',
   }, 60_000);
 });
 
-describe('AC-1b-4: MAIL_TRANSPORT unset — the request still answers 201, nothing is sent, one warn line', () => {
-  it('writes one mail_suppressed warn line with template workspace_invitation and no other field — no to, no URL, no token — and increments the suppressed counter', async () => {
+describe('AC-1b-4: MAIL_TRANSPORT unset: the request still answers 201, nothing is sent, one warn line', () => {
+  it('writes one mail_suppressed warn line with template workspace_invitation and no other field (no to, no URL, no token), and increments the suppressed counter', async () => {
     const { a, W1 } = await fixture(noopBaseUrl);
     const warn = vi.spyOn(logger, 'warn');
     const suppressedBefore = readMailSuppressedCount();

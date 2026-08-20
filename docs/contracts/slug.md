@@ -50,8 +50,8 @@ export function isReservedSlug(input: string): boolean;
 Violation order is fixed so the reported message is deterministic: `too_short`,
 `too_long`, `invalid_characters`, `leading_or_trailing_separator`, `reserved`.
 
-`validateSlug` returns the input **verbatim** on the accepting branch — no trim, no
-lower-casing, no normalisation — because the unique index is case-sensitive and a
+`validateSlug` returns the input **verbatim** on the accepting branch (no trim, no
+lower-casing, no normalisation) because the unique index is case-sensitive and a
 normalising validator would store a value the operator did not type. Four `RESERVED_SLUGS`
 entries never report `reserved`: `robots.txt`, `favicon.ico` and `.well-known` are
 `invalid_characters` and `_static` is `leading_or_trailing_separator`, each refused a rung
@@ -146,7 +146,7 @@ unwrapping.
 
    **Corrected 2026-08-19 (TASK-2-01). The second clause is false for two entries.**
    `support` and `privacy` are each exactly `GENERATED_SLUG_LENGTH` characters and drawn
-   entirely from `SLUG_ALPHABET`, so a draw can produce either — at 2/57^7, roughly one in
+   entirely from `SLUG_ALPHABET`, so a draw can produce either, at 2/57^7, roughly one in
    a trillion. The reasoning offered above ("every reserved slug contains a character
    outside `SLUG_ALPHABET` or a length other than 7") held for the other fourteen and was
    never checked against these two. The invariant is restored by the GENERATOR, not by the
@@ -170,7 +170,7 @@ unwrapping.
 - Rejection sampling is implemented. Plain `byte % 57` is a defect. **Done 2026-08-19
   (TASK-2-05); `slug-generator.spec.ts` walks all 256 bytes and asserts the 228 accepted
   ones map four apiece onto the 57 symbols, with the other 28 redrawn.**
-- The generator calls `isReservedSlug` on each candidate and redraws when it is true —
+- The generator calls `isReservedSlug` on each candidate and redraws when it is true.
   see the correction under invariant 1. **Done 2026-08-19 (TASK-2-05); a scripted source
   that draws `support` and then `privacy` proves both are discarded.**
 

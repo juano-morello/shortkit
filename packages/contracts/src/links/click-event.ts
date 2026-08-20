@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { idContract, paginationQueryContract } from '../pagination';
 
 /**
- * `varchar(512)` in `click-events.md`, and the point at which `enqueue` truncates —
+ * `varchar(512)` in `click-events.md`, and the point at which `enqueue` truncates.
  * TASK-2-09 imports this rather than writing 512 a second time. Truncating at enqueue
  * rather than at flush is what bounds the buffer's live heap (invariant 8); truncating
  * late leaves the full 16 KiB string in memory, which is the cost the cap exists for.
@@ -29,7 +29,7 @@ export const CLICK_USER_AGENT_MAX_LENGTH = 512;
  * `ipHash` IS NOT ON THE WIRE, AND NEITHER IS THE RAW IP (D-2-19, GC-R).
  * ============================================================================
  *
- * The column exists — it is what makes a visitor countable without being identifiable —
+ * The column exists (it is what makes a visitor countable without being identifiable),
  * but it is pseudonymous per tenant and never leaves the database: not in a response,
  * not in a log line, not in an error. Adding an `ipHash` field to this shape is a
  * defect, and `links.spec.ts` asserts the key is absent from a parse that was handed
@@ -39,7 +39,7 @@ export const CLICK_USER_AGENT_MAX_LENGTH = 512;
  * neither tells a caller already inside their own tenant anything they can act on.
  *
  * The `.max()` on `userAgent` equals the column width, so it can never refuse a row the
- * server produced — the permissive-response rule holds with the bound stated rather than
+ * server produced: the permissive-response rule holds with the bound stated rather than
  * in spite of it.
  */
 export const clickEventContract = z.object({
@@ -56,7 +56,7 @@ export type ClickEvent = z.infer<typeof clickEventContract>;
  *
  * `from` and `to` extend the SHARED pagination query rather than restating `limit` and
  * `cursor`, so the 1..100 bounds and the default of 25 have one source. Both bounds are
- * optional ISO strings — the package-wide timestamp convention, ruled 2026-08-19 — and
+ * optional ISO strings (the package-wide timestamp convention, ruled 2026-08-19), and
  * an unparseable one answers 400 `validation_failed` rather than being dropped and
  * silently widening the window.
  *

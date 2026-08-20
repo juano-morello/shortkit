@@ -70,8 +70,8 @@ ALTER TABLE "tenant_memberships" ADD CONSTRAINT "tenant_memberships_tenant_id_te
 ALTER TABLE "tenant_memberships" ADD CONSTRAINT "tenant_memberships_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 -- ===========================================================================
 -- EVERYTHING BELOW IS APPENDED BY HAND (TASK-002). Drizzle Kit generates no
--- policy DDL and no GRANT, so the three things this table owes — its column,
--- its policies and its registry entry — land in this one commit or the table
+-- policy DDL and no GRANT, so the three things this table owes (its column,
+-- its policies and its registry entry) land in this one commit or the table
 -- is writable by every tenant from the moment it exists (GC-A, F-239).
 --
 -- Every statement comes from a function or a contract, never typed twice:
@@ -96,7 +96,7 @@ CREATE POLICY tenant_memberships_privileged_erase ON tenant_memberships
 CREATE INDEX tenant_memberships_tenant_id_idx ON tenant_memberships (tenant_id);--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
--- 2. tenant_memberships: membershipLookupPolicy() — ADR-0045
+-- 2. tenant_memberships: membershipLookupPolicy(), ADR-0045
 -- ---------------------------------------------------------------------------
 -- The token-mint escape, and the third and last exception to GC-5. FOR SELECT
 -- only, and it stays FOR SELECT: it admits the single row whose user_id equals
@@ -108,7 +108,7 @@ CREATE POLICY tenant_memberships_membership_lookup ON tenant_memberships
   USING (user_id = nullif(current_setting('app.membership_lookup_user', true), ''));--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
--- 3. tenants: FOUR policies dropped and recreated in the nullif form — ADR-0049
+-- 3. tenants: FOUR policies dropped and recreated in the nullif form, ADR-0049
 -- ---------------------------------------------------------------------------
 -- A REVIEWER SEEING `DROP` IN A GENERATED MIGRATION IS TOLD BY ADR-0004 TO STOP
 -- AND ASK FOR THE ADR. It is ADR-0049. No column, table or row is destroyed, so
@@ -117,7 +117,7 @@ CREATE POLICY tenant_memberships_membership_lookup ON tenant_memberships
 -- WHY: a transaction-local set_config leaves a session placeholder whose reset
 -- value is the EMPTY STRING, not NULL, and pg.Pool issues no reset. From the
 -- first committed tenant transaction onward every later checkout of that backend
--- reads '', so `''::uuid` is evaluated and the statement raises 22P02 — AC-10's
+-- reads '', so `''::uuid` is evaluated and the statement raises 22P02: AC-10's
 -- own out-of-context read failing on the only connection state the application
 -- actually runs in. `nullif(<flag>, '')` collapses unset and reset to NULL alike.
 --
@@ -141,7 +141,7 @@ CREATE POLICY tenants_privileged_erase ON "tenants"
   FOR DELETE USING (id::text = nullif(current_setting('app.privileged_erase', true), ''));--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
--- 4. The role split — ADR-0050
+-- 4. The role split: ADR-0050
 -- ---------------------------------------------------------------------------
 -- session.token is the session credential, in plaintext. Measured from an
 -- ordinary tenant-A transaction as shortkit_app before this statement: INSERT of
@@ -151,7 +151,7 @@ CREATE POLICY tenants_privileged_erase ON "tenants"
 --
 -- IT CANNOT BE EXPRESSED AS A DEFAULT PRIVILEGE. `ALTER DEFAULT PRIVILEGES FOR
 -- ROLE shortkit_migrator ... GRANT ... TO shortkit_app` grants DML on every table
--- the migrator creates, forever, including these five — so the split is per-table,
+-- the migrator creates, forever, including these five, so the split is per-table,
 -- hand-written, and forgetting it fails OPEN. check-policies.mts's grant matrix,
 -- in both directions, is what catches that; it runs in CI's integration job.
 --
@@ -159,7 +159,7 @@ CREATE POLICY tenants_privileged_erase ON "tenants"
 -- it: a GRANT against a role that does not exist fails here, at migration time.
 --
 -- DO NOT DELETE THE REVOKE TO MAKE SIGN-IN WORK. If Better Auth cannot read
--- "user", the answer is DATABASE_AUTH_URL and the auth pool in db/client.ts —
+-- "user", the answer is DATABASE_AUTH_URL and the auth pool in db/client.ts:
 -- one pool on DATABASE_URL connects as shortkit_app, which this statement has
 -- just revoked.
 REVOKE ALL PRIVILEGES ON "user", "session", "account", "verification", "jwks"

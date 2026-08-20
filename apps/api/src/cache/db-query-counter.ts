@@ -10,7 +10,7 @@
  * THE OBSERVABLE FOR "A CACHE HIT PERFORMS ZERO POSTGRES QUERIES" (invariant 4).
  * ============================================================================
  *
- * A test cannot see the difference between a hit and a miss from the response — both are the
+ * A test cannot see the difference between a hit and a miss from the response: both are the
  * same 302 with the same `Location`. This counter is the difference, which is why it is a
  * shipped export rather than test scaffolding: `withRedirectRead` increments it on every
  * statement it issues, and the assertion is `read()` before and after one request.

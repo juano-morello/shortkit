@@ -16,7 +16,7 @@ import { RESPONSE_OBJECT_ONLY_MARKER } from '../../test/support/response-object-
  *
  * Contract: `docs/contracts/logging-and-headers.md`, "What may never appear in a log line".
  * Policy: `docs/contracts/error-envelope.md`, "What the 500 log line carries". Enforces
- * GC-9 — no PII in log bodies.
+ * GC-9: no PII in log bodies.
  *
  * ============================================================================
  * WHY THIS SUITE EXISTS, AND WHAT IT MEASURED THAT NOBODY HAD MEASURED
@@ -37,14 +37,14 @@ import { RESPONSE_OBJECT_ONLY_MARKER } from '../../test/support/response-object-
  *   - **That error never reaches our code.** `RoutesResolver.mapExternalException`
  *     (`routes-resolver.js:94-101`) replaces every `SyntaxError` with
  *     `new BadRequestException(err.message)`, so what the shipped exception filter is handed
- *     carries `response`, `status`, `options`, `message`, `name` — and no `body` at all.
+ *     carries `response`, `status`, `options`, `message`, `name`, and no `body` at all.
  *   - **What survives instead is the message**, and V8 quotes the first ten characters of
  *     the body into it: `Unexpected token 'p', "password=M"... is not valid JSON`. A body
  *     that BEGINS with a credential therefore puts ten characters of it into
  *     `BadRequestException.message`, which is an own enumerable property.
  *
  * So the exposure is real and it is the one `error-envelope.md`'s stack-versus-message
- * policy already answers — not the one six findings described. Both facts are pinned below,
+ * policy already answers, not the one six findings described. Both facts are pinned below,
  * because both are load-bearing: the first is why the defence is the policy rather than a
  * redact path, and the second reds the day a Nest release starts forwarding body-parser's
  * original error into the filter with `err.body` still on it.
@@ -53,14 +53,14 @@ import { RESPONSE_OBJECT_ONLY_MARKER } from '../../test/support/response-object-
  * HOW
  * ============================================================================
  *
- * A child process builds an application from `AppModule` — the real composition root, so the
- * real `ApiExceptionFilter` is registered through `APP_FILTER` — listens on 127.0.0.1, and
+ * A child process builds an application from `AppModule` (the real composition root, so the
+ * real `ApiExceptionFilter` is registered through `APP_FILTER`) listens on 127.0.0.1, and
  * POSTs malformed JSON at it over a real socket. The shipped logger writes to file
  * descriptor 1 synchronously, so the parent captures the child's stdout and every assertion
  * about a leak is made against those bytes.
  *
- * What the FILTER received cannot be read off a log line, by construction — the whole point
- * is that the line does not carry it — so the child wraps `ApiExceptionFilter.prototype.catch`
+ * What the FILTER received cannot be read off a log line, by construction (the whole point
+ * is that the line does not carry it) so the child wraps `ApiExceptionFilter.prototype.catch`
  * to record its argument and writes the recording to a file the parent reads. The wrapper
  * delegates to the original and changes nothing about the response.
  *
@@ -71,12 +71,12 @@ import { RESPONSE_OBJECT_ONLY_MARKER } from '../../test/support/response-object-
  * `.int-spec.ts` therefore needs `docker-compose.test.yml` up. Nothing here does.
  *
  * ============================================================================
- * F-273 — THE SECOND COPY, ADDED 2026-08-09
+ * F-273: THE SECOND COPY, ADDED 2026-08-09
  * ============================================================================
  *
  * The quoted fragment above exists TWICE on the exception Nest hands the filter: on
  * `message`, and inside the object `getResponse()` returns. `error-envelope.md`'s
- * `includeMessage` policy stands in front of the first copy only — the second is an ordinary
+ * `includeMessage` policy stands in front of the first copy only: the second is an ordinary
  * key on an ordinary object, and a filter edit that logs or forwards it is not covered by
  * withholding `err_message`. Nothing pinned that the second copy stays off the wire.
  *
@@ -87,7 +87,7 @@ import { RESPONSE_OBJECT_ONLY_MARKER } from '../../test/support/response-object-
  *   2. The suite now asserts on the HTTP RESPONSE BODIES as well as the log lines. The
  *      finding names both surfaces; only the lines were covered.
  *   3. `test/support/response-object-probe.controller.ts` adds one route whose exception
- *      carries a marker in the response object and NOWHERE ELSE — the `message: string[]`
+ *      carries a marker in the response object and NOWHERE ELSE: the `message: string[]`
  *      shape, where Nest leaves `exception.message` as class-name text. Its marker is
  *      distinct from the two request-body markers above, so an assertion on it fails for the
  *      second copy alone and cannot be satisfied by the defence that covers the first.
@@ -98,13 +98,13 @@ const BODY_MARKER = 'hunter2-inside-the-request-body';
 
 /**
  * A credential at OFFSET ZERO, which is the placement that reaches the parse message. A raw
- * token posted as the body — a webhook secret, a JWT — has exactly this shape.
+ * token posted as the body (a webhook secret, a JWT) has exactly this shape.
  */
 const LEADING_MARKER = 'SEKRIT-KEY-at-the-front-of-the-body';
 
 /**
  * The part of `LEADING_MARKER` that V8 quotes into `SyntaxError.message`: the first ten
- * characters of the body, verbatim. Measured on Node 24.19 and written out by hand — the
+ * characters of the body, verbatim. Measured on Node 24.19 and written out by hand: the
  * emitted line has to be free of the FRAGMENT, not only of the whole marker, and a fragment
  * derived from the message would agree with the message whatever it said.
  */
@@ -207,8 +207,8 @@ ApiExceptionFilter.prototype.catch = function (exception, host) {
     try { ownEnumerable[key] = exception[key]; } catch { ownEnumerable[key] = '<threw>'; }
   }
 
-  // F-273: the second copy. Reading it here changes nothing — \`getResponse()\` returns the
-  // object the exception was constructed with — and it is the only way to see a value the
+  // F-273: the second copy. Reading it here changes nothing (\`getResponse()\` returns the
+  // object the exception was constructed with), and it is the only way to see a value the
   // filter is required never to emit.
   let responseJson = null;
   try {
@@ -237,7 +237,7 @@ const moduleRef = await Test.createTestingModule({
   imports: [AppModule],
 ${withProbeController ? '  controllers: [ResponseObjectProbeController],' : ''}
 }).compile();
-// \`logger: false\` silences NEST's own logger. The pino singleton is untouched — its lines
+// \`logger: false\` silences NEST's own logger. The pino singleton is untouched: its lines
 // are the subject.
 const app = moduleRef.createNestApplication({ logger: false });
 await app.listen(0, '127.0.0.1');
@@ -347,15 +347,15 @@ afterAll(() => {
   rmSync(workspace, { recursive: true, force: true });
 });
 
-/** Every line the framework-400 arm wrote — one per malformed request. */
+/** Every line the framework-400 arm wrote: one per malformed request. */
 function frameworkFourHundredLines(): readonly EmittedLine[] {
   return lines.filter((line) => line.record.msg === FRAMEWORK_400_CONTEXT);
 }
 
 describe('a malformed JSON POST at a real Nest application', () => {
   it('F-244: is answered with the branded 400 envelope, so the requests below really failed to parse', () => {
-    // The precondition every other test rests on. If the requests were answered 404 — a
-    // wrong path, a prefix that moved — no parse error was raised and the leak assertions
+    // The precondition every other test rests on. If the requests were answered 404 (a
+    // wrong path, a prefix that moved) no parse error was raised and the leak assertions
     // would hold for a reason that has nothing to do with the logger.
     expect(observations.statuses).toEqual([400, 400]);
 
@@ -396,12 +396,12 @@ describe('a malformed JSON POST at a real Nest application', () => {
 
   it('F-244: what Nest hands the filter carries the parse message and no request body', () => {
     // THE CHARACTERIZATION THE WHOLE FINDING CHAIN ASSUMED AND NOBODY CHECKED. body-parser
-    // does attach the verbatim body to the error it raises — `read.js:163` — but
+    // does attach the verbatim body to the error it raises (`read.js:163`), but
     // `RoutesResolver.mapExternalException` replaces that error with
     // `new BadRequestException(err.message)` before any filter runs, so `err.body` is gone
     // by the time our code sees it and the exposure is the MESSAGE alone.
     //
-    // This goes red the day that stops being true — a Nest release that forwards
+    // This goes red the day that stops being true: a Nest release that forwards
     // body-parser's own error would put the verbatim body back in the filter's hands, and
     // that is a change in the threat model, not a version bump.
     for (const exception of observations.received) {
@@ -456,7 +456,7 @@ describe("the copy of a credential inside an exception's response object", () =>
     // derives `this.message` from the response object only when `response.message` is a
     // string, and the probe's is an array. So withholding `err_message` cannot be what keeps
     // this marker off a line, and forwarding the exception's own message cannot be what puts
-    // it in a body — only reaching for `getResponse()` can do either.
+    // it in a body: only reaching for `getResponse()` can do either.
     const received = probeObservations.received;
 
     expect(received?.constructorName).toBe('BadRequestException');

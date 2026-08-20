@@ -8,8 +8,8 @@
  *              `@Inject(MAIL_SENDER) sender: MailSender`.
  *
  * One provider, one export. The factory runs when the module compiles, not when this file
- * is imported, so `AppModule` can be compiled in the unit tier with no mail variables set —
- * it resolves `none` and binds `NoopMailSender` — and the environment is read at
+ * is imported, so `AppModule` can be compiled in the unit tier with no mail variables set
+ * (it resolves `none` and binds `NoopMailSender`), and the environment is read at
  * `NestFactory.create`, after `assertBootPreconditions()` has already refused an invalid or
  * incomplete declaration in `main.ts`. `mailSenderFor` is exported so `mail.module.spec.ts`
  * can drive the selection with an explicit environment; shipped code calls it with
@@ -27,7 +27,7 @@ import { ResendMailSender } from './senders/resend-mail-sender';
 
 /**
  * The bound sender for an environment. Exhaustive over `MailTransport`, so a fifth value in
- * `MAIL_TRANSPORTS` without a class here is a compile error — `mail-sender.md`'s "one value
+ * `MAIL_TRANSPORTS` without a class here is a compile error: `mail-sender.md`'s "one value
  * per implementation" rule, held by the type checker rather than by review.
  *
  * `resolveMailTransport` throws on an unrecognised value rather than returning `none`, so a

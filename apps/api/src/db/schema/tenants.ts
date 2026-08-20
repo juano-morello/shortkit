@@ -6,7 +6,7 @@
  * The cascade root. `tenants` carries `id`, not `tenant_id`, so `tenantScopedPolicies()`
  * does not apply to it: it gets the bespoke four-policy set from rls-policy-template.md,
  * written by hand into the migration that creates the table. There is deliberately no
- * ordinary DELETE policy (F-005) — deleting a tenant row cascades to every tenant-scoped
+ * ordinary DELETE policy (F-005): deleting a tenant row cascades to every tenant-scoped
  * table, and the only path to it is `tenants_privileged_erase`.
  */
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';

@@ -1,7 +1,7 @@
 # Contract: outbound mail
 
 - **Boundary:** the application to the email provider; and every test, every local stack and every deployment with no mail configured, none of which may reach it.
-- **Normative form:** `apps/api/src/mail/mail-sender.ts` (the port and the union), `apps/api/src/mail/mail-transport.ts` (the declaration, the assertion, the resolver, the five strings), `apps/api/src/mail/senders/*.ts` (the four classes), `apps/api/src/mail/templates/*.ts` (the renderers), `apps/api/src/mail/mail.module.ts` (the `useFactory` binding). Shipped 2026-08-18 by TASK-1b-02. The design stub this line used to point at (`design/stubs/apps/api/src/mail/mail-sender.ts`) no longer exists in the tree — `design/stubs/**` is gone — so F-401 (a stub carrying the struck `NODE_ENV` binding) is discharged by absence.
+- **Normative form:** `apps/api/src/mail/mail-sender.ts` (the port and the union), `apps/api/src/mail/mail-transport.ts` (the declaration, the assertion, the resolver, the five strings), `apps/api/src/mail/senders/*.ts` (the four classes), `apps/api/src/mail/templates/*.ts` (the renderers), `apps/api/src/mail/mail.module.ts` (the `useFactory` binding). Shipped 2026-08-18 by TASK-1b-02. The design stub this line used to point at (`design/stubs/apps/api/src/mail/mail-sender.ts`) no longer exists in the tree (`design/stubs/**` is gone) so F-401 (a stub carrying the struck `NODE_ENV` binding) is discharged by absence.
 - **Produced by:** TASK-1b-02 (item 1b). TASK-010 was the foundation card that never shipped.
 - **Consumed by:** TASK-1b-08 (invitations dispatch, `MailModule` imported into `InvitationsModule`). **No verification caller exists**: email verification is outside item 1b, the `email_verification` arm and its renderer are present so the union has two members and every sender is compiled against both, and nothing dispatches it.
 - **ADRs:** ADR-0017, ADR-0002, ADR-0028 (log field allowlist), ADR-0029 (no configured value in error text).
@@ -114,8 +114,8 @@ TASK-009 writes those, the same wrapping should apply to them.
 > the API. The auth bindings met the same wall and answered it the same way. The FIELD VALUE
 > on the line is this contract's, verbatim, and it is what `test/mail/mail-transport-boot.int-spec.ts`
 > and every operator grep key on. `resolveMailTransport` throws the same class on an
-> unrecognised value rather than returning `none`, so `mail.module.ts`'s factory — reachable
-> without `main.ts` from a testing module — cannot turn a typo into a silently suppressed
+> unrecognised value rather than returning `none`, so `mail.module.ts`'s factory (reachable
+> without `main.ts` from a testing module) cannot turn a typo into a silently suppressed
 > sender either.
 
 It also emits the one signal a misconfigured deployment gets before a user notices: when the
@@ -244,12 +244,12 @@ export interface FakeMailSender extends MailSender {
 >   `Idempotency-Key` header.** The retry was unsafe in one window: a network throw does not
 >   say whether the provider accepted the message before the response was lost, so the one
 >   retry could send a second copy. When a message carries `idempotencyKey`,
->   `ResendMailSender` now sends it as the `Idempotency-Key` header on BOTH attempts — the
+>   `ResendMailSender` now sends it as the `Idempotency-Key` header on BOTH attempts: the
 >   value is identical on the first attempt and the retry, which is what lets Resend
 >   deduplicate the pair. The invitation dispatch (`invitation-mail.ts`,
 >   `invitations.service.ts`) sets it to the invitation row's id: a uuid, stable, and not a
 >   secret. A message without the field sends no such header and keeps the pre-sweep
->   behaviour — the double-send window then stands for that caller, which today is nobody
+>   behaviour; the double-send window then stands for that caller, which today is nobody
 >   (nothing dispatches `email_verification`). Every other sender ignores the field.
 >   `senders.spec.ts` pins presence, identity across the retry, and absence.
 >   `resolveMailTransport` is the ONE literal read of `MAIL_TRANSPORT`; the assertion goes
@@ -371,8 +371,8 @@ logs declares `console`; a stack that declares nothing stays safe.
 
 > 2026-08-18: D-02 (ruled by Juano) has the compose stack declare `MAIL_TRANSPORT=console`
 > so a developer and the compose e2e read the invite URL out of `docker compose logs api`;
-> TASK-1b-11 sets it in `docker-compose.yml`. Every other environment — the unit and
-> integration tiers, CI, `pnpm dev`, a bare `docker run` — still declares nothing and resolves
+> TASK-1b-11 sets it in `docker-compose.yml`. Every other environment (the unit and
+> integration tiers, CI, `pnpm dev`, a bare `docker run`) still declares nothing and resolves
 > `none`. `apps/api/.env.example` documents all four variables (TASK-1b-02).
 
 ## Invariants a caller may rely on

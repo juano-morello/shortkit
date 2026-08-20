@@ -14,7 +14,7 @@ import { startScratchRedis } from './scratch-redis';
 import type { ScratchRedis } from './scratch-redis';
 
 /**
- * STORY-2-06 — AC-2-29 (a gone Redis degrades, never 5xx), AC-2-30 (a hung Redis is bounded
+ * STORY-2-06, AC-2-29 (a gone Redis degrades, never 5xx), AC-2-30 (a hung Redis is bounded
  * by `commandTimeout`), AC-2-31 (it comes back with no restart), AC-2-32 (every key begins
  * `sk:{namespace}:`, asserted on a live connection). TASK-2-03, wave 1.
  *
@@ -24,7 +24,7 @@ import type { ScratchRedis } from './scratch-redis';
  * WHAT ONLY A REAL SERVER CAN ANSWER, and therefore what is here rather than in
  * `src/cache/redirect-cache.spec.ts`: that Redis ACCEPTS the commands this cache issues,
  * that the TTLs it holds are the ones the contract fixes, that `SET … EX` really is one
- * command (`INFO commandstats` counts them — a fake cannot lie about that either way), and
+ * command (`INFO commandstats` counts them: a fake cannot lie about that either way), and
  * that a server which goes away, hangs, or comes back produces the three behaviours the ACs
  * name. The fixture owns its own container because it breaks its server on purpose.
  */
@@ -36,7 +36,7 @@ const TEST_TIMEOUT_MS = 90_000;
 /**
  * The bound on how long a cache call may take against a server that is CONNECTED and never
  * answering. ADR-0012's `commandTimeout` is 50 ms; the margin is for the runner, not for the
- * mechanism — at 500 ms this still fails if the timeout is removed, because an unanswered
+ * mechanism: at 500 ms this still fails if the timeout is removed, because an unanswered
  * command against a paused server never returns at all.
  */
 const HUNG_CALL_BUDGET_MS = 500;
@@ -88,7 +88,7 @@ async function eventually(predicate: () => boolean, budgetMs: number): Promise<b
 /**
  * THE RECOVERY ASSERTION, AND IT IS A ROUND TRIP RATHER THAN A STATUS READ.
  *
- * `cacheAvailable()` is `status === 'ready'`, and `disconnect()` is asynchronous — for the
+ * `cacheAvailable()` is `status === 'ready'`, and `disconnect()` is asynchronous: for the
  * few milliseconds between the call and Node delivering the close, the client reports itself
  * ready while its socket is already going away. A poll on that flag therefore returns `true`
  * on its first tick after a `simulate`, which is how the first version of this suite
@@ -118,7 +118,7 @@ beforeAll(async () => {
 
   // The module reads these once, on the first `redirectCacheFor`, and the client is built
   // from them. `REDIS_KEY_NAMESPACE` carries the pid so two runs on one machine cannot
-  // collide — the `ci-{run_id}` rule, one scale down.
+  // collide, the `ci-{run_id}` rule, one scale down.
   process.env.REDIS_URL = redis.url;
   process.env.REDIS_KEY_NAMESPACE = NAMESPACE;
 
@@ -238,7 +238,7 @@ describe('round trip against a live server', () => {
     }).toEqual({ exists: 0, read: 'unavailable' });
   });
 
-  it('deleting a key that is not there is not a failure — delete-on-create fires on every create', async () => {
+  it('deleting a key that is not there is not a failure: delete-on-create fires on every create', async () => {
     await expect(cache.delLink(HOSTNAME, 'nothere')).resolves.toBeUndefined();
   });
 });
@@ -341,7 +341,7 @@ describe('a hung but connected server (AC-2-30)', () => {
 
 describe('the server goes away and comes back (AC-2-29, AC-2-31)', () => {
   it(
-    'reads degrade while it is down and are served from the cache again after it returns — no restart, no new client',
+    'reads degrade while it is down and are served from the cache again after it returns (no restart, no new client)',
     async () => {
       await cache.setLink(HOSTNAME, SLUG, link);
 

@@ -231,7 +231,7 @@ than supplying it. The other variables belonging in it are outside this ADR.
 # (ADR-0027). `GET /health` reports it, which is how a deploy is identified.
 #
 # Required. Exactly 40 lowercase hex characters. The API refuses to boot without a
-# value matching /^[0-9a-f]{40}$/ — there is no fallback and no default, because a
+# value matching /^[0-9a-f]{40}$/: there is no fallback and no default, because a
 # health endpoint reporting `unknown` makes a deployed build unidentifiable and
 # nothing else in the pipeline notices.
 #

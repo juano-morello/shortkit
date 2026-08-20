@@ -28,7 +28,7 @@ infra
 #
 # BOTH FORMS, and the recursive ones are the ones that matter (F-317). Docker matches
 # these against the context-relative path, so a pattern with no `**/` prefix matches at
-# the context root ONLY — which is why this file already carries `dist` and `**/dist`.
+# the context root ONLY, which is why this file already carries `dist` and `**/dist`.
 # The secret block had only the root form, so `apps/web/.env.local`, which
 # `apps/web/.env.example` line 1 tells developers to create and which holds
 # `BFF_PROXY_SECRET`, was uploaded into every build context.

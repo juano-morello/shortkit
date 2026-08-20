@@ -36,7 +36,7 @@ describe('AppModule', () => {
    * AC-1b-40 (TASK-1b-07). `rate-limit.md`, "What the implementer must guarantee": the guard
    * runs AFTER `AuthGuard` and before every interceptor. The second half is Nest's lifecycle;
    * the first is `AppModule`'s import order (`RateLimitModule` after `AuthModule`), which Nest
-   * turns into the order of `ApplicationConfig.getGlobalGuards()` — the list
+   * turns into the order of `ApplicationConfig.getGlobalGuards()`: the list
    * `GuardsContextCreator` runs, in this order, for every route. Read from the resolved
    * container rather than inferred from the source, so a reordering of the imports is caught
    * here rather than by the tenant bucket TASK-051 adds reading a `RequestContext` that is
@@ -53,14 +53,14 @@ describe('AppModule', () => {
   /**
    * AC-1b-20 (TASK-1b-05, D-05). The three global interceptors in the ruled order: the request
    * log line outermost, the tenant transaction inside it, and the workspace authorization check
-   * inside THAT — the tenant interceptor calls `next.handle()` inside `withTenantTransaction`,
+   * inside THAT. The tenant interceptor calls `next.handle()` inside `withTenantTransaction`,
    * so the third interceptor's lookup runs under the transaction only if it is third. Read from
    * the resolved container (`ApplicationConfig.getGlobalInterceptors()` is the list
    * `InterceptorsContextCreator` runs, in this order) rather than inferred from the source, so
    * a reordering of the two provider lines is caught here and not by every decorated route
    * answering 500 from `TenantContextMissingError`.
    */
-  it('AC-1b-20: the global interceptors resolve to RequestLog, TenantTransaction, WorkspaceAuthorization — in that order and no other', async () => {
+  it('AC-1b-20: the global interceptors resolve to RequestLog, TenantTransaction, WorkspaceAuthorization, in that order and no other', async () => {
     moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
     const interceptors = moduleRef.get(ApplicationConfig, { strict: false }).getGlobalInterceptors();

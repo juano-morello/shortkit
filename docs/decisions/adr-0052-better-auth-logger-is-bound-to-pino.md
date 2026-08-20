@@ -14,7 +14,7 @@ date: 2026-08-13
 > audited basis.**
 >
 > Measured by the wave-2 design security pass: composed with the exact logger this ADR
-> mandates, the bound `log` hook received **zero lines** — `'error'` filtered out
+> mandates, the bound `log` hook received **zero lines**: `'error'` filtered out
 > `create-context.mjs:64`'s warning that the base URL is unset and the origin is being derived
 > from each incoming request, which is the line that reports two of that audit's major
 > findings. It also dropped the short-secret warning and `rate-limiter/index.mjs:284`'s
@@ -28,14 +28,14 @@ date: 2026-08-13
 >
 > **AND A SECOND AMENDMENT, 2026-08-16 (F-216): THIS ADR'S CENTRAL CLAIM HAS AN EXCEPTION.**
 > "Exactly one censoring mechanism" does not hold for the `onError` path. `api/index.mjs:199`
-> selects better-auth's **package-level logger singleton** — `const log = optLogLevel ===
-> "error" || optLogLevel === "warn" || optLogLevel === "debug" ? logger : void 0` — and writes
+> selects better-auth's **package-level logger singleton** (`const log = optLogLevel ===
+> "error" || optLogLevel === "warn" || optLogLevel === "debug" ? logger : void 0`), and writes
 > every `APIError` message through it with `log?.error(e.message)`. The bound `log` hook is not
 > consulted, `disableColors` does not apply, and the pino field allowlist never sees it.
 >
 > **The level is not the cause and `'warn'` is not the regression**: all three of `error`,
 > `warn` and `debug` enable it, so it was equally true under the `'error'` this ADR originally
-> decided. Nothing leaks today — every message on that path is a fixed string, which is why
+> decided. Nothing leaks today: every message on that path is a fixed string, which is why
 > four design rounds and a first implementation audit did not surface it. It was found by
 > asking which claim in the diff no test could check.
 >
@@ -71,26 +71,26 @@ const createLogger = (options) => {
 
 The lint rules do not reach `node_modules`. Nothing in pino sees these lines: no
 `LOGGABLE_FIELDS`, no `serializers.err`, no `formatters.log`, no ISO timestamp of ours, no
-`service`, no `env` — and ANSI colour when a TTY is detected, on the same descriptor the JSON
+`service`, no `env`, and ANSI colour when a TTY is detected, on the same descriptor the JSON
 goes to. That is the defect F-278 was filed for, arriving from a dependency.
 
 Two reachable consequences, both from the auditor and both confirmed in the source:
 
-1. **`dist/api/middlewares/origin-check.mjs:110`** —
+1. **`dist/api/middlewares/origin-check.mjs:110`**:
    `ctx.context.logger.error(\`Invalid origin: ${originHeader}\`)`, where `originHeader` is
    the `Origin` or `Referer` header. **Unauthenticated, attacker-controlled bytes, up to
    Node's 16 KB header limit, straight onto the log stream** in a line no allowlist sees.
    `error` is above the default `warn` level, so this is live the moment the mount exists.
    CR and LF are rejected by Node's header parser, so this is pollution and allowlist bypass
    rather than record forgery.
-2. **`dist/api/routes/sign-up.mjs:168`** —
+2. **`dist/api/routes/sign-up.mjs:168`**:
    `logger.info(\`Sign-up attempt for existing email: ${email}\`)`. Suppressed at the default
    `warn` level, and one config key from being live. `logger: { level: 'info' }` is a
    plausible thing for a developer to write and there is no rule anywhere against it. It puts
    an email address on a log line, which is the one field GC-G names.
 
-No artifact in this repository decides anything about this logger. ADR-0041 — any other
-logger is gated at the dependency list — is the nearest existing rule and it was written
+No artifact in this repository decides anything about this logger. ADR-0041 (any other
+logger is gated at the dependency list) is the nearest existing rule and it was written
 about direct dependencies, not about a logger inside one.
 
 ## Decision
@@ -136,12 +136,12 @@ Three properties, each load-bearing:
 relying on a downstream filter.~~ **Struck 2026-08-15 (ADR-0060, F-175): the level is `'warn'`,
 and that line is `logger.info` at the source, so `'warn'` suppresses it just as completely.**
 Raising it to `info` is a decision this ADR forbids without an amendment, and the spec asserts
-the level — now at `'warn'`.
+the level, now at `'warn'`.
 
 ### The residual, stated rather than closed
 
 `origin-check.mjs:110` still interpolates an attacker-controlled header into a message, and
-that message still reaches the log store — now as pino's `msg` rather than as a raw
+that message still reaches the log store, now as pino's `msg` rather than as a raw
 `console.error` line. **Binding the logger does not fix F-108's class; it relocates it into a
 field the repository already knows is uncensored.** What it buys is that the line is JSON, is
 levelled, carries `service` and `env`, and can be dropped by level or by `code` at the
@@ -157,7 +157,7 @@ with the trigger below.
 
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
-| `logger: { disabled: true }` | One key. Nothing from the dependency reaches any log, so the allowlist is trivially intact and the `origin-check` residual disappears entirely | Discards every diagnostic the auth surface produces, including the ones that matter during an incident: adapter failures, key-decryption failures (`Failed to decrypt private key`, which is ADR-0051's exact failure mode), and hook errors. The mount already sits outside the Nest graph, so no filter and no interceptor sees it either — disabling the logger makes the most security-critical component in the system silent | Trades all observability on the one surface with none of our own instrumentation, to close a residual that binding also mostly closes |
+| `logger: { disabled: true }` | One key. Nothing from the dependency reaches any log, so the allowlist is trivially intact and the `origin-check` residual disappears entirely | Discards every diagnostic the auth surface produces, including the ones that matter during an incident: adapter failures, key-decryption failures (`Failed to decrypt private key`, which is ADR-0051's exact failure mode), and hook errors. The mount already sits outside the Nest graph, so no filter and no interceptor sees it either: disabling the logger makes the most security-critical component in the system silent | Trades all observability on the one surface with none of our own instrumentation, to close a residual that binding also mostly closes |
 | Leave it at the default and add a lint rule or a CI grep | No config change | No lint rule reaches `node_modules`, and there is nothing in our source to grep. The channel is created by a dependency at runtime | There is nothing for a static rule to see |
 | Bind the hook and forward `args` through pino's `err` serializer | Keeps stack detail from inside the dependency | `args` is `unknown[]` and positionally shaped; only some call sites pass an `Error`. Deciding per-site what is an error is reading a dependency's call sites and depending on them not changing | A second place a Better Auth upgrade breaks logging, for detail that is already in the message |
 | Truncate `message` in the hook to a fixed length | Bounds the `origin-check` bytes | F-108 established that truncation is not this repository's answer to caller-controlled bytes, and the length would be unjustifiable. It also silently mangles legitimate long messages | Consistency with a decision already taken, and the residual is stated instead |
@@ -169,10 +169,10 @@ with the trigger below.
 - One log stream, one format, one level scheme. `LOGGABLE_FIELDS` is not bypassed by a
   channel nobody enumerated, and ADR-0028's "exactly one censoring mechanism" becomes true
   again from the moment Better Auth mounts rather than false from that moment.
-- The email line at `sign-up.mjs:168` is suppressed at the source by `level: 'warn'` — it is an
-  `info` call, struck from `'error'` 2026-08-15 — and raising the level is now a diff that
+- The email line at `sign-up.mjs:168` is suppressed at the source by `level: 'warn'` (it is an
+  `info` call, struck from `'error'` 2026-08-15), and raising the level is now a diff that
   fails a test.
-- `disableColors: true` removes ANSI escapes from a stream that is otherwise JSON — the
+- `disableColors: true` removes ANSI escapes from a stream that is otherwise JSON: the
   benign half of F-278, closed here before it lands rather than after.
 
 ### Negative / accepted cost
@@ -193,7 +193,7 @@ with the trigger below.
   still a mapping that can drift.
 - This is a fourth thing `auth.config.spec.ts` asserts about the composed config, alongside
   `rateLimit.enabled === false`, the schema pin and the secret. All four are facts that
-  degrade silently, which is why they are all in one place — and that file is now the single
+  degrade silently, which is why they are all in one place, and that file is now the single
   point where four unrelated silent failures are caught.
 
 ### What would force truncation or disabling
@@ -206,11 +206,11 @@ with the trigger below.
 ### Follow-ups this creates
 
 - TASK-003 writes the `logger` key and its comment, and `auth.config.spec.ts` asserts
-  `level === 'warn'` — struck from `'error'` 2026-08-15, ADR-0060 — and that `log` is a
+  `level === 'warn'` (struck from `'error'` 2026-08-15, ADR-0060), and that `log` is a
   function.
 - ADR-0028 gains no edit; it is frozen. This ADR is the record that its "exactly one
   censoring mechanism" claim needs a dependency-shaped caveat, and the caveat is: **a mounted
   dependency is a second channel until something binds it.**
-- ADR-0041's rule — any other logger is gated at the dependency list — is extended in
+- ADR-0041's rule (any other logger is gated at the dependency list) is extended in
   practice, not in text: the gate for a logger *inside* a dependency is a config key and a
   unit test, because the dependency list cannot express it.

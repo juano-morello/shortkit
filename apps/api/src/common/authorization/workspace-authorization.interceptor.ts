@@ -14,21 +14,21 @@
  * ============================================================================
  *
  * Nest runs every guard before any interceptor. `TenantTransactionInterceptor` opens the
- * request's tenant transaction, so a `CanActivate` cannot run inside it — and "its lookup is
+ * request's tenant transaction, so a `CanActivate` cannot run inside it, and "its lookup is
  * under RLS", "with no active context it throws" are the load-bearing properties of the
  * contract's text; the noun is not. So the workspace check is an interceptor registered
  * AFTER the tenant one: RequestLog → TenantTransaction → WorkspaceAuthorization. The tenant
  * interceptor calls `next.handle()` INSIDE `withTenantTransaction`, and Nest invokes this
- * interceptor's `intercept()` from that `handle()` — under the ambient store, so `tenantDb()`
+ * interceptor's `intercept()` from that `handle()`: under the ambient store, so `tenantDb()`
  * answers here, the membership lookup joins the request's transaction under `app.tenant_id`,
  * and `intercept()` may `await` the lookup before it returns `next.handle()` (Nest awaits a
  * `Promise<Observable>` from an interceptor). The handler is bound to the async context
  * current when THIS `next.handle()` is called (`AsyncResource.bind` at that moment), which
- * is still the transaction's — that is what `tenant-transaction.interceptor.ts`'s header
+ * is still the transaction's: that is what `tenant-transaction.interceptor.ts`'s header
  * calls load-bearing, and it holds one layer down.
  *
  * WHAT IT DOES, IN ORDER, FOR A ROUTE CARRYING `RequireWorkspaceRole` OR `RequireTenantRole`
- * (read handler first, then class — the reading `@Public()` gets):
+ * (read handler first, then class; the reading `@Public()` gets):
  *
  *   1. `@NoTenantTransaction()` or `@Public()` beside either key is a programming error:
  *      throw `AuthorizationMisconfiguredError` (500) at the first request. There is no
@@ -41,12 +41,12 @@
  *      through `TenantMembershipRepository.roleFor`, each only when its minimum is declared.
  *      Both read through `tenantDb()`, so WITH NO ACTIVE CONTEXT THEY THROW
  *      `TenantContextMissingError` (500) BEFORE ANY ROW IS READ. This interceptor never
- *      catches that and never returns pass without a lookup — rule 3, fail closed.
+ *      catches that and never returns pass without a lookup: rule 3, fail closed.
  *   4. The status table, 404 before 403: no membership (which is also another tenant's
  *      workspace, invisible under the policy, and a non-uuid) → 404 `not_found` with the
  *      body `WorkspaceRepository` gives a workspace that does not exist; no tenant row →
- *      404; then rank, through `requireWorkspaceRank` / `requireTenantRank` — the one place
- *      a rank is compared — 403 `insufficient_workspace_role` / `insufficient_tenant_role`.
+ *      404; then rank, through `requireWorkspaceRank` / `requireTenantRank` (the one place
+ *      a rank is compared), 403 `insufficient_workspace_role` / `insufficient_tenant_role`.
  *   5. Record what was found on the `RequestContext` (`workspaceId`, `workspaceRole`,
  *      `tenantRole`), make the context the ambient actor (`actor-context.ts`, for Form B
  *      calls the handler makes) and hand over to the handler.
@@ -130,7 +130,7 @@ export class WorkspaceAuthorizationInterceptor implements NestInterceptor {
     const actor = request[REQUEST_CONTEXT_KEY];
 
     if (workspaceMin === undefined && tenantMin === undefined) {
-      // Untouched — see the header. The actor is made ambient for Form B and nothing else.
+      // Untouched; see the header. The actor is made ambient for Form B and nothing else.
       return actor === undefined ? next.handle() : runAsActor(actor, () => next.handle());
     }
 

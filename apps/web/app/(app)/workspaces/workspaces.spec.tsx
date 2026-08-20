@@ -5,8 +5,8 @@
  * The page is an async server component: jsdom cannot render it, so the page function is
  * awaited for its element (with `next/headers` mocked, as `sign-in.spec.tsx` does) and the
  * element is rendered. `requireAuth` and `serverApiClient` are wrapped through `vi.mock` so
- * their CALL ORDER can be asserted — the card's rule is redirect-before-fetch, never
- * render-then-hide — and so the initial list can be answered without a network.
+ * their CALL ORDER can be asserted (the card's rule is redirect-before-fetch, never
+ * render-then-hide), and so the initial list can be answered without a network.
  *
  * Contract: docs/contracts/workspaces.md ("Endpoints"), docs/contracts/web-api-client.md.
  */

@@ -1,5 +1,5 @@
 /**
- * STORY-001 — AC-8. TASK-001.
+ * STORY-001, AC-8. TASK-001.
  *
  * ADR: adr-0005-contract-distribution.md
  *
@@ -15,7 +15,7 @@
  *     export * from './members';  // TASK-001
  *
  * and until this file existed they were asserted by NOTHING. `auth.spec.ts` imports
- * `./index` — the auth module's own index, not the package's — and `members.spec.ts`
+ * `./index` (the auth module's own index, not the package's), and `members.spec.ts`
  * does the same, so DELETING EITHER BARREL LINE LEFT THE WHOLE SUITE GREEN. The package's
  * one actual public surface was the one deliverable with no coverage.
  *
@@ -24,7 +24,7 @@
  * ============================================================================
  *
  * Both barrel lines are already present, so this has no failing history. That is what it
- * is for: it pins something that works today and was held in place by nothing. Measured —
+ * is for: it pins something that works today and was held in place by nothing. Measured:
  * commenting out `export * from './auth'` fails this test with
  * `"auth: signUpRequestContract": false`, and commenting out `export * from './members'`
  * fails it with `"members: parseTenantMembership": false`.

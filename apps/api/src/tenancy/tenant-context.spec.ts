@@ -7,13 +7,13 @@ import {
 } from './tenant-context';
 
 /**
- * F-128 — contract invariant 4, which had no coverage at all.
+ * F-128: contract invariant 4, which had no coverage at all.
  *
  * `docs/contracts/tenant-context.md`: "`tenantDb()` outside an active context
  * throws `TenantContextMissingError`. It never returns an unscoped client." That is
- * a GC-5 guarantee — an accessor that fell back to an unscoped handle would be a
+ * a GC-5 guarantee: an accessor that fell back to an unscoped handle would be a
  * query path reaching every tenant's rows with no transaction and no context flag,
- * which is the hole GC-5 exists to close — and it is decidable in process, with no
+ * which is the hole GC-5 exists to close, and it is decidable in process, with no
  * database, because nothing here opens a transaction.
  *
  * The active-context half of the same accessor needs a live Postgres and lives in

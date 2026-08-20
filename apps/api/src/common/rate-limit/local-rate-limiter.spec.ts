@@ -174,13 +174,13 @@ describe('LocalRateLimiter.checkTenant (debt sweep D1: the tenant-keyed write bu
     }
   });
 
-  it('AC-84: tenants are independent — one exhausted tenant does not touch another', async () => {
+  it('AC-84: tenants are independent: one exhausted tenant does not touch another', async () => {
     await tenantAdmittedOf(limiter, TENANT_A, RATE_LIMIT_MAX_WRITES + 1);
 
     expect(await limiter.checkTenant(TENANT_B)).toEqual({ allowed: true });
   });
 
-  it('AC-85: a fixed window aligned to the epoch — once the window elapses the tenant writes again', async () => {
+  it('AC-85: a fixed window aligned to the epoch: once the window elapses the tenant writes again', async () => {
     const windowMs = RATE_LIMIT_WINDOW_S * 1000;
     vi.setSystemTime(Math.floor(Date.now() / windowMs) * windowMs);
 
@@ -195,7 +195,7 @@ describe('LocalRateLimiter.checkTenant (debt sweep D1: the tenant-keyed write bu
     });
   });
 
-  it('F-034: the tenant map is bounded at LOCAL_LIMITER_MAX_TENANTS and SEPARATE from the IP map — tenant churn cannot evict an address and vice versa', async () => {
+  it('F-034: the tenant map is bounded at LOCAL_LIMITER_MAX_TENANTS and SEPARATE from the IP map: tenant churn cannot evict an address and vice versa', async () => {
     await limiter.checkPublicIp('203.0.113.7');
     await limiter.checkPublicIp('203.0.113.8');
 
@@ -209,7 +209,7 @@ describe('LocalRateLimiter.checkTenant (debt sweep D1: the tenant-keyed write bu
     });
   });
 
-  it('a PLAIN LRU, per the contract: at the cap the oldest entry is evicted, exhausted or not — F-028\'s churn defence is deliberately absent because tenant ids require authentication', async () => {
+  it('a PLAIN LRU, per the contract: at the cap the oldest entry is evicted, exhausted or not: F-028\'s churn defence is deliberately absent because tenant ids require authentication', async () => {
     await tenantAdmittedOf(limiter, 'exhausted-tenant', RATE_LIMIT_MAX_WRITES + 1);
     for (let i = 0; i < LOCAL_LIMITER_MAX_TENANTS; i += 1) {
       await limiter.checkTenant(`churn-${String(i)}`);

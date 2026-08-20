@@ -22,7 +22,7 @@ import { DomainError } from './domain-error';
 import type * as domainErrorModule from './domain-error';
 
 /**
- * AC-13 — every rejected API request answers with the shared error envelope and a
+ * AC-13: every rejected API request answers with the shared error envelope and a
  * stable machine-readable `code`.
  *
  * Contract: docs/contracts/error-envelope.md. The invariants exercised here are
@@ -35,7 +35,7 @@ import type * as domainErrorModule from './domain-error';
  *
  * The assertions go through a real HTTP round trip on loopback rather than by calling
  * a filter class directly. AC-13 is about the response a client receives, and calling
- * `catch()` on a filter instance would assert the filter's arguments instead — which
+ * `catch()` on a filter instance would assert the filter's arguments instead, which
  * would still pass if the filter were never registered.
  *
  * ADR-0024 added branch 1 of the four: a thrown `DomainError` answers with its own code
@@ -51,7 +51,7 @@ const LEAKED_SECRET = 'postgres://shortkit:hunter2@db.internal:5432';
 
 /**
  * Another tenant's id, which invariant 8 forbids in any body but the owner's. It stands
- * in for the conflicting row a throw site would attach to `details` to help a client —
+ * in for the conflicting row a throw site would attach to `details` to help a client:
  * the mistake ADR-0026 makes impossible at the filter rather than at fourteen throw
  * sites.
  */
@@ -95,7 +95,7 @@ const UNMAPPED_FRAMEWORK_STATUS = 413;
  * Route, code and status, with the status hand-read off `error-envelope.md`'s table
  * rather than looked up in `ERROR_CODE_STATUS`. Two codes with two different statuses,
  * neither of which the framework produces on its own, so a filter answering a constant
- * status — or the status of whichever code it saw last — fails one of the rows.
+ * status (or the status of whichever code it saw last) fails one of the rows.
  */
 const DOMAIN_ERROR_CASES = [
   { route: 'domain-error', code: 'slug_taken', status: 409 },
@@ -174,7 +174,7 @@ class ErrorProbeController {
 
   /**
    * ADR-0024: the only way application code asks for a status other than 500. The
-   * `cause` is what a real throw site would attach — it belongs in the log and nowhere
+   * `cause` is what a real throw site would attach: it belongs in the log and nowhere
    * near the body.
    */
   @Get('domain-error')
@@ -375,7 +375,7 @@ describe('the API exception filter', () => {
    * Amended for F-101. This asserted the pass-through of the exception's own message
    * until F-094 removed it from the contract in the same fix round: Nest builds that
    * message from the raw request bytes, so forwarding it reflects a fragment of the
-   * caller's body — a token among them — into an error body (ADR-0026).
+   * caller's body (a token among them) into an error body (ADR-0026).
    */
   it("AC-13: replaces a framework 400's own message with the fixed one under _form", async () => {
     const probed = await probe('http-exception-bad-request');
@@ -476,7 +476,7 @@ describe('the API exception filter', () => {
    * ADR-0026, added 2026-08-05. The filter narrows every body it writes: `details`
    * survives only under `validation_failed` and only as the output of parsing it against
    * `validationDetailsContract`. ADR-0026 records that a test asserting the body is the
-   * only thing that catches a drop — nothing else does, because `errorEnvelopeContract`
+   * only thing that catches a drop: nothing else does, because `errorEnvelopeContract`
    * types `details` as `unknown`.
    */
   it('AC-13: drops details from an envelope whose code names no details shape', async () => {

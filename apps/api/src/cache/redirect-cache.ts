@@ -1,5 +1,5 @@
 /**
- * Contract: docs/contracts/redirect-cache.md — THE NORMATIVE FORM. Keys, both value shapes,
+ * Contract: docs/contracts/redirect-cache.md (THE NORMATIVE FORM). Keys, both value shapes,
  *           the sentinel, the four TTLs, `linkTtlSeconds`, the `SET key value EX ttl` rule,
  *           and `'unavailable'` ≠ `'miss'` all come from that file and are not decided here.
  * ADR: adr-0008-redirect-cache-shape.md (two namespaces, whole records, negative entries),
@@ -24,7 +24,7 @@
  * WHAT NEVER LEAVES THIS FILE AS A THROW (GC-O).
  * ============================================================================
  *
- * Every READ answers `'unavailable'` on any failure — a rejection, a synchronous throw, a
+ * Every READ answers `'unavailable'` on any failure: a rejection, a synchronous throw, a
  * disconnected client, a timeout, a value that does not decode. Every WRITE (`setHost`,
  * `setLink`) swallows its failure: a cache fill that did not happen costs a Postgres query
  * on the next request and nothing else, and the visitor's response is already decided by
@@ -59,7 +59,7 @@ export interface RedirectCacheClient {
 /**
  * A positive `hst:` record is written ONLY for a domain in state `active`
  * (`redirect-cache.md`, "Only an `active` domain is cached"; F-003). Any other state caches
- * as MISS. This module cannot enforce that — `resolveHost` is the only writer of positive
+ * as MISS. This module cannot enforce that: `resolveHost` is the only writer of positive
  * host records and it owns the rule.
  */
 export interface CachedHost {
@@ -83,7 +83,7 @@ export interface CachedLink {
   readonly dm: string;
   /** workspaceId */
   readonly w: string;
-  /** tenantId — lets the click writer open a tenant transaction with no lookup (GC-5) */
+  /** tenantId: lets the click writer open a tenant transaction with no lookup (GC-5) */
   readonly t: string;
   /** expiresAt, epoch ms */
   readonly ea: number | null;
@@ -203,14 +203,14 @@ export class RedisRedirectCache implements RedirectCache {
   }
 
   /**
-   * ONE `GET`, THREE OUTCOMES, AND NO FOURTH — and the mapping of an ABSENT key is the part
+   * ONE `GET`, THREE OUTCOMES, AND NO FOURTH; and the mapping of an ABSENT key is the part
    * a reader has to have (amendment of 2026-08-19 in `redirect-cache.md`).
    *
    * `'miss'` is the SENTINEL and nothing else: it answers the request with a 404 and zero
    * Postgres queries, so a key that was simply never written must not produce it, or an
    * empty cache would 404 every link in the database. Absence therefore joins the failures
    * under `'unavailable'`, whose contract is exactly "the caller must query Postgres". The
-   * cost of the merge is that `'unavailable'` is not on its own evidence of an outage —
+   * cost of the merge is that `'unavailable'` is not on its own evidence of an outage:
    * `cacheAvailable()` is the health signal, and a degradation line keyed on this value
    * would fire on every cold key.
    */
@@ -246,8 +246,8 @@ export class RedisRedirectCache implements RedirectCache {
       return 'unavailable';
     }
 
-    // A value that does not decode — a bumped `v`, a truncated write, a key some other
-    // process wrote — is answered from Postgres. The alternative directions are both worse:
+    // A value that does not decode (a bumped `v`, a truncated write, a key some other
+    // process wrote) is answered from Postgres. The alternative directions are both worse:
     // `'miss'` would 404 a live link, and a half-built record would 302 somewhere nobody
     // chose.
     return decoded(parsed) ? parsed : 'unavailable';

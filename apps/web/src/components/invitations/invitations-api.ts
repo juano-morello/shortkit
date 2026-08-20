@@ -1,7 +1,7 @@
 /**
  * TASK-1b-12 (STORY-1b-02; the plumbing under AC-1b-12/13/16 and STORY-1b-05's screen).
  * The requests the two invitation screens issue, the token helpers, and the failure
- * classifier — in one module so the accept page (TASK-1b-13) and the per-workspace
+ * classifier, in one module so the accept page (TASK-1b-13) and the per-workspace
  * invitations screen (TASK-1b-14) agree on every path, body and code, the way
  * `workspaces-api.ts` does for the workspace screen.
  *
@@ -10,7 +10,7 @@
  *   (D-03: fragment + body), docs/contracts/workspace-authorization.md (who may invite,
  *   list, revoke), docs/contracts/rate-limit.md (the `@Public()` per-IP 429).
  * ADR: adr-0021 (the link is the capability; D-01 ruled it is not bound to the address),
- *   adr-0029 (route templates are source literals; a caller value goes in `params` — and
+ *   adr-0029 (route templates are source literals; a caller value goes in `params`, and
  *   the token goes in NEITHER, see below), adr-0014 (browser → BFF, server → API).
  * Produced by: TASK-1b-12
  *
@@ -127,7 +127,7 @@ export function getWorkspaceRequest(workspaceId: string): ApiRequest<Workspace> 
 
 /**
  * The token out of `location.hash`, or `null`. Admits ONLY a value `capabilityTokenContract`
- * accepts — the same shape the API parses before `parseCapabilityToken` runs — so a
+ * accepts (the same shape the API parses before `parseCapabilityToken` runs) so a
  * malformed fragment is a local `not_found` and never a request, and nothing but a
  * token-shaped string is ever posted or stored. Accepts the hash with or without its `#`
  * and with sibling pairs, since a mail client may append its own.
@@ -254,8 +254,8 @@ export function classifyInvitationError(error: unknown): InvitationFailure {
 /**
  * The failure a screen-side control reports: the classification above plus `forbidden`
  * for the two 403 codes the workspace-authorization interceptor answers.
- * `classifyInvitationError` maps them to `unknown` — the accept page never meets a 403,
- * and keeps the narrower `InvitationFailure` — but the per-workspace invitations screen
+ * `classifyInvitationError` maps them to `unknown`: the accept page never meets a 403,
+ * and keeps the narrower `InvitationFailure`, but the per-workspace invitations screen
  * does, on invite and on revoke, and says why rather than "something went wrong".
  */
 export type InvitationScreenFailure = InvitationFailure | { kind: 'forbidden' };

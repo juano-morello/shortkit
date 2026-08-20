@@ -1,6 +1,6 @@
 /**
  * Contract: docs/contracts/redirect-cache.md ("Keys": `{env}` comes from
- *           `REDIS_KEY_NAMESPACE`, which is REQUIRED — the process refuses to boot when it
+ *           `REDIS_KEY_NAMESPACE`, which is REQUIRED: the process refuses to boot when it
  *           is unset rather than defaulting to something that might collide).
  * ADR: adr-0012-redis-client-and-rate-limit-degradation.md (the constructor and its six
  *      options, verbatim; one client, one failure posture; `cacheAvailable`),
@@ -24,7 +24,7 @@
  * binding rather than asserting nothing.** A malformed `REDIS_URL` refuses everywhere,
  * including in CI and on a laptop, because a typo that silently selects the degraded cache
  * is a deployment serving every redirect from Postgres while believing it has a cache.
- * Absence lands on `UnavailableRedirectCache` — which can do no harm, only extra queries —
+ * Absence lands on `UnavailableRedirectCache` (which can do no harm, only extra queries)
  * and writes ONE warn line.
  *
  * ============================================================================
@@ -39,7 +39,7 @@
  * `redisClient`: a second consumer is a deliberate export in the card that adds it, not an
  * import somebody reaches for.
  *
- * BUILT ON FIRST USE, NOT AT IMPORT — `db/client.ts`'s rule, for the same reason. Unit
+ * BUILT ON FIRST USE, NOT AT IMPORT: `db/client.ts`'s rule, for the same reason. Unit
  * suites import this module graph and never reach a cache; a client constructed at import
  * would open a socket in every one of them.
  */
@@ -68,8 +68,8 @@ const NAMESPACE_FORBIDDEN = /[\s:]/;
  * THE THREE REFUSAL STRINGS. NONE INTERPOLATES A CONFIGURED VALUE (ADR-0029).
  * ============================================================================
  *
- * `REDIS_URL` is the single most credential-bearing variable in this file — `rediss://
- * default:<password>@host:6380` is the ordinary shape — so it is never quoted back, not in a
+ * `REDIS_URL` is the single most credential-bearing variable in this file (`rediss://
+ * default:<password>@host:6380` is the ordinary shape), so it is never quoted back, not in a
  * refusal, not in a log line, not in a stack. The refusal names the rule; the operator has
  * the environment in front of them.
  */
@@ -77,14 +77,14 @@ export const REDIS_URL_INVALID_MESSAGE =
   'REDIS_URL must be a redis:// or rediss:// URL (host and port, credentials optional). It is not a bare host:port and it is not a boolean. Unset it to run without a redirect cache. See docs/contracts/redirect-cache.md.';
 
 export const REDIS_KEY_NAMESPACE_UNSET_MESSAGE =
-  'REDIS_URL is set but REDIS_KEY_NAMESPACE is not. Every key begins sk:{REDIS_KEY_NAMESPACE}:, and a process that defaulted it would share a key space with whatever else pointed at that instance — a staging host record served to production visitors. Values in use: prod, staging, dev, ci-{run_id}. See docs/contracts/redirect-cache.md.';
+  'REDIS_URL is set but REDIS_KEY_NAMESPACE is not. Every key begins sk:{REDIS_KEY_NAMESPACE}:, and a process that defaulted it would share a key space with whatever else pointed at that instance: a staging host record served to production visitors. Values in use: prod, staging, dev, ci-{run_id}. See docs/contracts/redirect-cache.md.';
 
 export const REDIS_KEY_NAMESPACE_INVALID_MESSAGE =
   'REDIS_KEY_NAMESPACE may not contain a colon or whitespace: it is the second segment of every key (sk:{env}:hst:v1:{hostname}), so a colon in it redraws the key structure. See docs/contracts/redirect-cache.md.';
 
 /**
  * The refusal `assertRedisConfigured` throws, and what `main.ts`'s `bootstrap().catch` maps
- * onto `boot_precondition: 'redirect_cache'` — the arrangement `MailBindingError` and
+ * onto `boot_precondition: 'redirect_cache'`, the arrangement `MailBindingError` and
  * `AuthBindingError` already have, so the line an operator reads names WHICH declaration
  * refused (F-245).
  *
@@ -148,7 +148,7 @@ export function readRedisBinding(env: NodeJS.ProcessEnv): RedisBinding | undefin
  *   2. ONLY when it is set: `REDIS_KEY_NAMESPACE` is set and carries no colon or whitespace.
  *   3. When it is unset: log ONE warn line carrying `boot_precondition: 'redirect_cache'`
  *      and no other field, and return. That line is the only local evidence a deployment
- *      that forgot the variable ever gets — every redirect will resolve from Postgres and
+ *      that forgot the variable ever gets: every redirect will resolve from Postgres and
  *      every response will be correct, which is exactly why nothing else would notice.
  *
  * Cannot check that a deployment which HAS a Redis pointed this process at it, and cannot
@@ -170,16 +170,16 @@ export function assertRedisConfigured(env: NodeJS.ProcessEnv): void {
  * ADR-0012'S CONSTRUCTOR OPTIONS, VERBATIM. EACH ONE ANSWERS AN AC.
  * ============================================================================
  *
- * `enableOfflineQueue: false` — a command while disconnected REJECTS immediately instead of
+ * `enableOfflineQueue: false`: a command while disconnected REJECTS immediately instead of
  *   queueing until reconnect, which is what lets AC-2-29 answer from Postgres rather than
  *   hang.
- * `maxRetriesPerRequest: 1` — one retry, then the command fails to the caller.
- * `commandTimeout: 50` — bounds a hung-but-CONNECTED server (AC-2-30). This is the only
+ * `maxRetriesPerRequest: 1`: one retry, then the command fails to the caller.
+ * `commandTimeout: 50`: bounds a hung-but-CONNECTED server (AC-2-30). This is the only
  *   thing standing between a wedged Redis and the redirect's latency budget.
- * `connectTimeout: 1000` — bounds the establishment.
- * `retryStrategy` — `times * 200` capped at 5000, which is AC-2-31's "reconnects without a
+ * `connectTimeout: 1000`: bounds the establishment.
+ * `retryStrategy`: `times * 200` capped at 5000, which is AC-2-31's "reconnects without a
  *   restart".
- * `lazyConnect: false` — the connection is opened when the client is constructed, so a
+ * `lazyConnect: false`: the connection is opened when the client is constructed, so a
  *   deployment with an unreachable Redis is degraded from its first request rather than from
  *   its first command.
  *
@@ -202,14 +202,14 @@ const ERROR_LOG_INTERVAL_MS = 60_000;
  * Builds a client on the ADR's options and attaches the `error` listener.
  *
  * THE LISTENER IS NOT OPTIONAL. `ioredis` emits `error` on every failed connection attempt,
- * and an `EventEmitter` emitting `error` with no listener is an uncaughtException — Node
+ * and an `EventEmitter` emitting `error` with no listener is an uncaughtException. Node
  * takes the process down. That is the `pg` failure mode F-123 and F-137 already cost this
  * repository twice, one level over; a Redis outage must degrade the redirect, not kill the
  * API.
  *
  * THROTTLED TO ONE LINE PER MINUTE PER CLIENT. `retryStrategy` reconnects every 200 ms at
- * first, so an unreachable instance produces five events a second, and the honest signal —
- * "this process cannot reach its cache" — is the same sentence every time.
+ * first, so an unreachable instance produces five events a second, and the honest signal,
+ * "this process cannot reach its cache", is the same sentence every time.
  *
  * The line carries `code` and the error under `err`, which `serializers.err` reduces to
  * `err_name` and `err_stack` (F-244). NOT `err_message`: a connection error's message
@@ -244,7 +244,7 @@ let client: Redis | undefined;
 
 /**
  * The one client (ADR-0012), built on first use and shared afterwards. Its only sanctioned
- * caller is `cache.module.ts`, asserted by `redis-client.spec.ts` — see the file docblock.
+ * caller is `cache.module.ts`, asserted by `redis-client.spec.ts` (see the file docblock).
  *
  * The binding is passed in rather than read here so that this function cannot be the thing
  * that decides whether a cache exists: that decision is `readRedisBinding`'s, once, and the
@@ -275,7 +275,7 @@ export function cacheAvailable(): boolean {
  * THE DEGRADATION FIXTURE (ADR-0012 follow-up: "TASK-032 … owns `simulateRedisUnavailable()`").
  * ============================================================================
  *
- * Disconnects the client and REFUSES RECONNECTION until the returned function is called —
+ * Disconnects the client and REFUSES RECONNECTION until the returned function is called:
  * `ioredis`'s `disconnect()` with no argument sets `manuallyClosing`, so `retryStrategy` does
  * not fire and the client stays at `end`. Every read then answers `'unavailable'` and every
  * write is a no-op, which is precisely the state AC-2-29 asks for.
@@ -283,7 +283,7 @@ export function cacheAvailable(): boolean {
  * SHIPPED CODE, NOT TEST SUPPORT, and deliberately: it acts on the module-private client,
  * which nothing outside this file can reach. It is consumed by TASK-2-07's and TASK-2-12's
  * degradation proofs, and it is inert (a no-op returning a no-op) in a process that declared
- * no Redis — where the cache is already unavailable and there is nothing to simulate.
+ * no Redis, where the cache is already unavailable and there is nothing to simulate.
  */
 export function simulateRedisUnavailable(): () => void {
   if (client !== undefined && !simulated) {
@@ -306,7 +306,7 @@ export function simulateRedisUnavailable(): () => void {
  * ============================================================================
  *
  * Measured while placing the integration suite: `disconnect()` ends the socket, and the
- * status does not become `end` until Node delivers the close — so a `restore` called in the
+ * status does not become `end` until Node delivers the close, so a `restore` called in the
  * same tick as the `simulate` sees a client that still reads `ready`. A version of this
  * function that only handled the settled case returned silently there and left the client
  * down for the REST OF THE PROCESS, with `cacheAvailable()` reporting `true` for the few
@@ -346,7 +346,7 @@ export function restoreRedisAvailability(): void {
 let simulated = false;
 
 /**
- * Releases the client. Called by a suite that has finished with it — an open `ioredis`
+ * Releases the client. Called by a suite that has finished with it: an open `ioredis`
  * connection keeps the event loop alive, so a test run would hang exactly as it did before
  * `allowExitOnIdle` was set on the pg pools.
  *

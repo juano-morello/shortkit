@@ -12,20 +12,20 @@
  * transaction `TenantTransactionInterceptor` opened around the handler, so both
  * repositories' `tenantDb()` are already bound to the caller's tenant; and the rank check
  * for the single-row routes ran in `WorkspaceAuthorizationInterceptor` (Form A) before the
- * handler was reached — this service reads what it found on the `RequestContext`
+ * handler was reached: this service reads what it found on the `RequestContext`
  * (`workspaceRole`) and never looks a role up itself. What is the caller's is taken from
  * the `RequestContext` the controller hands in (`actor`), never from the body.
  *
  * WHO SEES WHAT (D-10). `create` writes the workspace AND the creator's `workspace_admin`
- * membership, in the one transaction — a workspace with no admin would be reachable by
+ * membership, in the one transaction: a workspace with no admin would be reachable by
  * nobody, since there is no implicit tenant-owner bypass. `list` answers the workspaces the
  * caller holds a membership in, and only those: `listForUser` joins `memberships` on the
  * caller, owner-qualified on both tables. A tenant `owner` who is not a member of a
- * workspace does not see it — the contract's status table is unconditional.
+ * workspace does not see it: the contract's status table is unconditional.
  *
  * `workspaceRole` ON THE WAY OUT: the literal `workspace_admin` for `create` (what was just
  * written), the joined `memberships.role` for each `list` row, `RequestContext.workspaceRole`
- * for `get`/`rename`/`archive` — set by the interceptor on a route carrying
+ * for `get`/`rename`/`archive`, set by the interceptor on a route carrying
  * `@RequireWorkspaceRole`. A single-row call that arrives WITHOUT one is a route missing its
  * decorator, and `roleOf` throws a plain `Error` (500) rather than answer a role it did not
  * establish: fail closed, the same rule the interceptor keeps.
@@ -33,7 +33,7 @@
  * NOTHING HERE CATCHES. `WorkspaceNotFoundError` is a `DomainError` and the filter answers
  * its code only if it arrives unwrapped (ADR-0024: the filter does not walk `cause`). The
  * transaction interceptor rolls back and rethrows the original, so letting it propagate is
- * the whole of the error handling — and a membership insert that fails rolls the workspace
+ * the whole of the error handling, and a membership insert that fails rolls the workspace
  * insert back with it.
  *
  * `tenantId` IS DROPPED ON THE WAY OUT, BY AN EXPLICIT FIELD LIST. `toClientWorkspace`
@@ -59,7 +59,7 @@ import type { Workspace as WorkspaceRow } from './workspace.repository';
 
 /**
  * Row to client shape: `Date` to ISO string, `archivedAt` null kept null, no `tenantId`, and
- * the caller's role — a branded value in, the unbranded wire value out (it is the same
+ * the caller's role: a branded value in, the unbranded wire value out (it is the same
  * string; the brand is compile-time only, ADR-0048).
  */
 export function toClientWorkspace(row: WorkspaceRow, role: WorkspaceRole): Workspace {
@@ -75,7 +75,7 @@ export function toClientWorkspace(row: WorkspaceRow, role: WorkspaceRole): Works
 
 /**
  * The role the authorization interceptor established for this request's workspace. Absent
- * means the route reached the service without `@RequireWorkspaceRole` — a programming
+ * means the route reached the service without `@RequireWorkspaceRole`: a programming
  * error, answered 500, never a default.
  */
 function roleOf(actor: RequestContext): WorkspaceRole {
@@ -119,7 +119,7 @@ export class WorkspacesService {
   }
 
   /**
-   * The caller's workspaces — those they hold a membership in — each with their role
+   * The caller's workspaces (those they hold a membership in) each with their role
    * (AC-1b-18). `includeArchived` absent means false: the default list is the active
    * workspaces (AC-23).
    */
@@ -133,8 +133,8 @@ export class WorkspacesService {
 
   /**
    * One workspace by id. The interceptor already answered 404 for a non-member, another
-   * tenant's id and a non-uuid; the repository's `null` — unreachable once a membership row
-   * exists, since the composite foreign key ties it to the workspace — is the same 404.
+   * tenant's id and a non-uuid; the repository's `null` (unreachable once a membership row
+   * exists, since the composite foreign key ties it to the workspace) is the same 404.
    */
   async get(actor: RequestContext, workspaceId: string): Promise<Workspace> {
     const role = roleOf(actor);

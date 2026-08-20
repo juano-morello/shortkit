@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { NoTenantMembershipError } from './tenant-id-for-user';
 
 /**
- * STORY-001 — AC-4. TASK-002.
+ * STORY-001: AC-4. TASK-002.
  *
  * Contract: `docs/contracts/tenant-membership-lookup.md` ("`tenantIdForUser`", "Error
  * cases"). ADR-0045, ADR-0015, ADR-0013, ADR-0052.
@@ -19,10 +19,10 @@ import { NoTenantMembershipError } from './tenant-id-for-user';
  *
  * `tenantIdForUser` resolving to a tenant id, and rejecting with this error rather than
  * with `null` or `''`, is a property of a live `FOR SELECT` policy on a warm pooled
- * connection — `test/auth/tenant-memberships.int-spec.ts` asserts both. It is not asserted
+ * connection: `test/auth/tenant-memberships.int-spec.ts` asserts both. It is not asserted
  * here with a mocked `withMembershipLookup`, for two reasons: nothing in `apps/api/src`
  * mocks a module today (no `vi.mock` anywhere in the tree), and a fake handle would pin the
- * row shape this file's SELECT returns — an internal no contract fixes — while proving
+ * row shape this file's SELECT returns (an internal no contract fixes) while proving
  * nothing about the policy that decides whether the row is visible at all. A membership
  * lookup that returns another tenant's row would satisfy such a mock.
  *
@@ -57,7 +57,7 @@ describe('NoTenantMembershipError', () => {
     const error = new NoTenantMembershipError(USER_ID);
 
     // `name` is an own property because the constructor assigns it; everything else the
-    // error carries is what a caller — or `serializers.err` — can read. `LOGGABLE_FIELDS`
+    // error carries is what a caller (or `serializers.err`) can read. `LOGGABLE_FIELDS`
     // has no name for a user identifier and GC-G bans `email` from a log line outright,
     // and this error is thrown inside a dependency's handler (ADR-0052).
     expect(Object.keys(error).filter((key) => key !== 'name')).toEqual(['userId']);

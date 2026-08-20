@@ -177,7 +177,7 @@ is addressed to.
 tenant-scoped tables outside tenant context. Both go through:
 
 ```ts
-// apps/api/src/redirect/db/redirect-read.ts — the ONLY file setting app.redirect_context
+// apps/api/src/redirect/db/redirect-read.ts: the ONLY file setting app.redirect_context
 export declare function withRedirectRead<T>(fn: (db: RedirectReadDb) => Promise<T>): Promise<T>;
 ```
 

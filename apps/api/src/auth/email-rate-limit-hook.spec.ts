@@ -20,7 +20,7 @@ import { AUTH_RATE_LIMIT_BUCKETS, AuthRateLimitExceededError } from './ports/aut
 import type { AuthRateLimitBucket, AuthRateLimitCharge, AuthRateLimitPort } from './ports/auth-rate-limit.port';
 
 /**
- * STORY-1b-08 — AC-1b-39's unit half. TASK-1b-09 (item 1b, wave 3; D-15).
+ * STORY-1b-08: AC-1b-39's unit half. TASK-1b-09 (item 1b, wave 3; D-15).
  *
  * Contract: `docs/contracts/rate-limit.md` ("The email bucket runs inside Better Auth",
  * "`ctx.body` is unvalidated at hook time", "The email key is normalised, and both failure
@@ -30,7 +30,7 @@ import type { AuthRateLimitBucket, AuthRateLimitCharge, AuthRateLimitPort } from
  * WHAT IS HERE: the normalisation table, the predicate, the F-228 rule (nothing but an
  * `APIError` ever leaves the hook, and a body that is not a string is not charged), the 429's
  * shape, the fixed message, the hashed key, and both degrade-open branches. WHAT IS NOT:
- * whether `ctx.path` really reads `/sign-in/email` inside Better Auth — that is a framework
+ * whether `ctx.path` really reads `/sign-in/email` inside Better Auth: that is a framework
  * fact and `test/auth/sign-in-email-bucket.int-spec.ts` pins it against a real request,
  * because a wrong literal here is a limiter that quietly does not exist (F-025 b).
  *
@@ -187,7 +187,7 @@ describe('emailRateLimitHook', () => {
     ['a number-typed email', { email: 12345, password: 'x' }],
     ['an empty-string email', { email: '   ', password: 'x' }],
     ['a string body', 'email=a@b.com'],
-  ])('F-228: %s is neither charged nor refused — the endpoint answers its own 400', async (_label, body) => {
+  ])('F-228: %s is neither charged nor refused: the endpoint answers its own 400', async (_label, body) => {
     await expect(emailRateLimitHook(ctx(SIGN_IN_EMAIL_PATH, body))).resolves.toBeUndefined();
     expect(port.calls).toEqual([]);
   });
@@ -279,7 +279,7 @@ describe('emailRateLimitHook', () => {
   });
 });
 
-describe('emailRateLimitReleaseHook — a success gives its charge back (architect ruling, 2026-08-18)', () => {
+describe('emailRateLimitReleaseHook: a success gives its charge back (architect ruling, 2026-08-18)', () => {
   const SUCCESS = { redirect: false, token: 'sess', user: { id: 'u1' } };
   const BODY = { email: 'Foo@Example.com', password: 'x' };
 
@@ -321,7 +321,7 @@ describe('emailRateLimitReleaseHook — a success gives its charge back (archite
     expect(port.releases.map((release) => release.charge.windowStart)).toEqual([20, 10]);
   });
 
-  it('an after hook whose request made no charge releases nothing — never a release computed from "now"', async () => {
+  it('an after hook whose request made no charge releases nothing: never a release computed from "now"', async () => {
     await expect(emailRateLimitReleaseHook(afterCtx(SIGN_IN_EMAIL_PATH, BODY, SUCCESS))).resolves.toBeUndefined();
     expect(port.releases).toEqual([]);
   });
@@ -352,7 +352,7 @@ describe('emailRateLimitReleaseHook — a success gives its charge back (archite
     expect(port.releases).toEqual([]);
   });
 
-  it('a store failure on release NEVER throws — the sign-in already succeeded — and warns with no message on the line', async () => {
+  it('a store failure on release NEVER throws (the sign-in already succeeded), and warns with no message on the line', async () => {
     port.nextReleaseRejection = new Error('ECONNRESET redis://secret-host');
     const request = requestPair(SIGN_IN_EMAIL_PATH, BODY);
     await emailRateLimitHook(request.before);

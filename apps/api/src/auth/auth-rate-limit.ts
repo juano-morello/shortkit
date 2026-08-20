@@ -21,7 +21,7 @@
  * A `null` PRINCIPAL IS A REAL STATE. The bucket does not run and the request proceeds; it is
  * never keyed on a sentinel, `''` or the peer address, because a shared sentinel bucket lets
  * one caller exhaust an allowance every other caller falls into. In every environment that
- * exists today — compose, CI, local dev — no header is declared, so NO IP-KEYED LIMIT BINDS
+ * exists today (compose, CI, local dev) no header is declared, so NO IP-KEYED LIMIT BINDS
  * ANYWHERE. That is ADR-0040's accepted cost, and `authBodyCap` is what still bounds the
  * credential surface there.
  *
@@ -54,7 +54,7 @@ import { resolveRateLimitPrincipal } from './resolve-rate-limit-principal';
 
 /**
  * Per bucket, not total (F-028). Principals here are client IPs, chosen by an
- * UNAUTHENTICATED caller, and an IPv6 /64 is free — so without a cap one live entry per
+ * UNAUTHENTICATED caller, and an IPv6 /64 is free, so without a cap one live entry per
  * request with nothing to reap it, and an attacker converts a Redis outage into an OOM
  * restart loop while the redirect path is already on its Postgres fallback.
  */
@@ -75,8 +75,8 @@ let lastUnresolvedWarnAt = Number.NEGATIVE_INFINITY;
 /**
  * Which bucket a request charges. Method AND path, both exact: `sign-in/email` and
  * `sign-up/email` are Better Auth's own route names, base-path-relative under `/api/auth`,
- * and anything else under the mount — `/token`, `/get-session`, `/sign-out`, `/jwks`, an
- * unknown path Better Auth will 404 — is the general bucket. A `GET` on a sign-in path is
+ * and anything else under the mount (`/token`, `/get-session`, `/sign-out`, `/jwks`, an
+ * unknown path Better Auth will 404) is the general bucket. A `GET` on a sign-in path is
  * not a sign-in attempt and is charged as "other".
  */
 function bucketFor(method: string, path: string): AuthRateLimitBucket {
@@ -94,7 +94,7 @@ function bucketFor(method: string, path: string): AuthRateLimitBucket {
 /**
  * The Express middleware. Resolves a principal, charges the bucket through the port, and on
  * refusal answers the 429 `rate-limit.md` fixes for this surface: `Retry-After` in
- * delta-seconds and a body of `{ code: 'rate_limited', message, retryAfterSeconds }` — the
+ * delta-seconds and a body of `{ code: 'rate_limited', message, retryAfterSeconds }`: the
  * retry value in the body as well as the header, because this surface is mounted outside
  * Nest and `apiClient` normalises both (F-027).
  *
@@ -194,8 +194,8 @@ interface Entry {
  *
  * LRU order is `Map` insertion order, maintained by deleting and re-inserting on every hit.
  *
- * The sweep timer is `unref()`ed so an idle process — or a unit suite that compiled
- * `AppModule` — is not held open by it, and `onModuleDestroy` clears it when Nest closes the
+ * The sweep timer is `unref()`ed so an idle process (or a unit suite that compiled
+ * `AppModule`) is not held open by it, and `onModuleDestroy` clears it when Nest closes the
  * container. There is no constructor argument, deliberately: Nest instantiates this class
  * for the token, and a clock parameter would be read as an injection.
  */
@@ -251,8 +251,8 @@ export class LocalAuthRateLimiter implements AuthRateLimitPort, OnModuleDestroy 
 
   /**
    * One charge back, in THE CHARGE'S window only. If the key's entry belongs to another
-   * window — the window rolled between the charge and the release, and an unrelated attempt
-   * may already have opened the new one — nothing is touched: decrementing there would refund
+   * window (the window rolled between the charge and the release, and an unrelated attempt
+   * may already have opened the new one) nothing is touched: decrementing there would refund
    * somebody else's failure. A count that reaches zero drops the entry so the map does not
    * hold keys that owe nothing. Floors at zero by construction.
    */
@@ -307,7 +307,7 @@ export class LocalAuthRateLimiter implements AuthRateLimitPort, OnModuleDestroy 
 
 /**
  * Removes one entry from a full bucket map: the least recently used entry under its limit,
- * or — when every entry is at or over the limit — the least recently used entry outright,
+ * or (when every entry is at or over the limit) the least recently used entry outright,
  * with the forced eviction counted and warned. No key is on the line: it is a client IP.
  */
 function evictOne(entries: Map<string, Entry>, rule: AuthRateLimitRule): void {

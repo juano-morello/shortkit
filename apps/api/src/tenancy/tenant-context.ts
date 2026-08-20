@@ -90,7 +90,7 @@ export class TenantContextMissingError extends Error {
 
 /**
  * A settled context is not an active one, so this is the same class rather than a new
- * one — but the message has to say which of the two happened, or the developer whose
+ * one, but the message has to say which of the two happened, or the developer whose
  * continuation resumed after COMMIT reads "call withTenantTransaction first" and
  * concludes the guard is broken (F-121).
  */
@@ -115,8 +115,8 @@ export class TenantContextMismatchError extends Error {
  *
  * `settled` is the F-121 guard. AsyncLocalStorage keeps this store visible to every
  * continuation descended from inside the transaction callback, including ones that
- * resume after COMMIT — a fire-and-forget `void warmCache()` inside `fn` is the
- * ordinary way that gets written — and `pg` does not disable `query` on a client it
+ * resume after COMMIT (a fire-and-forget `void warmCache()` inside `fn` is the
+ * ordinary way that gets written), and `pg` does not disable `query` on a client it
  * has returned to the pool. Such a statement executes on a connection another
  * request has since checked out, inside that tenant's open transaction. The flag
  * lives on the context rather than on the handle because `fn` holds `db` directly:
@@ -141,8 +141,8 @@ const DEFAULT_STATEMENT_TIMEOUT_MS = 5000;
 /**
  * How long the transaction may sit between two statements before Postgres ends it
  * (F-123). Fixed, and deliberately not derived from `statementTimeoutMs`: the two
- * bound different things and fail differently — one cancels a query, the other
- * terminates the connection — and a caller lowering its query budget to 200 ms is
+ * bound different things and fail differently (one cancels a query, the other
+ * terminates the connection), and a caller lowering its query budget to 200 ms is
  * not asking for a 200 ms ceiling on the gap between two queries, which garbage
  * collection alone can exceed on a loaded instance. No caller in launch-core needs
  * to tune it; making it tunable is an edit to the contract, not a new option.
@@ -174,7 +174,7 @@ export async function withTenantTransaction<T>(
 
   if (active !== undefined) {
     // A settled context is not an active one. Taking the reuse branch here would run
-    // `fn` against a released handle with no BEGIN and no set_config at all — GC-5's
+    // `fn` against a released handle with no BEGIN and no set_config at all: GC-5's
     // hole, reached without touching anything the contract forbids (F-121).
     if (active.settled) {
       throw new TenantContextMissingError(CONTEXT_HAS_SETTLED);
@@ -193,7 +193,7 @@ export async function withTenantTransaction<T>(
     // running `fn` fires it for work that never happened: the nested frame throws,
     // the outer one catches to build a partial-success response, COMMIT succeeds,
     // and an invitation email announces a row that was never inserted. The top-level
-    // path below already behaves this way — a throw rolls back and no hook runs.
+    // path below already behaves this way: a throw rolls back and no hook runs.
     if (options?.afterCommit !== undefined) {
       active.afterCommit.push(options.afterCommit);
     }
@@ -256,7 +256,7 @@ export async function withTenantTransaction<T>(
       // failure here carries the DSN, and a hook that talks to mail or DNS can throw
       // something carrying row data. `serializers.err` reduces whatever is under `err` to
       // `err_name` and `err_stack` and no third field, whatever the thrown value hangs off
-      // itself (F-244) — and it answers for a non-`Error` too, which is why there is no
+      // itself (F-244), and it answers for a non-`Error` too, which is why there is no
       // `instanceof` test left here.
       //
       // THE CONTEXT STRING IS A CONSTANT AND HAS TO STAY ONE. Any property of the error
@@ -369,7 +369,7 @@ export interface RequestContext {
  * So the check runs at DECORATION time, which is module load: a route carrying `@Public('')`
  * fails the process at boot rather than passing review with a blank line in the report.
  * Whitespace-only counts as empty for the same reason. This is a programming error, so it
- * is a plain Error and not a DomainError — nothing here runs on a request path.
+ * is a plain Error and not a DomainError: nothing here runs on a request path.
  */
 function requireJustification(decorator: string, justification: string): string {
   if (typeof justification !== 'string' || justification.trim() === '') {
@@ -444,8 +444,8 @@ export const NO_TENANT_TRANSACTION_METADATA = Symbol('NO_TENANT_TRANSACTION_META
  * finds the providers whose metatype carries the key and `MetadataScanner` enumerates
  * their public methods as isolation subjects. The value is `true`; presence is what is read.
  *
- * The enumeration itself is out of scope here — `discoverRepositoryMethods()` in
- * `test/isolation/coverage.ts` still throws "TASK-056 owns repository discovery" — so
+ * The enumeration itself is out of scope here: `discoverRepositoryMethods()` in
+ * `test/isolation/coverage.ts` still throws "TASK-056 owns repository discovery", so
  * today the marker is written and nothing reads it. It exists now so that the first
  * repository (`WorkspaceRepository`, TASK-011) carries it from the day it lands rather
  * than being retrofitted.

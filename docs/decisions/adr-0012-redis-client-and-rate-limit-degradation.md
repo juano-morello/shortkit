@@ -57,10 +57,10 @@ limits and windows.** It does not fail open and it does not fail closed. The lim
 still applies; it applies per machine instead of per fleet.
 
 **The fallback holds two maps, one per key space** (revised 2026-08-04, F-034; the
-stub's `LocalRateLimiter` is the normative shape). Tenant principals — produced only
-by authenticated callers — live in a plain LRU capped at
-`LOCAL_LIMITER_MAX_TENANTS = 10_000`. `@Public()` IP principals — chosen by anonymous
-callers — live in a **separate** map capped at `LOCAL_LIMITER_MAX_PUBLIC_IPS =
+stub's `LocalRateLimiter` is the normative shape). Tenant principals (produced only
+by authenticated callers) live in a plain LRU capped at
+`LOCAL_LIMITER_MAX_TENANTS = 10_000`. `@Public()` IP principals (chosen by anonymous
+callers) live in a **separate** map capped at `LOCAL_LIMITER_MAX_PUBLIC_IPS =
 10_000`, carrying the same three rules F-028 set for `LocalAuthRateLimiter`: lazy
 expiry plus a periodic sweep, and eviction that skips entries at or over their limit,
 with forced eviction counted and logged. Separating the key spaces is what stops an
@@ -118,7 +118,7 @@ one per feature.
 - The tenant map's LRU cap means a burst spanning more than 10,000 distinct tenants
   evicts buckets and effectively resets their limits. Not reachable at this scale.
 - **The fallback is now two maps rather than one** (F-034), so the earlier cross-talk
-  — anonymous IP churn evicting tenant buckets during an outage — is gone by
+  (anonymous IP churn evicting tenant buckets during an outage) is gone by
   construction, at the cost of a second cap, a sweep, and roughly double the worst-case
   fallback memory (still ~3 MB per map bound). The public-IP map's forced-eviction
   path shares `local_rate_limit_forced_eviction_total`, so pressure on either local

@@ -34,7 +34,7 @@ export default tseslint.config(
     //
     //   - `pino()` FOR YOURSELF. A second instance gets pino's default `err` serialiser,
     //     no `LOGGABLE_FIELDS`, and none of the mechanisms F-244, F-248, F-251, F-252,
-    //     F-258, F-260, F-263 and F-277 installed — with typecheck, lint, the suite and
+    //     F-258, F-260, F-263 and F-277 installed, with typecheck, lint, the suite and
     //     the drift test all green, because every one of them looks only at the shared
     //     module. The value import is restricted rather than banned outright, because the
     //     TYPE is used legitimately: `exception-filter.ts` names `Logger` from `pino` for
@@ -60,7 +60,7 @@ export default tseslint.config(
     //
     // Until 2026-08-11 the `@nestjs/common` restriction lived in a SECOND config object
     // whose `ignores` named `apps/api/src/db/client.ts` and
-    // `apps/api/src/tenancy/tenant-context.ts` — ADR-0028 Migration step 3's "named,
+    // `apps/api/src/tenancy/tenant-context.ts`: ADR-0028 Migration step 3's "named,
     // bounded exemption", and the two paths `logging-and-headers.md` listed as exceptions
     // to "nothing may opt out". Both modules now emit through the shared instance, so both
     // entries are gone and the claim is true with nothing carved out of it.
@@ -69,7 +69,7 @@ export default tseslint.config(
     // them in this block's `ignores` would have switched off `no-console` and the `pino`
     // restriction for those files too, which is more than the exemption was for. With no
     // exemption left, the two objects matched exactly the same files and configured the
-    // same rule — and ESLint REPLACES a rule's options rather than merging them, so the
+    // same rule, and ESLint REPLACES a rule's options rather than merging them, so the
     // earlier object's `no-restricted-imports` was dead configuration that read as though
     // it were in force. They are merged into this one for that reason, and the `pino`
     // entry no longer has to be duplicated to survive.
@@ -90,8 +90,8 @@ export default tseslint.config(
     // module that depends on nothing but `pino`. There is no window in which `main.ts` has
     // something to say and no logger to say it through, so a "pre-pino bootstrap" hatch
     // would exempt a path that does not exist and would be inherited by whatever is
-    // written in that file next. Nest's OWN bootstrap lines are a different question — a
-    // `LoggerService` over the shared singleton, ADR-0028 "What this ADR does not decide" —
+    // written in that file next. Nest's OWN bootstrap lines are a different question (a
+    // `LoggerService` over the shared singleton, ADR-0028 "What this ADR does not decide"),
     // and it is answered by `app.useLogger(…)` in a later ADR, not by an `ignores` entry
     // here: nothing under `apps/api/src` has to import Nest's `Logger` to make that change.
     files: ['apps/api/src/**/*.ts'],
@@ -131,7 +131,7 @@ export default tseslint.config(
     // spread keeps its rules and this block's `files` does the scoping the preset leaves
     // to the consumer. Scoped to `{ts,tsx}` rather than `tsx` because hooks are not a JSX
     // feature: `use-session.ts` is a plain .ts module and every rule here must hold in it.
-    // Scoped to `apps/web` because React exists only there — the api and contracts trees
+    // Scoped to `apps/web` because React exists only there: the api and contracts trees
     // must lint identically with or without this block.
     //
     // `exhaustive-deps` is raised from the preset's `warn` to `error`: this repo gates on
@@ -152,7 +152,7 @@ export default tseslint.config(
     // ========================================================================
     //
     // The plugin's flat `recommended` (`flatConfigs.recommended`), scoped to the files
-    // that contain JSX — `apps/web/**/*.tsx`, there are no .jsx files — so a .ts module
+    // that contain JSX (`apps/web/**/*.tsx`, there are no .jsx files), so a .ts module
     // or anything under apps/api and packages/contracts never pays for JSX analysis.
     // The preset's `languageOptions` only turns on `ecmaFeatures.jsx`, which the
     // typescript-eslint parser already does for .tsx, so only its rules are taken.
@@ -175,7 +175,7 @@ export default tseslint.config(
     //
     // A gitignore-style `group` cannot express this: the `ignore` package this rule is
     // built on strips a leading `./`/`../` before matching, so a negation pattern meant
-    // to re-permit relative imports (`!./**`) also re-permits every bare package name —
+    // to re-permit relative imports (`!./**`) also re-permits every bare package name,
     // proven against `ignore@7.0.6` directly before writing this as a `regex` instead.
     // The regex bans anything that is neither `zod` nor a relative specifier, which is
     // the shape `arrayOfStringsOrObjectPatterns` calls out as the alternative to `group`.

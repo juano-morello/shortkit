@@ -6,7 +6,7 @@
  * ---------------------------------------------------------------------------
  *
  * TASK-2-04 wires the compose and CI Redis services; until they land there is no shared
- * instance to point at, and this suite needs one it may STOP AND PAUSE — AC-2-29's
+ * instance to point at, and this suite needs one it may STOP AND PAUSE: AC-2-29's
  * "Redis is gone", AC-2-30's "hung but connected" and AC-2-31's "it comes back with no
  * restart" are all statements about a server that goes away underneath a live client. A
  * suite that did that to a shared service would take every other suite down with it.
@@ -20,12 +20,12 @@
  * ---------------------------------------------------------------------------
  *
  * `docker exec redis-cli` for every command, so nothing needs a client on the host's PATH;
- * readiness POLLED rather than slept on; loopback only — `127.0.0.1`, never `0.0.0.0`, which
- * is the file-wide rule in both compose files; and `stop()` from `afterAll` and from the
+ * readiness POLLED rather than slept on; loopback only (`127.0.0.1`, never `0.0.0.0`, which
+ * is the file-wide rule in both compose files); and `stop()` from `afterAll` and from the
  * failure path of setup.
  *
  * NOT `--rm`, WHICH IS THE ONE DELIBERATE DIVERGENCE from that fixture. AC-2-31 needs the
- * SAME server to come back — `docker stop` then `docker start` — and `--rm` removes the
+ * SAME server to come back (`docker stop` then `docker start`), and `--rm` removes the
  * container on stop, so the restart would be a different server. `stop()` is
  * `docker rm -f`, called from `afterAll` and from every failure path, and the container name
  * carries the pid so a crashed run cannot collide with the next one.
@@ -39,7 +39,7 @@ const REDIS_TEST_IMAGE = process.env.REDIS_TEST_IMAGE ?? 'redis:7-alpine';
 /**
  * Loopback only, and a THIRD port: D-2-16 gives `docker-compose.yml`'s redis
  * `127.0.0.1:56379` and `docker-compose.test.yml`'s `127.0.0.1:56380`, so a fixture on
- * either would refuse to start whenever the developer's stack was up — a suite that fails
+ * either would refuse to start whenever the developer's stack was up, a suite that fails
  * because something unrelated is running. `REDIS_TEST_PORT` overrides it for a machine where
  * even this one is taken.
  */
@@ -63,12 +63,12 @@ export interface ScratchRedis {
   readonly url: string;
   /** `docker exec … redis-cli <args>`, trimmed stdout. Throws on a non-zero exit. */
   cli(...args: readonly string[]): string;
-  /** SIGSTOP: connected, reachable, and never answering — AC-2-30's hung server. */
+  /** SIGSTOP: connected, reachable, and never answering (AC-2-30's hung server). */
   pause(): void;
   unpause(): void;
-  /** SIGTERM: the server goes away and the socket closes — AC-2-29. */
+  /** SIGTERM: the server goes away and the socket closes (AC-2-29). */
   stopServer(): void;
-  /** The SAME server comes back — AC-2-31. Waits for it to answer PING. */
+  /** The SAME server comes back (AC-2-31). Waits for it to answer PING. */
   startServer(): void;
   /** Removes the container. Safe to call twice. */
   stop(): void;

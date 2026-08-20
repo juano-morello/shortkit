@@ -33,10 +33,10 @@ collide with each other either.
 the two refusals are separate: a `REDIS_URL` that is not a `redis://` or `rediss://` URL
 refuses **unconditionally**, whatever else is declared (ADR-0040's shape, the one
 `MAIL_TRANSPORT` follows), and `REDIS_KEY_NAMESPACE` is demanded only once a URL has been
-declared. `REDIS_URL` unset is not a refusal at all — it binds `UnavailableRedirectCache`
+declared. `REDIS_URL` unset is not a refusal at all: it binds `UnavailableRedirectCache`
 and writes one warn line (D-2-09, below). The namespace may not contain a **colon or
 whitespace**: it is the second key segment, so a colon in it redraws the key structure.
-Neither refusal quotes any part of either value (ADR-0029 — a Redis URL carries a
+Neither refusal quotes any part of either value (ADR-0029: a Redis URL carries a
 password).
 
 **CI and local development must not point at the production Upstash instance.** The
@@ -126,23 +126,23 @@ The interface above has three return values and four things can happen, so the s
 mapping is written down rather than inferred.
 
 **An ABSENT key returns `'unavailable'`.** `'miss'` is the SENTINEL and nothing else,
-because `'miss'` answers the request with a 404 and zero Postgres queries — so a key that
+because `'miss'` answers the request with a 404 and zero Postgres queries, so a key that
 was simply never written must not produce it, or an empty cache would 404 every link in
 the database. Absence therefore joins the failures under the value whose contract is
 already "the caller must query Postgres", which is the correct action for both.
 
 The cost, stated: **`'unavailable'` is not on its own evidence of an outage.** A cold key
-returns it too. Nothing may log a degradation line keyed on this value — that would be one
+returns it too. Nothing may log a degradation line keyed on this value: that would be one
 line per request on a cold cache. `cacheAvailable()` (status-based, no command) is the
 health signal.
 
-A value that does not decode — a bumped `v`, a truncated write, a key some other process
-wrote — also returns `'unavailable'`. The alternatives are both worse: `'miss'` would 404
+A value that does not decode (a bumped `v`, a truncated write, a key some other process
+wrote) also returns `'unavailable'`. The alternatives are both worse: `'miss'` would 404
 a live link, and a half-built record would 302 somewhere nobody chose.
 
 **Reads never throw and writes never throw; DELETIONS DO.** `getHost`/`getLink` answer
 `'unavailable'` on a rejection, a synchronous throw, a timeout or a disconnected client, and
-`setHost`/`setLink` swallow the same failures — a cache fill that did not happen costs one
+`setHost`/`setLink` swallow the same failures: a cache fill that did not happen costs one
 Postgres query on the next request, and the visitor's response is already decided (GC-O).
 `delHost`/`delLink` **reject** when the deletion did not happen, because their caller is the
 invalidation subscriber below, which owns the retry and the log line; swallowing there would
@@ -150,7 +150,7 @@ leave it nothing to retry and nothing to report, and staleness past GC-2 with no
 all. Deletions never run on the visitor's path. The rejection carries **no key, no hostname
 and no slug** (GC-G).
 
-`UnavailableRedirectCache` — the binding when `REDIS_URL` is unset — is the one exception to
+`UnavailableRedirectCache`, the binding when `REDIS_URL` is unset, is the one exception to
 that asymmetry: its deletions RESOLVE, because with no cache there is no stale key and the
 invalidation has genuinely succeeded.
 
@@ -268,7 +268,7 @@ Staleness can then exceed GC-2's 5 seconds; the log line is the only signal. Rec
 accepted gap in ADR-0008.
 
 **Amended 2026-08-19 (D-2-15, TASK-2-03).** The line carries `code:
-'cache_invalidation_failed'`, `link_id` and `attempts` — **not the key**, not the hostname,
+'cache_invalidation_failed'`, `link_id` and `attempts`, **not the key**, not the hostname,
 not the slug. The key embeds the slug, and GC-G's posture is that an identifier
 reconstructible from an id stays off the line; `LOGGABLE_FIELDS` gains `link_id` and
 `attempts` and nothing else (TASK-2-08 owns that edit). `cache_invalidation_failures_total`
@@ -344,7 +344,7 @@ required, `RedisRedirectCache` bound to `REDIRECT_CACHE`.
 `'unavailable'`, every write and deletion a resolved no-op), and **one** warn line at boot
 carrying `boot_precondition: 'redirect_cache'` and no other field. Every redirect then
 resolves from Postgres and every response is correct, which is exactly why nothing else
-would notice — the line is the only local evidence a deployment that forgot the variable
+would notice: the line is the only local evidence a deployment that forgot the variable
 gets. This is the `MAIL_TRANSPORT` posture: absence lands on the thing that can do no harm,
 loudly, and never on `NODE_ENV` (GC-B).
 

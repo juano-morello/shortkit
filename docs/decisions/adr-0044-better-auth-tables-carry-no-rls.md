@@ -16,8 +16,8 @@ date: 2026-08-12
 > no `tenant_id`, so there is no predicate to write, and a `USING (true)` policy would be a
 > lie. That decision is unchanged.
 >
-> What was wrong is the price tag. This ADR costed the exposure **in reads** — "reads every
-> `session.token`, every `account.password` and every email" — and its three role-split
+> What was wrong is the price tag. This ADR costed the exposure **in reads** ("reads every
+> `session.token`, every `account.password` and every email"), and its three role-split
 > triggers are all read-shaped. The security auditor executed the write half from inside a
 > perfectly ordinary `withTenantTransaction` for tenant A, with `app.tenant_id` set
 > correctly. Re-measured independently here, same result:
@@ -29,13 +29,13 @@ date: 2026-08-12
 > ```
 >
 > **That is not disclosure of credentials. It is silent takeover of any account in any
-> tenant, without knowing a password, without mail and without a token** — a session row
+> tenant, without knowing a password, without mail and without a token**: a session row
 > with a chosen `token` is a working credential, by this ADR's own table. None of the three
 > stated triggers describes a write path.
 >
 > Juano reversed the refusal at the round-3 gate on 2026-08-13 and accepted exactly the cost
-> the refusal was avoiding — reopening ADR-0031 and touching six provisioning artifacts
-> across three waves — because it is the only option under which a SQL defect anywhere in
+> the refusal was avoiding (reopening ADR-0031 and touching six provisioning artifacts
+> across three waves) because it is the only option under which a SQL defect anywhere in
 > `apps/api` cannot forge a session row. **ADR-0050 designs the split.**
 >
 > The original Negative section and trigger list are struck through in place rather than
@@ -112,7 +112,7 @@ its exception list.
 
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
-| Split the database role: a `shortkit_auth` role holding DML on the five auth tables, `shortkit_app` REVOKEd on them, and vice versa | The real fix. A tenant request path could not read `session.token` or `account.password` at all, whatever a SQL defect let it issue | A second role in `docker-compose.yml`, `docker-compose.test.yml`, `.github/scripts/provision-test-database.sql`, `seed.mts`, `rls-fixture.ts` and `check-compose-stack.sh`; a second DSN, which is a new declared variable under GC-B with its own boot assertion; and a second `pg.Pool`, which duplicates the `pool.on('error')` and `pool.on('connect')` listeners that took F-123 and F-137 to get right. `ALTER DEFAULT PRIVILEGES` grants `shortkit_app` on every new table by default, so each auth table needs an explicit per-table `REVOKE` in the migration — F-239 in reverse, with the same "forget it and nothing fails" property | Reopens ADR-0031's role model and touches three TASKs in three waves to protect against a defect class this initiative does not otherwise have. **Recorded as the mitigation that exists and is not taken**, with its trigger below |
+| Split the database role: a `shortkit_auth` role holding DML on the five auth tables, `shortkit_app` REVOKEd on them, and vice versa | The real fix. A tenant request path could not read `session.token` or `account.password` at all, whatever a SQL defect let it issue | A second role in `docker-compose.yml`, `docker-compose.test.yml`, `.github/scripts/provision-test-database.sql`, `seed.mts`, `rls-fixture.ts` and `check-compose-stack.sh`; a second DSN, which is a new declared variable under GC-B with its own boot assertion; and a second `pg.Pool`, which duplicates the `pool.on('error')` and `pool.on('connect')` listeners that took F-123 and F-137 to get right. `ALTER DEFAULT PRIVILEGES` grants `shortkit_app` on every new table by default, so each auth table needs an explicit per-table `REVOKE` in the migration, F-239 in reverse, with the same "forget it and nothing fails" property | Reopens ADR-0031's role model and touches three TASKs in three waves to protect against a defect class this initiative does not otherwise have. **Recorded as the mitigation that exists and is not taken**, with its trigger below |
 | Column-level `REVOKE SELECT (password) ON account FROM shortkit_app` and similar | Cheap; no new role | Better Auth reads `account.password` on every sign-in and writes `jwks.privateKey` on first key generation, as `shortkit_app`. Revoking the column breaks authentication | The role that must be denied the column is the role that needs it |
 | Put a `tenant_id` on `user` and give it the standard policy set | One consistent rule for every table | ADR-0015 already rejected this: Better Auth's login-by-email lookup runs before any tenant is known, so the row it needs would be invisible and sign-in would fail for everyone | Rejected in an accepted ADR, for a reason that still holds |
 | `ENABLE`/`FORCE` plus a permissive `USING (true)` policy on all five | `check-policies.mts` goes green with no exception list at all | The script would report five protected tables that are not protected. That is the exact false green the script exists to catch, moved inside the script | An exemption a reader can count beats a policy that lies |
@@ -140,13 +140,13 @@ its exception list.
   SQL defect anywhere in `apps/api` **reads and writes** every session token, every password
   hash and every email address, from inside an ordinary tenant transaction with
   `app.tenant_id` set correctly. Measured: password overwritten, session forged with a chosen
-  token, email changed — all three for a user in another tenant, all three succeeding while
+  token, email changed, all three for a user in another tenant, all three succeeding while
   the tenant-scoped read in the same transaction returned zero rows. The consequence is
   account takeover, not credential disclosure. **This cost is no longer accepted; ADR-0050
   removes it.**
 - The compensating controls are conventions, not mechanisms. Statements are built with
   `sql` template interpolation, which binds parameters, and `client.ts` exposes no raw
-  query path — but nothing fails a build if a future TASK writes string-concatenated SQL
+  query path, but nothing fails a build if a future TASK writes string-concatenated SQL
   against `user`.
 - `jwks.privateKey`'s encryption moves the secret from the database into the environment. It
   does not remove it. A process that can read the row can usually also read
@@ -160,7 +160,7 @@ its exception list.
   because `privilegedTenantEraser` deletes `user` rows afterwards (ADR-0015), which is
   application code rather than a database constraint on the tenant boundary.
 
-### ~~What would force the role split~~ — it was already forced, and none of these is why
+### ~~What would force the role split~~: it was already forced, and none of these is why
 
 **Struck 2026-08-13 (F-024).** Every trigger below describes a *read* path, which is the
 error this list shares with the bullet above it. The split was forced by a write path that
@@ -170,12 +170,12 @@ already exists, not by any of these.
   is a developer's machine and CI.~~
 - ~~A second service or a background worker connecting as `shortkit_app`, which widens the set
   of code that can issue a statement against `session`.~~
-- ~~A raw-SQL surface that takes caller input — a search endpoint, a reporting query, an
+- ~~A raw-SQL surface that takes caller input: a search endpoint, a reporting query, an
   admin console.~~
 
 The trigger the list needed and did not have: **any code path that issues DML against
 `user`, `session` or `account` outside Better Auth's own adapter.** One already exists in the
-design — `privilegedTenantEraser` deletes `user` rows after the tenant cascade (ADR-0015) —
+design (`privilegedTenantEraser` deletes `user` rows after the tenant cascade (ADR-0015)),
 and this ADR names it three paragraphs down without noticing that it is the trigger. See
 ADR-0050, which is what the corrected trigger produced.
 

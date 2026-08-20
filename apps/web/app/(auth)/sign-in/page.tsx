@@ -1,15 +1,15 @@
 /**
- * TASK-008 (STORY-003, AC-17; AC-16's landing). The sign-in screen, at `/sign-in` — the
+ * TASK-008 (STORY-003, AC-17; AC-16's landing). The sign-in screen, at `/sign-in`: the
  * route `requireAuth()` (TASK-007) sends an unauthenticated visitor to.
  *
  * An async server component. Before rendering the form it reads `sk_at` the way
  * `requireAuth` does (`sessionUserFromJwt`, decode only): a visitor who already holds a
- * decodable session has nothing to do here and is redirected to the workspace list — or to
+ * decodable session has nothing to do here and is redirected to the workspace list, or to
  * a vetted `?returnTo=`. Then it reads two query parameters:
  *
- *   - `?created=1` — signup just landed here (ADR-0061: no auto-sign-in). Shows the
- *     confirmation "Your account is ready — sign in to continue".
- *   - `?returnTo=<path>` — where a successful sign-in should land. Accepted ONLY as a
+ *   - `?created=1`: signup just landed here (ADR-0061: no auto-sign-in). Shows the
+ *     confirmation "Your account is ready. Sign in to continue".
+ *   - `?returnTo=<path>`: where a successful sign-in should land. Accepted ONLY as a
  *     same-origin relative path under the SAME rule the refresh route applies
  *     (`safeReturnTo`, imported from it rather than re-implemented); anything else, and the
  *     default, is `/workspaces` (TASK-013 builds it).
@@ -45,7 +45,7 @@ interface SignInPageProps {
 }
 
 /** Shown once, when signup lands here (ADR-0061). A page file may export only Next's fields. */
-const ACCOUNT_READY_MESSAGE = 'Your account is ready — sign in to continue.';
+const ACCOUNT_READY_MESSAGE = 'Your account is ready. Sign in to continue.';
 
 /** The first value of a query parameter, or `undefined`. */
 function firstParam(value: string | string[] | undefined): string | undefined {

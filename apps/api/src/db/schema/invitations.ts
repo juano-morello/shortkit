@@ -16,13 +16,13 @@
  * 2. The output of `tenantScopedPolicies('invitations')` hand-appended to migration `0003`.
  *    Template UNCHANGED, two policies, NO BESPOKE POLICY. The `@Public()` lookup leg reads
  *    this table, but it does so INSIDE `withTenantTransaction(<token's tenant prefix>)`
- *    under the ordinary isolation policy — ADR-0021's third sanctioned pattern for
+ *    under the ordinary isolation policy: ADR-0021's third sanctioned pattern for
  *    obtaining a tenant id, "not a GC-5 escape". `invitation-tokens.md` invariant 1: no
  *    policy admits an out-of-context read, so `ISOLATION_EXCLUSIONS` stays at three.
  * 3. A `registerTenantScopedSurfaces()` call in `test/isolation/registrations.ts`
  *    (`InvitationsTableAccess`; `InvitationRepository`'s methods arrive with it, TASK-1b-04).
  *
- * `token_digest bytea NOT NULL UNIQUE` — THE RAW TOKEN IS NEVER STORED (ADR-0021, GC-K).
+ * `token_digest bytea NOT NULL UNIQUE`: THE RAW TOKEN IS NEVER STORED (ADR-0021, GC-K).
  * The column holds SHA-256 of the SECRET HALF only (32 bytes); the tenant half is already
  * `tenant_id`. The unique index is what the first statement of every capability lookup
  * hits (`WHERE token_digest = $1`, RLS-scoped to the token's tenant), and the comparison
@@ -61,7 +61,7 @@ import { tenants } from './tenants';
 /**
  * `bytea`, read and written as a Node `Buffer`. drizzle-orm 0.45 has no built-in bytea
  * column; the pg driver already maps `bytea` to `Buffer` in both directions, so nothing
- * here converts anything — the type only names the SQL type for the migration.
+ * here converts anything: the type only names the SQL type for the migration.
  */
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType() {
@@ -96,8 +96,8 @@ export const invitations = pgTable(
   (table) => [
     uniqueIndex('invitations_token_digest_unique').on(table.tokenDigest),
     // Added 2026-08-19 (debt sweep, ledger 1b-W1-11, migration 0004): the two `"user"`
-    // foreign keys lead no index, so the referential actions on a user deletion —
-    // CASCADE through `invited_by_user_id`, SET NULL through `accepted_by_user_id` —
+    // foreign keys lead no index, so the referential actions on a user deletion
+    // (CASCADE through `invited_by_user_id`, SET NULL through `accepted_by_user_id`)
     // scan this table. `tenant_id` has its hand-appended index in migration 0003.
     index('invitations_invited_by_user_id_idx').on(table.invitedByUserId),
     index('invitations_accepted_by_user_id_idx').on(table.acceptedByUserId),

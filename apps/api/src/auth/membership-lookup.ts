@@ -9,8 +9,8 @@
  * ============================================================================
  *
  * `tid` must be in every token (GC-D), it comes from `tenant_memberships`, and
- * `tenant_memberships` is tenant-scoped. At token-mint time no tenant is known — that is
- * the whole reason the claim exists — so `withTenantTransaction` cannot be used and a
+ * `tenant_memberships` is tenant-scoped. At token-mint time no tenant is known (that is
+ * the whole reason the claim exists) so `withTenantTransaction` cannot be used and a
  * plain `databaseTransaction` sees zero rows by policy. This file is the escape, and
  * ADR-0045 is the ADR `tenant-context.md` demanded before a fifth `databaseTransaction`
  * consumer could exist.
@@ -25,7 +25,7 @@
  *
  * THERE IS NO RUNTIME GUARD KEEPING THIS OFF THE REQUEST PATH. The control is that
  * `withMembershipLookup` is imported by exactly one file,
- * `apps/api/src/auth/tenant-id-for-user.ts`, and TASK-056 asserts that by grep — the same
+ * `apps/api/src/auth/tenant-id-for-user.ts`, and TASK-056 asserts that by grep: the same
  * file-level control the `databaseTransaction` list uses, for the same reason: what a
  * reviewer checks a diff against is a list of file names.
  *
@@ -125,7 +125,7 @@ export async function withMembershipLookup<T>(
     // Every flag name is an inline quoted literal and only the value is bound.
     // `set_config` is the parameterised form of SET LOCAL, which accepts no bind
     // parameter at all, and clause A4 forbids passing an identifier as the first
-    // argument — so there is no named constant for a flag name anywhere in this file.
+    // argument, so there is no named constant for a flag name anywhere in this file.
     await tx.execute(
       sql`select set_config('statement_timeout', ${String(STATEMENT_TIMEOUT_MS)}, true)`,
     );

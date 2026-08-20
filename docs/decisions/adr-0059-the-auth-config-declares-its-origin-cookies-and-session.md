@@ -285,7 +285,7 @@ established rule for this class of variable: `scripts/check-compose-stack.sh:191
 to run while a root `.env` exists. `apps/api/.env.example` is a template to read and export from; it is not read by Compose.
 
 > **CORRECTED 2026-08-16 (F-204). THIS SAID "COPY TO `apps/api/.env`" AND THAT DOES NOTHING.**
-> Nothing in the repository reads `apps/api/.env` — no `dotenv`, no `--env-file` in any script —
+> Nothing in the repository reads `apps/api/.env` (no `dotenv`, no `--env-file` in any script),
 > and **no workspace has a `dev` script except `apps/web`**; the API exposes `start`, `build`,
 > `typecheck`, `test`, `test:integration` and the db scripts. Verified across every manifest.
 >

@@ -130,7 +130,7 @@ beforeAll(async () => {
 
   // Read once, by `CacheModule`'s factory, when the module below compiles. Set before the
   // compile or the process binds `UnavailableRedirectCache` and every assertion here is
-  // vacuous — which is the failure mode this suite is most exposed to, so `beforeEach`
+  // vacuous, which is the failure mode this suite is most exposed to, so `beforeEach`
   // additionally waits for a cache that actually serves.
   process.env.REDIS_URL = redis.url;
   process.env.REDIS_KEY_NAMESPACE = NAMESPACE;
@@ -171,8 +171,8 @@ afterAll(async () => {
 });
 
 /**
- * EVERY TEST STARTS COLD, and the rows are planted once. Nothing here writes to Postgres —
- * the redirect's transaction is `READ ONLY` — so the only state a test can disturb is in
+ * EVERY TEST STARTS COLD, and the rows are planted once. Nothing here writes to Postgres
+ * (the redirect's transaction is `READ ONLY`), so the only state a test can disturb is in
  * Redis, and that is what is flushed.
  */
 beforeEach(() => {
@@ -212,7 +212,7 @@ describe('AC-2-15: the warm hit costs no Postgres query at all', () => {
 
   /**
    * AC-2-15 names the click enqueue's tenant id specifically, because it is the field a
-   * record designed only for the 302 would have left to a lookup — and a lookup on the hot
+   * record designed only for the 302 would have left to a lookup, and a lookup on the hot
    * path is what makes click emission a GC-5 exception instead of an ordinary tenant write.
    * The record holds it, so the zero above covers the click too.
    */
@@ -343,7 +343,7 @@ describe('the negative entries, and the 60 seconds that bound a scan', () => {
 
   /**
    * An unknown HOSTNAME ends the request at step 2, so its negative lands at `hst:` and
-   * NOTHING is written at `rdr:` — the host key is read first, so a link key under a
+   * NOTHING is written at `rdr:`. The host key is read first, so a link key under a
    * hostname that serves nothing would be a key nobody ever looks at.
    */
   it('caches the unknown hostname at hst: only, and the next 404 costs nothing', async () => {
@@ -395,7 +395,7 @@ describe('AC-2-26 and AC-2-28: the window is the read-time check, the TTL is hyg
    *
    * Nothing filters an out-of-window link out of the cache, deliberately: the record is
    * correct, and what decides the response is `isLinkActive` on every read (ADR-0009). So the
-   * second request answers 404 with ZERO queries — the case AC-2-26 calls "no fall-through on
+   * second request answers 404 with ZERO queries, the case AC-2-26 calls "no fall-through on
    * an inactive hit", which a resolver that treated an inactive record as a miss would fail
    * by silently costing a query per request on every expired link a scanner finds.
    */

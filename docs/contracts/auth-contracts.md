@@ -45,7 +45,7 @@ export const signInRequestContract = z.object({
 });
 ```
 
-**`name` is required on sign-up.** `better-auth@1.6.26` answers 400 to a body without it —
+**`name` is required on sign-up.** `better-auth@1.6.26` answers 400 to a body without it:
 measured, and recorded at `apps/api/test/support/auth-fixture.ts:56-60`.
 
 **Sign-in does not apply the length bounds.** A password floor raised later would otherwise
@@ -72,14 +72,14 @@ to run on both sides.
 >
 > That instruction contradicted frozen `auth-tokens.md:99`, which says in those words that
 > `auth.config.ts` sets neither, and whose `:333` describes a unit test asserting exactly that.
-> Two frozen contracts, one file, opposite instructions — an implementer following this one
+> Two frozen contracts, one file, opposite instructions: an implementer following this one
 > wrote code the other's assertion fails.
 >
 > `auth-tokens.md` wins, and the numbers do not move: 8 and 128 are **better-auth 1.6.26's own
 > defaults**, read at `create-context.mjs:185-186` and enforced at `sign-up.mjs:152-158`, probed
 > at 7→400, 8→200, 128→200, 129→400. `PASSWORD_MIN_LENGTH` and `PASSWORD_MAX_LENGTH` stay
 > exported and stay the zod form check; they are not passed to `betterAuth()`. Keeping them
-> equal to the library's defaults is what makes the two enforcement points agree — setting the
+> equal to the library's defaults is what makes the two enforcement points agree; setting the
 > keys is not.
 
 ### Responses
@@ -106,7 +106,7 @@ This is the same fact that makes `tenant_memberships.user_id` a `text` column.
 
 `token` is nullable because sign-up returns `token: null` when auto-sign-in is disabled
 (`sign-up.mjs:252-255`). It is the Better Auth **session token**, not a JWT, and it is the
-credential — it must never be logged, never be rendered, and never leave the server side of
+credential: it must never be logged, never be rendered, and never leave the server side of
 `apps/web` (ADR-0014, GC-G).
 
 `authSessionContract` is a plain `z.object`, so zod strips unknown keys. Sign-in additionally
@@ -154,14 +154,14 @@ same number in one place (ADR-0013), rather than `'5m'` restated at two call sit
 > `expirationTime: ACCESS_TOKEN_LIFETIME_SECONDS`. THAT FORM MINTS TOKENS THAT EXPIRED IN 1970.**
 >
 > `sign.mjs:13` passes the value to `toExpJWT`, and `utils.mjs:15-19` returns a **number
-> unchanged** as the `exp` claim — only a string goes through `iat + sec(expirationTime)`. So
+> unchanged** as the `exp` claim; only a string goes through `iat + sec(expirationTime)`. So
 > `expirationTime: 300` sets `exp` to epoch second 300. Measured twice: read at the source
 > during wave-2 design, then minted as a real token by the design security pass, which read
 > `exp = 300` back off it.
 >
 > **The normative form is `` expirationTime: `${ACCESS_TOKEN_LIFETIME_SECONDS}s` ``.** The
-> exported constant stays a `number` — `REVOCATION_TTL_SECONDS` derives from it and needs
-> seconds — so the conversion belongs at the call site. It fails **closed**: every token is
+> exported constant stays a `number` (`REVOCATION_TTL_SECONDS` derives from it and needs
+> seconds), so the conversion belongs at the call site. It fails **closed**: every token is
 > rejected the instant it is issued.
 >
 > This amendment reopened the wave-1 design gate for this line alone. The same defect was
@@ -197,7 +197,7 @@ export function parseTenantMembership(value: unknown): TenantMembership;
 `id` and `tenantId` reuse `idContract` from `pagination.ts` rather than redeclaring a uuid
 check. `userId` does not: it is Better Auth's id and is not a uuid.
 
-`role` on the wire is `z.enum(TENANT_ROLES)` — unbranded, per the rule at `roles.ts:150-156`.
+`role` on the wire is `z.enum(TENANT_ROLES)`, unbranded, per the rule at `roles.ts:150-156`.
 `parseTenantMembership` parses and then brands through `asTenantRole`. It is the one
 sanctioned way to obtain a `TenantMembership`.
 
@@ -266,6 +266,6 @@ A field added to a response schema is compatible. A field added to a request sch
 tightened, or a type narrowed is breaking and must land with every call site in the same
 commit.
 
-`shortkitJwtClaimsContract` is pinned to ADR-0013's claim table. Adding a claim — `sid`, a
-role, a workspace — requires an ADR, because the guard, the mint and the token lifetime move
+`shortkitJwtClaimsContract` is pinned to ADR-0013's claim table. Adding a claim (`sid`, a
+role, a workspace) requires an ADR, because the guard, the mint and the token lifetime move
 together.

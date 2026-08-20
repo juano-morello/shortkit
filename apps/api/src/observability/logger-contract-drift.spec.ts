@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
  * `docs/contracts/logging-and-headers.md`, which is what every later TASK reads before it
  * writes a log call. Nothing has ever compared them.
  *
- * WHY THIS TEST EXISTS. That pair produced F-244, F-248, F-249 and F-250 in sequence — the
+ * WHY THIS TEST EXISTS. That pair produced F-244, F-248, F-249 and F-250 in sequence: the
  * contract described a logger the process was not running, so the next TASK to trust it wrote
  * the leak back in. The contract now says "when this block and the shipped file disagree, the
  * shipped file wins and the divergence is a finding", and until this file existed nothing
@@ -20,7 +20,7 @@ import { describe, expect, it } from 'vitest';
  * is the source. This is the one shape where the document IS the artifact under test: the
  * fence is a normative copy of executable configuration, and the property is that the copy is
  * still the original. So the comparison is on MEANING as far as a comment-stripping,
- * whitespace-collapsing normaliser can carry it — the fence may carry its own shorter
+ * whitespace-collapsing normaliser can carry it: the fence may carry its own shorter
  * comments and its own line breaks and still pass, and cannot carry a different redact path,
  * a different depth bound, a reordered declaration or a dropped wrapper.
  *
@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest';
  * the shape F-251 and F-258 had: one wrapper missing, everything around it intact.
  *
  * THE NORMATIVE REGION is the fence's own claim: `logger.ts` from `import pino from 'pino';`
- * through the end of `isWalkable`. Everything after it — `errorLogFields` and its helpers —
+ * through the end of `isWalkable`. Everything after it (`errorLogFields` and its helpers)
  * belongs to `error-envelope.md` and the fence does not reproduce it.
  *
  * AND THE REGION IS ANCHORED AT BOTH ENDS (F-270). Contiguity alone is a SUBSTRING check,
@@ -39,7 +39,7 @@ import { describe, expect, it } from 'vitest';
  * the region leaves the needle found in a longer haystack. Both stayed green, and both are
  * the edge where new declarations actually get added. So the region is CUT from the source
  * between two anchors and compared for EQUALITY. The end anchor is the first declaration
- * after the region — `export interface RequestLogFields` — because "the end of `isWalkable`"
+ * after the region (`export interface RequestLogFields`) because "the end of `isWalkable`"
  * is not something a text comparison can locate on its own, and anything inserted between
  * the two is inside the region by the contract's definition and must appear in the fence.
  */
@@ -49,7 +49,7 @@ const SOURCE_PATH = new URL('./logger.ts', import.meta.url);
 /**
  * Four levels up from `apps/api/src/observability/`. The contract is committed, so this
  * resolves from a clean clone (ADR-0001); if it ever does not, the read throws with the path
- * in the message, which is the correct outcome — a missing contract is not a passing test.
+ * in the message, which is the correct outcome: a missing contract is not a passing test.
  */
 const CONTRACT_PATH = new URL(
   '../../../../docs/contracts/logging-and-headers.md',
@@ -63,7 +63,7 @@ const CONTRACT_PATH = new URL(
  *
  * IT SELECTS ON RAW TEXT, BEFORE COMMENTS ARE STRIPPED, and that is worth knowing before
  * changing it: a marker that no fence carries selects NOTHING, and `toHaveLength(1)` then
- * fails with `expected [] to have length 1` — taking F-249 and F-270 with it and reporting a
+ * fails with `expected [] to have length 1`: taking F-249 and F-270 with it and reporting a
  * stale string as a fence-shape problem. `export const REDACT_PATHS` was the marker until
  * ADR-0028 deleted that declaration; Migration step 6 is this line, and the contract's fence
  * carried the old marker in a comment across the gap so the three tests stayed green while
@@ -73,7 +73,7 @@ const FENCE_MARKER = 'export const LOGGABLE_FIELDS';
 
 /**
  * The two ends of the normative region, in NORMALISED form, as they appear in the shipped
- * source. The region runs from the first up to — and not including — the second.
+ * source. The region runs from the first up to (and not including) the second.
  *
  * `RequestLogFields` is the first declaration `error-envelope.md` owns rather than this
  * contract, so it is the boundary, and a declaration inserted before it is inside the
@@ -111,7 +111,7 @@ function normativeRegion(normalisedSource: string): string {
  * SINGLE quote inside two BACKTICK-quoted strings and the code that concatenates them. It is
  * here because it is the input that separates a real strip from a plausible one: a stripper
  * that does not remember which quote opened the string leaves the string half way through,
- * and from there it reads code as text and text as code. The danger is not that it fails — it
+ * and from there it reads code as text and text as code. The danger is not that it fails: it
  * is that it mangles BOTH artifacts the same way and the comparison passes on garbage.
  *
  * RE-ANCHORED AT ADR-0028 MIGRATION STEP 6. The subject used to be the redact path
@@ -123,7 +123,7 @@ function normativeRegion(normalisedSource: string): string {
  *
  * WHY THIS SPAN AND NOT THE SHORTER `${replaced.join(', ')}`, MEASURED rather than chosen: a
  * quote-blind stripper reproduces that one intact, so an assertion on it would pass against
- * the mangle it exists to catch. What the mangle does show up in is the JUNCTION — the ` + `
+ * the mangle it exists to catch. What the mangle does show up in is the JUNCTION: the ` + `
  * between two chunks is CODE, and a stripper still inside a string copies its line break
  * instead of collapsing it. Same measurement, on the shipped pair: a quote-blind strip leaves
  * F-249 and F-270 GREEN and grows both artifacts by the same eight characters.
@@ -135,13 +135,13 @@ const QUOTE_INSIDE_A_STRING =
 /**
  * Comments removed, and every run of whitespace OUTSIDE a string collapsed to one space.
  *
- * Whitespace inside a string is left exactly as it is: the strings are the payload here —
- * redact paths, the censor, the fixed context message — and collapsing inside them would let
+ * Whitespace inside a string is left exactly as it is: the strings are the payload here
+ * (redact paths, the censor, the fixed context message), and collapsing inside them would let
  * `'an  error'` satisfy `'an error'`. A comment collapses to a separator rather than to
  * nothing, so `a/* x *\/b` cannot pass for `ab`.
  *
  * KNOWN LIMIT: regular-expression literals are not tokenised. The normative region holds
- * none, and a regex carrying a quote or a `//` would corrupt the text AFTER it — which
+ * none, and a regex carrying a quote or a `//` would corrupt the text AFTER it, which
  * removes matter from the comparison and turns this test RED, never green. The failure
  * direction is the safe one, and it is loud.
  */
@@ -231,7 +231,7 @@ function typescriptFences(document: string): readonly string[] {
 /**
  * Where the fence stops being findable in the source, with both sides quoted around that
  * point. A drift failure that printed two 5 kB strings would be read by nobody; this is the
- * part of the report an author can act on. It is a DIAGNOSTIC ONLY — the assertion it
+ * part of the report an author can act on. It is a DIAGNOSTIC ONLY: the assertion it
  * accompanies is the plain `includes`, so a bug in here cannot make a divergence pass.
  */
 function divergence(source: string, fence: string): string {
@@ -261,7 +261,7 @@ describe("the contract's logger block against the shipped logger", () => {
     // below silently checking whichever came first and the other one unchecked.
     //
     // NOT NAMED FOR F-250, DELIBERATELY. F-250 was the same configuration surviving in a
-    // THIRD ARTIFACT — ADR-0022 — and this test reads only the contract, so it would not have
+    // THIRD ARTIFACT (ADR-0022), and this test reads only the contract, so it would not have
     // caught it. It catches F-250's shape inside the one file it reads. See the report.
     expect(loggerFences).toHaveLength(1);
   });
@@ -284,7 +284,7 @@ describe("the contract's logger block against the shipped logger", () => {
     // copies by `sdlc-reviewer`: dropping the trailing declaration from the FENCE leaves a
     // shorter needle that is still found, and adding a declaration to the SOURCE after the
     // region leaves the same needle found in a longer haystack. Both stayed green, and the
-    // end of the region is exactly where a new wrapper gets appended — which is the shape
+    // end of the region is exactly where a new wrapper gets appended, which is the shape
     // F-251 and F-258 both had.
     //
     // So the region is cut between its two anchors and compared for equality. The comparison
@@ -320,7 +320,7 @@ describe("the contract's logger block against the shipped logger", () => {
     // message's wording: whitespace OUTSIDE a string is collapsed, so a line break survives
     // the strip only if the stripper believed it was inside one. Neither artifact contains a
     // multi-line string literal today. If one is ever added this goes red for a reason that
-    // is not a bug — re-anchor it then, and do not weaken it, because the failure it reports
+    // is not a bug: re-anchor it then, and do not weaken it, because the failure it reports
     // the rest of the time is a comparison running on garbage.
     expect(normalisedRegion).not.toContain('\n');
     expect(normalisedFence).not.toContain('\n');
@@ -342,7 +342,7 @@ describe("the contract's logger block against the shipped logger", () => {
 
   it('only the quote that opened a string closes it, so an apostrophe does not end a template', () => {
     // ADDED AT ADR-0028 MIGRATION STEP 6, because the test above was MEASURED not to cover
-    // this: a quote-blind stripper — one where any of the three quotes closes a string —
+    // this: a quote-blind stripper (one where any of the three quotes closes a string)
     // reproduces the input above byte for byte and leaves it green, while it mangles the real
     // artifacts. The pairing that file's guard relies on, a hand-written input standing behind
     // the artifact one, therefore had a hole in it.

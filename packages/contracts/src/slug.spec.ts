@@ -1,5 +1,5 @@
 /**
- * STORY-2-02 — AC-2-2 (the violation order and the case-insensitive reserved compare),
+ * STORY-2-02, AC-2-2 (the violation order and the case-insensitive reserved compare),
  *              AC-2-13 (the generated-alphabet subset property). TASK-2-01.
  *
  * Contract: docs/contracts/slug.md
@@ -12,8 +12,8 @@
  * THE ORDER IS THE CONTRACT, NOT AN IMPLEMENTATION DETAIL.
  * ============================================================================
  *
- * `slug.md` fixes it — `too_short`, `too_long`, `invalid_characters`,
- * `leading_or_trailing_separator`, `reserved` — because the violation is what
+ * `slug.md` fixes it (`too_short`, `too_long`, `invalid_characters`,
+ * `leading_or_trailing_separator`, `reserved`) because the violation is what
  * `details.fieldErrors.slug` carries to a form (AC-2-2), and a message that changes
  * with the implementation's branch order is a message no test can pin. Every input
  * below that breaks more than one rule asserts which violation wins.
@@ -24,7 +24,7 @@
  *
  * `crypto` may not enter `packages/contracts` (ADR-0005), so `SlugGenerator` is
  * TASK-2-05's. What lives here is the half AC-2-13 rests on: that a 7-character draw
- * from `SLUG_ALPHABET` satisfies `validateSlug` — and the two entries for which
+ * from `SLUG_ALPHABET` satisfies `validateSlug`, and the two entries for which
  * `slug.md`'s invariant 1 is FALSE as written. See the last describe block.
  */
 import { describe, expect, it } from 'vitest';
@@ -47,7 +47,7 @@ function outcomeOf(input: string): string {
   return result.ok ? 'ok' : result.violation;
 }
 
-describe('validateSlug — the accepting branch', () => {
+describe('validateSlug: the accepting branch', () => {
   it('returns the input VERBATIM: no trim, no lower-casing, no normalisation', () => {
     // Slugs are case-sensitive for storage and lookup (slug.md), so a validator that
     // returned a normalised value would store something the operator did not type and
@@ -70,7 +70,7 @@ describe('validateSlug — the accepting branch', () => {
   });
 });
 
-describe('validateSlug — one violation at a time', () => {
+describe('validateSlug: one violation at a time', () => {
   it.each([
     ['the empty string', '', 'too_short'],
     ['one character over the maximum', 'a'.repeat(SLUG_MAX_LENGTH + 1), 'too_long'],
@@ -90,7 +90,7 @@ describe('validateSlug — one violation at a time', () => {
   });
 });
 
-describe('validateSlug — the fixed order decides when several rules are broken', () => {
+describe('validateSlug: the fixed order decides when several rules are broken', () => {
   it.each([
     ['too_long beats invalid_characters', '.'.repeat(SLUG_MAX_LENGTH + 1), 'too_long'],
     [
@@ -320,7 +320,7 @@ describe('AC-2-13: the generated alphabet is a subset of what validateSlug accep
     // ========================================================================
     //
     // `support` and `privacy` are exactly GENERATED_SLUG_LENGTH characters and every
-    // one of those characters is in SLUG_ALPHABET, so a draw CAN produce them — at
+    // one of those characters is in SLUG_ALPHABET, so a draw CAN produce them, at
     // 2/57^7, about one in a trillion. The consequence is small and real: that draw
     // would put a live link on a brand-protected slug, and `validateSlug` on it
     // answers `{ ok: false, violation: 'reserved' }`, contradicting the invariant a
@@ -328,8 +328,8 @@ describe('AC-2-13: the generated alphabet is a subset of what validateSlug accep
     //
     // The fix belongs to the generator (TASK-2-05): redraw while `isReservedSlug` is
     // true, on the attempt loop that already exists for `23505`. This test names the
-    // exact set so that adding a reserved entry — already BREAKING per slug.md's
-    // Versioning — cannot quietly grow it unnoticed.
+    // exact set so that adding a reserved entry (already BREAKING per slug.md's
+    // Versioning) cannot quietly grow it unnoticed.
     const drawable = RESERVED_SLUGS.filter(
       (slug) =>
         slug.length === GENERATED_SLUG_LENGTH &&

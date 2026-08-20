@@ -14,10 +14,10 @@ import { TRUSTED_CLIENT_IP_HEADER_ENV, TRUSTED_CLIENT_IP_UNRESOLVED_COUNTER } fr
 import { PUBLIC_IP_LIMIT, PUBLIC_IP_WINDOW_S, RATE_LIMIT_MAX_WRITES, RATE_LIMIT_WINDOW_S } from './rate-limit.types';
 
 /**
- * STORY-1b-08 — AC-1b-37, AC-1b-38 and AC-1b-40's substance (an authenticated request never
+ * STORY-1b-08: AC-1b-37, AC-1b-38 and AC-1b-40's substance (an authenticated request never
  * charges the IP bucket), over a real HTTP round trip. TASK-1b-07, wave 1 of item 1b; the
  * tenant-keyed write bucket added by debt sweep D1 (2026-08-19) is tested here too, against
- * the same real graph — the unit tier carries the 120-limit assertions because the limit is
+ * the same real graph: the unit tier carries the 120-limit assertions because the limit is
  * not env-tunable, and the integration tier re-runs `public-ip-bucket.int-spec.ts` unchanged.
  *
  * Contract: `docs/contracts/rate-limit.md` ("Scope": `@Public()` routes under `/api`, client
@@ -27,7 +27,7 @@ import { PUBLIC_IP_LIMIT, PUBLIC_IP_WINDOW_S, RATE_LIMIT_MAX_WRITES, RATE_LIMIT_
  * ADR-0012, ADR-0040.
  *
  * ============================================================================
- * THE REAL GUARD, THE REAL FILTER, THE REAL MODULE GRAPH — AND PROBE ROUTES BESIDE IT.
+ * THE REAL GUARD, THE REAL FILTER, THE REAL MODULE GRAPH, AND PROBE ROUTES BESIDE IT.
  * ============================================================================
  *
  * The application is compiled from `AppModule` the way `auth.guard.spec.ts` does it, so the
@@ -43,7 +43,7 @@ import { PUBLIC_IP_LIMIT, PUBLIC_IP_WINDOW_S, RATE_LIMIT_MAX_WRITES, RATE_LIMIT_
  *
  * One provider is overridden and nothing else: the key-set source, so a token for the
  * authenticated probe can be signed here with a pair the process never fetches. The port is
- * NOT overridden — the bucket under test is the `LocalRateLimiter` the module binds.
+ * NOT overridden: the bucket under test is the `LocalRateLimiter` the module binds.
  *
  * Every test names its own documentation-range address, so the fixed windows do not
  * interfere between tests and no test depends on where in a window the clock sits.
@@ -82,7 +82,7 @@ class RateLimitProbeController {
   /**
    * An authenticated route. `@NoTenantTransaction` because this tier has no database and the
    * interceptor would otherwise open a real tenant transaction around the handler; the two
-   * guards still run in full for it — that is exactly what the marker means.
+   * guards still run in full for it: that is exactly what the marker means.
    */
   @Post('private')
   @HttpCode(200)
@@ -201,7 +201,7 @@ async function mintBearer(tenantId: string): Promise<string> {
 
 /**
  * Pins `Date` (and only `Date`) to the start of the current tenant window, so a long burst
- * cannot straddle a fixed-window boundary and flake — the pattern the null-principal test
+ * cannot straddle a fixed-window boundary and flake: the pattern the null-principal test
  * set. The caller owns the `finally { vi.useRealTimers(); }`.
  */
 function freezeAtTenantWindowStart(): void {
@@ -285,7 +285,7 @@ describe('the @Public() per-IP bucket over HTTP (AC-1b-37)', () => {
     expect(other.status, other.raw).toBe(200);
   });
 
-  it('GET on a @Public() route is limited too — every method, because a public GET opens a tenant transaction as a POST does', async () => {
+  it('GET on a @Public() route is limited too: every method, because a public GET opens a tenant transaction as a POST does', async () => {
     const results = await burst(PUBLIC_IP_LIMIT + 1, 'GET', PUBLIC, { [TRUSTED_HEADER]: '203.0.113.30' });
 
     expect(results.map((r) => r.status)).toEqual([...Array<number>(PUBLIC_IP_LIMIT).fill(200), 429]);
@@ -423,7 +423,7 @@ describe('the tenant-keyed write bucket (debt sweep D1: 120 mutating requests pe
     }
   });
 
-  it('ADR-0038: PATCH and DELETE charge the same bucket as POST — 118 POSTs, a PATCH and a DELETE exhaust the window and the 121st mutating request refuses', async () => {
+  it('ADR-0038: PATCH and DELETE charge the same bucket as POST: 118 POSTs, a PATCH and a DELETE exhaust the window and the 121st mutating request refuses', async () => {
     freezeAtTenantWindowStart();
     try {
       const tenantBearer = await mintBearer('a1b2c3d4-0004-4a6b-8d0f-1e3a5c7b9d2f');

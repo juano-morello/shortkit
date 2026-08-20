@@ -19,7 +19,7 @@
   invited branch of `databaseHooks.user.create.after` shipped. `AuthBeforeHookContext` and
   `AuthBeforeHook` are now DEFINED in `apps/api/src/auth/before-hook.ts` and re-exported by
   `auth.config.ts` under the same names, because `db/better-auth-database-callers.spec.ts` scan 5
-  bounds — by text, type imports included — who may import `auth.config`, and the two hook
+  bounds (by text, type imports included) who may import `auth.config`, and the two hook
   modules must not be on that list. The exported surface below is unchanged. The F-216 note under
   invariant 4 is now met (fixed strings); the composed-config table and the error-cases table
   carry the new rows, marked with this date.
@@ -90,7 +90,7 @@ line is identical whichever path raised it.
 > unhandled rejection, not the designed message.
 >
 > ADR-0058 carried the same claim and `main.ts` now states the real behaviour alone. **Three
-> artifacts asserted a property none of them had checked** — which is why nobody would have
+> artifacts asserted a property none of them had checked**, which is why nobody would have
 > looked when it failed. TASK-004 owns the mount and inherits the dynamic-import shape `main.ts`
 > now documents.
 
@@ -168,7 +168,7 @@ implementer works from while the amendments are still being applied.
 | `baseURL` | `betterAuthUrl()` | ADR-0059 | **yes** |
 | `trustedOrigins` | `webAppOrigins()`. Extends the API's own origin, never replaces it | ADR-0059, `auth-tokens.md` | **yes** |
 | `advanced.useSecureCookies` | `betterAuthUrl().startsWith('https://')`. **Never `NODE_ENV`** | ADR-0059 | **yes** |
-| `advanced.disableOriginCheck` | **`false`, explicitly.** Absent, `create-context.mjs:210` derives it from `isTest()` — see below | F-206 | **yes** |
+| `advanced.disableOriginCheck` | **`false`, explicitly.** Absent, `create-context.mjs:210` derives it from `isTest()`; see below | F-206 | **yes** |
 | `session.expiresIn` | `SESSION_LIFETIME_SECONDS = 604800`. The library's default, stated | ADR-0059 | |
 | `logger` | `{ level: 'warn', disableColors: true, log }` | ADR-0052, **level amended by ADR-0060** | **yes** |
 | `rateLimit` | `{ enabled: false }` | ADR-0013 | **yes** |
@@ -182,10 +182,10 @@ implementer works from while the amendments are still being applied.
 | `emailAndPassword.autoSignIn` | **`false`.** Stops signup issuing a session, and turns the duplicate-address 422 into a 200. **Closes the status-code oracle, not necessarily the disclosure** (invariant 12) | ADR-0061 | **yes** |
 | `emailAndPassword.requireEmailVerification` | **deliberately unset**, so the default `false` stands. Mail is out of scope | ADR-0061 | |
 | `emailAndPassword.minPasswordLength` / `.maxPasswordLength` | **deliberately unset.** The library's 8 and 128 are inherited | `auth-tokens.md`, **Juano's ruling 2026-08-16** | |
-| `databaseHooks.user.create.after` | ~~`createTenantForNewUser`~~ **`createTenant(user, ctx)` → `provisionForNewUser(user, ctx)` (`auth/invitation-signup.ts`), amended 2026-08-18 (TASK-1b-09):** with a string `ctx.body.invitationToken` → `acceptInvitationByCapabilityToken(token, { userId, tenantMembership: 'create' })` — the memberships land in the INVITER's tenant, taken from the verified row, and NO `tenants` row is written; otherwise `createTenantForNewUser(user)`. `ctx` is the endpoint context `with-hooks.mjs` passes as the second argument (the request's `AsyncLocalStorage`), so `ctx.body` is the body the before hook saw; no per-request stash exists. Either branch's failure is `500 TENANT_PROVISIONING_FAILED` | ADR-0015, ADR-0054, ADR-0021, D-18 | |
+| `databaseHooks.user.create.after` | ~~`createTenantForNewUser`~~ **`createTenant(user, ctx)` → `provisionForNewUser(user, ctx)` (`auth/invitation-signup.ts`), amended 2026-08-18 (TASK-1b-09):** with a string `ctx.body.invitationToken` → `acceptInvitationByCapabilityToken(token, { userId, tenantMembership: 'create' })`: the memberships land in the INVITER's tenant, taken from the verified row, and NO `tenants` row is written; otherwise `createTenantForNewUser(user)`. `ctx` is the endpoint context `with-hooks.mjs` passes as the second argument (the request's `AsyncLocalStorage`), so `ctx.body` is the body the before hook saw; no per-request stash exists. Either branch's failure is `500 TENANT_PROVISIONING_FAILED` | ADR-0015, ADR-0054, ADR-0021, D-18 | |
 | `databaseHooks.session.delete.after` | `revocationStore.revoke(session.id)` | ADR-0013 | |
-| `hooks.after` | *added 2026-08-18 (TASK-1b-09, architect ruling):* `createAuthMiddleware` iterating `afterHooks`, an exported registry with the same appended-never-assigned rule as `beforeHooks`, holding exactly `[emailRateLimitReleaseHook]` — on `/sign-in/email`, when `ctx.context.returned` is defined and not an `APIError` (the endpoint's value on success, the thrown `APIError` on failure; the numeric status is not on the context), the email bucket's charge is released under the same key. An after hook NEVER throws: the endpoint already answered. `auth.config.spec.ts` pins the contents and the text rule | `rate-limit.md`, ADR-0013, F-054 | |
-| `hooks.before` | `createAuthMiddleware` iterating `beforeHooks`. **Since 2026-08-18 (TASK-1b-09) the array holds exactly `[emailRateLimitHook, invitationValidationHook]`, in that order, pushed by `auth.config.ts` itself** — the email-keyed sign-in bucket first (D-15; `auth/email-rate-limit-hook.ts`, port bound by `main.ts` through `bindEmailRateLimitPort`), then invitation validation on `/sign-up/email` (`auth/invitation-signup.ts`). `auth.config.spec.ts` asserts the contents, the order, and that the file never assigns the binding after its declaration | ADR-0013, F-054, D-15, D-18 | |
+| `hooks.after` | *added 2026-08-18 (TASK-1b-09, architect ruling):* `createAuthMiddleware` iterating `afterHooks`, an exported registry with the same appended-never-assigned rule as `beforeHooks`, holding exactly `[emailRateLimitReleaseHook]`: on `/sign-in/email`, when `ctx.context.returned` is defined and not an `APIError` (the endpoint's value on success, the thrown `APIError` on failure; the numeric status is not on the context), the email bucket's charge is released under the same key. An after hook NEVER throws: the endpoint already answered. `auth.config.spec.ts` pins the contents and the text rule | `rate-limit.md`, ADR-0013, F-054 | |
+| `hooks.before` | `createAuthMiddleware` iterating `beforeHooks`. **Since 2026-08-18 (TASK-1b-09) the array holds exactly `[emailRateLimitHook, invitationValidationHook]`, in that order, pushed by `auth.config.ts` itself**: the email-keyed sign-in bucket first (D-15; `auth/email-rate-limit-hook.ts`, port bound by `main.ts` through `bindEmailRateLimitPort`), then invitation validation on `/sign-up/email` (`auth/invitation-signup.ts`). `auth.config.spec.ts` asserts the contents, the order, and that the file never assigns the binding after its declaration | ADR-0013, F-054, D-15, D-18 | |
 
 ### Password bounds: `auth.config.ts` sets neither key
 
@@ -229,19 +229,19 @@ Resolved by `cookies/index.mjs:21,29-40` from the keys above. Decided values, no
 | `better-auth.dont_remember` | same | **none** |
 | `better-auth.account_data` | same | **300** |
 
-> **CORRECTED AND COMPLETED 2026-08-16 (F-197), Juano's ruling — an amendment to a contract that
+> **CORRECTED AND COMPLETED 2026-08-16 (F-197), Juano's ruling: an amendment to a contract that
 > froze the same morning.** The table gave `session_data` a Max-Age of 604800 and listed two
 > cookies. The composed instance sets **four**, measured off `$context.authCookies`:
 > `session_data` is **300**, and `dont_remember` and `account_data` were in no artifact at all.
 >
-> **`session_data`'s 300 does not come from `session.expiresIn`** — it is the session-cookie-cache
+> **`session_data`'s 300 does not come from `session.expiresIn`**: it is the session-cookie-cache
 > default, which is a different knob and is why the number looked like a typo for the session
 > lifetime and was not. Nothing asserted the wrong value, so nothing was failing.
 >
 > Worth naming plainly: **this table was added in round 1 to close the finding where a session
 > cookie shipped with no `Secure` flag**, and it was wrong on the first measurement ever taken
 > against it. A table of decided values is only as good as the run that checked it, and this one
-> had not been run — the same shape as every other control this wave found that could not fail.
+> had not been run: the same shape as every other control this wave found that could not fail.
 
 `better-auth.session_data` carries an encrypted copy of the session and is set when session
 cookie caching is active. **It is recorded here because no other artifact in this repository
@@ -265,10 +265,10 @@ Moving a deployment from `http` to `https` renames every cookie and signs every 
 | Sign-up that succeeds | `200` with `token: null` and **no `Set-Cookie`**. The caller must sign in separately | ADR-0061 |
 | `POST` under `/api/auth/*` with no `Origin`, or an untrusted one | `403 MISSING_OR_NULL_ORIGIN` or `403 INVALID_ORIGIN` | `auth-tokens.md` |
 | A `before` hook throws something that is not an `APIError` | `dist/api/dispatch.mjs:86-89` rethrows it, the endpoint never runs, and the caller gets a **body-less 500** from `better-call/dist/router.mjs:94-98` | ADR-0013 F-228, ADR-0055 |
-| Sign-in for one address, sixth **failed** attempt in 15 minutes (any client IP, any casing or padding of the address; a successful sign-in releases its charge, so successes never count) — *added 2026-08-18, TASK-1b-09* | `429 {"code":"rate_limited","message":"Too many sign-in attempts for this account. Try again shortly.","retryAfterSeconds":<n>}` from `emailRateLimitHook`, with `Retry-After: <n>` measured present on 1.6.26 (best effort per `rate-limit.md`). Charged BEFORE the endpoint, so a padded address that Better Auth would 400 still costs one; a non-string or empty `email` is neither charged nor refused (F-228) | `rate-limit.md`, ADR-0013, F-025, F-027 |
-| Sign-up carrying a string `invitationToken` that is malformed, unknown, or names another tenant — *added 2026-08-18, TASK-1b-09* | `404 {"code":"INVITATION_NOT_FOUND","message":"Invitation not found."}` from `invitationValidationHook`. **No `user` row is created.** One body for all three (ADR-0021) | `invitation-tokens.md`, ADR-0021, D-18 |
+| Sign-in for one address, sixth **failed** attempt in 15 minutes (any client IP, any casing or padding of the address; a successful sign-in releases its charge, so successes never count), *added 2026-08-18, TASK-1b-09* | `429 {"code":"rate_limited","message":"Too many sign-in attempts for this account. Try again shortly.","retryAfterSeconds":<n>}` from `emailRateLimitHook`, with `Retry-After: <n>` measured present on 1.6.26 (best effort per `rate-limit.md`). Charged BEFORE the endpoint, so a padded address that Better Auth would 400 still costs one; a non-string or empty `email` is neither charged nor refused (F-228) | `rate-limit.md`, ADR-0013, F-025, F-027 |
+| Sign-up carrying a string `invitationToken` that is malformed, unknown, or names another tenant, *added 2026-08-18, TASK-1b-09* | `404 {"code":"INVITATION_NOT_FOUND","message":"Invitation not found."}` from `invitationValidationHook`. **No `user` row is created.** One body for all three (ADR-0021) | `invitation-tokens.md`, ADR-0021, D-18 |
 | … whose invitation is expired / revoked / already accepted | `410 {"code":"INVITATION_EXPIRED","message":"This invitation has expired."}` / `410 {"code":"INVITATION_REVOKED","message":"This invitation has been revoked."}` / `409 {"code":"INVITATION_ALREADY_ACCEPTED","message":"This invitation has already been accepted."}`. No `user` row | `invitation-tokens.md`, D-18 |
-| … and the lookup itself fails (a driver fault) | `500 {"code":"INVITATION_LOOKUP_FAILED","message":"The invitation could not be verified. Try again shortly."}` — an `APIError` WITH a body rather than the body-less 500 above, after one `logger.error` with `code: invitation_lookup_failed` and `errorLogFields(error, { includeMessage: false })`. No `user` row | ADR-0055, F-228, GC-G |
+| … and the lookup itself fails (a driver fault) | `500 {"code":"INVITATION_LOOKUP_FAILED","message":"The invitation could not be verified. Try again shortly."}`, an `APIError` WITH a body rather than the body-less 500 above, after one `logger.error` with `code: invitation_lookup_failed` and `errorLogFields(error, { includeMessage: false })`. No `user` row | ADR-0055, F-228, GC-G |
 | Sign-up whose `invitationToken` is present but not a non-empty string (object, number, `''`, `null`, array) | Treated as an UNINVITED signup by both hooks: `200`, a tenant of its own (AC-1b-10). Never a 500 | F-228, D-18 |
 | Sign-up with a valid token for an address that already has an account | ADR-0061's generic `200`; no hook fires; the invitation stays `pending` (AC-1b-11) | ADR-0061, D-04 |
 | The invited branch's accept fails after the `user` row commits | The same `500 TENANT_PROVISIONING_FAILED` as the uninvited row above; the accept transaction rolled back, so the invitation is still `pending` and no membership row exists anywhere; the orphaned `user` row is ADR-0015's accepted residue | ADR-0054, ADR-0015 |
@@ -288,18 +288,18 @@ additions to the eight rows in `auth-tokens.md`'s table and are escalated there.
    request's `Host` header. `AuthGuard` step 4 compares against that same value.
 3. **`beforeHooks` is appended to and never assigned.** A caller may rely on every earlier
    hook still being present after it pushes. Ordering is registration order, and the loop
-   short-circuits on a throw. *Since 2026-08-18 the array holds two entries — the email
-   bucket, then invitation validation — pushed by `auth.config.ts` in one statement; a third
+   short-circuits on a throw. *Since 2026-08-18 the array holds two entries (the email
+   bucket, then invitation validation) pushed by `auth.config.ts` in one statement; a third
    appender pushes after them, and `auth.config.spec.ts`'s text rule (no `beforeHooks =` after
    the declaration) is what it will meet.*
 4. **A `hooks.before` entry that refuses throws an `APIError` and nothing else.** Anything
    else aborts the request with a body-less 500 and skips every later hook.
 
-   > **AND ITS MESSAGE ESCAPES THE FIELD ALLOWLIST — 2026-08-16, F-216.** ADR-0052's "exactly
+   > **AND ITS MESSAGE ESCAPES THE FIELD ALLOWLIST: 2026-08-16, F-216.** ADR-0052's "exactly
    > one censoring mechanism" does not hold for the `onError` path. `api/index.mjs:199` is
    > `const log = optLogLevel === "error" || optLogLevel === "warn" || optLogLevel === "debug"
    > ? logger : void 0`, and that `logger` is better-auth's **package-level singleton**, not the
-   > bound `log` hook — then `log?.error(e.message)`. No hook, no `disableColors`, straight to
+   > bound `log` hook; then `log?.error(e.message)`. No hook, no `disableColors`, straight to
    > `console.error`, past the pino allowlist. Verified at the source.
    >
    > **The level is not the cause**: `error`, `warn` and `debug` are all enabling values, so
@@ -315,7 +315,7 @@ additions to the eight rows in `auth-tokens.md`'s table and are escalated there.
    > **MET 2026-08-18 (TASK-1b-09): fixed strings only.** Every `APIError` either hook throws
    > carries one of the exported constants `EMAIL_RATE_LIMITED_MESSAGE`,
    > `INVITATION_NOT_FOUND_MESSAGE`, `INVITATION_EXPIRED_MESSAGE`, `INVITATION_REVOKED_MESSAGE`,
-   > `INVITATION_ALREADY_ACCEPTED_MESSAGE`, `INVITATION_LOOKUP_FAILED_MESSAGE` — no token,
+   > `INVITATION_ALREADY_ACCEPTED_MESSAGE`, `INVITATION_LOOKUP_FAILED_MESSAGE`: no token,
    > address, tenant id, user id or invitation id is ever interpolated. `invitation-signup.spec.ts`
    > asserts the constants name no value; `test/auth/signup-invited.int-spec.ts` and
    > `test/auth/sign-in-email-bucket.int-spec.ts` scan the child's captured stdout+stderr for
@@ -337,7 +337,7 @@ additions to the eight rows in `auth-tokens.md`'s table and are escalated there.
     chain (`create-context.mjs:70`), so a falsy return is not an override; the same shape
     applies to `baseURL`.
 11. **Four scans in `apps/api/src/db/better-auth-database-callers.spec.ts` bound who can
-    reach the auth role** (ADR-0056) — three equalities and one subset — and they are not of
+    reach the auth role** (ADR-0056), three equalities and one subset, and they are not of
     equal weight:
 
     | Scan | Permitted | Direction |
@@ -381,15 +381,15 @@ additions to the eight rows in `auth-tokens.md`'s table and are escalated there.
   false`, and `isTest()` is `nodeENV === 'test' || toBoolean(env.TEST)` where
   `toBoolean(v) = v ? v !== 'false' : false`.
 
-  Two consequences, both measured. **`TEST=0` in production disables CSRF origin checking** —
+  Two consequences, both measured. **`TEST=0` in production disables CSRF origin checking**:
   the string is truthy and is not the literal `'false'`, and a cross-origin `POST /sign-out`
   returned 200. And **the test tier runs at `NODE_ENV=test`**, so from wave 3 every request a
   test issues would bypass the check entirely: the whole `trustedOrigins` apparatus this
   contract specifies would never be consulted where it is measured.
 
-  That makes it **the fourth finding on this one predicate** — F-170 no owner, F-181 admitting
+  That makes it **the fourth finding on this one predicate** (F-170 no owner, F-181 admitting
   the platform wildcard, F-203 the wildcard branch validating less than the plain branch, and
-  this — and it subsumes the other three, because a control that never runs cannot be tested
+  this), and it subsumes the other three, because a control that never runs cannot be tested
   into correctness. **Assert the resolved `$context.skipOriginCheck`, never the option**: this
   tier runs at `NODE_ENV=test`, so an unpinned key reads `true` in the assertion itself.
 

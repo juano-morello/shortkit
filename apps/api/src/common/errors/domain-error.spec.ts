@@ -4,7 +4,7 @@ import { DomainError, isDomainError } from './domain-error';
 import type * as domainErrorModule from './domain-error';
 
 /**
- * AC-13 — a rejected API request answers with the shared envelope and a stable
+ * AC-13: a rejected API request answers with the shared envelope and a stable
  * machine-readable `code`. ADR-0024 makes `DomainError` the one way application code
  * says which code that is, so the mapping is a property of the constructed error
  * before it is a property of any response.
@@ -113,7 +113,7 @@ describe('isDomainError', () => {
  * A second evaluation of `domain-error.ts` in this process: a distinct class object
  * that `instanceof DomainError` rejects, carrying the same `Symbol.for` marker.
  *
- * That duplication is what ADR-0024 chose a registered symbol for — TASK-056's
+ * That duplication is what ADR-0024 chose a registered symbol for: TASK-056's
  * isolation suite and the integration config load these same sources under a second
  * vitest project. `instanceof` passes every test in this file except this one, and its
  * failure mode in production is every domain error in the duplicated graph silently

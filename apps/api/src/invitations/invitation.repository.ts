@@ -17,14 +17,14 @@
  *
  * `create` takes the DIGEST the service obtained from `issueCapabilityToken` and stores it;
  * the raw token never enters this class. `InvitationRow` has no `tokenDigest` field, so no
- * read here can hand a caller anything to compare a token against — the only comparison
+ * read here can hand a caller anything to compare a token against: the only comparison
  * in the system is `capability-lookup.ts`'s, under the token's own tenant. Looking an
  * invitation up BY token is that file's job and not a method here, on purpose: a
  * `findByToken` on an ambient-context repository would be the digest-skipping read
  * ADR-0021 forbids.
  *
  * NOT-FOUND SEMANTICS. `revoke` throws `InvitationNotFoundError` for an id the current
- * tenant does not own, for a non-uuid, and for another tenant's row — one answer, as
+ * tenant does not own, for a non-uuid, and for another tenant's row: one answer, as
  * `WorkspaceRepository` gives. `findById` returns null. `listForWorkspace` returns `[]`
  * for a non-uuid without a query.
  *
@@ -35,7 +35,7 @@
  *
  * WHAT A NAMED WORKSPACE OF ANOTHER TENANT DOES HERE. `invitation_workspaces` carries
  * `FOREIGN KEY (workspace_id, tenant_id) REFERENCES workspaces (id, tenant_id)` (ADR-0062),
- * so `create` with such a workspace — or with a workspace id that exists nowhere — is
+ * so `create` with such a workspace (or with a workspace id that exists nowhere) is
  * refused 23503 by the database. The route's Form B check answers 404 long before this is
  * reached (D-09); the constraint is the floor, and `create` maps that 23503 to
  * `WorkspaceNotFoundError` (`not_found`, the same body Form B gives) so a bypassed check

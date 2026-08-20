@@ -11,7 +11,7 @@ date: 2026-08-13
 > **Widened 2026-08-13 (F-021, F-022), round 3. The rule was about casts and it needed to be
 > about comparisons.**
 >
-> The original decision — "no policy expression casts `current_setting(...)` directly" — is
+> The original decision ("no policy expression casts `current_setting(...)` directly") is
 > right about the mechanism it names and too narrow by one case. **The cast is not what makes
 > `''` dangerous; the comparison is.** `membershipLookupPolicy()` compares a text flag with
 > no cast, so it passed the original rule, and with one `"user"` row whose `id` is `''` an
@@ -47,7 +47,7 @@ date: 2026-08-13
 
 `rls.ts:52-56` states the property every tenant-scoped policy rests on:
 
-> `current_setting(name, true)` — the second argument is load-bearing. Without it an unset
+> `current_setting(name, true)`: the second argument is load-bearing. Without it an unset
 > flag raises rather than returning NULL, and the AC-10 read outside any tenant context
 > would fail with an error instead of returning zero rows.
 
@@ -74,7 +74,7 @@ verbatim, one session, in order:
 
 | # | Statement | Result |
 |---|---|---|
-| 1 | out-of-context `select count(*)`, **cold** backend | `0` — AC-10 holds |
+| 1 | out-of-context `select count(*)`, **cold** backend | `0`, AC-10 holds |
 | 2 | membership lookup, cold backend | returns the tenant id |
 | 3 | ordinary `withTenantTransaction` read | `1` row |
 | 4 | out-of-context `select count(*)`, **warm** backend | **`ERROR: invalid input syntax for type uuid: ""`** |
@@ -84,8 +84,8 @@ verbatim, one session, in order:
 the token-mint escape and F-005 reproduces it on `redirectReadPolicy`. Both are true, and
 both are instances of something more general: *any* statement against a table carrying
 `tenantScopedPolicies()`, on a connection that has previously committed a tenant
-transaction, raises when no tenant context is open. That is AC-10's own shape — the
-out-of-context read that must return zero rows — failing on the connection state the
+transaction, raises when no tenant context is open. That is AC-10's own shape (the
+out-of-context read that must return zero rows) failing on the connection state the
 application actually runs in. The comment at `rls.ts:52-56` describes the behaviour this
 defect removes.
 
@@ -113,12 +113,12 @@ tenant_id::text = nullif(current_setting('app.privileged_erase', true), '')
 nullif(current_setting('app.redirect_context', true), '') = 'on'
 ```
 
-The last two are semantically unchanged — `''` already matched no tenant id and `'' = 'on'`
-was already false — and they take the wrapper anyway, because a rule with two exceptions
+The last two are semantically unchanged (`''` already matched no tenant id and `'' = 'on'`
+was already false), and they take the wrapper anyway, because a rule with two exceptions
 cannot be checked mechanically and the exceptions are where the next instance will land.
 
 `tenantScopedPolicies()` in `apps/api/src/db/rls.ts` becomes, **both policies, not one**
-(corrected 2026-08-13, F-029 — the snippet here previously showed only the isolation policy,
+(corrected 2026-08-13, F-029: the snippet here previously showed only the isolation policy,
 which reads as licence to leave `<t>_privileged_erase` raw):
 
 ```sql
@@ -138,7 +138,7 @@ the control lands.
 
 Unset reads NULL, reset reads `''`, and `nullif` collapses both to NULL. `tenant_id = NULL`
 is NULL, which a policy treats as false. **Zero rows, on a cold backend and a warm one
-alike** — fail-closed in both states rather than in one.
+alike**: fail-closed in both states rather than in one.
 
 Verified on the same session that produced the failure above: warm out-of-context read
 returns `0`; warm mint lookup returns tenant A's id; with the lookup flag set to `user-a`
@@ -247,18 +247,18 @@ NULLIF(current_setting('<flag>'::text, true), ''::text)
 with `<flag>` matching `[a-z_][a-z0-9_.]*`. **The two counts must be equal.** A reference that
 is not inside the exact wrapper is unmatched, whatever it is wrapped in instead.
 
-Verified against real `pg_policies.qual` strings for all nine variants — the five above plus
+Verified against real `pg_policies.qual` strings for all nine variants: the five above plus
 the raw and wrapped text-comparison forms. It rejects every form that raises, accepts the
 repaired form, and rejects the two raw text comparisons, which under the widened rule is the
 intended answer rather than a false positive: those are F-021's shape.
 
 It reads the database rather than the source, which is what makes it catch a hand-appended
-migration — the only way policy DDL enters this system.
+migration: the only way policy DDL enters this system.
 
 **A syntactic control over a rendered expression is still a proxy, and this is what it does
 not see.** It cannot tell that `nullif(current_setting('app.tenant_id', true), '')` is
 compared against the right column, and it cannot see a flag reached by any route other than
-`current_setting` — a function wrapper, a view, a stable helper. The behavioural control
+`current_setting`: a function wrapper, a view, a stable helper. The behavioural control
 below is what covers those; the syntactic one is what runs on every migration.
 
 **Add the behavioural control beside it, in the test tier.** ~~For every table in schema
@@ -330,8 +330,8 @@ that nobody revoked stays in the set, carries no policy, and returns rows to the
 - The out-of-context read returns zero rows on a warm connection, which is what AC-10 has
   always claimed and what `rls.ts:52-56` says the design intends. It is currently true only
   on a cold one.
-- All four escapes — the membership lookup, the redirect read, the privileged eraser and the
-  plain no-context read — are fixed by one predicate change, before three of them exist.
+- All four escapes (the membership lookup, the redirect read, the privileged eraser and the
+  plain no-context read) are fixed by one predicate change, before three of them exist.
 - The repair is verified against statements issued under the policies on the connection state
   the pool actually produces, not against the policy set. That is the gap F-236, F-302 and
   F-330 each fell into.
@@ -346,7 +346,7 @@ that nobody revoked stays in the set, carries no policy, and returns rows to the
 - **Migration `0001` contains `DROP POLICY` statements against a table it did not create.**
   ADR-0004 tells a reviewer who sees `DROP` in a generated migration to stop and ask for the
   ADR. This is that ADR. No data is destroyed and no column or table is dropped, so
-  ADR-0004's forward-only conditions still hold — but the rule was written to make a human
+  ADR-0004's forward-only conditions still hold, but the rule was written to make a human
   look, and a human should look.
 - **Widened 2026-08-13 (F-029): four pairs, not three, and the fourth is the only `DELETE`
   path on `tenants`.** `tenants_privileged_erase` is dropped and recreated for a rule rather
@@ -363,7 +363,7 @@ that nobody revoked stays in the set, carries no policy, and returns rows to the
   file TASK-002's paths do not reach.
 - Any `PolicyShape.qual` string captured from a live database before this change no longer
   matches. `isolation-coverage.md` says those are captured and never hand-written, so the
-  correct response is to re-capture — but anything that did hand-write one breaks, and the
+  correct response is to re-capture, but anything that did hand-write one breaks, and the
   break will read as a harness failure rather than as this change.
 - The predicate is longer and a reader has to know why `nullif` is there. The reason is a
   pooling behaviour with no local evidence, so the comment carrying it is load-bearing in the
@@ -376,13 +376,13 @@ that nobody revoked stays in the set, carries no policy, and returns rows to the
 
   **This bullet described the hole and the same commit shipped it (F-021).** The instance was
   `membershipLookupPolicy()`, one file away, comparing `app.membership_lookup_user` as text
-  against `user_id` — where a `"user"` row with `id = ''` makes the empty value meaningful
+  against `user_id`, where a `"user"` row with `id = ''` makes the empty value meaningful
   and returns that row cross-tenant. Widened above: every flag takes the wrapper, and the
   control counts wrappers rather than looking for casts. **Writing a hazard down in a
   Consequences section is not the same as checking whether the artifact beside it has that
   hazard, and that is the lesson worth more than the fix.**
 - One `NULLIF` evaluation per row per policy check. Immaterial next to `current_setting`,
-  which is already `STABLE` and already evaluated, and the index scan is preserved — but it
+  which is already `STABLE` and already evaluated, and the index scan is preserved, but it
   is not zero.
 
 ### Follow-ups this creates
@@ -400,9 +400,9 @@ that nobody revoked stays in the set, carries no policy, and returns rows to the
   | Site | Action | In TASK-002's paths? |
   |---|---|---|
   | `apps/api/src/db/rls.ts` (two predicates) | rewrite | yes, after F-002's widening |
-  | `apps/api/drizzle/0000_odd_betty_ross.sql` (three policies) | **do not edit** — repaired by `0001` | n/a, forward-only |
-  | `apps/api/test/isolation/controls.ts:130` | rewrite the `TENANT_ID` constant | **no — seventh file** |
-  | `docs/architecture/rls.md` | rewrite the quoted predicate | **no — eighth file** |
+  | `apps/api/drizzle/0000_odd_betty_ross.sql` (three policies) | **do not edit**, repaired by `0001` | n/a, forward-only |
+  | `apps/api/test/isolation/controls.ts:130` | rewrite the `TENANT_ID` constant | **no, seventh file** |
+  | `docs/architecture/rls.md` | rewrite the quoted predicate | **no, eighth file** |
 
   `.sdlc/identity-membership/tasks/TASK-011.md` also quotes the old predicate in its
   Approach. It is a TASK card and not a design artifact, so it is the orchestrator's to
@@ -412,7 +412,7 @@ that nobody revoked stays in the set, carries no policy, and returns rows to the
   ADR-0043 used for ADR-0013. A reader arriving at ADR-0003's policy block will find the old
   form there and nothing pointing here, which is the cost of a frozen-ADR convention and is
   worth naming rather than assuming.
-- `rls.ts:52-56`'s comment gains the second half — the `true` argument answers the unset case,
+- `rls.ts:52-56`'s comment gains the second half: the `true` argument answers the unset case,
   `nullif` answers the reset case, and on a pooled backend the reset case is the common one.
 - `docs/contracts/rls-policy-template.md` is amended in this initiative: the per-table
   template, the `tenants` set, and the paragraph at line 104 that states the NULL premise.

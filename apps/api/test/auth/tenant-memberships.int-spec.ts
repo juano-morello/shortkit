@@ -1,5 +1,5 @@
 /**
- * STORY-001 — AC-2, AC-4. TASK-002.
+ * STORY-001: AC-2, AC-4. TASK-002.
  *
  * Contract: `docs/contracts/tenant-membership-lookup.md` ("The table", "The policies",
  * "Isolation controls this owes"). ADR-0015, ADR-0045, ADR-0049.
@@ -9,13 +9,13 @@
  * ============================================================================
  *
  * The two controls this contract originally specified named no connection state, and both
- * are true on a cold backend — so both would have passed over F-003, the raise that only
+ * are true on a cold backend, so both would have passed over F-003, the raise that only
  * appears once a backend has committed one transaction-local `set_config`. `rls-fixture.ts`
  * seeds through the migrator DSN and leaves the application pool cold, so cold is the state
  * a test falls into by accident.
  *
- * `POOL_MAX` is 10. Sequential use returns the same pooled connection — the property
- * `tenant-context.int-spec.ts:275` already rests on — so the warm mint below runs one
+ * `POOL_MAX` is 10. Sequential use returns the same pooled connection (the property
+ * `tenant-context.int-spec.ts:275` already rests on) so the warm mint below runs one
  * `withTenantTransaction` and then the lookup, with nothing concurrent between them.
  *
  * A REFUSAL IS NOT A PASS. Row-level security denies a read by returning zero rows and
@@ -63,7 +63,7 @@ const USER_WITH_NO_MEMBERSHIP = 'orphanUserId0001';
  *
  *   USING (nullif(current_setting('app.membership_lookup_user', true), '') IS NOT NULL)
  *
- * — every membership row of every tenant, to anyone who sets the flag — this whole file
+ * (every membership row of every tenant, to anyone who sets the flag) this whole file
  * reported 6 passed, exit 0.
  *
  * ⚠ IT IS A DIFFERENT USER, NOT A SECOND ROW FOR THE SAME ONE. `UNIQUE (user_id)` is what
@@ -95,7 +95,7 @@ async function seedUsersAndTheirMemberships(): Promise<void> {
   }
 
   // `tenant_memberships` is tenant-scoped and FORCE ROW LEVEL SECURITY applies to the
-  // owning role too, so each insert runs inside the context its own WITH CHECK admits —
+  // owning role too, so each insert runs inside the context its own WITH CHECK admits,
   // which is one context per tenant, and the reason these are two transactions.
   for (const [id, tenantId, userId] of [
     [MEMBERSHIP_ID, TENANT_A, USER_WITH_A_MEMBERSHIP],
@@ -122,12 +122,12 @@ async function warm(client: pg.Client): Promise<void> {
 
 /**
  * Attempts a second membership row for `USER_WITH_A_MEMBERSHIP` inside `tenantId`'s
- * context. Returns the driver's error fields, empty when the insert was admitted — which
+ * context. Returns the driver's error fields, empty when the insert was admitted, which
  * is itself a failure of AC-2 and shows up as `{ code: undefined }` against `23505`.
  *
  * ⚠ IT ENDS IN `COMMIT`, AND `ROLLBACK` WOULD MAKE AC-2's SECOND CONJUNCT VACUOUS (F-134).
  * "The table still holds exactly one row for that user" is a statement about the table
- * AFTER the attempt, and a rolled-back attempt leaves one row whatever the database did —
+ * AFTER the attempt, and a rolled-back attempt leaves one row whatever the database did:
  * measured: with `tenant_memberships_user_unique` DROPPED, the insert was admitted and the
  * counts under a `ROLLBACK` still read 1 and 0. Committing lets the attempt leave behind
  * exactly what it earned: on a correct database the statement was refused, the transaction
@@ -197,14 +197,14 @@ describe('tenant_memberships', () => {
   });
 
   it('AC-2: a second membership for that user under ANOTHER tenant is refused, and the table still holds exactly one row for them', async () => {
-    // ⚠ ONE TEST, TWO CONJUNCTS, AND THAT IS F-134. AC-2 is one sentence — "Postgres
-    // rejects the statement ... AND the table still holds exactly one row for that user" —
+    // ⚠ ONE TEST, TWO CONJUNCTS, AND THAT IS F-134. AC-2 is one sentence ("Postgres
+    // rejects the statement ... AND the table still holds exactly one row for that user"),
     // and it was discharged by two independent `it`s with a `beforeEach` re-seed between
     // them, so the count never observed the post-rejection table and passed identically
     // with the refusal test deleted. The count below runs in the same test, after the
-    // attempt has been committed for whatever it earned — see `attemptDuplicateMembership`.
+    // attempt has been committed for whatever it earned; see `attemptDuplicateMembership`.
     //
-    // Under tenant B — "inserted under any tenant". `UNIQUE (user_id)` carries no tenant
+    // Under tenant B: "inserted under any tenant". `UNIQUE (user_id)` carries no tenant
     // column, which is what makes one-tenant-per-user structural rather than a rule the
     // signup path is trusted to follow (ADR-0015).
     const refusal = await attemptDuplicateMembership(
@@ -292,7 +292,7 @@ describe('tenant_memberships', () => {
     );
 
     // A resolved `null` or `''` would read as `{ resolved: null }` here. Token minting must
-    // FAIL: an orphaned `user` row — the accepted residue of a non-atomic signup (GC-E) —
+    // FAIL: an orphaned `user` row (the accepted residue of a non-atomic signup (GC-E))
     // never receives a JWT, and `AuthGuard`'s claim-shape check is only the backstop.
     expect(outcome).toEqual({
       rejectedWith: 'NoTenantMembershipError',
@@ -308,7 +308,7 @@ describe('tenant_memberships', () => {
     //
     // The read and the expectation both come from `membership-lookup-probe.ts`, and the
     // F-133 control in `test/isolation/cross-tenant-isolation.int-spec.ts` runs THOSE SAME
-    // FUNCTIONS over canary tables carrying a widened lookup policy — where the expectation
+    // FUNCTIONS over canary tables carrying a widened lookup policy, where the expectation
     // below is required to throw. That is what makes this a control rather than a claim.
     await warm(runtime);
 
@@ -326,8 +326,8 @@ describe('tenant_memberships', () => {
   it('tenant-membership-lookup.md control 3: with no flag set, a warm read returns zero rows rather than raising', async () => {
     // TWO rows in the table now, so a policy that admits without reading the flag reports 2
     // here rather than 1. What this control still cannot see is a policy that IS gated on
-    // the flag and does not compare it to `user_id` — with no flag set it correctly admits
-    // nothing — which is control 2's job and the division of labour the F-133 control
+    // the flag and does not compare it to `user_id` (with no flag set it correctly admits
+    // nothing), which is control 2's job and the division of labour the F-133 control
     // measures on both shapes.
     await warm(runtime);
 

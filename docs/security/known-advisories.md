@@ -6,7 +6,7 @@ the condition that clears it. Source: ADR-0018.
 **A human reads this file. No tool consumes it.** `pnpm audit` never gets `--ignore` or
 any override, so an accepted advisory still fails the weekly `dependencies` run and still
 has to be re-read. That is deliberate: an ignore list is where findings go to be
-forgotten, and a row nobody re-reads becomes permission to ignore a weekly failure —
+forgotten, and a row nobody re-reads becomes permission to ignore a weekly failure:
 the same failure mode, arriving more slowly.
 
 ## Where the failures come from
@@ -23,7 +23,7 @@ Two audits, two different questions.
 
 `--no-optional` was added 2026-08-07 (F-226) and its scope corrected 2026-08-08 (F-230):
 it does not just drop dev-only rows, it also takes `sharp` and the `@next/swc-*`
-binaries — real production code that runs in the Vercel build — out of the merge gate.
+binaries (real production code that runs in the Vercel build) out of the merge gate.
 The weekly `dependencies` job still reports everything the `quality` audit is blind to.
 If you are reading this because a weekly run failed, check the row against the failure
 before spending an hour on it.
@@ -49,7 +49,7 @@ loud one.
 
 ## Adding a row
 
-Only after the advisory has been assessed against how the dependency is actually used —
+Only after the advisory has been assessed against how the dependency is actually used,
 not because it is inconvenient. A row needs all five columns, and the "clears when"
 column has to name a concrete event, not "when upstream fixes it".
 

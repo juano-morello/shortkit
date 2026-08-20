@@ -1,14 +1,14 @@
 /**
  * Contract: docs/contracts/workspace-authorization.md (Form B: `assert(workspaceId, min)`,
- *           `assertTenant(min)` — no caller argument), tenant-context.md (`RequestContext`)
+ *           `assertTenant(min)`; no caller argument), tenant-context.md (`RequestContext`)
  * ADR: adr-0002 (the interceptor chain is where per-request ambient state is established)
  * Produced by: TASK-1b-05
  *
  * WHO IS ASKING, FOR THE IMPERATIVE FORM. `WorkspaceAuthorizer.assert(workspaceId, min)` is
  * called from inside a handler or a service, which is one or two calls away from the request
  * object the guard wrote the `RequestContext` to, and the contract's signature takes no
- * caller. So the `WorkspaceAuthorizationInterceptor` — a global interceptor, hence on every
- * authenticated route in the graph — makes the request's `RequestContext` visible through
+ * caller. So the `WorkspaceAuthorizationInterceptor` (a global interceptor, hence on every
+ * authenticated route in the graph) makes the request's `RequestContext` visible through
  * `AsyncLocalStorage` for the handler's duration, the same mechanism `tenant-context.ts`
  * uses for the transaction, and the authorizer reads it here.
  *
@@ -19,7 +19,7 @@
  *
  * NOT A SECOND SOURCE OF THE TENANT ID. The tenant transaction is still opened from
  * `RequestContext.tenantId` by `TenantTransactionInterceptor`; nothing reads `tenantId` from
- * here to open one. What is read is `userId` — the subject of a membership lookup — and the
+ * here to open one. What is read is `userId` (the subject of a membership lookup) and the
  * fields the authorization interceptor sets (`workspaceId`, `workspaceRole`, `tenantRole`).
  */
 import { AsyncLocalStorage } from 'node:async_hooks';

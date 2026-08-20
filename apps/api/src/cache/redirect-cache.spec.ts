@@ -15,17 +15,17 @@ import {
 import type { CachedHost, CachedLink, RedirectCacheClient } from './redirect-cache';
 
 /**
- * STORY-2-06 — AC-2-28 (the clamp), AC-2-29 ('unavailable' is not 'miss'), AC-2-30 (bounded,
+ * STORY-2-06, AC-2-28 (the clamp), AC-2-29 ('unavailable' is not 'miss'), AC-2-30 (bounded,
  * never a throw). TASK-2-03, wave 1.
  *
- * Contract: `docs/contracts/redirect-cache.md` — normative for the keys, the two value
+ * Contract: `docs/contracts/redirect-cache.md` (normative for the keys, the two value
  * shapes, the sentinel, the four TTLs, `linkTtlSeconds`, `SET key value EX ttl` as ONE
- * command, and `'unavailable'` ≠ `'miss'`. ADR-0008 (the shape), ADR-0009 (the clamp is
+ * command, and `'unavailable'` ≠ `'miss'`). ADR-0008 (the shape), ADR-0009 (the clamp is
  * hygiene, not correctness), ADR-0012 (bounded reads that fall through), GC-P (`sk:{env}:`).
  *
  * NO REDIS HERE. The client is the structural interface `RedisRedirectCache` is written
  * against, so the key strings, the codecs and the degradation branches are asserted without
- * Docker — AC-1's clean-clone rule. `test/cache/redirect-cache.int-spec.ts` runs the same
+ * Docker, AC-1's clean-clone rule. `test/cache/redirect-cache.int-spec.ts` runs the same
  * class against a real server for the things a fake cannot answer: that the server accepts
  * these commands, that the TTLs are the ones it holds, and that a stopped server degrades.
  */
@@ -183,7 +183,7 @@ describe('values (redirect-cache.md "Values", ADR-0008)', () => {
 });
 
 describe('TTLs (redirect-cache.md "TTLs", ADR-0009)', () => {
-  it('the four constants are the contract’s, in every environment — there is no test TTL', () => {
+  it('the four constants are the contract’s, in every environment: there is no test TTL', () => {
     expect({ HOST_TTL_S, HOST_MISS_TTL_S, LINK_TTL_S, LINK_MISS_TTL_S }).toEqual({
       HOST_TTL_S: 300,
       HOST_MISS_TTL_S: 300,
@@ -210,7 +210,7 @@ describe('TTLs (redirect-cache.md "TTLs", ADR-0009)', () => {
     expect(linkTtlSeconds({ ...link, ea, aa }, now)).toBe(expected);
   });
 
-  it('AC-2-28: setLink applies the clamp, and it is hygiene — deleting the read-time isLinkActive check is still a defect', () => {
+  it('AC-2-28: setLink applies the clamp, and it is hygiene (deleting the read-time isLinkActive check is still a defect)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
@@ -234,7 +234,7 @@ describe('TTLs (redirect-cache.md "TTLs", ADR-0009)', () => {
 });
 
 describe('one command per write (redirect-cache.md "What the implementer must guarantee")', () => {
-  it('a write is SET key value EX ttl — never SET then EXPIRE', async () => {
+  it('a write is SET key value EX ttl, never SET then EXPIRE', async () => {
     await cache.setLink(HOSTNAME, SLUG, link);
 
     expect(client.commands).toEqual([['set', 'sk:dev:rdr:v1:links.example.test:AbC1234', expect.any(String), 'EX', LINK_TTL_S]]);
@@ -258,7 +258,7 @@ describe("'unavailable' is not 'miss' (AC-2-29, invariant 2)", () => {
     await expect(cache.getHost(HOSTNAME)).resolves.toBe('unavailable');
   });
 
-  it('a client that throws synchronously is the same answer — GC-O admits no 5xx from here', async () => {
+  it('a client that throws synchronously is the same answer: GC-O admits no 5xx from here', async () => {
     client.behaviour = 'throw';
 
     await expect(cache.getLink(HOSTNAME, SLUG)).resolves.toBe('unavailable');
@@ -277,7 +277,7 @@ describe("'unavailable' is not 'miss' (AC-2-29, invariant 2)", () => {
     }).toEqual({ host: 'unavailable', link: 'unavailable', commands: [] });
   });
 
-  it('an ABSENT key is unavailable, not miss — only the sentinel answers the request', async () => {
+  it('an ABSENT key is unavailable, not miss: only the sentinel answers the request', async () => {
     // The amendment of 2026-08-19 in redirect-cache.md. 'miss' 404s with zero queries, so
     // an empty cache answering 'miss' would 404 every link that was never cached.
     expect({ host: await cache.getHost(HOSTNAME), link: await cache.getLink(HOSTNAME, SLUG) }).toEqual({
@@ -286,7 +286,7 @@ describe("'unavailable' is not 'miss' (AC-2-29, invariant 2)", () => {
     });
   });
 
-  it('a value that does not decode is unavailable — the safe direction is a Postgres read', async () => {
+  it('a value that does not decode is unavailable: the safe direction is a Postgres read', async () => {
     client.store.set(hostKey('dev', HOSTNAME), '{not json');
     client.store.set(linkKey('dev', HOSTNAME, SLUG), JSON.stringify({ ...link, v: 2 }));
 
@@ -304,7 +304,7 @@ describe("'unavailable' is not 'miss' (AC-2-29, invariant 2)", () => {
 });
 
 describe('writes and deletions under failure', () => {
-  it('GC-O: a failed cache fill is swallowed — setHost and setLink never reject', async () => {
+  it('GC-O: a failed cache fill is swallowed (setHost and setLink never reject)', async () => {
     client.behaviour = 'reject';
 
     await expect(
@@ -319,7 +319,7 @@ describe('writes and deletions under failure', () => {
     expect(client.commands).toEqual([]);
   });
 
-  it('a failed DELETION rejects — the invalidation subscriber owns the retry and the log line (D-2-15)', async () => {
+  it('a failed DELETION rejects: the invalidation subscriber owns the retry and the log line (D-2-15)', async () => {
     // The one asymmetry, and it is deliberate: swallowing here would leave TASK-2-08 with
     // nothing to retry and nothing to report, and staleness past GC-2 with no signal at all.
     client.behaviour = 'reject';

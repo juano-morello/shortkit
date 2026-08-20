@@ -1,6 +1,6 @@
 # Short codes
 
-A short code — a slug — is the path segment a visitor types: the `x7Kq2mB` in
+A short code (a slug) is the path segment a visitor types: the `x7Kq2mB` in
 `http://localhost:3001/x7Kq2mB`. Two kinds exist and they share one validator. Generated
 slugs are seven random characters. Custom slugs are whatever an operator types, within
 the rules below. Both are stored case-sensitively and looked up on `(domain_id, slug)`.
@@ -20,7 +20,7 @@ it is).
 57 symbols, seven characters long, which is 57^7 ≈ 1.95 × 10^12 codes per domain.
 
 **Five characters are excluded: `0`, `1`, `I`, `O` and `l`.** They form two groups that
-are hard to tell apart in most typefaces — `0`/`O`/`o` and `1`/`I`/`l`/`i` — and one
+are hard to tell apart in most typefaces (`0`/`O`/`o` and `1`/`I`/`l`/`i`), and one
 member of each group survives: lowercase `o` and lowercase `i`. So nobody reading a code
 off a business card, a poster or a phone screen has to decide which character they are
 looking at.
@@ -42,7 +42,7 @@ Deliberately wider than the generated alphabet, because operators type words:
 | --- | --- |
 | Length | 1 to 64 characters |
 | Characters | `A-Z`, `a-z`, `0-9`, `-`, `_` |
-| First and last character | must be alphanumeric — no leading or trailing separator |
+| First and last character | must be alphanumeric: no leading or trailing separator |
 | Reserved | the 16 entries below, compared case-insensitively |
 
 Expressed as one regex, `SLUG_PATTERN`:
@@ -67,7 +67,7 @@ list) and a 65-character string of dots is `too_long`. Any violation maps to 400
 same function before submit, so an operator sees the same message without a round trip.
 
 **Slugs are case-sensitive.** `Spring-Sale` and `spring-sale` are two different links on
-one domain. `validateSlug` returns the input verbatim — no trim, no lower-casing — because
+one domain. `validateSlug` returns the input verbatim (no trim, no lower-casing) because
 the unique index is case-sensitive and a normalising validator would store something the
 operator did not type.
 
@@ -80,7 +80,7 @@ Sixteen entries, compared case-insensitively, so `Admin` and `ADMIN` are refused
 | `api`, `health`, `robots.txt`, `favicon.ico`, `.well-known`, `_static` | **Structural.** Each would shadow a real path or a platform convention. They match the surfaces ADR-0006 partitions. |
 | `admin`, `login`, `signup`, `verify`, `invite`, `settings`, `support`, `status`, `terms`, `privacy` | **Brand protection.** A link on the platform's own hostname reading `/login` or `/support` is a phishing primitive, whoever created it. |
 
-Four of the structural entries are refused before the reserved check ever runs —
+Four of the structural entries are refused before the reserved check ever runs:
 `robots.txt`, `favicon.ico` and `.well-known` carry characters outside the allowed set,
 and `_static` leads with a separator. They stay on the list anyway: the list is the
 statement of intent, and a future widening of the character rules must not silently
@@ -95,7 +95,7 @@ addition needs a migration that lists the conflicting links and a decision about
 because every reserved entry either contains a character outside the generated alphabet
 or has a length other than seven. **That is false for two entries.** `support` and
 `privacy` are each exactly seven characters and drawn entirely from the generated
-alphabet, so a draw can produce one of them — at 2/57^7, roughly one in a trillion.
+alphabet, so a draw can produce one of them, at 2/57^7, roughly one in a trillion.
 
 The consequence is small and real: such a draw would put a live link on a brand-protected
 slug, and `validateSlug` on that same slug answers
@@ -114,14 +114,14 @@ CONSTRAINT links_domain_id_slug_unique UNIQUE (domain_id, slug)
 Scoped to the domain, **never global**. Two tenants may hold the same slug on two
 different domains, and that is the design, not a gap. On `23505` against that constraint:
 a generated slug redraws, a supplied slug answers 409 `slug_taken` with a fixed message
-and no `details` — one bit of information, which is what the operator needs to pick
+and no `details`, one bit of information, which is what the operator needs to pick
 another slug and all an attacker learns.
 
 The retry runs inside a savepoint. A unique violation aborts the enclosing transaction, so
 each insert attempt is wrapped in `SAVEPOINT slug_try` with a `ROLLBACK TO SAVEPOINT`
 before the redraw; omitting it produces `current transaction is aborted` on the second
 attempt. The `23505` is read through `postgresErrorCode`/`postgresErrorConstraint` from
-`apps/api/src/db/client.ts`, never off `error.code` and never off `error.message` — inside
+`apps/api/src/db/client.ts`, never off `error.code` and never off `error.message`: inside
 a `withTenantTransaction` the caught value is Drizzle's wrapper, `.code` is `undefined`,
 and `.message` carries every bound parameter including the destination URL.
 

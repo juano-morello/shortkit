@@ -1,11 +1,11 @@
 /**
- * TASK-1b-04 — the capability token, the parts decidable without a database.
+ * TASK-1b-04: the capability token, the parts decidable without a database.
  *
  * Contract: docs/contracts/invitation-tokens.md ("Token format", "Storage", invariant 5).
  * ADR-0021, ADR-0029, GC-K.
  *
  * Format, issue, digest, parse; every malformed shape; and the ADR-0029 property that no
- * string this module builds carries the input — asserted by handing it recognisable bytes
+ * string this module builds carries the input: asserted by handing it recognisable bytes
  * and searching the thrown error's message, name and own enumerable properties for them.
  */
 import { createHash } from 'node:crypto';

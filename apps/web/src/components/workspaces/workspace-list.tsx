@@ -6,7 +6,7 @@
  * archived-visibility switch, and the one live region that announces what changed.
  *
  * Contract: docs/contracts/workspaces.md ("Endpoints"), docs/contracts/error-envelope.md,
- *   docs/contracts/web-api-client.md (Client: `apiClient` — the browser leg, through the BFF).
+ *   docs/contracts/web-api-client.md (Client: `apiClient`, the browser leg, through the BFF).
  * ADR: adr-0014 (the browser never holds a token; every request goes through `/api/bff/*`).
  *
  * ----------------------------------------------------------------------------
@@ -20,7 +20,7 @@
  * (the card's own warning), and the list order is the repository's (`created_at`, then
  * `id`), which the client would otherwise have to reproduce. A re-fetch costs one GET on a
  * list that holds a handful of rows, and what it renders is by construction what the API
- * holds — which is also what AC-21/22/23 measure ("a subsequent list request returns…").
+ * holds, which is also what AC-21/22/23 measure ("a subsequent list request returns…").
  * A failed create shows its error under the name field and adds nothing.
  *
  * ARCHIVED VISIBILITY IS A SERVER ROUND-TRIP. The switch is a link to `?archived=1` (or back
@@ -35,7 +35,7 @@
  * Errors, by `code`: `validation_failed` under the field (the form and the row own that);
  * `not_found` re-fetches and announces WORKSPACE_MESSAGES.gone (the row was stale);
  * `unauthenticated` (the session expired mid-use) navigates to sign-in with a return path;
- * everything else — rate limit, server error, transport, contract — is one retry message.
+ * everything else (rate limit, server error, transport, contract) is one retry message.
  * A re-fetch that fails after a change that succeeded keeps what it has and offers a retry.
  */
 import Link from 'next/link';

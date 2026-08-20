@@ -42,7 +42,7 @@ import { execSql, querySql } from '../support/psql';
 import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixture';
 
 /**
- * STORY-1b-01 / 03 / 05 — AC-1b-1, 2, 13, 14, 15, 23, 24, 28, plus AC-1b-37's bucket on the
+ * STORY-1b-01 / 03 / 05: AC-1b-1, 2, 13, 14, 15, 23, 24, 28, plus AC-1b-37's bucket on the
  * one `@Public()` route, against a live database. TASK-1b-08, wave 3.
  *
  * Contract: `docs/contracts/invitation-tokens.md`, `workspace-authorization.md` (the five
@@ -55,15 +55,15 @@ import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixtu
  *
  * The child booted by `api-server.ts` signs users up, signs them in and mints real tokens
  * against a real `/api/auth/jwks`. The application under test is built from `AppModule` in
- * this process — the real guards, the three interceptors in the ruled order, the filter, the
- * real repositories and the real entry functions — with `MAIL_TRANSPORT=fake` so the ONE
+ * this process (the real guards, the three interceptors in the ruled order, the filter, the
+ * real repositories and the real entry functions), with `MAIL_TRANSPORT=fake` so the ONE
  * place the raw token may be read from is `app.get(MAIL_SENDER).sent[i].data.inviteUrl`'s
  * fragment. That is how the lookup and accept legs get their token: the way a real invitee
  * does, out of the mail, and never out of a table (there is nothing there but a digest).
  *
  * THREE PRINCIPALS. `A` is the signup owner of tenant T and, once seeded, `workspace_admin`
  * of W1 and W3 and `member` of W2 (AC-1b-1's caller). `A2` signed up on its own and is then
- * MOVED into T as a tenant `member` (its own tenant erased) before it signs in and mints —
+ * MOVED into T as a tenant `member` (its own tenant erased) before it signs in and mints:
  * the existing same-tenant account STORY-1b-03 is about, which no shipped route can produce
  * yet. `B` is the owner of another tenant U with its own workspace WB.
  *
@@ -175,8 +175,8 @@ async function principalFor(label: string): Promise<Principal> {
 }
 
 /**
- * Sign up, then move the user into `tenantId` as a tenant `member` — its own tenant erased,
- * its `tenant_memberships` row re-created under the target's flag — and only THEN sign in
+ * Sign up, then move the user into `tenantId` as a tenant `member` (its own tenant erased,
+ * its `tenant_memberships` row re-created under the target's flag), and only THEN sign in
  * and mint, so the `tid` claim names the target. The state STORY-1b-03 is about.
  */
 async function memberOf(label: string, tenantId: string): Promise<Principal> {
@@ -506,7 +506,7 @@ describe('AC-1b-1, AC-1b-3, AC-1b-28, AC-1b-13, AC-1b-15: invite, one mail, publ
 });
 
 describe('AC-1b-28: malformed, unknown and prefix-swapped tokens are one 404; the token bodies are shape-checked and nothing more', () => {
-  it('lookup answers the same body for garbage, a well-formed unknown token and a prefix swapped to another tenant — and reads nothing in that tenant', async () => {
+  it('lookup answers the same body for garbage, a well-formed unknown token and a prefix swapped to another tenant, and reads nothing in that tenant', async () => {
     const { a, W1 } = await tenantWithThreeWorkspaces();
     const b = await principalFor('b');
     const { raw } = await invite(a, [{ workspaceId: W1, workspaceRole: 'member' }]);
@@ -544,7 +544,7 @@ describe('AC-1b-28: malformed, unknown and prefix-swapped tokens are one 404; th
 });
 
 describe('AC-1b-2: what create refuses, and that it writes nothing when it does', () => {
-  it('a workspace the caller is only member of is 403; another tenant’s and an unissued id are the same 404 as a missing workspace; an archived one is 400 under workspaces; the contract’s 400s key email and workspaces — and no row is written for any of them', async () => {
+  it('a workspace the caller is only member of is 403; another tenant’s and an unissued id are the same 404 as a missing workspace; an archived one is 400 under workspaces; the contract’s 400s key email and workspaces, and no row is written for any of them', async () => {
     const { a, W1, W2, W3 } = await tenantWithThreeWorkspaces();
     const b = await principalFor('b');
     const WB = await createWorkspace(b, 'B’s workspace');

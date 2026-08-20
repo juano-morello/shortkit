@@ -15,7 +15,7 @@
  *
  * `authRateLimit` in Express reads headers only: reading the JSON body there consumes the
  * stream Better Auth needs. So the email-keyed sign-in bucket (5 per 15 minutes) runs as a
- * `hooks.before` middleware, where `ctx.body` has already been parsed — and it runs FIRST
+ * `hooks.before` middleware, where `ctx.body` has already been parsed, and it runs FIRST
  * in the registry, ahead of invitation validation, so an attacker cannot use invitation
  * probing to bypass it (ADR-0013's ordering rule, D-15).
  *
@@ -24,7 +24,7 @@
  * ============================================================================
  *
  * (a) THE KEY. It is computed over the same normalised form Better Auth uses for its account
- *     lookup — `trim()` then `toLowerCase()`, nothing else — and then hashed, so the keyspace
+ *     lookup (`trim()` then `toLowerCase()`, nothing else), and then hashed, so the keyspace
  *     holds no addresses and `Foo@x.com` / `foo@x.com` share one allowance. No dot-removal,
  *     no `+tag` removal: two addresses differing that way may be two real accounts at some
  *     providers, and collapsing them lets one user's failures lock out another's.
@@ -44,7 +44,7 @@
  * answers the 400 it would have answered anyway. It does not key on a sentinel: a shared
  * sentinel bucket lets one caller's malformed traffic exhaust an allowance every other caller
  * falls into. A `TypeError` from `.trim()` on a number would be rethrown by
- * `dispatch.mjs:86-89` as a body-less 500, uncharged, ahead of every later hook — an
+ * `dispatch.mjs:86-89` as a body-less 500, uncharged, ahead of every later hook: an
  * unauthenticated 500 generator on the credential surface.
  *
  * ============================================================================
@@ -56,7 +56,7 @@
  * the mount. A second `LocalAuthRateLimiter` for this hook is rejected: two instances are
  * two maps with two memory bounds. The hooks run outside the Nest graph and can inject
  * nothing (ADR-0013), which is why this is a module-scope binding rather than a provider.
- * UNBOUND — the unit tier composes `auth.config.ts` without ever running `main.ts` — the
+ * UNBOUND: the unit tier composes `auth.config.ts` without ever running `main.ts`: the
  * hook degrades OPEN with a warn line once per minute, the same posture the Express
  * middleware takes when its store fails (ADR-0012, rate-limit.md invariant 5). Nothing on
  * that line names the address or the key.
@@ -67,13 +67,13 @@
  *
  * `rate-limit.md`'s stated consequence is "five FAILED attempts per fifteen minutes"; charging
  * successes would lock out an operator who signs in six times in a window. The before hook
- * cannot know the outcome, so it always charges, and `emailRateLimitReleaseHook` — the one
- * `afterHooks` entry — releases the charge on `/sign-in/email` when the endpoint returned
+ * cannot know the outcome, so it always charges, and `emailRateLimitReleaseHook` (the one
+ * `afterHooks` entry) releases the charge on `/sign-in/email` when the endpoint returned
  * WITHOUT an `APIError` (`ctx.context.returned` is the endpoint's value on success and the
  * thrown `APIError` on failure, measured on 1.6.26; the numeric status is not on the context).
  * A 401, a 400, a 403 all stay charged; a 429 from this hook never reaches the after hooks at
- * all. So the sixth attempt after five failures is refused whatever the password is — the
- * account is locked for the rest of the window, which is the DoS cost the contract accepts —
+ * all. So the sixth attempt after five failures is refused whatever the password is: the
+ * account is locked for the rest of the window, which is the DoS cost the contract accepts,
  * and a success costs nothing durable. `release` is idempotent, floors at zero, and a store
  * failure there degrades open with a warn: the un-released charge expires with the window.
  *
@@ -83,8 +83,8 @@
  *
  * The mount sits outside Nest, so this refusal never passes the exception filter; the web
  * client's `mapBetterAuthError` reads `Retry-After` first and the body field second. The
- * header is set on the `APIError` as well, best effort — the framework does not guarantee
- * it survives — and the body field is the one the contract requires. The message reaches
+ * header is set on the `APIError` as well, best effort (the framework does not guarantee
+ * it survives), and the body field is the one the contract requires. The message reaches
  * `console` uncensored through better-auth's package logger (F-216), so it is a constant
  * that names no value.
  */
@@ -147,7 +147,7 @@ export function normaliseEmailForKey(email: unknown): string | null {
 
 /**
  * The key the bucket is charged under: hex SHA-256 of the normalised address, so the
- * limiter's keyspace — and any store behind a future port — holds no addresses.
+ * limiter's keyspace (and any store behind a future port) holds no addresses.
  */
 export function emailRateLimitKey(normalisedEmail: string): string {
   return createHash('sha256').update(normalisedEmail, 'utf8').digest('hex');
@@ -158,14 +158,14 @@ let lastDegradedWarnAt = Number.NEGATIVE_INFINITY;
 
 /**
  * The charge the before hook made, carried to the after hook of THE SAME REQUEST. Keyed on
- * `ctx.context` — the per-request `AuthContext` copy `dispatchAuthEndpoint` builds
- * (`internalContext.context`, measured on 1.6.26) and hands to both hooks by reference — so
+ * `ctx.context`: the per-request `AuthContext` copy `dispatchAuthEndpoint` builds
+ * (`internalContext.context`, measured on 1.6.26) and hands to both hooks by reference, so
  * nothing is written onto the framework's object and an entry dies with the request. Why the
  * charge travels rather than being recomputed (review of TASK-1b-09): a release computed
  * from "now" could land in a NEWER window when the window rolled between the charge and the
  * release, and decrement an unrelated attempt's charge there. `release` acts only on the
  * charged window. If the framework ever stopped sharing the reference the after hook would
- * find no charge and release nothing — a refund that fails safe, and one
+ * find no charge and release nothing: a refund that fails safe, and one
  * `sign-in-email-bucket.int-spec.ts`'s six-successes test would report.
  */
 const pendingCharges = new WeakMap<object, AuthRateLimitCharge>();
@@ -241,8 +241,8 @@ export const emailRateLimitHook: AuthBeforeHook = async (ctx) => {
 /**
  * The one entry of `afterHooks`. Applies to `/sign-in/email` only; when the endpoint returned
  * without an `APIError`, gives back the charge the before hook made under the same key. NEVER
- * THROWS: a throw here would turn a completed sign-in into a 500, so every failure — an
- * unbound port, a store rejection — is a warn line and a charge that expires with the window.
+ * THROWS: a throw here would turn a completed sign-in into a 500, so every failure (an
+ * unbound port, a store rejection) is a warn line and a charge that expires with the window.
  */
 export const emailRateLimitReleaseHook: AuthAfterHook = async (ctx) => {
   if (ctx.path !== SIGN_IN_EMAIL_PATH) {

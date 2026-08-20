@@ -18,12 +18,12 @@
  *
  * Both halves run in the child process, inside Better Auth's handler, OUTSIDE the Nest
  * graph: route enumeration cannot see them and nothing can be injected into them, which is
- * why they call the two plain functions of `invitations/capability-lookup.ts` — the only two
- * that may open a tenant transaction from a token (GC-L, D-17) — and never parse a token
+ * why they call the two plain functions of `invitations/capability-lookup.ts` (the only two
+ * that may open a tenant transaction from a token (GC-L, D-17)), and never parse a token
  * themselves.
  *
  *   hooks.before, `/sign-up/email`, when the body carries a string `invitationToken`:
- *     `findInvitationByCapabilityToken(token)`. `null` (malformed, unknown, wrong-tenant —
+ *     `findInvitationByCapabilityToken(token)`. `null` (malformed, unknown, wrong-tenant;
  *     one answer, ADR-0021) → 404 `INVITATION_NOT_FOUND`. Expired / revoked / accepted →
  *     410 / 410 / 409. NO USER IS CREATED: `databaseHooks.user.create.after` cannot roll back
  *     the insert that triggered it, so a refusal there would leave a `user` row behind.
@@ -32,7 +32,7 @@
  *     token → `acceptInvitationByCapabilityToken(token, { userId, tenantMembership:
  *     'create' })`, which re-verifies the digest, consumes the token, writes the named
  *     `memberships` rows and the `tenant_memberships` row at `INVITEE_TENANT_ROLE`, in ONE
- *     transaction, and takes the tenant id FROM THE VERIFIED ROW (GC-E) — no `tenants` row is
+ *     transaction, and takes the tenant id FROM THE VERIFIED ROW (GC-E): no `tenants` row is
  *     written. No token → `createTenantForNewUser(user)`, the uninvited branch.
  *
  * ============================================================================
@@ -41,7 +41,7 @@
  *
  * `invitationTokenFrom(body)` is the one function that decides. A non-empty string is a
  * token; an object, a number, an empty string, `null`, an absent key, an absent body are all
- * "not invited" — for the before hook (nothing to validate, the signup is uninvited) AND for
+ * "not invited": for the before hook (nothing to validate, the signup is uninvited) AND for
  * the after hook (a tenant is created). If the two used different readings, a body the
  * before hook let through unvalidated could reach the accept function, or a validated token
  * could be ignored and a tenant created for an invitee (AC-1b-10).
@@ -62,7 +62,7 @@
  * invitation states is caught, logged ONCE through the bound logger with
  * `errorLogFields(error, { includeMessage: false })` (GC-G: the values in scope are a token
  * and an address, and `LOGGABLE_FIELDS` names neither), and rethrown as
- * `500 INVITATION_LOOKUP_FAILED` — because `dispatch.mjs:86-89` rethrows a non-`APIError`
+ * `500 INVITATION_LOOKUP_FAILED`, because `dispatch.mjs:86-89` rethrows a non-`APIError`
  * as a body-less 500 that skips every later hook. And an `APIError`'s message reaches
  * `console` through better-auth's package-level logger, past the pino allowlist (F-216), so
  * every message below is a constant that contains no token, address, tenant id, user id or
@@ -76,8 +76,8 @@
  * Ruled by Juano 2026-08-18: any address may sign up with a valid token; `invitations.email`
  * is the mail recipient and a prefill. Nothing in this module reads the row's `email`.
  *
- * Failure of the accept AFTER the `user` row committed is ADR-0054's residue — a `user` row
- * with no `tenant_memberships` row, which cannot obtain a `tid` claim — and `auth.config.ts`
+ * Failure of the accept AFTER the `user` row committed is ADR-0054's residue (a `user` row
+ * with no `tenant_memberships` row, which cannot obtain a `tid` claim), and `auth.config.ts`
  * turns it into `500 TENANT_PROVISIONING_FAILED` exactly as it does for the uninvited branch.
  * The invitation stays `pending` (the accept transaction rolled back), so the person can
  * retry from a different address; the orphaned `user` row is the accepted cost (ADR-0015).
@@ -131,7 +131,7 @@ export const INVITATION_HOOK_CODES = {
 
 /**
  * THE ONE PREDICATE. A non-empty string under `invitationToken` is the token; anything else
- * — an object, a number, an empty string, `null`, an absent key, a non-object body — is
+ * (an object, a number, an empty string, `null`, an absent key, a non-object body) is
  * `undefined`, "not invited". Accepts `unknown` and NEVER THROWS (F-228).
  *
  * Nothing is trimmed or otherwise repaired: the token is a bearer credential compared by
@@ -151,7 +151,7 @@ export function invitationTokenFrom(body: unknown): string | undefined {
 /**
  * The second entry of `beforeHooks`. Applies to `/sign-up/email` with a string
  * `invitationToken` only; a signup without one is untouched. Verifies the token through the
- * sanctioned lookup and refuses — with an `APIError` and nothing else — so that no `user` row
+ * sanctioned lookup and refuses (with an `APIError` and nothing else) so that no `user` row
  * is created for a token that would not accept.
  */
 export const invitationValidationHook: AuthBeforeHook = async (ctx) => {
@@ -206,7 +206,7 @@ export async function provisionForNewUser(
 
 /**
  * The four state errors become the four codes; anything else is logged once (name and stack,
- * never the message — GC-G) and becomes `500 INVITATION_LOOKUP_FAILED`, so the request is
+ * never the message; GC-G) and becomes `500 INVITATION_LOOKUP_FAILED`, so the request is
  * refused with a body and a fixed message rather than aborted with a body-less 500 that
  * skips every later hook (F-228, ADR-0055).
  */

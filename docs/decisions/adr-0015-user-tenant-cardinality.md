@@ -71,14 +71,14 @@ a **separate** transaction and signup is not atomic across the two. The residue
 paragraph below is what makes that safe, and `tenantIdForUser` throwing is what makes it
 a specified behaviour rather than an inference.
 
-> **SUPERSEDED IN PART ON THE DESCRIPTION ONLY — 2026-08-15, by ADR-0054 of
+> **SUPERSEDED IN PART ON THE DESCRIPTION ONLY: 2026-08-15, by ADR-0054 of
 > `identity-membership` (F-171, Juano's ruling). The decision below stands; what this ADR says
 > SURVIVES a failed signup does not.**
 >
 > This ADR was written on 2026-08-04, before the `shortkit_auth`/`shortkit_app` role split
 > (ADR-0050). The user row now commits through one role on one pool and the tenant and
 > membership rows through another, so the residue is larger than the single orphaned user row
-> described here — it includes a **live session credential**, which the 500 response itself
+> described here: it includes a **live session credential**, which the 500 response itself
 > delivers by `Set-Cookie`. ADR-0054 carries the measured table and is the text to read.
 >
 > Nothing about the ruling changed: the orphaned unusable account is still the acceptable
@@ -215,7 +215,7 @@ fails" true rather than aspirational.
   integration test that route enumeration cannot replace. This is more than its
   `Produces` block enumerates; see the TASK constraints in the design return.
   *Discharged 2026-08-18 by TASK-1b-09 (item 1b): the branch is `provisionForNewUser` in
-  `apps/api/src/auth/invitation-signup.ts` — a string `invitationToken` on the signup body →
+  `apps/api/src/auth/invitation-signup.ts`: a string `invitationToken` on the signup body →
   `acceptInvitationByCapabilityToken(token, { userId, tenantMembership: 'create' })`, the
   tenant id from the verified row, no `tenants` row written; otherwise
   `createTenantForNewUser`. The validation runs in `hooks.before` so an invalid token creates

@@ -1,7 +1,7 @@
 /**
  * Contract: docs/contracts/workspace-authorization.md ("Roles": `TenantRole` lives in
  *           `tenant_memberships`), tenant-membership-lookup.md ("Versioning": 1b does not change
- *           it — this file is not that path), tenant-context.md invariant 4
+ *           it; this file is not that path), tenant-context.md invariant 4
  * ADR: adr-0015 (one `tenant_memberships` row per user), adr-0045 (the token-mint lookup is
  *      `withMembershipLookup`, single-caller, and stays so), adr-0002, adr-0020
  * Produced by: TASK-1b-05
@@ -14,12 +14,12 @@
  * authorization), so a `RequireTenantRole` check has to read `tenant_memberships` on the
  * request. It reads through `tenantDb()` under `app.tenant_id`, and
  * `tenant_memberships_tenant_isolation` (migration `0001`, the ordinary template policy)
- * admits exactly the current tenant's rows — the caller's own row among them. Nothing here
+ * admits exactly the current tenant's rows: the caller's own row among them. Nothing here
  * sets or names the lookup flag.
  *
  * THIS IS NOT `withMembershipLookup`. That function (`auth/membership-lookup.ts`) opens its
  * OWN transaction under `app.membership_lookup_user` to find WHICH tenant a user belongs to
- * before any tenant is known — the token-mint path, ADR-0045's one exclusion, single-caller
+ * before any tenant is known: the token-mint path, ADR-0045's one exclusion, single-caller
  * by contract. Here the tenant is already known (it is the transaction's), the question is
  * the role, and the ordinary policy answers it. Adding a second caller of
  * `withMembershipLookup` would need an ADR; this class needs none.

@@ -16,8 +16,8 @@ import {
  * ADR-0001 accepts one piece of extra configuration: `apps/api` compiles through
  * unplugin-swc because esbuild does not emit `emitDecoratorMetadata`, and NestJS
  * resolves constructor dependencies from that metadata. Nothing else in the API
- * fails loudly when the transform regresses — providers just resolve to
- * undefined — so the toolchain gets its own assertion.
+ * fails loudly when the transform regresses (providers just resolve to
+ * undefined) so the toolchain gets its own assertion.
  */
 @Injectable()
 class Dependency {
@@ -48,13 +48,13 @@ describe('decorator metadata', () => {
 });
 
 /**
- * TASK-006 — the three tenancy decorators in `tenancy/tenant-context.ts`, which until wave 5
+ * TASK-006: the three tenancy decorators in `tenancy/tenant-context.ts`, which until wave 5
  * threw `not implemented`. Contract: `docs/contracts/tenant-context.md` (`Public` takes a
  * required justification), `docs/contracts/isolation-coverage.md` ("Discovery" 1 and 2: the
  * justification is printed and `TENANT_SCOPED_REPOSITORY_METADATA` marks a provider). ADR-0020.
  *
- * What is asserted is the metadata each decorator writes, read the way both readers read it —
- * `Reflector.getAllAndOverride` over `[handler, class]` — so a change to WHERE the key lands
+ * What is asserted is the metadata each decorator writes, read the way both readers read it
+ * (`Reflector.getAllAndOverride` over `[handler, class]`) so a change to WHERE the key lands
  * fails here before it fails a request. The request-level behaviour (the guard skipping, the
  * interceptor skipping or opening a transaction) is `tenancy/tenant-transaction.interceptor.spec.ts`.
  */

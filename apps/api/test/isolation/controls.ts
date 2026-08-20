@@ -1,6 +1,6 @@
 /**
- * NINE MORE CONTROLS. Eight are NEGATIVE — one per way an audit measured this harness
- * reporting `pass` over a database that was not isolated — and the ninth,
+ * NINE MORE CONTROLS. Eight are NEGATIVE (one per way an audit measured this harness
+ * reporting `pass` over a database that was not isolated), and the ninth,
  * `isolation_guarded_check_canary`, is POSITIVE: a correctly isolated table the harness
  * measurably reported red (F-344).
  *
@@ -8,7 +8,7 @@
  * F-303), r3 (F-330, F-333) and r4 (F-342, F-344). Used by
  * `cross-tenant-isolation.int-spec.ts` and nowhere else.
  *
- * `leak-canary.ts` already carries the first control — a table with no row-level
+ * `leak-canary.ts` already carries the first control: a table with no row-level
  * security at all, which every attempt must report as failing. It catches one shape: a
  * TOTAL, SYMMETRIC leak on a table someone remembered to register. The audit measured
  * four shapes it does not catch, and each of the tables below is one of them, built as
@@ -26,8 +26,8 @@
  *
  *   isolation_grant_gap_canary        correct policies, and the runtime role never
  *                                     received INSERT/UPDATE/DELETE. Every write raises
- *                                     42501 — the same SQLSTATE a policy refusal raises
- *                                     — so a harness that scores any throw as a pass
+ *                                     42501 (the same SQLSTATE a policy refusal raises)
+ *                                     so a harness that scores any throw as a pass
  *                                     reports three write surfaces it never tested.
  *                                     F-294.
  *
@@ -59,12 +59,12 @@
  *                                     blocker.
  *
  *   isolation_pk_owner_canary         that defect on a table whose owner column IS its
- *                                     primary key — `tenants`'s shape, and the shape r3
+ *                                     primary key: `tenants`'s shape, and the shape r3
  *                                     declined the owner-column write on. F-342.
  *
  *   isolation_guarded_check_canary    THE ONE THAT IS NOT A LEAK. Correctly isolated,
  *                                     with a WITH CHECK stricter than its USING, which
- *                                     the r3 rule reported red — permanently, with no
+ *                                     the r3 rule reported red, permanently, with no
  *                                     escape. F-344.
  *
  * ⚠ ONE OF THEM IS A POSITIVE CONTROL AND ITS EXPECTED ANSWER IS `pass`. Every other
@@ -73,7 +73,7 @@
  * exists for is the harness calling a correct database broken.
  *
  * ⚠ NONE OF THEM MAY SURVIVE THE SUITE, for the reason `leak-canary.ts` states: an
- * unprotected — or deliberately mis-protected — table in schema `public` is what
+ * unprotected (or deliberately mis-protected) table in schema `public` is what
  * `db:check-policies` exists to fail on. `dropControlTables()` runs in the suite's
  * `afterAll`, and CI runs `db:check-policies` before the integration suite.
  *
@@ -82,7 +82,7 @@
  * `apps/api/test/**` by name, precisely because the integration harness has to speak the
  * same SQL the policies do. Since 2026-08-14 the tenant-id predicate is READ OUT OF
  * `tenantScopedPolicies()` rather than written here (F-009), so the literal reaches these
- * canaries from `src/db/rls.ts` — which is the one file the scan set permits to hold it.
+ * canaries from `src/db/rls.ts`, which is the one file the scan set permits to hold it.
  */
 import {
   Body,
@@ -128,7 +128,7 @@ export const MEMBERSHIP_LOOKUP_FLAG_GATED_CANARY_TABLE =
   'isolation_membership_lookup_flag_gated_canary';
 
 /**
- * F-296's probe. A tenant-scoped table that NOBODY REGISTERS — the wave-3 table the
+ * F-296's probe. A tenant-scoped table that NOBODY REGISTERS: the wave-3 table the
  * security auditor added by hand and watched both gates stay green over. It is
  * deliberately NOT named in `SUITE_OWNED_CONTROL_TABLES`, because being caught is the
  * whole point of it.
@@ -137,7 +137,7 @@ export const UNREGISTERED_TABLE_PROBE = 'wave3_workspaces_probe';
 
 /**
  * F-303's probe, and since r3 the stem of three of them. The same omission as
- * `UNREGISTERED_TABLE_PROBE` — nobody called `registerTenantScopedSurfaces()` — on a
+ * `UNREGISTERED_TABLE_PROBE` (nobody called `registerTenantScopedSurfaces()`) on a
  * table whose owner column is NOT called `tenant_id`. The drift check enumerated on that
  * literal name, so this table was invisible to the one mechanism F-296 added to close
  * exactly this class.
@@ -160,7 +160,7 @@ export const CONTROL_B_LABEL = 'control-row-owned-by-tenant-b';
 /**
  * ===========================================================================
  * READ OUT OF `tenantScopedPolicies()`. IT IS NOT A COPY, AND UNTIL 2026-08-14 IT WAS
- * ONE — UNDER A COMMENT SAYING IT WAS NOT (F-009).
+ * ONE, UNDER A COMMENT SAYING IT WAS NOT (F-009).
  * ===========================================================================
  *
  * This constant used to be hand-written as `current_setting('app.tenant_id', true)::uuid`
@@ -174,7 +174,7 @@ export const CONTROL_B_LABEL = 'control-row-owned-by-tenant-b';
  *
  * So it is extracted rather than transcribed. The regex is anchored on the rendering
  * `tenantScopedPolicies()` actually emits, and a rendering it cannot read throws AT
- * IMPORT — which is the point: a change to the production predicate must either flow
+ * IMPORT, which is the point: a change to the production predicate must either flow
  * through here or stop the suite, and it may not quietly do neither.
  */
 const ISOLATION_USING = /^\s*USING\s+\(tenant_id = (.+)\)$/m;
@@ -260,8 +260,8 @@ export function createDirectionCanary(): void {
 
 /**
  * THE DEFECT: the SELECT policy carries the same `OR` arm, so tenant B reads every
- * tenant's rows. The leak exists the moment the table is seeded — before any attempt
- * runs — which is why a census compared only before-versus-after an attempt reports it
+ * tenant's rows. The leak exists the moment the table is seeded (before any attempt
+ * runs), which is why a census compared only before-versus-after an attempt reports it
  * as unchanged and therefore clean.
  */
 export function createBaselineLeakCanary(): void {
@@ -288,7 +288,7 @@ export function createBaselineLeakCanary(): void {
 }
 
 /**
- * THE DEFECT IS NOT IN THE POLICIES — they are the production ones, applied by the
+ * THE DEFECT IS NOT IN THE POLICIES: they are the production ones, applied by the
  * production builder. The runtime role holds SELECT and nothing else, which is what an
  * `ALTER DEFAULT PRIVILEGES` that never reached a table, or an explicit REVOKE, leaves
  * behind. Every write raises 42501 `permission denied for table ...`: the SAME SQLSTATE
@@ -318,8 +318,8 @@ export function createGrantGapCanary(): void {
 
 /**
  * THE DEFECT: the write policies admit everything, so any tenant may plant a row owned
- * by any other. The CHECK constraint is UNRELATED to tenancy — the sort of thing an
- * ordinary schema TASK adds — and it happens to reject the exact label the insert
+ * by any other. The CHECK constraint is UNRELATED to tenancy (the sort of thing an
+ * ordinary schema TASK adds), and it happens to reject the exact label the insert
  * attempt writes. So the one statement that can reach the widened policy is refused,
  * with 23514, while the policy stays wide open.
  *
@@ -426,14 +426,14 @@ export function createUnqualifiedWriteCanary(): void {
 
 /**
  * F-330. THE SIBLING OF THE ABOVE, AND THE WORSE HALF. The UPDATE policy's USING is
- * widened and its WITH CHECK IS LEFT EXACTLY AS `tenantScopedPolicies()` WRITES IT — one
+ * widened and its WITH CHECK IS LEFT EXACTLY AS `tenantScopedPolicies()` WRITES IT: one
  * token of difference from the production builder, and the difference between the two
  * canaries is three characters.
  *
  * WHY IT NEEDS ITS OWN TABLE. `isolation_unqualified_write_canary` widens both halves,
  * so `updateAll` sails through the WITH CHECK, reports `UPDATE 2`, and the count rule
  * catches it. Tighten the WITH CHECK back and that same statement is REFUSED with 42501
- * on the first foreign row it reaches — which the harness scored as a pass until r3,
+ * on the first foreign row it reaches, which the harness scored as a pass until r3,
  * because a refusal looked like a denial. Measured on the migrated `tenants` table:
  * every attempt green, `verdict: pass`, over a policy admitting every row of every
  * tenant.
@@ -473,7 +473,7 @@ export function createOwnerTheftCanary(): void {
 
 /**
  * =========================================================================
- * F-342. THE OWNER COLUMN IS THE PRIMARY KEY — `tenants`'s SHAPE, AS A CONTROL.
+ * F-342. THE OWNER COLUMN IS THE PRIMARY KEY: `tenants`'s SHAPE, AS A CONTROL.
  * =========================================================================
  *
  * r3 declined the owner-column write on `tenants` on the premise that
@@ -491,16 +491,16 @@ export function createOwnerTheftCanary(): void {
  * clause admits only the actor's own row, so the assignment is an IDENTITY UPDATE and the
  * index is never contended. Widen the USING and the statement sweeps both rows onto one
  * id, and only then does the index refuse it. So the shape distinguishes the two cases
- * cleanly, in both directions — which is why the decline was withdrawn and `tenants`
+ * cleanly, in both directions, which is why the decline was withdrawn and `tenants`
  * carries `reparentAll` like every other table.
  *
  * THIS TABLE IS THE FAILING HALF OF THAT MEASUREMENT, AS PERMANENT DDL. `id` is both the
  * primary key and the owner column, the UPDATE policy's USING is widened and its WITH
- * CHECK left correct — `isolation_owner_theft_canary`'s defect on `tenants`'s shape. The
+ * CHECK left correct: `isolation_owner_theft_canary`'s defect on `tenants`'s shape. The
  * passing half runs on every CI run too: it is `tenants` itself, in the main battery.
  *
  * WHAT IT SCORES, AND THE HONEST NARROWNESS OF IT. `reparentAll` here is refused with
- * 23505, which `classifyRefusal()` scores `unrecognised` — so the attempt is UNVERIFIED
+ * 23505, which `classifyRefusal()` scores `unrecognised`, so the attempt is UNVERIFIED
  * and names the surface, rather than FAIL naming a victim. That is a red run and a named
  * surface, which is strictly more than the decline gave this shape, and it is less than
  * `reparentAll` gives a table whose owner column is not its primary key.
@@ -544,30 +544,30 @@ export function createPkOwnerCanary(): void {
  * F-344. THE POSITIVE CONTROL: A WITH CHECK STRICTER THAN ITS USING, AND NOTHING WRONG.
  * =========================================================================
  *
- * NOT A LEAK. This table is CORRECTLY ISOLATED — one `FOR ALL` policy whose USING is the
- * production predicate — and it carries one ordinary business predicate beyond tenancy in
+ * NOT A LEAK. This table is CORRECTLY ISOLATED (one `FOR ALL` policy whose USING is the
+ * production predicate), and it carries one ordinary business predicate beyond tenancy in
  * its WITH CHECK. Soft-delete guards, immutability-on-archive and plan-limit checks all
  * produce exactly this shape, and both seeded rows are `status = 'locked'` so the clause
  * bites on the ACTOR'S OWN ROW in both directions.
  *
- * WHY IT IS HERE. r3's rule — an unqualified write refused by row-level security is
- * `unverified` rather than `pass` (F-330) — fires on this table, measured: tenant A sees
+ * WHY IT IS HERE. r3's rule (an unqualified write refused by row-level security is
+ * `unverified` rather than `pass` (F-330)) fires on this table, measured: tenant A sees
  * exactly its own row, and `update <t> set label = '...'` is refused with
  * `new row violates row-level security policy` because the resulting row is still locked.
  * The run went permanently red on a table with nothing wrong with it, and the message's
- * own suggested remedy — re-issue as `reparentAll` — was refused identically, because
+ * own suggested remedy (re-issue as `reparentAll`) was refused identically, because
  * setting `tenant_id` leaves `status` untouched. A check that goes red on correct code is
  * the check that gets deleted rather than fixed.
  *
  * THE ESCAPE IS THE STATEMENT, NOT A DECLARATION (F-342's lesson). The registration says
  * which columns the WITH CHECK requires and the unqualified writes assign them too, so the
- * statement is ADMITTED and judged on its row count — which is the judgement that sees a
+ * statement is ADMITTED and judged on its row count, which is the judgement that sees a
  * wide-open USING. Nothing about `refusalProvesDenial` is softened: a refusal on an
  * unqualified write is still never a pass. What changed is that a correct table can now
  * produce a statement that is not refused.
  *
  * SO A GREEN RUN OVER THIS TABLE MEANS: all sixteen attempts passed, and the two
- * unqualified updates were ADMITTED and reported exactly one row each — the actor's own.
+ * unqualified updates were ADMITTED and reported exactly one row each: the actor's own.
  * Deleting `unqualifiedWritesAlsoSet` from its registration turns those four attempts
  * `unverified` and the suite red, which is the mutation this control exists to fail on.
  */
@@ -597,7 +597,7 @@ export function createGuardedCheckCanary(): void {
 
 /**
  * =========================================================================
- * F-352. THE GUARDED TABLE THAT REALLY IS LEAKING — `isolation_guarded_check_canary`'s
+ * F-352. THE GUARDED TABLE THAT REALLY IS LEAKING: `isolation_guarded_check_canary`'s
  * TWIN, WITH THE USING CLAUSE WIDENED.
  * =========================================================================
  *
@@ -606,13 +606,13 @@ export function createGuardedCheckCanary(): void {
  * than refused. The escape was a free `SQL` fragment, and the field's own comment claimed
  * it "cannot hide a leak: the statement still carries no WHERE clause, so it still sweeps
  * every row the USING clause admits". THAT CLAIM IS FALSE. The WHERE clause is not what
- * keeps the SELECT policies out of an UPDATE — A COLUMN REFERENCE ANYWHERE IN THE
+ * keeps the SELECT policies out of an UPDATE: A COLUMN REFERENCE ANYWHERE IN THE
  * STATEMENT PULLS THEM BACK IN, which is the rule `test/support/rls-fixture.ts:175-188`
  * measured and F-302's whole finding rests on. A SET expression is part of the statement.
  *
  * THIS TABLE IS WHERE THAT COSTS SOMETHING. Its SELECT, INSERT and DELETE policies are
  * correct; its UPDATE policy's USING is wide open and its WITH CHECK asks for an
- * optimistic lock rather than for tenancy — `lock_token <> ''` — with both rows seeded
+ * optimistic lock rather than for tenancy (`lock_token <> ''`) with both rows seeded
  * unlocked. Measured, as `shortkit_app` in an ordinary tenant-A transaction, 2026-08-11:
  *
  *   set label = <const>                              -> 42501, new row violates RLS
@@ -626,13 +626,13 @@ export function createGuardedCheckCanary(): void {
  * Row 1 is why the registration MUST name the column: without it both unqualified writes
  * are refused and score `unverified`. Row 2 is F-352: `lock_token = lock_token || 'x'` is
  * the ordinary optimistic-lock idiom, it satisfies the check, and it disarms BOTH
- * unqualified writes at once — the run goes green over a table whose UPDATE policy admits
+ * unqualified writes at once: the run goes green over a table whose UPDATE policy admits
  * every row of every tenant. Row 3 is the same statement with the value BOUND instead of
  * derived, and it is the one the harness can now express.
  *
  * The fourth row is the falsification attempt kept as a control: `'lock_token'` is the
  * closest a caller can get to a column reference under `{ column, value }`, and it is a
- * parameter — `"lock_token" = $2` — so the leak is still reported. If the builder ever
+ * parameter (`"lock_token" = $2`) so the leak is still reported. If the builder ever
  * inlines the value instead of binding it, that row becomes UPDATE 1 and the adversarial
  * control goes red.
  *
@@ -661,7 +661,7 @@ export function createGuardedLeakCanary(): void {
      CREATE POLICY ${GUARDED_LEAK_CANARY_TABLE}_delete ON ${GUARDED_LEAK_CANARY_TABLE}
        FOR DELETE USING (tenant_id = ${TENANT_ID});
      -- THE DEFECT: USING wide open, and a WITH CHECK that guards the lock rather than
-     -- the tenant — so it is satisfiable by any tenant, on any row.
+     -- the tenant, so it is satisfiable by any tenant, on any row.
      CREATE POLICY ${GUARDED_LEAK_CANARY_TABLE}_update ON ${GUARDED_LEAK_CANARY_TABLE}
        FOR UPDATE USING (true) WITH CHECK (lock_token <> '');`,
   );
@@ -669,14 +669,14 @@ export function createGuardedLeakCanary(): void {
 
 /**
  * =========================================================================
- * F-133. THE TOKEN-MINT ESCAPE'S POLICY, IN THREE SHAPES — AND THE ONLY CONTROL IN THIS
+ * F-133. THE TOKEN-MINT ESCAPE'S POLICY, IN THREE SHAPES, AND THE ONLY CONTROL IN THIS
  * FILE FOR A POLICY THE CROSS-TENANT BATTERY CANNOT REACH AT ALL.
  * =========================================================================
  *
  * `tenant_memberships_membership_lookup` (ADR-0045) is the one policy in the system that
  * reads a tenant-scoped table with NO tenant context. Every attempt in this harness runs
  * through `withTenantTransaction`, which sets `app.tenant_id` and never
- * `app.membership_lookup_user`, so the battery cannot see that policy widen — and
+ * `app.membership_lookup_user`, so the battery cannot see that policy widen, and
  * `db:check-policies` counts `nullif` wrappers and cannot see WHICH COLUMN a predicate
  * compares against, as its own docblock says. The only control over it is control 2 in
  * `test/auth/tenant-memberships.int-spec.ts`, and until 2026-08-14 that control ran
@@ -687,7 +687,7 @@ export function createGuardedLeakCanary(): void {
  *
  *   USING (nullif(current_setting('app.membership_lookup_user', true), '') IS NOT NULL)
  *
- * — every membership row of every tenant, to anybody who sets the flag — that whole file
+ * (every membership row of every tenant, to anybody who sets the flag) that whole file
  * reported **6 passed, exit 0**. `USING (true)` was caught, by the no-flag control and by
  * the AC-2 counts; the flag-gated shape above was caught by nothing at all.
  *
@@ -699,7 +699,7 @@ export function createGuardedLeakCanary(): void {
  *                                                  must come back GREEN over this one.
  *   isolation_membership_lookup_wide_open_canary   `USING (true)`.
  *   isolation_membership_lookup_flag_gated_canary  gated on the flag and blind to
- *                                                  `user_id` — the shape nothing saw.
+ *                                                  `user_id`: the shape nothing saw.
  *
  * The two widened predicates are HAND-WRITTEN, because a defect must not track the
  * production builder; the correct one is EXTRACTED, for the reason `TENANT_ID` above is,
@@ -709,7 +709,7 @@ export function createGuardedLeakCanary(): void {
  *
  * GRANT SELECT AND NOTHING ELSE, because the escape is `FOR SELECT` and stays `FOR SELECT`
  * (ADR-0045, invariant 2). Rows are seeded BEFORE the policies are applied, so the seed
- * never depends on the clause under test — `rls-fixture.ts`'s rule 2.
+ * never depends on the clause under test: `rls-fixture.ts`'s rule 2.
  */
 const LOOKUP_USING = /^\s*USING \((.+)\);$/m;
 
@@ -774,7 +774,7 @@ export function createMembershipLookupCanaries(): void {
 /**
  * F-296. A tenant-scoped table added by a later wave whose author forgot the one
  * `registerTenantScopedSurfaces()` call. It is correct in every way `db:check-policies`
- * can see — `tenant_id`, ENABLE, FORCE, a policy — and the isolation suite must still
+ * can see (`tenant_id`, ENABLE, FORCE, a policy), and the isolation suite must still
  * fail, because nothing ever attempts anything against it.
  */
 export function createUnregisteredTableProbe(): void {
@@ -793,7 +793,7 @@ export function dropUnregisteredTableProbe(): void {
 
 /**
  * F-303 / F-333. THE SAME FORGOTTEN REGISTRATION, ON A TABLE WHOSE OWNER COLUMN IS NOT
- * CALLED `tenant_id` — IN ALL THREE STATES OF PROTECTION.
+ * CALLED `tenant_id`, IN ALL THREE STATES OF PROTECTION.
  *
  * Everything else about each is a plausible wave-3 table: a foreign key to `tenants` with
  * the cascade every schema TASK declares, and one row owned by tenant B and none by
@@ -807,14 +807,14 @@ export function dropUnregisteredTableProbe(): void {
  *   noforce  ENABLE, no FORCE, USING (true)     -> arms 1-4: NOT NAMED
  *   forced   ENABLE + FORCE, USING (true)       -> arms 1-4: named, by arm 3
  *
- * The first two were caught only by `db:check-policies`, which is a DIFFERENT GATE — so
+ * The first two were caught only by `db:check-policies`, which is a DIFFERENT GATE, so
  * the drift check was neither second nor independent for the unprotected shape, which is
  * exactly what coverage.ts's header claimed it was. Arm 5, a foreign key to `tenants(id)`,
  * is what names all three. These probes are why that arm cannot be removed without a red
  * run.
  *
  * The policy DDL is written out rather than built from `tenantScopedPolicies()`, which
- * hard-codes the column name `tenant_id` — the same assumption these probes exist to
+ * hard-codes the column name `tenant_id`: the same assumption these probes exist to
  * break. None of them is in `SUITE_OWNED_CONTROL_TABLES`; being caught is the point.
  *
  * The address is a fixture value in a probe table that reaches a test log and never a
@@ -882,7 +882,7 @@ export function dropUnregisteredOwnerColumnProbes(): void {
  * =========================================================================
  *
  * The table controls above each prove the harness would catch a leaking TABLE. This proves
- * it would catch a leaking AUTHENTICATED ENDPOINT — the exact defect
+ * it would catch a leaking AUTHENTICATED ENDPOINT: the exact defect
  * `scripts/check-policies.mts` exists to catch, reached over HTTP: a table shaped like
  * `workspaces` with `ENABLE ROW LEVEL SECURITY` OMITTED, read and written through a control
  * endpoint that trusts row-level security to scope it and issues no `tenant_id` predicate of
@@ -893,7 +893,7 @@ export function dropUnregisteredOwnerColumnProbes(): void {
  * inside an in-process Nest app the spec builds from `AppModule` plus `EndpointControlModule`
  * (the shape `test/auth/auth-guard.int-spec.ts` uses), pointed at the child's JWKS. So the
  * request passes the real `AuthGuard`, opens the real tenant transaction, and reads the
- * control table through `tenantDb()` — everything a shipped route does except the missing
+ * control table through `tenantDb()`: everything a shipped route does except the missing
  * row-level security.
  *
  * NOT REGISTERED. Like every control, `endpointControlGroup()` is a value the spec passes to
@@ -903,7 +903,7 @@ export function dropUnregisteredOwnerColumnProbes(): void {
  *
  * WHY THE CREATE ATTACK LOOKS DIFFERENT. A create that writes under the caller's own tenant
  * cannot cross a boundary whatever the policies, so a missing-RLS defect could never make it
- * leak — the SHIPPED `POST /api/workspaces` is exactly that, and its endpoint attempt passes.
+ * leak: the SHIPPED `POST /api/workspaces` is exactly that, and its endpoint attempt passes.
  * The control's create is therefore the analogue of `insertOwnedBy`: it PLANTS a row under a
  * tenant named in the body, which the isolation policy's `WITH CHECK` would refuse and which,
  * with row-level security omitted, succeeds. That is the create defect the harness must catch.
@@ -956,7 +956,7 @@ const CONTROL_TABLE = sql.identifier(ENDPOINT_CONTROL_CANARY_TABLE);
 
 /**
  * The control route surface. It reads and writes the control table through `tenantDb()` and
- * TRUSTS row-level security to scope it — it issues no `tenant_id` predicate of its own, the
+ * TRUSTS row-level security to scope it: it issues no `tenant_id` predicate of its own, the
  * shape a route takes when its author assumes the table is protected. With RLS omitted, every
  * one of these crosses the boundary.
  */

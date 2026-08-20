@@ -13,14 +13,14 @@ import { PUBLIC_ROUTE_METADATA } from '../../src/tenancy/tenant-context';
  * `BadRequestException` carries the value it was constructed with TWICE: on `message`, and
  * inside the object `getResponse()` returns. For the framework's own malformed-body 400 the
  * two copies hold the same bytes, so a test asserting that the emitted line is free of the
- * request-body fragment cannot tell which copy the defence acted on — and
+ * request-body fragment cannot tell which copy the defence acted on, and
  * `error-envelope.md`'s `includeMessage` policy acts on the FIRST copy only.
  *
  * This route produces the shape where the two copies DIFFER. Nest's `HttpException`
  * derives `this.message` from the response object only when `response.message` is a string
  * (`initMessage`, `@nestjs/common/exceptions/http.exception.js`); an ARRAY leaves `message`
- * as the class-name text, so the marker below exists at exactly one place on the exception —
- * `getResponse().message[0]` — and no field the log policy governs holds it.
+ * as the class-name text, so the marker below exists at exactly one place on the exception
+ * (`getResponse().message[0]`), and no field the log policy governs holds it.
  *
  * That is the route the F-273 finding names: a copy "under a key nothing special-cases",
  * reachable only by calling `getResponse()`. A filter edit that logs or forwards that object
@@ -38,7 +38,7 @@ import { PUBLIC_ROUTE_METADATA } from '../../src/tenancy/tenant-context';
 /**
  * Reachable ONLY through `getResponse()`. Deliberately unlike the two markers
  * `framework-400-request-body.spec.ts` sends in a request body, so that a leak of this value
- * fails the F-273 assertions and nothing else — which is what makes them load-bearing.
+ * fails the F-273 assertions and nothing else, which is what makes them load-bearing.
  */
 export const RESPONSE_OBJECT_ONLY_MARKER = 'ROSECRET-reachable-only-through-getResponse';
 

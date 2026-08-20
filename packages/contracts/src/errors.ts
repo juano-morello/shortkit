@@ -145,7 +145,7 @@ export const VALIDATION_TRUNCATED_MESSAGE = 'Some errors were omitted.';
  * its own path. Accumulating into `{}` and reading `fieldErrors[key] ?? []` walks
  * `Object.prototype`, so a key of `constructor`, `toString`, `valueOf` or
  * `hasOwnProperty` reads an inherited value instead of `undefined` and the next line
- * throws `TypeError: messages.push is not a function` — reproduced against zod 4.4.3,
+ * throws `TypeError: messages.push is not a function`, reproduced against zod 4.4.3,
  * where `z.record(z.string(), z.string()).safeParse(JSON.parse('{"constructor": 2}'))`
  * yields an issue with `path: ["constructor"]`. The throw escapes the exception filter,
  * re-enters it as a TypeError and answers 500 with no field errors, on the shared
@@ -155,14 +155,14 @@ export const VALIDATION_TRUNCATED_MESSAGE = 'Some errors were omitted.';
  * no future edit has to remember an `Object.hasOwn` guard. `Object.fromEntries` then
  * returns an ORDINARY object, which matters twice: `validationDetailsContract` accepts
  * it, and a `__proto__` key lands as an own, JSON-visible property rather than setting a
- * prototype (verified on Node 24.19 — `Object.fromEntries` uses CreateDataProperty,
+ * prototype (verified on Node 24.19: `Object.fromEntries` uses CreateDataProperty,
  * which ignores the `__proto__` setter). A null-prototype accumulator also fixes the
  * crash, and is rejected only because it hands every downstream reader an object whose
  * prototype is not the one they expect. RETURNING THE MAP ITSELF IS NOT AN OPTION:
  * `validationDetailsContract` rejects it and `JSON.stringify` turns it into
- * `{"fieldErrors":{}}` — an empty body, no throw, no signal.
+ * `{"fieldErrors":{}}`: an empty body, no throw, no signal.
  *
- * Any other reducer keyed by caller-supplied strings — `details`-shaped or not — has
+ * Any other reducer keyed by caller-supplied strings (`details`-shaped or not) has
  * this defect unless it is written the same way.
  */
 export function toValidationDetails(error: z.ZodError): ValidationDetails {

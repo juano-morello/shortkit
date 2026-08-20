@@ -14,7 +14,7 @@
  *    what lets ADR-0019's privileged erase reach this table.
  * 2. The output of `tenantScopedPolicies('workspaces')` hand-appended to migration `0002`,
  *    because Drizzle Kit generates no policy DDL. This is a template-shaped table and it
- *    takes the template UNCHANGED — two policies, not `tenants`' bespoke four.
+ *    takes the template UNCHANGED: two policies, not `tenants`' bespoke four.
  * 3. A `registerTenantScopedSurfaces()` call in `test/isolation/registrations.ts`.
  *
  * Splitting any of the three into a follow-up is a defect and not a sequencing choice:
@@ -39,13 +39,13 @@
  * constraint would need an error code the workspace contract does not have. Name bounds
  * are TASK-012's contract concern (packages/contracts); the table stores `text`.
  *
- * `updated_at` is maintained by the repository on every write, not by a trigger — there
+ * `updated_at` is maintained by the repository on every write, not by a trigger: there
  * is no trigger anywhere in this schema and this table is not the place to start.
  *
- * `UNIQUE (id, tenant_id)` — ADDED BY 1b (TASK-1b-03, ADR-0062), A CONSTRAINT AND NOT A
+ * `UNIQUE (id, tenant_id)`: ADDED BY 1b (TASK-1b-03, ADR-0062), A CONSTRAINT AND NOT A
  * COLUMN. `id` alone is already the primary key, so the pair is trivially unique; the
  * constraint exists to be the TARGET of the composite foreign keys `memberships` and
- * `invitation_workspaces` declare — `FOREIGN KEY (workspace_id, tenant_id) REFERENCES
+ * `invitation_workspaces` declare: `FOREIGN KEY (workspace_id, tenant_id) REFERENCES
  * workspaces (id, tenant_id)`. Referential checks run with row security bypassed, so a plain
  * FK to `workspaces(id)` would accept any tenant's workspace id; the composite form makes a
  * grant naming another tenant's workspace a constraint violation at the database, whatever

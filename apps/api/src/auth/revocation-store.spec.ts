@@ -12,7 +12,7 @@ import {
 } from './revocation-store';
 
 /**
- * STORY-001 — TASK-003, wave 2. No AC states these; ADR-0053 and ADR-0013 do.
+ * STORY-001: TASK-003, wave 2. No AC states these; ADR-0053 and ADR-0013 do.
  *
  * Contract: `docs/contracts/revocation-store.md` ("Error cases", "Invariants a caller may
  * rely on", "Spec obligations"). ADR-0053, ADR-0013, ADR-0012.
@@ -22,7 +22,7 @@ import {
  * ============================================================================
  *
  * Ruled by Juano, 2026-08-16, amending `revocation-store.md` after it froze at the wave-2
- * Design gate — recorded in that contract under "Amendment: the injected clock" rather than
+ * Design gate: recorded in that contract under "Amendment: the injected clock" rather than
  * patched into it.
  *
  * Invariants 4 and 5 are statements about ELAPSED TIME and cannot be observed without
@@ -31,7 +31,7 @@ import {
  * first time-dependent test does becomes the convention. `vi.useFakeTimers` is a global
  * change to a test environment whose integration tier spawns real processes; an injected
  * `Clock` is ordinary production code, synchronous, and local to the one class that needs
- * it. THE PORT IS UNCHANGED — a Redis-backed store (TASK-030) keys expiry off the server's
+ * it. THE PORT IS UNCHANGED: a Redis-backed store (TASK-030) keys expiry off the server's
  * clock and ignores the parameter entirely.
  *
  * ============================================================================
@@ -40,7 +40,7 @@ import {
  *
  * `revocation-store.md` obligation 3 is "`revoke` resolves rather than rejecting when the
  * underlying store throws". `InMemoryRevocationStore` has no underlying store that can
- * throw — a `Map` read cannot fail, which the contract itself says twice — so the only way
+ * throw (a `Map` read cannot fail, which the contract itself says twice) so the only way
  * to assert it here would be to inject a failing double and assert on the double. That is
  * testing the mock. What IS assertable is the same guarantee stated over inputs rather than
  * over faults ("`revoke` never rejects, for any input, including `''`"), and that is below.
@@ -108,7 +108,7 @@ describe('InMemoryRevocationStore', () => {
   it('invariant 4: re-revoking extends the entry to a full TTL from the second write', async () => {
     // Idempotent with a REFRESHED TTL, not idempotent as a no-op. The second `revoke` lands
     // one second before the first entry would have expired, and the check happens one second
-    // before the SECOND entry would — a point the original entry is long dead at, so an
+    // before the SECOND entry would: a point the original entry is long dead at, so an
     // implementation that ignores a repeat write fails here.
     const clock = controllableClock();
     const store = new InMemoryRevocationStore(clock.now);
@@ -128,7 +128,7 @@ describe('InMemoryRevocationStore', () => {
     //
     // `Map.set` on an EXISTING key keeps its original insertion position. `revoke` is
     // idempotent with a refreshed TTL, so without a `delete` first, a session revoked twice
-    // holds the NEWEST expiry at the OLDEST position and is evicted first — eviction then
+    // holds the NEWEST expiry at the OLDEST position and is evicted first: eviction then
     // preferentially drops exactly the entries someone took the trouble to refresh.
     //
     // Eviction below the TTL is a CONTROL BYPASS, not a memory event (ADR-0053): a revoked
@@ -164,7 +164,7 @@ describe('InMemoryRevocationStore', () => {
     // store misbehaved is the wrong trade. The write site is allowed to `await` it with no
     // `try`/`catch` of its own, which is only safe if this holds for every input.
     //
-    // `''` is in the contract's error table with its own row — it resolves, writes nothing,
+    // `''` is in the contract's error table with its own row: it resolves, writes nothing,
     // and logs. A long value is the other end: nothing bounds what a caller can pass.
     const clock = controllableClock();
     const store = new InMemoryRevocationStore(clock.now);
@@ -174,7 +174,7 @@ describe('InMemoryRevocationStore', () => {
   });
 
   it('invariant 3: the empty session id reads as not revoked rather than as revoked', async () => {
-    // `''` writes nothing, so it must not read back as `true` — a store that recorded it
+    // `''` writes nothing, so it must not read back as `true`: a store that recorded it
     // would answer `true` for a `jti` claim that failed to decode, which is the shape a
     // guard sees when a token is malformed rather than revoked.
     const clock = controllableClock();
@@ -202,7 +202,7 @@ describe('the bound revocationStore', () => {
     // `auth.config.ts`'s `databaseHooks.session.delete.after` writes to this export and
     // TASK-005's guard reads it, and they must be looking at the same map.
     //
-    // It takes no clock — production never passes one and gets `Date.now` — so this asserts
+    // It takes no clock (production never passes one and gets `Date.now`) so this asserts
     // the write/read round trip only, with no time in it.
     await revocationStore.revoke(SESSION);
 
@@ -218,7 +218,7 @@ describe('the topology this store is correct on', () => {
    * the assumption is invisible in every other artifact.
    *
    * The production change that fails it is a `deploy: replicas: 2` added to the `api`
-   * service by someone scaling out — at which point a sign-out served by one container
+   * service by someone scaling out: at which point a sign-out served by one container
    * leaves that session's tokens honoured by the other for up to REVOCATION_TTL_SECONDS,
    * silently, with every other test in this file still green.
    */

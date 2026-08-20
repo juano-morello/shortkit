@@ -10,7 +10,7 @@
  * ambient handle of the open tenant transaction and THROWS `TenantContextMissingError`
  * outside one, which is what turns an accidental unscoped read into a crash rather than
  * a leak. It takes no client argument, so no caller can hand it a connection that has
- * set no flag, and it never imports `databaseTransaction` from `db/client.ts` — that
+ * set no flag, and it never imports `databaseTransaction` from `db/client.ts`: that
  * export carries an enumerated caller list and a repository is not on it.
  *
  * EVERY STATEMENT IS OWNER-QUALIFIED EVEN THOUGH THE POLICY ALREADY SCOPES IT. Every
@@ -18,8 +18,8 @@
  * explicitly. The isolation harness's round-2 finding (F-302) is the reason: PostgreSQL
  * routes an owner-qualified write through the SELECT policy and reports zero rows however
  * wide open the UPDATE policy is, so a repository relying on the policy alone issues
- * statements whose refusal proves less than it appears to. Two independent scopes — the
- * policy and the predicate — have to BOTH be wrong for a row to cross a tenant boundary
+ * statements whose refusal proves less than it appears to. Two independent scopes (the
+ * policy and the predicate) have to BOTH be wrong for a row to cross a tenant boundary
  * through this class. The unit spec compiles every statement and asserts the
  * qualification; the isolation suite attempts every method across tenants.
  *
@@ -31,7 +31,7 @@
  * NOT-FOUND SEMANTICS. `rename` and `archive` throw `WorkspaceNotFoundError` (`not_found`,
  * 404) when the id names no workspace the current tenant owns; `findById` returns null.
  * A row belonging to another tenant is invisible to both the policy and the predicate,
- * so it gets the same answer as a row that does not exist — on purpose.
+ * so it gets the same answer as a row that does not exist, on purpose.
  *
  * ARCHIVE IS IDEMPOTENT. `archived_at` records the FIRST archival and a second call
  * leaves it where it was: `coalesce(archived_at, now())`. Renaming an archived workspace
@@ -39,9 +39,9 @@
  *
  * `listForUser` (TASK-1b-06, D-10) IS THE MEMBERSHIP-FILTERED LIST `GET /api/workspaces`
  * ANSWERS: an inner join on `memberships` for one user, carrying the caller's role out with
- * each row. It is owner-qualified on BOTH tables — `workspaces.tenant_id = current` and
+ * each row. It is owner-qualified on BOTH tables: `workspaces.tenant_id = current` and
  * `memberships.tenant_id = current` in the WHERE, and the join itself pairs
- * `(workspace_id, tenant_id)` — so a membership row and a workspace row have to agree on
+ * `(workspace_id, tenant_id)`, so a membership row and a workspace row have to agree on
  * the tenant AND both be the current one, over and above the two tables' policies. `list`
  * stays: the isolation suite attempts it as a repository subject and nothing in the routes
  * calls it any more.
@@ -86,7 +86,7 @@ export interface ListWorkspacesOptions {
 /**
  * The same shape `assertUuid` in tenant-context.ts accepts. A workspace id that is not
  * a uuid names no row this tenant owns, so it is answered as not-found here rather than
- * reaching Postgres and raising 22P02 — which the exception filter would turn into a 500
+ * reaching Postgres and raising 22P02, which the exception filter would turn into a 500
  * for what is a client's malformed reference. Route-level validation is TASK-012's; this
  * is the repository's own floor.
  */
@@ -122,8 +122,8 @@ export class WorkspaceRepository {
       .select()
       .from(workspaces)
       .where(options.includeArchived ? owned : and(owned, isNull(workspaces.archivedAt)))
-      // Creation order, then id, so two workspaces created in one transaction — which
-      // share a `now()` — still list deterministically.
+      // Creation order, then id, so two workspaces created in one transaction (which
+      // share a `now()`) still list deterministically.
       .orderBy(asc(workspaces.createdAt), asc(workspaces.id));
   }
 

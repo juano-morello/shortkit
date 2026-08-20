@@ -7,7 +7,7 @@
  * `packages/contracts` for one reason: ADR-0009 requires ONE rule shared by the
  * management API and the redirect path, and this package is the only place both may
  * import from. GC-N bans the redirect module from importing `../links`, `../auth`,
- * `../workspaces`, `../members` and `../invitations` — it does not ban
+ * `../workspaces`, `../members` and `../invitations`. It does not ban
  * `@shortkit/contracts`, which is exactly why the shared rule can live here (D-2-11).
  */
 
@@ -18,7 +18,7 @@
  * redirect path reads a row and hands over drizzle's real `Date`s; the screens read
  * `linkContract` off the wire and hand over ISO strings, because every timestamp in this
  * package is an ISO string on the wire. Forcing either side to convert first would put a
- * `new Date(...)` on the hot path or in a component — exactly the duplicated, skippable
+ * `new Date(...)` on the hot path or in a component, exactly the duplicated, skippable
  * step ADR-0009 wrote this function to eliminate.
  */
 export type LinkValidityBound = Date | string | null;
@@ -45,7 +45,7 @@ function boundMs(bound: LinkValidityBound): number | null {
  * ============================================================================
  *
  * `redirectCache.setLink` additionally clamps the Redis TTL by time-to-expiry, and that
- * clamp is memory and cost hygiene — it keeps a record that can no longer serve a 302
+ * clamp is memory and cost hygiene: it keeps a record that can no longer serve a 302
  * from occupying a key for another hour. It is NOT what makes an expired link stop
  * serving. Redis expiry is lazy and granular to the second, so a link can outlive its
  * TTL by an unbounded margin; what makes AC-2-26 true is that every read, cache hit
@@ -55,7 +55,7 @@ function boundMs(bound: LinkValidityBound): number | null {
  * Absence of both timestamps is active (AC-2-27). The boundaries are half-open: a link
  * is active AT `activatesAt` and inactive AT `expiresAt`.
  *
- * `now` is passed in and is the API process's clock — never Redis's, never Postgres's.
+ * `now` is passed in and is the API process's clock, never Redis's, never Postgres's.
  * That is what lets a cache hit decide expiry with no I/O at all (AC-2-15, AC-2-26): the
  * cached record already carries both timestamps, so an inactive link answers 404 without
  * falling through to Postgres.
@@ -66,8 +66,8 @@ export function isLinkActive(window: LinkValidityWindow, now: Date): boolean {
   const expiresAt = boundMs(window.expiresAt);
 
   // A bound that EXISTS but cannot be read is never silently dropped. Both unreadable
-  // cases fail closed — an unparseable expiry must not keep serving a link forever, and
-  // an unparseable activation must not open one early — because this decides an
+  // cases fail closed (an unparseable expiry must not keep serving a link forever, and
+  // an unparseable activation must not open one early) because this decides an
   // anonymous visitor's 302 and the safe answer to "I cannot tell" is 404.
   if (
     (activatesAt !== null && Number.isNaN(activatesAt)) ||

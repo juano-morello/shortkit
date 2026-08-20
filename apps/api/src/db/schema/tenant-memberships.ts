@@ -35,8 +35,8 @@
  *
  * THE FLAG IS NAMED BY DESCRIPTION AND NOT BY LITERAL, AND THAT IS THE RULE RATHER THAN
  * A STYLE. isolation-coverage.md clause A2 asserts that the files in the scan set
- * CONTAINING the string are a subset of `{ src/auth/membership-lookup.ts, src/db/rls.ts }`
- * — anywhere at all, "code, comment, template string, JSDoc", because a copy of the
+ * CONTAINING the string are a subset of `{ src/auth/membership-lookup.ts, src/db/rls.ts }`,
+ * anywhere at all, "code, comment, template string, JSDoc", because a copy of the
  * literal is the step before someone sets it. The design stub this file was materialised
  * from carried the literal here and would have failed that clause on the day TASK-056
  * arms it. `membershipLookupPolicy()` in `src/db/rls.ts` is where the name is written.

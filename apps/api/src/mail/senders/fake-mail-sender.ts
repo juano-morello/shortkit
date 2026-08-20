@@ -9,7 +9,7 @@
  *
  * IT IS NOT SELECTED BY THE RUNNER. Under the struck rule the fake was what `NODE_ENV=test`
  * bound; now a suite that wants it declares `fake`, and one that declares nothing gets
- * `NoopMailSender`, which has no `sent` — so a forgotten declaration is a type error in the
+ * `NoopMailSender`, which has no `sent`, so a forgotten declaration is a type error in the
  * suite rather than a green assertion over an empty array (ADR-0017, "The fake sender is no
  * longer free").
  *

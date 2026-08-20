@@ -17,7 +17,7 @@
  * token's claims. This interceptor reads it and opens `withTenantTransaction(tenantId, ...)`
  * around the handler, so that every statement a handler or a repository issues runs under
  * `set_config` of the caller's tenant with no handler having to say so. The transaction
- * commits when the handler resolves and rolls back — rethrowing the original error — when it
+ * commits when the handler resolves and rolls back (rethrowing the original error) when it
  * throws; both are `withTenantTransaction`'s own semantics and nothing here re-implements
  * them (AC-14).
  *
@@ -28,16 +28,16 @@
  * is above it, and it is why there is no "am I already inside one?" check here.
  *
  * TWO SKIPS, READ EXACTLY AS THE GUARD READS ITS KEY: handler first, then class, presence
- * only. `PUBLIC_ROUTE_METADATA` — the guard let the request through with no token, there is
+ * only. `PUBLIC_ROUTE_METADATA`: the guard let the request through with no token, there is
  * no context and no tenant, and a `@Public()` route reaches tenant data only through a
- * capability-token entry point of its own (ADR-0021). `NO_TENANT_TRANSACTION_METADATA` — the
+ * capability-token entry point of its own (ADR-0021). `NO_TENANT_TRANSACTION_METADATA`: the
  * guard ran and the context exists, and the handler opens its own transactions because one
  * enclosing transaction is the wrong shape for it (`tenant-context.md`, "Routes that open
  * their own transaction").
  *
  * FAIL CLOSED WHEN THE CONTEXT IS MISSING. On a guarded route the context is absent only if
- * the guard did not run — a misconfigured module, a bypass, a route registered outside the
- * graph — and the two candidate responses are "open a transaction with no tenant" and
+ * the guard did not run (a misconfigured module, a bypass, a route registered outside the
+ * graph), and the two candidate responses are "open a transaction with no tenant" and
  * "refuse". The first is GC-5's hole; the second is a 401 `unauthenticated`, a `DomainError`
  * so that the filter answers the envelope rather than a 500 that reads as a crash. It is a
  * 401 and not a 500 because from the client's side the request IS unauthenticated: nothing
@@ -49,12 +49,12 @@
  *
  * `withTenantTransaction` makes the context visible through `AsyncLocalStorage`, and Nest's
  * `InterceptorsConsumer` (11.1.28) captures the async context with `AsyncResource.bind` AT THE
- * MOMENT `next.handle()` IS CALLED — not when the observable it returns is subscribed. So the
+ * MOMENT `next.handle()` IS CALLED, not when the observable it returns is subscribed. So the
  * handler runs under whatever store was active when `handle()` was invoked, and calling it
  * outside the callback and merely subscribing inside would run the handler with NO tenant
  * context: `currentTenantId()` throws, `tenantDb()` throws, and a repository's own
  * `withTenantTransaction` opens a SECOND transaction on a second pooled connection instead of
- * joining. `defer` keeps the whole thing lazy — nothing opens until Nest subscribes — and
+ * joining. `defer` keeps the whole thing lazy (nothing opens until Nest subscribes), and
  * `lastValueFrom` holds the transaction open until the handler's observable completes, which
  * is the same reduction Nest itself applies to an observable-returning HTTP handler.
  *
@@ -120,7 +120,7 @@ export class TenantTransactionInterceptor implements NestInterceptor {
   }
 
   /**
-   * Handler first, then class, presence only — the same reading `AuthGuard` gives
+   * Handler first, then class, presence only: the same reading `AuthGuard` gives
    * `PUBLIC_ROUTE_METADATA`, so a route the guard treats as public is one this interceptor
    * treats as public, with no room for the two to disagree on a class-level marker.
    */

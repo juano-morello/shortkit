@@ -189,7 +189,7 @@ that `proxy` is precisely the condition under which a BFF secret is required.
   rate-limit principal. Gating on `proxy` falls silent exactly there. The converse misfires too:
   an API behind a CDN serving redirects with no web app deployed would be refused boot until its
   operator invented a secret nothing reads, which teaches "set the variable to silence the
-  error" — the fixture alternative, reached by a longer road.
+  error": the fixture alternative, reached by a longer road.
 - **Why it lost.** It makes one variable stand for two facts, which is the substitution
   `NODE_ENV` was already making.
 
@@ -201,8 +201,8 @@ BFF_TRUST_BOUNDARY = bff | direct        # unset is read as direct
 
 `bff` requires `BFF_PROXY_SECRET` set and non-empty. `direct`, and unset, require nothing. Any
 other value fails boot in every environment, for the reason its sibling does: `direct` is the
-permissive branch and a typo must not reach it silently. The extra signal available here — a
-mis-set boundary in a real BFF deployment also shows up on `bff_proxy_auth_mismatch_total` —
+permissive branch and a typo must not reach it silently. The extra signal available here (a
+mis-set boundary in a real BFF deployment also shows up on `bff_proxy_auth_mismatch_total`)
 makes the unconditional check buy slightly less than it does next door. It stays anyway. It
 costs one comparison, and a counter nobody is watching yet is not a substitute for a refusal.
 

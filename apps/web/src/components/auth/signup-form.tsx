@@ -2,7 +2,7 @@
 
 /**
  * TASK-008. The signup screen's client half: the shared form in `signup` mode, and the one
- * navigation the card fixes for success — the sign-in screen with `?created=1` (ADR-0061:
+ * navigation the card fixes for success: the sign-in screen with `?created=1` (ADR-0061:
  * no session was established, so the workspace list would only bounce back here).
  *
  * TASK-1b-12 (item 1b) adds two optional props for the accept page (TASK-1b-13): the

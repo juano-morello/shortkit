@@ -74,8 +74,8 @@ describe('validationDetailsContract', () => {
 /**
  * ADR-0025 puts the recognition and the flatten in this package because the shape they
  * produce is declared eight lines above them. The two rules that placement exists to
- * keep together — an empty path lands under `_form`, and a path collapses to its first
- * segment — are asserted here, over real `ZodError`s.
+ * keep together (an empty path lands under `_form`, and a path collapses to its first
+ * segment) are asserted here, over real `ZodError`s.
  *
  * Every error below comes out of a real schema. An issue array written by hand would
  * assert this file's idea of zod rather than the zod 4.4.3 ADR-0025 was verified
@@ -121,7 +121,7 @@ describe('toValidationDetails', () => {
   });
 
   /**
-   * A record over caller-supplied keys — the shape that makes a prototype-named key
+   * A record over caller-supplied keys: the shape that makes a prototype-named key
    * reachable, per F-086. `JSON.parse` rather than a literal because that is how the key
    * arrives in production: off the wire, from a request body.
    */

@@ -108,7 +108,7 @@ async function cost(path: string): Promise<{ status: number; queries: number; lo
 }
 
 /**
- * POLLS THE THING THE AC CLAIMS, WHICH IS THAT THE REDIRECT IS SERVED FROM THE CACHE AGAIN —
+ * POLLS THE THING THE AC CLAIMS, WHICH IS THAT THE REDIRECT IS SERVED FROM THE CACHE AGAIN,
  * not that a status flag flipped. `cacheAvailable()` is `status === 'ready'`, and a client
  * that has just reconnected still has to answer a command; what recovery means here is a
  * request costing zero statements, which takes one re-warming request first.
@@ -332,7 +332,7 @@ describe('a process that declared no Redis serves every redirect from Postgres (
    * and whose writes are no-ops, so this is the Redis outage made permanent and it must be
    * indistinguishable from an ordinary redirect except in cost. Compiled as its own module
    * graph rather than as a second HTTP application: what the binding changes is one provider,
-   * and `redirect.int-spec.ts` — which runs with no Redis variables at all — is the whole
+   * and `redirect.int-spec.ts`, which runs with no Redis variables at all, is the whole
    * HTTP surface under exactly this binding already.
    */
   it('binds the degraded cache and resolves from Postgres on every request', async () => {

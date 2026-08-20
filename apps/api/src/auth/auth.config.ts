@@ -19,11 +19,11 @@
  *
  * `(await auth.$context).adapter` is the same `shortkit_auth` connection with a friendlier
  * API: measured by the wave-2 security pass against a live scratch database through this
- * exact file — `findMany({ model: 'session' })` returned plaintext `token` values,
+ * exact file: `findMany({ model: 'session' })` returned plaintext `token` values,
  * `{ model: 'account' }` the password hashes, `{ model: 'jwks' }` the encrypted private
  * key, and `create({ model: 'session' })` FORGED a session row for another user's id with
  * an attacker-chosen token. Any module that imports `auth` from here reaches all of it with
- * none of the four scanned spellings in its own text, so all four scans stay green — and
+ * none of the four scanned spellings in its own text, so all four scans stay green, and
  * this sentence deliberately does not spell that import, because the fifth scan below has
  * to be able to name this file as the one place the specifier does not appear. (Spelling a
  * banned form inside a comment is F-191's shape, and it is the scans' own rule: a text scan
@@ -34,7 +34,7 @@
  * mount.
  *
  * IT IS NAMED HERE BECAUSE IT IS NOT BOUNDED ANYWHERE ELSE. The remedy is a fifth scan in
- * `db/better-auth-database-callers.spec.ts` — an equality over who may import `auth` — or
+ * `db/better-auth-database-callers.spec.ts` (an equality over who may import `auth`) or
  * an entry in ADR-0056's accepted costs. Both are outside this card's write scope (a spec
  * file and a frozen ADR) and are escalated in the TASK-003 report with a measured regex and
  * permitted set. Until one lands, that spec bounds who may reach `shortkit_auth` through
@@ -46,7 +46,7 @@
  *
  * `auth-config-surface.md`'s table is normative on conflict and marks which nine. Each one
  * is a value the library derives from the request, from `NODE_ENV` or from a published
- * constant when the key is absent, with nothing failing anywhere — so `auth.config.spec.ts`
+ * constant when the key is absent, with nothing failing anywhere, so `auth.config.spec.ts`
  * asserts them off the composed instance rather than trusting this file to be read.
  *
  * NO KEY HERE READS `NODE_ENV`. That is GC-B, and it is the rule the library itself breaks
@@ -78,11 +78,11 @@ import { NoTenantMembershipError, tenantIdForUser } from './tenant-id-for-user';
  * The context Better Auth hands a `hooks.before` middleware, and a registry entry. Both are
  * DEFINED in `./before-hook.ts` and re-exported here under the names
  * `auth-config-surface.md` declares, because `db/better-auth-database-callers.spec.ts` scan 5
- * bounds — by text — who may import this module, and the two hook modules that need the type
+ * bounds (by text) who may import this module, and the two hook modules that need the type
  * must not appear on that list. Read that file's docblock for what a hook may and may not do:
  * return on a foreign `ctx.path`, treat `ctx.body` as unvalidated (F-228), throw an
  * `APIError` and nothing else (ADR-0055), and put NO TOKEN, EMAIL, USER ID OR INVITATION ID
- * IN THE MESSAGE — `api/index.mjs:199`'s `onError` writes `e.message` through better-auth's
+ * IN THE MESSAGE: `api/index.mjs:199`'s `onError` writes `e.message` through better-auth's
  * PACKAGE-LEVEL logger singleton, straight to `console`, past `LOGGABLE_FIELDS` (F-216).
  * Every message a hook throws today is a fixed exported constant.
  */
@@ -97,9 +97,9 @@ export type { AuthAfterHook, AuthBeforeHook, AuthBeforeHookContext } from './bef
  * Created empty by TASK-003 (identity-membership); item 1b's TASK-1b-09 `push`es the two
  * entries below, IN THIS ORDER (ADR-0013, F-054, F-019, D-15):
  *
- *   1. `emailRateLimitHook` — the email-keyed sign-in bucket, FIRST, so an attacker cannot
+ *   1. `emailRateLimitHook`: the email-keyed sign-in bucket, FIRST, so an attacker cannot
  *      use invitation-token probing to bypass it;
- *   2. `invitationValidationHook` — a signup carrying an `invitationToken` is verified here,
+ *   2. `invitationValidationHook`: a signup carrying an `invitationToken` is verified here,
  *      before the endpoint runs, so an invalid token creates no `user` row.
  *
  * `auth.config.spec.ts` asserts the contents, the order, and that this file never assigns
@@ -113,8 +113,8 @@ beforeHooks.push(emailRateLimitHook, invitationValidationHook);
  * THE SAME RULE, FOR `hooks.after`: APPENDED TO, NEVER ASSIGNED. Created 2026-08-18
  * (TASK-1b-09, architect ruling: the email bucket counts failed sign-ins) with one entry,
  * `emailRateLimitReleaseHook`, which gives a successful `/sign-in/email` its charge back. An
- * after hook runs after the endpoint answered — a throw here is a 500 over a completed
- * request — so every entry degrades open rather than throwing. `auth.config.spec.ts` pins the
+ * after hook runs after the endpoint answered (a throw here is a 500 over a completed
+ * request) so every entry degrades open rather than throwing. `auth.config.spec.ts` pins the
  * contents and the no-reassignment rule exactly as it does for `beforeHooks`.
  */
 export const afterHooks: AuthAfterHook[] = [];
@@ -151,7 +151,7 @@ const TENANT_PROVISIONING_FAILED_MESSAGE =
  * ============================================================================
  *
  * `betterAuth` is `<Options extends BetterAuthOptions>(options: Options) => Auth<Options>`,
- * and `Auth<Options>` is INVARIANT in `Options` through `$context`'s adapter — so the
+ * and `Auth<Options>` is INVARIANT in `Options` through `$context`'s adapter, so the
  * inferred `Auth<{ database: …; secret: string; … }>` is not assignable to the contract's
  * `Auth`, which is `Auth<BetterAuthOptions>`. Pinning the parameter here keeps the exported
  * declaration exactly the shape `auth-config-surface.md` fixes, at the cost of the
@@ -181,7 +181,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
 
   /**
    * SILENT. Without an explicit key, `create-context.mjs:70` is `options.secret ||
-   * env.BETTER_AUTH_SECRET || env.AUTH_SECRET || ""` and then `|| DEFAULT_SECRET` — a
+   * env.BETTER_AUTH_SECRET || env.AUTH_SECRET || ""` and then `|| DEFAULT_SECRET`: a
    * constant anyone can read out of the package, and the symmetric key for
    * `jwks.privateKey`. `validateSecret` returns early under `isTest()` and throws only
    * under `isProduction`, so the two environments this repository has are the two it does
@@ -217,7 +217,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
      * !== undefined ? options.advanced.disableOriginCheck : isTest() ? true : false`, and
      * `@better-auth/core/dist/env/env-impl.mjs:36` is `isTest = () => nodeENV === "test" ||
      * toBoolean(env.TEST)` with `toBoolean(v) = v ? v !== "false" : false`. So with this key
-     * ABSENT the origin check is decided by `NODE_ENV` — GC-B again — and by a variable
+     * ABSENT the origin check is decided by `NODE_ENV` (GC-B again) and by a variable
      * named `TEST` that is truthy at `0`, at `no` and at every value but the literal
      * `"false"`. Measured: `NODE_ENV=production TEST=0` answered `200` to a cross-origin
      * `POST /sign-out` that otherwise answers `403 INVALID_ORIGIN`.
@@ -225,12 +225,12 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
      * IT ALSO TURNS OFF MORE THAN CSRF. `shouldSkipOriginCheck`
      * (`api/middlewares/origin-check.mjs:20-27,45,72,105`) gates `validateURL` as well, so
      * `callbackURL`, `redirectTo`, `errorCallbackURL` and `newUserCallbackURL` go
-     * unvalidated on the same switch — better-auth's open-redirect guard rides on this key.
+     * unvalidated on the same switch: better-auth's open-redirect guard rides on this key.
      *
      * AND WITHOUT IT NOTHING THIS CARD SHIPS AROUND `trustedOrigins` IS EVER EXERCISED:
      * the integration fixture spawns the API at `NODE_ENV=test`, so from wave 3 every test
      * that issues a request would run with the check off. `false` here makes the suite the
-     * thing that tests it — verified by the wave-2 security pass: under `NODE_ENV=test` the
+     * thing that tests it: verified by the wave-2 security pass: under `NODE_ENV=test` the
      * evil origin answers 403 while the API's own origin and a `WEB_APP_ORIGINS` entry both
      * still answer 200.
      */
@@ -242,7 +242,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
 
   /**
    * SILENT. Better Auth's own logger writes through `console`, which reaches neither
-   * `LOGGABLE_FIELDS` nor `serializers.err` nor any timestamp of ours — a second log
+   * `LOGGABLE_FIELDS` nor `serializers.err` nor any timestamp of ours: a second log
    * channel that defeats ADR-0028's "exactly one censoring mechanism" by construction
    * rather than by defect (ADR-0052).
    *
@@ -253,7 +253,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
    *
    * `args` IS DROPPED. `dispatch.mjs:72` and `index.mjs:208` pass error objects
    * positionally, and spreading them into pino's first argument would put an arbitrary
-   * object's enumerable properties on the line — the shape `serializers.err` exists to
+   * object's enumerable properties on the line: the shape `serializers.err` exists to
    * prevent (F-244). The message crosses as `msg`, which is the field ADR-0028 already
    * treats as uncensored; this makes the dependency's lines visible to one mechanism
    * instead of none, and does not make them safe.
@@ -267,15 +267,15 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
    * `warn` AND `error`. `origin-check.mjs:110` is
    * ``logger.error(`Invalid origin: ${originHeader}`)`` and `:55,77` are
    * ``logger.error(`Invalid ${label}: ${url}`)`` for `callbackURL`, `redirectTo`,
-   * `errorCallbackURL` and `newUserCallbackURL` — so an unauthenticated caller writes a
+   * `errorCallbackURL` and `newUserCallbackURL`, so an unauthenticated caller writes a
    * string of their choosing into `msg`, once per request, bounded only by the header limit
    * and by TASK-004's `authBodyCap`. Measured: `{"level":"error","code":"better_auth",
    * "msg":"Invalid origin: https://evil.test"}`.
    *
    * IT IS NOT TRUNCATED HERE, AND THAT IS ADR-0052'S DECISION RATHER THAN AN OVERSIGHT.
    * Its alternatives table rejects "truncate `message` in the hook to a fixed length" on
-   * F-108's reasoning — a truncated attacker string is still an attacker string and the
-   * length is a number nobody can justify — and names the trigger that would reverse it: a
+   * F-108's reasoning (a truncated attacker string is still an attacker string and the
+   * length is a number nobody can justify), and names the trigger that would reverse it: a
    * log store whose cost or retention an unauthenticated caller can move. The sink today is
    * a container's stdout and CI's job log. pino JSON-escapes the message, so no line can be
    * forged; what is admitted is volume and authorship, and the bound on volume is the
@@ -315,7 +315,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
    * 2026-08-16, on frozen `auth-tokens.md:99`). The library's own 8 and 128 are the policy
    * of record and `@shortkit/contracts`' `PASSWORD_MIN_LENGTH`/`PASSWORD_MAX_LENGTH` equal
    * them; setting these keys is what could put the two enforcement points out of step.
-   * `requireEmailVerification` is unset for the same reason — mail is out of scope, so the
+   * `requireEmailVerification` is unset for the same reason: mail is out of scope, so the
    * default `false` stands.
    */
   emailAndPassword: { enabled: true, autoSignIn: false },
@@ -338,7 +338,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
          *
          * SILENT, and measured twice: `utils.mjs:15-19` returns a numeric
          * `expirationTime` as the claim directly, so `expirationTime: 300` sets `exp` to
-         * epoch second 300 — 1970-01-01T00:05:00Z — and every token is rejected the
+         * epoch second 300 (1970-01-01T00:05:00Z), and every token is rejected the
          * instant it is issued. `sec('300s')` is 300, so this form is `iat + 300`.
          *
          * THE CONSTANT STAYS A NUMBER in `@shortkit/contracts`, because
@@ -353,7 +353,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
       /**
        * `GET /api/auth/token` is the only mint. Without this,
        * `dist/plugins/jwt/index.mjs:185-188` mints a token from the `/get-session`
-       * after-hook and returns it as `set-auth-jwt` — a second mint path with no contract
+       * after-hook and returns it as `set-auth-jwt`: a second mint path with no contract
        * row, and one that would make a membership-less account fail `get-session` as well,
        * collapsing the BFF's ability to tell a signed-out visitor from a broken account
        * (ADR-0055).
@@ -368,7 +368,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
      *
      * Measured: `GET /api/auth/get-session` answers `200 {"session":{"token":"…"},…}` with
      * the session token IN THE BODY, so the `HttpOnly` flag in `auth-config-surface.md`'s
-     * cookie table protects that credential against nothing that runs on the origin — and
+     * cookie table protects that credential against nothing that runs on the origin, and
      * `bearer()` is what makes the read value sufficient on its own, as
      * `Authorization: Bearer <token>`, from any client, which then mints JWTs at
      * `GET /api/auth/token`.
@@ -377,7 +377,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
      * script on the origin: no CORS headers are configured, so a cross-site page cannot
      * read the body. Suppressing the field means an after-hook rewriting a library
      * response shape that `auth-tokens.md` documents and TASK-008 consumes, which is a
-     * contract change rather than an implementation choice — and the field is what the
+     * contract change rather than an implementation choice, and the field is what the
      * `bearer` plugin exists to be given, so removing it there while leaving `bearer()`
      * enabled fixes a symptom of a decision rather than the decision. The owner-level
      * options are TASK-008's BFF stripping `session.token` from any proxied body, or not
@@ -395,8 +395,8 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
 
   /**
    * ONE `before` FUNCTION, ITERATING A REGISTRY. Ordered by registration, short-circuiting
-   * on a throw. The array is created empty above and appended to — the email bucket, then
-   * invitation validation — so that a later hook appends rather than replaces (ADR-0013,
+   * on a throw. The array is created empty above and appended to (the email bucket, then
+   * invitation validation) so that a later hook appends rather than replaces (ADR-0013,
    * F-054). This iteration is untouched by the appenders.
    */
   hooks: {
@@ -417,7 +417,7 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
  * The claim set, fixed by GC-D and ADR-0013.
  *
  * `jti` MUST BE RETURNED EXPLICITLY: `sign.mjs:49` reads `if (payload.jti)
- * jwt.setJti(payload.jti)`, so the claim exists only when this function puts it there — a
+ * jwt.setJti(payload.jti)`, so the claim exists only when this function puts it there: a
  * probe against 1.6.26 with this exact config returned no `jti` at all (F-227). It is the
  * SESSION id and not a per-token random, deliberately: sign-out holds a session and not a
  * token, so keying on it is what makes one revocation cover every token that session ever
@@ -473,15 +473,15 @@ async function tenantIdForClaim(userId: string): Promise<string> {
  * Runs after the `user` row commits, on the application pool as the application role.
  *
  * TWO BRANCHES SINCE 2026-08-18 (TASK-1b-09, ADR-0015, D-18), decided by ONE predicate in
- * `invitation-signup.ts`: a signup whose body carried a string `invitationToken` — already
- * verified by `invitationValidationHook` before the endpoint ran — accepts the invitation
+ * `invitation-signup.ts`: a signup whose body carried a string `invitationToken` (already
+ * verified by `invitationValidationHook` before the endpoint ran) accepts the invitation
  * into the inviter's tenant and creates NO tenant; every other signup creates one. `ctx` is
  * the endpoint context `with-hooks.mjs` passes as the hook's second argument (the request's
  * `AsyncLocalStorage`), so `ctx.body` is the same parsed body the before hook saw.
  *
  * IT DOES NOT SWALLOW (ADR-0054, part 2): a 200 over an account that can never obtain a
  * `tid` claim is worse than an error, because only the second is visible. The original
- * error reaches the log exactly once, here, with no message on the line — the values in
+ * error reaches the log exactly once, here, with no message on the line: the values in
  * scope are a user id, operator-typed text, and on the invited branch a token, and
  * `LOGGABLE_FIELDS` has a name for none of them. The refusal is the same fixed string on
  * both branches.

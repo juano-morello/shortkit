@@ -14,7 +14,7 @@
  *
  * ADR-0014 decided the BFF topology: the browser never talks to Fly. It calls this
  * same-origin route, which forwards to `API_BASE_URL` (a value that already carries the
- * `/api` prefix — `buildUpstreamUrl` replaces the path, never appends) with `Authorization: Bearer
+ * `/api` prefix; `buildUpstreamUrl` replaces the path, never appends) with `Authorization: Bearer
  * <sk_at>`, never forwarding the browser's cookies upstream and never returning upstream's
  * `Set-Cookie`. The alternative (browser calls the API's own origin, this route not built)
  * was rejected; the ruling is recorded here and is normative in `web-api-client.md`, "The
@@ -33,7 +33,7 @@
  * `.next` artifact the secret scan can read (F-157, the scan's stated known ceiling). The
  * absence of a finding from that script is therefore NOT evidence for this file. What keeps
  * `BFF_PROXY_SECRET` off the client is that it is read only here, server-side, and only ever
- * placed in an UPSTREAM request header — never rendered, never returned to the browser.
+ * placed in an UPSTREAM request header: never rendered, never returned to the browser.
  */
 import { isIP } from 'node:net';
 
@@ -208,7 +208,7 @@ async function forwardUpstream(
 
 /**
  * The upstream request headers. TWO allowlists read together (F-288): the unconditional set
- * plus `origin` on mutating methods. Inbound `x-shortkit-*` are NEVER forwarded — the proxy
+ * plus `origin` on mutating methods. Inbound `x-shortkit-*` are NEVER forwarded: the proxy
  * sets its own afresh. Browser cookies are NEVER forwarded upstream.
  */
 function buildUpstreamHeaders(request: Request, accessToken: string | undefined, mutating: boolean): Headers {
@@ -248,7 +248,7 @@ function buildUpstreamHeaders(request: Request, accessToken: string | undefined,
  * NEITHER header.
  *
  * `x-vercel-forwarded-for` is read whole and forwarded only when it is a single valid IP
- * (`isIP`). A comma-joined or otherwise non-IP value is dropped — never the leftmost entry
+ * (`isIP`). A comma-joined or otherwise non-IP value is dropped, never the leftmost entry
  * of a list (F-035/F-009, web-api-client.md "read whole, never a leftmost list entry"). A
  * comma-bearing value fails `isIP` and so is omitted, which is also what the API-side
  * `readTrustedClientAddress` requires (it returns null for any list).
@@ -351,7 +351,7 @@ async function signOut(
  *
  * EVERY ERROR ON THE AUTH SURFACE IS MAPPED through `mapBetterAuthError` (review round 1,
  * CRITICAL). `/api/auth/*` is mounted outside Nest (ADR-0013), so its errors are Better
- * Auth's native `{ message, code }` — a shape whose `code` is a string too, which is why the
+ * Auth's native `{ message, code }`: a shape whose `code` is a string too, which is why the
  * earlier guard ("already has a string `code`") let every native body through to the browser
  * to fail `errorEnvelopeContract` client-side and degrade to `internal_error`. The one
  * exception is a body that IS an `ErrorEnvelope` by the shared contract's CLOSED code enum
@@ -436,7 +436,7 @@ function bffErrorResponse(status: number, code: string, message: string, details
   return response;
 }
 
-/** 401 `unauthenticated` with both cookies cleared — the two-consecutive-failures outcome. */
+/** 401 `unauthenticated` with both cookies cleared: the two-consecutive-failures outcome. */
 function unauthenticatedAndCleared(secure: boolean): Response {
   const response = bffErrorResponse(401, 'unauthenticated', 'The request could not be completed.');
   appendCookies(response, buildClearedSessionCookies(secure));
@@ -542,7 +542,7 @@ function isTokenExpired(raw: string): boolean {
 
 /**
  * Removes the session token from a parsed body: both a top-level `token` and a nested
- * `session.token` (F-208). Arrays pass through untouched — no array-shaped auth response is
+ * `session.token` (F-208). Arrays pass through untouched: no array-shaped auth response is
  * proxied today (`list-sessions` is not on any card), and spreading one into `{}` would
  * turn it into an index-keyed object.
  */

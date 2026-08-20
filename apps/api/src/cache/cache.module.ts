@@ -8,7 +8,7 @@
  *              `AppModule` is not this card's file (GC-C wave separation), so the import
  *              lands with the card that first needs the token.
  *
- * ONE PROVIDER, ONE EXPORT — `MailModule`'s shape, for the same reasons. The factory runs
+ * ONE PROVIDER, ONE EXPORT: `MailModule`'s shape, for the same reasons. The factory runs
  * when the module compiles rather than when this file is imported, so `AppModule` can be
  * compiled in the unit tier with no Redis variables set (it resolves to
  * `UnavailableRedirectCache`), and the environment is read at `NestFactory.create`, after
@@ -34,7 +34,7 @@ import { UnavailableRedirectCache } from './unavailable-redirect-cache';
 /**
  * The bound cache for an environment. `readRedisBinding` throws on a declared-but-malformed
  * binding rather than returning `undefined`, so a module compiled without `main.ts`'s
- * assertion (a testing module) still cannot turn a typo into a silently degraded redirect —
+ * assertion (a testing module) still cannot turn a typo into a silently degraded redirect,
  * the `resolveMailTransport` rule.
  */
 export function redirectCacheFor(env: NodeJS.ProcessEnv): RedirectCache {

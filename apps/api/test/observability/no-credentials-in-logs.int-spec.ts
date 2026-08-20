@@ -24,7 +24,7 @@ import { execSql } from '../support/psql';
 import { migrationDsn } from '../support/rls-fixture';
 
 /**
- * STORY-006 — AC-33, AC-34, AC-35: SC-5, measured on the bytes the process wrote. TASK-016,
+ * STORY-006: AC-33, AC-34, AC-35: SC-5, measured on the bytes the process wrote. TASK-016,
  * wave 8.
  *
  * Contract: `docs/contracts/logging-and-headers.md` ("Required fields", "What may never appear
@@ -41,13 +41,13 @@ import { migrationDsn } from '../support/rls-fixture';
  * give: Better Auth is mounted on Express outside the Nest module graph (ADR-0013), so no
  * Nest interceptor sees `/api/auth/*`, and a suite that scanned only the lines an interceptor
  * produced would report a clean result for the surface it could not see. Every request here
- * — the auth ones and the workspace ones — goes to the CHILD, and every assertion is over
+ * (the auth ones and the workspace ones) goes to the CHILD, and every assertion is over
  * `server.output()`.
  *
  * NON-VACUITY FIRST (F-295, the reason `foundation`'s SC-1 closed untestable). Nothing in
  * `apps/api/src` wrote a per-request line before TASK-016, and "no credential in zero lines"
- * is true of any process. So the first assertion is that the request path EMITTED lines — a
- * non-zero count, on the workspace routes, with the tenant of the signup on them — and only
+ * is true of any process. So the first assertion is that the request path EMITTED lines (a
+ * non-zero count, on the workspace routes, with the tenant of the signup on them), and only
  * then that the email address, the password, the session token and the JWT are absent from
  * every byte the process wrote.
  *
@@ -55,25 +55,25 @@ import { migrationDsn } from '../support/rls-fixture';
  * image runs at (no `LOG_LEVEL` in the `Dockerfile`) and the level the request line is
  * written at. Left to inherit, a developer shell exporting `LOG_LEVEL=error` would silence
  * the request lines and the non-vacuity assertion would fail for a reason unrelated to the
- * code — correctly, but confusingly.
+ * code: correctly, but confusingly.
  *
  * ============================================================================
- * SINCE TASK-1b-10 THE FLOW CARRIES THE INVITATION LEGS TOO — SC-5 EXTENDED (STORY-1b-07).
+ * SINCE TASK-1b-10 THE FLOW CARRIES THE INVITATION LEGS TOO: SC-5 EXTENDED (STORY-1b-07).
  * ============================================================================
  *
  * The same child, the same capture, more requests: after the workspace routes the owner
  * creates a second (unarchived) workspace and invites an address to it through the REAL
  * `POST /api/invitations` (the token that route issued is rendered into a message and
- * dropped: `MAIL_TRANSPORT` is UNSET in this child, so `NoopMailSender` is bound —
+ * dropped: `MAIL_TRANSPORT` is UNSET in this child, so `NoopMailSender` is bound:
  * `authServerEnv` declares no transport and this file keeps it that way ON PURPOSE, AC-1b-35:
  * with the transport unset the token and the address must appear NOWHERE, and the only way to
  * measure that is to run the whole flow with it unset). To then drive lookup, invited signup,
  * sign-in and accept, the test needs a raw token it HOLDS, and a token the route issued is by
- * design unrecoverable — so two more invitations are planted the way the invitation specs
+ * design unrecoverable, so two more invitations are planted the way the invitation specs
  * plant them: `issueCapabilityToken` in this process, the digest inserted under the migrator
  * with the tenant flag, the raw value in a local variable and nowhere else. The invitee signs
  * up WITH the token (the Better Auth `hooks.before` + `onUserCreated` invited branch, in the
- * child, outside the Nest graph — exactly the surface an in-process app cannot see), signs
+ * child, outside the Nest graph; exactly the surface an in-process app cannot see), signs
  * in, mints, lists its workspaces; the owner accepts the third invitation as an existing
  * member and is refused twice with fixed-string 409s. AC-1b-36: the `lookup` and `accept`
  * request lines carry the route PATTERN and no body-derived field.
@@ -81,12 +81,12 @@ import { migrationDsn } from '../support/rls-fixture';
  * AC-1b-34 IS A SECOND CHILD, booted with `MAIL_TRANSPORT=console`: the raw token and the
  * invited address must appear ONLY inside the `ConsoleMailSender` block (delimited by its own
  * header and footer lines) and on no line that parses as JSON. There the token is read the
- * way a real invitee reads it — out of the rendered mail — and driven through lookup and the
+ * way a real invitee reads it (out of the rendered mail) and driven through lookup and the
  * invited signup, so the token crosses the auth mount's body parser and hooks with the console
  * transport bound.
  *
  * WHAT IS SCANNED FOR, AND WHY EACH IS A SUBSTRING RATHER THAN A FIELD. A password, a session
- * token and a JWT are not fields — they are bytes that can sit inside `msg`, inside
+ * token and a JWT are not fields: they are bytes that can sit inside `msg`, inside
  * `err_message`, inside `err_stack`, inside a censored container's stringified `toJSON`
  * (F-265). So the scan is `String.includes` over the whole captured output, and for the two
  * tokens it also looks for the pieces a serialiser might have split them into: the cookie
@@ -112,7 +112,7 @@ const WEB_ORIGIN = 'http://localhost:3000';
 /**
  * A malformed JSON body whose FIRST bytes are the password: the placement V8 quotes into
  * `SyntaxError.message` (`Unexpected token 'q', "quilted-ha"...`), which Nest forwards into
- * `BadRequestException(err.message)`, which the filter's framework-400 arm logs — through
+ * `BadRequestException(err.message)`, which the filter's framework-400 arm logs, through
  * `errorLogFields`, so the message never reaches the line. `framework-400-request-body.spec.ts`
  * measured that arm against `/api/anything`; AC-35 asks for it against this initiative's
  * routes with the initiative's credential.
@@ -148,7 +148,7 @@ const ERROR_KEY = 'err';
  *     `log?.error(e.message)`), which ADR-0052's F-216 amendment records as the one exception
  *     to "exactly one censoring mechanism": the bound `log` hook is not consulted and
  *     `disableColors` does not apply. Measured here for a malformed body on the auth mount:
- *     `ERROR [Better Auth]: Invalid JSON in request body`, on stderr, coloured — a FIXED
+ *     `ERROR [Better Auth]: Invalid JSON in request body`, on stderr, coloured: a FIXED
  *     string, so nothing leaks, and the byte scan above covers it regardless.
  *
  * Anything non-JSON that is neither of these fails the suite: a third unstructured writer
@@ -192,7 +192,7 @@ interface FlowArtefacts {
 /** AC-1b-34: what the console-transport child produced. */
 interface ConsoleArtefacts {
   readonly tenantId: string;
-  /** Read out of the rendered mail in the child's output — the way an invitee reads it. */
+  /** Read out of the rendered mail in the child's output: the way an invitee reads it. */
   readonly tokenFromMail: string;
   readonly ownerToken: string;
   readonly inviteeToken: string;
@@ -327,7 +327,7 @@ async function runFlow(): Promise<FlowArtefacts> {
   const tenantId = jwtClaims(jwt).tid;
   expect(typeof tenantId).toBe('string');
 
-  // The first request path: create, list, rename, archive, list — the four routes
+  // The first request path: create, list, rename, archive, list: the four routes
   // `workspaces.md` names, against the child's own `/api/workspaces`.
   const listedBefore = await request('/api/workspaces', { token: jwt });
   expect(listedBefore.status, listedBefore.raw).toBe(200);
@@ -392,7 +392,7 @@ async function runFlow(): Promise<FlowArtefacts> {
   statuses.refused = refused.status;
 
   // ==========================================================================
-  // TASK-1b-10 — the invitation legs (STORY-1b-07). Same child, same capture.
+  // TASK-1b-10: the invitation legs (STORY-1b-07). Same child, same capture.
   // ==========================================================================
 
   // A second, UNARCHIVED workspace: an archived one cannot be invited to (400), and the
@@ -403,7 +403,7 @@ async function runFlow(): Promise<FlowArtefacts> {
   const inviteWorkspaceId = (inviteWorkspace.body as { id: string }).id;
 
   // The REAL route. Its token is rendered into a message and dropped by `NoopMailSender`
-  // (transport unset), so nothing here can hold it — which is the point of AC-1b-35: the
+  // (transport unset), so nothing here can hold it, which is the point of AC-1b-35: the
   // whole render-and-drop path runs, and not one byte of it may reach the capture.
   const invited = await request('/api/invitations', {
     method: 'POST',
@@ -431,7 +431,7 @@ async function runFlow(): Promise<FlowArtefacts> {
   expect(lookedUpSwapped.status, lookedUpSwapped.raw).toBe(404);
   statuses.lookupSwapped = lookedUpSwapped.status;
 
-  // The invited signup — the token in the auth mount's body, through `hooks.before` and the
+  // The invited signup: the token in the auth mount's body, through `hooks.before` and the
   // `onUserCreated` invited branch, in the child, outside the Nest graph.
   const inviteeSignedUp = await authRequest(server, 'POST', '/sign-up/email', {
     body: { email: INVITED_EMAIL, password: POLICY_COMPLIANT_PASSWORD, name: SIGNUP_NAME, invitationToken: heldForSignup },
@@ -461,7 +461,7 @@ async function runFlow(): Promise<FlowArtefacts> {
   expect(((inviteeList.body as { items: { id: string }[] }).items).map((item) => item.id)).toEqual([inviteWorkspaceId]);
 
   // Accept as an EXISTING member of the same tenant (the owner), 200; the same token again
-  // is 409 `invitation_already_accepted`, and the token the signup consumed is 409 too —
+  // is 409 `invitation_already_accepted`, and the token the signup consumed is 409 too:
   // two refusals whose messages are fixed strings and whose bodies carry no token.
   const accepted = await request('/api/invitations/accept', { method: 'POST', token: jwt, body: { token: heldForAccept } });
   expect(accepted.status, accepted.raw).toBe(200);
@@ -479,7 +479,7 @@ async function runFlow(): Promise<FlowArtefacts> {
 
   // Six requests went through the interceptor before the invitation legs (two lists, create,
   // rename, archive, the wrong-field create); the malformed bodies, the auth calls and the
-  // 401 do not, by construction — see the interceptor's header. The invitation legs add
+  // 401 do not, by construction; see the interceptor's header. The invitation legs add
   // EIGHT more: the second create, the invite, two lookups, the invitee's list, three
   // accepts. Wait for all fourteen and for the AC-35 line.
   const output = await untilCaptured(
@@ -504,7 +504,7 @@ async function runFlow(): Promise<FlowArtefacts> {
 }
 
 /**
- * Plants one pending invitation naming `workspaceId` at `member` and returns its RAW token —
+ * Plants one pending invitation naming `workspaceId` at `member` and returns its RAW token:
  * minted in this process by `issueCapabilityToken`, digest inserted under the migrator with
  * the tenant flag (`invitations` and `invitation_workspaces` carry FORCE ROW LEVEL SECURITY),
  * the raw value returned to the caller's local variable and written nowhere else. The same
@@ -542,8 +542,8 @@ function plantInvitation(tenantId: string, workspaceId: string, inviterUserId: s
 /**
  * AC-1b-34: the console-transport child. Owner signs up, signs in, mints, creates a workspace
  * and invites through the REAL route; the token is read OUT OF THE RENDERED MAIL in the
- * child's output — the way an invitee reads it, and the only place this function reads one
- * from — then driven through the anonymous lookup, a REFUSED invited signup (prefix swapped:
+ * child's output: the way an invitee reads it, and the only place this function reads one
+ * from, then driven through the anonymous lookup, a REFUSED invited signup (prefix swapped:
  * `hooks.before` answers a fixed-string APIError), the real invited signup, sign-in, mint and
  * the invitee's list.
  */
@@ -621,7 +621,7 @@ async function runConsoleFlow(): Promise<ConsoleArtefacts> {
 }
 
 beforeAll(() => {
-  // THE MAIN CHILD: `authServerEnv` and NO `MAIL_TRANSPORT` — `none`, `NoopMailSender` — on
+  // THE MAIN CHILD: `authServerEnv` and NO `MAIL_TRANSPORT` (`none`, `NoopMailSender`) on
   // purpose (AC-1b-35, header). `WEB_APP_ORIGINS` so the invite link renders (the render
   // runs before the Noop drop; unset, `mail_dispatch_failed` would replace the drop).
   serverBoot = startApiServer({
@@ -629,7 +629,7 @@ beforeAll(() => {
   });
   serverBoot.catch(() => undefined);
   // THE CONSOLE CHILD (AC-1b-34): the one transport that prints the message, and so the
-  // token, to stdout BY DESIGN — the assertion is that it appears THERE and nowhere else.
+  // token, to stdout BY DESIGN: the assertion is that it appears THERE and nowhere else.
   consoleBoot = startApiServer({
     env: (baseUrl) => ({ ...authServerEnv(baseUrl), LOG_LEVEL: 'info', WEB_APP_ORIGINS: WEB_ORIGIN, MAIL_TRANSPORT: 'console' }),
   });
@@ -713,7 +713,7 @@ describe('AC-33: the request path emits lines, and no credential is among their 
 
     for (const line of lines) {
       expect(line.record.level, line.raw).toBe('info');
-      // Every authenticated line carries the tenant — the owner's AND the invitee's, who was
+      // Every authenticated line carries the tenant: the owner's AND the invitee's, who was
       // invited INTO it. The one `@Public()` route runs with no tenant context and carries
       // none (TASK-1b-10): a tenant id on that line would be a value read from the body.
       if (line.record.route === '/api/invitations/lookup') {
@@ -754,7 +754,7 @@ describe('AC-33: the request path emits lines, and no credential is among their 
     expect(artefacts.output).not.toContain(EMAIL.split('@')[0]);
   });
 
-  it('the password appears zero times — not in a field, not in msg, not inside err_message or err_stack', () => {
+  it('the password appears zero times: not in a field, not in msg, not inside err_message or err_stack', () => {
     expect(POLICY_COMPLIANT_PASSWORD.length).toBeGreaterThan(0);
     expect(artefacts.output).not.toContain(POLICY_COMPLIANT_PASSWORD);
     // The fragment V8 quotes into a parse message is the first ten bytes of the body, which
@@ -909,7 +909,7 @@ describe('AC-1b-35, AC-1b-36: with the transport unset, the invite → lookup �
     expect(artefacts.heldTokens).toHaveLength(2);
   });
 
-  it('AC-1b-35: neither held raw token nor its secret half appears anywhere in the bytes the process wrote — the console block does not exist because no transport was declared', () => {
+  it('AC-1b-35: neither held raw token nor its secret half appears anywhere in the bytes the process wrote: the console block does not exist because no transport was declared', () => {
     // The transport is UNSET in this child (`authServerEnv` declares none and this file adds
     // none): `NoopMailSender` dropped the route-issued message after it was RENDERED, and the
     // held tokens crossed the auth mount's body parser, the hooks, the lookup and the accept
@@ -925,12 +925,12 @@ describe('AC-1b-35, AC-1b-36: with the transport unset, the invite → lookup �
       expect(artefacts.output).not.toContain(encodeURIComponent(raw));
     }
 
-    // ...and no OTHER token-shaped string either — the route-issued token this process never
+    // ...and no OTHER token-shaped string either: the route-issued token this process never
     // saw would match this and nothing else in a pino line legitimately does.
     expect(artefacts.output).not.toMatch(/[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}/);
   });
 
-  it('AC-1b-35: the invited address appears zero times — whole, lower-cased, URL-encoded, and as its local part', () => {
+  it('AC-1b-35: the invited address appears zero times: whole, lower-cased, URL-encoded, and as its local part', () => {
     expect(artefacts.output).not.toContain(INVITED_EMAIL);
     expect(artefacts.output.toLowerCase()).not.toContain(INVITED_EMAIL.toLowerCase());
     expect(artefacts.output).not.toContain(encodeURIComponent(INVITED_EMAIL));
@@ -959,14 +959,14 @@ describe('AC-1b-35, AC-1b-36: with the transport unset, the invite → lookup �
     const accepts = requestLines(artefacts.output).filter((line) => line.record.route === '/api/invitations/accept');
     const invites = requestLines(artefacts.output).filter((line) => line.record.route === '/api/invitations');
 
-    // Two lookups (200, 404), three accepts (200, 409, 409), one invite (201) — by status, so
+    // Two lookups (200, 404), three accepts (200, 409, 409), one invite (201): by status, so
     // a line that went missing is named by which request it was.
     expect(lookups.map((line) => line.record.status).sort()).toEqual([200, 404]);
     expect(accepts.map((line) => line.record.status).sort()).toEqual([200, 409, 409]);
     expect(invites.map((line) => line.record.status)).toEqual([201]);
 
     for (const line of [...lookups, ...accepts, ...invites]) {
-      // No body-derived field: the keys are the request line's and nothing else — no `token`,
+      // No body-derived field: the keys are the request line's and nothing else: no `token`,
       // no `email`, no `invitation_id`, no `workspace_id` (GC-G).
       const beyondTheEnvelope = Object.keys(line.record).filter(
         (key) => !PINO_OWN_KEYS.has(key) && !['msg', 'request_id', 'route', 'status', 'duration_ms', 'tenant_id'].includes(key),
@@ -984,7 +984,7 @@ describe('AC-1b-35, AC-1b-36: with the transport unset, the invite → lookup �
       expect(line.record.tenant_id, line.raw).toBe(artefacts.tenantId);
     }
 
-    // The two 409s and the 404 are DomainErrors the filter logs — whatever it wrote of them
+    // The two 409s and the 404 are DomainErrors the filter logs: whatever it wrote of them
     // carries the fixed code and message and no token byte. Asserted over every line that
     // names an invitation code, so a `msg` interpolating a value would be caught here.
     const refusalLines = emittedLines(artefacts.output).filter((line) =>
@@ -1035,7 +1035,7 @@ describe('AC-1b-34: with MAIL_TRANSPORT=console the token appears ONLY inside th
     expect(outside.filter((line) => line.includes(CONSOLE_INVITED_EMAIL.split('@')[0]))).toEqual([]);
 
     // The block is the console transport's own shape and nothing else prints inside it: every
-    // inside line is header, footer, `To:`, `Subject:`, blank, or rendered text — no JSON.
+    // inside line is header, footer, `To:`, `Subject:`, blank, or rendered text: no JSON.
     for (const line of inside) {
       expect(() => JSON.parse(line) as unknown, line).toThrow();
     }
@@ -1065,7 +1065,7 @@ describe('AC-1b-34: with MAIL_TRANSPORT=console the token appears ONLY inside th
       }
     }
     // The owner's address is not in the message either way (the message is addressed to the
-    // invitee and names the inviter by the `inviterEmail` field — which IS the owner's
+    // invitee and names the inviter by the `inviterEmail` field, which IS the owner's
     // address, by design, inside the block only).
     expect(outside.filter((line) => line.includes(CONSOLE_OWNER_EMAIL))).toEqual([]);
   });

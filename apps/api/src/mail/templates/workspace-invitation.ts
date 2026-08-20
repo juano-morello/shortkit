@@ -16,7 +16,7 @@
  * link (D-03's accepted cost) and the text is the fallback.
  *
  * WHAT IS NOT. No password, no JWT, no IP (invariant 5). The inviter's ADDRESS is here on
- * purpose — the recipient has to know who asked — and it is the reason no rendered body may
+ * purpose (the recipient has to know who asked), and it is the reason no rendered body may
  * reach a log line: `LOGGABLE_FIELDS` names `template` and not `to`, `subject` or a body.
  *
  * ESCAPING. `tenantName`, `inviterEmail` and every workspace name are strings a user typed

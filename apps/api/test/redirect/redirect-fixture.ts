@@ -10,7 +10,7 @@
  *
  * Every insert goes through the MIGRATOR with the owning tenant's flag set, because all three
  * tables are FORCE ROW LEVEL SECURITY and each row has to satisfy its own tenant's WITH
- * CHECK — a migrator insert without the flag writes zero rows and reports success (F-236).
+ * CHECK: a migrator insert without the flag writes zero rows and reports success (F-236).
  */
 import { request as httpRequest } from 'node:http';
 import type { IncomingHttpHeaders } from 'node:http';
