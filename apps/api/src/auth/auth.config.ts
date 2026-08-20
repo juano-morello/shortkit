@@ -2,7 +2,9 @@
  * Contract: `docs/contracts/auth-config-surface.md`
  * ADR: adr-0013, adr-0046, adr-0050, adr-0051, adr-0052, adr-0053, adr-0054, adr-0055,
  *      adr-0056, adr-0057, adr-0058, adr-0059, adr-0060, adr-0061
- * Produced by: TASK-003. Consumed by: TASK-004 (the mount), item 1b (appends a hook).
+ * Produced by: TASK-003. Consumed by: TASK-004 (the mount). Item 1b's TASK-1b-09 appended
+ *              the two `beforeHooks` entries and the invited branch of the after hook
+ *              (2026-08-18).
  *
  * The one composed Better Auth instance in this process. Nothing else calls `betterAuth()`.
  *
@@ -60,50 +62,31 @@ import { bearer, jwt } from 'better-auth/plugins';
 import { betterAuthDatabase } from '../db/client';
 import { betterAuthSchema } from '../db/schema/auth';
 import { errorLogFields, logger } from '../observability/logger';
+import type { AuthAfterHook, AuthBeforeHook } from './before-hook';
 import {
   SESSION_LIFETIME_SECONDS,
   betterAuthSecret,
   betterAuthUrl,
   webAppOrigins,
 } from './boot-assertions';
-import { createTenantForNewUser } from './on-user-created';
+import { emailRateLimitHook, emailRateLimitReleaseHook } from './email-rate-limit-hook';
+import { invitationValidationHook, provisionForNewUser } from './invitation-signup';
 import { revocationStore } from './revocation-store';
 import { NoTenantMembershipError, tenantIdForUser } from './tenant-id-for-user';
 
-/** The context Better Auth hands a `hooks.before` middleware. Inferred, never restated. */
-export type AuthBeforeHookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
-
 /**
- * A registry entry. Better Auth takes ONE `before` function, so `auth.config.ts` iterates
- * this array inside that one function.
- *
- * A hook that does not apply to `ctx.path` returns immediately. A hook that refuses throws
- * an `APIError` and nothing else: `dist/api/dispatch.mjs:86-89` rethrows anything from a
- * before hook that is not one, and a `TypeError` there is an unauthenticated 500 generator
- * against the credential surface (ADR-0013, F-228; ADR-0055).
- *
- * `ctx.body` is UNVALIDATED at this point: probes against 1.6.26 delivered `ctx.body.email`
- * as an object, as a number, and `ctx.body` as `undefined`.
- *
- * ============================================================================
- * AND YOUR `APIError`'s MESSAGE DOES NOT GO THROUGH THE BOUND LOGGER (F-216).
- * ============================================================================
- *
- * PUT NO TOKEN, EMAIL, USER ID OR INVITATION CODE IN IT. `api/index.mjs:199` is
- * ``const log = optLogLevel === "error" || optLogLevel === "warn" || optLogLevel === "debug"
- * ? logger : void 0`` followed by `log?.error(e.message)`, and that `logger` is
- * `@better-auth/core/env`'s PACKAGE-LEVEL SINGLETON (imported at `api/index.mjs:21`), not
- * the `log` hook this file binds below. So an `APIError` a hook throws reaches `console`
- * directly: no `LOGGABLE_FIELDS`, no `serializers.err`, no `disableColors`, none of
- * ADR-0028's one censoring mechanism. `ctx.logger` on the neighbouring branches IS the
- * bound one, which is what makes this easy to read past.
- *
- * The level did not cause it and lowering it does not fix it — `error`, `warn` and `debug`
- * are all enabling values, so it was equally true before ADR-0060. Nothing leaks today only
- * because every message that reaches it is a fixed string. Item 1b's invitation-validation
- * hook is the first one that will hold a token and an address while composing a refusal.
+ * The context Better Auth hands a `hooks.before` middleware, and a registry entry. Both are
+ * DEFINED in `./before-hook.ts` and re-exported here under the names
+ * `auth-config-surface.md` declares, because `db/better-auth-database-callers.spec.ts` scan 5
+ * bounds — by text — who may import this module, and the two hook modules that need the type
+ * must not appear on that list. Read that file's docblock for what a hook may and may not do:
+ * return on a foreign `ctx.path`, treat `ctx.body` as unvalidated (F-228), throw an
+ * `APIError` and nothing else (ADR-0055), and put NO TOKEN, EMAIL, USER ID OR INVITATION ID
+ * IN THE MESSAGE — `api/index.mjs:199`'s `onError` writes `e.message` through better-auth's
+ * PACKAGE-LEVEL logger singleton, straight to `console`, past `LOGGABLE_FIELDS` (F-216).
+ * Every message a hook throws today is a fixed exported constant.
  */
-export type AuthBeforeHook = (ctx: AuthBeforeHookContext) => Promise<void>;
+export type { AuthAfterHook, AuthBeforeHook, AuthBeforeHookContext } from './before-hook';
 
 /**
  * ============================================================================
@@ -111,11 +94,32 @@ export type AuthBeforeHook = (ctx: AuthBeforeHookContext) => Promise<void>;
  * DELETES EVERY EARLIER HOOK.
  * ============================================================================
  *
- * Created empty in this initiative. Item 1b's invitation-validation hook and any
- * email-keyed rate-limit hook `push` onto it (ADR-0013, F-054, F-019). The appenders land
- * after this initiative closes, so this comment is the only thing they will read.
+ * Created empty by TASK-003 (identity-membership); item 1b's TASK-1b-09 `push`es the two
+ * entries below, IN THIS ORDER (ADR-0013, F-054, F-019, D-15):
+ *
+ *   1. `emailRateLimitHook` — the email-keyed sign-in bucket, FIRST, so an attacker cannot
+ *      use invitation-token probing to bypass it;
+ *   2. `invitationValidationHook` — a signup carrying an `invitationToken` is verified here,
+ *      before the endpoint runs, so an invalid token creates no `user` row.
+ *
+ * `auth.config.spec.ts` asserts the contents, the order, and that this file never assigns
+ * the binding after the declaration. A third appender pushes after these two.
  */
 export const beforeHooks: AuthBeforeHook[] = [];
+
+beforeHooks.push(emailRateLimitHook, invitationValidationHook);
+
+/**
+ * THE SAME RULE, FOR `hooks.after`: APPENDED TO, NEVER ASSIGNED. Created 2026-08-18
+ * (TASK-1b-09, architect ruling: the email bucket counts failed sign-ins) with one entry,
+ * `emailRateLimitReleaseHook`, which gives a successful `/sign-in/email` its charge back. An
+ * after hook runs after the endpoint answered — a throw here is a 500 over a completed
+ * request — so every entry degrades open rather than throwing. `auth.config.spec.ts` pins the
+ * contents and the no-reassignment rule exactly as it does for `beforeHooks`.
+ */
+export const afterHooks: AuthAfterHook[] = [];
+
+afterHooks.push(emailRateLimitReleaseHook);
 
 /**
  * The declared origin, read once. `baseURL`, both jwt claim keys and the cookie's `Secure`
@@ -391,12 +395,18 @@ export const auth: Auth = betterAuth<BetterAuthOptions>({
 
   /**
    * ONE `before` FUNCTION, ITERATING A REGISTRY. Ordered by registration, short-circuiting
-   * on a throw. The array is created empty here so that item 1b's invitation-validation
-   * hook and any rate-limit hook append rather than replace (ADR-0013, F-054).
+   * on a throw. The array is created empty above and appended to — the email bucket, then
+   * invitation validation — so that a later hook appends rather than replaces (ADR-0013,
+   * F-054). This iteration is untouched by the appenders.
    */
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       for (const hook of beforeHooks) {
+        await hook(ctx);
+      }
+    }),
+    after: createAuthMiddleware(async (ctx) => {
+      for (const hook of afterHooks) {
         await hook(ctx);
       }
     }),
@@ -462,14 +472,26 @@ async function tenantIdForClaim(userId: string): Promise<string> {
 /**
  * Runs after the `user` row commits, on the application pool as the application role.
  *
+ * TWO BRANCHES SINCE 2026-08-18 (TASK-1b-09, ADR-0015, D-18), decided by ONE predicate in
+ * `invitation-signup.ts`: a signup whose body carried a string `invitationToken` — already
+ * verified by `invitationValidationHook` before the endpoint ran — accepts the invitation
+ * into the inviter's tenant and creates NO tenant; every other signup creates one. `ctx` is
+ * the endpoint context `with-hooks.mjs` passes as the hook's second argument (the request's
+ * `AsyncLocalStorage`), so `ctx.body` is the same parsed body the before hook saw.
+ *
  * IT DOES NOT SWALLOW (ADR-0054, part 2): a 200 over an account that can never obtain a
  * `tid` claim is worse than an error, because only the second is visible. The original
  * error reaches the log exactly once, here, with no message on the line — the values in
- * scope are a user id and operator-typed text and `LOGGABLE_FIELDS` has a name for neither.
+ * scope are a user id, operator-typed text, and on the invited branch a token, and
+ * `LOGGABLE_FIELDS` has a name for none of them. The refusal is the same fixed string on
+ * both branches.
  */
-async function createTenant(user: { id: string; name: string }): Promise<void> {
+async function createTenant(
+  user: { id: string; name: string },
+  ctx: { readonly body?: unknown } | null | undefined,
+): Promise<void> {
   try {
-    await createTenantForNewUser({ id: user.id, name: user.name });
+    await provisionForNewUser({ id: user.id, name: user.name }, ctx);
   } catch (error: unknown) {
     logger.error(
       {

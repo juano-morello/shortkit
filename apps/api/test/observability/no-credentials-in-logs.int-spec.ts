@@ -1,10 +1,16 @@
+import { randomUUID } from 'node:crypto';
+
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { issueCapabilityToken } from '../../src/invitations/tokens/capability-token';
+import { CONSOLE_MAIL_FOOTER, CONSOLE_MAIL_HEADER } from '../../src/mail/senders/console-mail-sender';
 import { LOGGABLE_FIELDS, REDACT_CENSOR } from '../../src/observability/logger';
 import { startApiServer } from '../support/api-server';
 import type { ApiServer } from '../support/api-server';
 import {
   POLICY_COMPLIANT_PASSWORD,
+  SIGNUP_NAME,
+  authRequest,
   authServerEnv,
   clearSignupState,
   jwtClaims,
@@ -12,7 +18,10 @@ import {
   sessionTokenCookie,
   signIn,
   signUp,
+  usersFor,
 } from '../support/auth-fixture';
+import { execSql } from '../support/psql';
+import { migrationDsn } from '../support/rls-fixture';
 
 /**
  * STORY-006 — AC-33, AC-34, AC-35: SC-5, measured on the bytes the process wrote. TASK-016,
@@ -48,6 +57,34 @@ import {
  * the request lines and the non-vacuity assertion would fail for a reason unrelated to the
  * code — correctly, but confusingly.
  *
+ * ============================================================================
+ * SINCE TASK-1b-10 THE FLOW CARRIES THE INVITATION LEGS TOO — SC-5 EXTENDED (STORY-1b-07).
+ * ============================================================================
+ *
+ * The same child, the same capture, more requests: after the workspace routes the owner
+ * creates a second (unarchived) workspace and invites an address to it through the REAL
+ * `POST /api/invitations` (the token that route issued is rendered into a message and
+ * dropped: `MAIL_TRANSPORT` is UNSET in this child, so `NoopMailSender` is bound —
+ * `authServerEnv` declares no transport and this file keeps it that way ON PURPOSE, AC-1b-35:
+ * with the transport unset the token and the address must appear NOWHERE, and the only way to
+ * measure that is to run the whole flow with it unset). To then drive lookup, invited signup,
+ * sign-in and accept, the test needs a raw token it HOLDS, and a token the route issued is by
+ * design unrecoverable — so two more invitations are planted the way the invitation specs
+ * plant them: `issueCapabilityToken` in this process, the digest inserted under the migrator
+ * with the tenant flag, the raw value in a local variable and nowhere else. The invitee signs
+ * up WITH the token (the Better Auth `hooks.before` + `onUserCreated` invited branch, in the
+ * child, outside the Nest graph — exactly the surface an in-process app cannot see), signs
+ * in, mints, lists its workspaces; the owner accepts the third invitation as an existing
+ * member and is refused twice with fixed-string 409s. AC-1b-36: the `lookup` and `accept`
+ * request lines carry the route PATTERN and no body-derived field.
+ *
+ * AC-1b-34 IS A SECOND CHILD, booted with `MAIL_TRANSPORT=console`: the raw token and the
+ * invited address must appear ONLY inside the `ConsoleMailSender` block (delimited by its own
+ * header and footer lines) and on no line that parses as JSON. There the token is read the
+ * way a real invitee reads it — out of the rendered mail — and driven through lookup and the
+ * invited signup, so the token crosses the auth mount's body parser and hooks with the console
+ * transport bound.
+ *
  * WHAT IS SCANNED FOR, AND WHY EACH IS A SUBSTRING RATHER THAN A FIELD. A password, a session
  * token and a JWT are not fields — they are bytes that can sit inside `msg`, inside
  * `err_message`, inside `err_stack`, inside a censored container's stringified `toJSON`
@@ -58,6 +95,19 @@ import {
  */
 
 const EMAIL = 'wave8-no-credentials-in-logs@example.com';
+/** The invited address of the main (transport-unset) child; signed up WITH the held token. */
+const INVITED_EMAIL = 'wave8-invited-no-credentials-in-logs@example.com';
+/** The two addresses of the console-transport child (AC-1b-34). */
+const CONSOLE_OWNER_EMAIL = 'wave8-console-owner-no-credentials-in-logs@example.com';
+const CONSOLE_INVITED_EMAIL = 'wave8-console-invited-no-credentials-in-logs@example.com';
+
+/**
+ * A pattern for the fragment the console block carries: `#token=<uuid>.<43 base64url>`. The
+ * only place this file reads a token from that it did not mint itself.
+ */
+const TOKEN_IN_FRAGMENT = /#token=([0-9a-f-]{36}\.[A-Za-z0-9_-]{43})/;
+/** The link base the child renders invite links on; a fixture value, never fetched. */
+const WEB_ORIGIN = 'http://localhost:3000';
 
 /**
  * A malformed JSON body whose FIRST bytes are the password: the placement V8 quotes into
@@ -129,6 +179,23 @@ interface FlowArtefacts {
   readonly token: string;
   readonly sessionCookieValue: string;
   readonly workspaceId: string;
+  /** TASK-1b-10: the invitation legs' artefacts. */
+  readonly inviteWorkspaceId: string;
+  /** The two raw capability tokens this process minted and holds; never the route's. */
+  readonly heldTokens: readonly string[];
+  readonly inviteeToken: string;
+  readonly inviteeSessionCookieValue: string;
+  readonly statuses: Readonly<Record<string, number>>;
+  readonly output: string;
+}
+
+/** AC-1b-34: what the console-transport child produced. */
+interface ConsoleArtefacts {
+  readonly tenantId: string;
+  /** Read out of the rendered mail in the child's output — the way an invitee reads it. */
+  readonly tokenFromMail: string;
+  readonly ownerToken: string;
+  readonly inviteeToken: string;
   readonly statuses: Readonly<Record<string, number>>;
   readonly output: string;
 }
@@ -138,14 +205,21 @@ let server: ApiServer;
 let flow: Promise<FlowArtefacts> | undefined;
 let artefacts: FlowArtefacts;
 
+let consoleBoot: Promise<ApiServer>;
+let consoleServer: ApiServer;
+let consoleFlow: Promise<ConsoleArtefacts> | undefined;
+let consoleArtefacts: ConsoleArtefacts;
+
 async function request(
   path: string,
   options: {
-    readonly method?: 'GET' | 'POST' | 'PATCH';
+    readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
     readonly token?: string;
     /** JSON-encoded when an object; sent verbatim (as `application/json`) when a string. */
     readonly body?: unknown;
     readonly headers?: Record<string, string>;
+    /** Which child; the main one unless the console child is named (AC-1b-34). */
+    readonly against?: ApiServer;
   } = {},
 ): Promise<Probe> {
   const payload =
@@ -155,7 +229,7 @@ async function request(
         ? options.body
         : JSON.stringify(options.body);
 
-  const response = await fetch(`${server.baseUrl}${path}`, {
+  const response = await fetch(`${(options.against ?? server).baseUrl}${path}`, {
     method: options.method ?? 'GET',
     headers: {
       ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
@@ -200,11 +274,15 @@ function requestLines(output: string): EmittedLine[] {
  * client can hold a response before the server's `'finish'` listener has run, so the capture
  * is polled to a count rather than read the instant the last response arrives. Bounded.
  */
-async function untilCaptured(condition: (output: string) => boolean, what: string): Promise<string> {
+async function untilCaptured(
+  condition: (output: string) => boolean,
+  what: string,
+  child: ApiServer = server,
+): Promise<string> {
   const deadline = Date.now() + CAPTURE_SETTLE_MS;
 
   for (;;) {
-    const output = server.output();
+    const output = child.output();
 
     if (condition(output)) {
       return output;
@@ -313,40 +391,274 @@ async function runFlow(): Promise<FlowArtefacts> {
   expect(refused.status, refused.raw).toBe(401);
   statuses.refused = refused.status;
 
-  // Six requests went through the interceptor (two lists, create, rename, archive, the
-  // wrong-field create); the malformed bodies, the auth calls and the 401 do not, by
-  // construction — see the interceptor's header. Wait for all six and for the AC-35 line.
+  // ==========================================================================
+  // TASK-1b-10 — the invitation legs (STORY-1b-07). Same child, same capture.
+  // ==========================================================================
+
+  // A second, UNARCHIVED workspace: an archived one cannot be invited to (400), and the
+  // creator's `workspace_admin` row (D-10) is what lets the owner invite to it.
+  const inviteWorkspace = await request('/api/workspaces', { method: 'POST', token: jwt, body: { name: 'Acme Invites' } });
+  expect(inviteWorkspace.status, inviteWorkspace.raw).toBe(201);
+  statuses.createInviteWorkspace = inviteWorkspace.status;
+  const inviteWorkspaceId = (inviteWorkspace.body as { id: string }).id;
+
+  // The REAL route. Its token is rendered into a message and dropped by `NoopMailSender`
+  // (transport unset), so nothing here can hold it — which is the point of AC-1b-35: the
+  // whole render-and-drop path runs, and not one byte of it may reach the capture.
+  const invited = await request('/api/invitations', {
+    method: 'POST',
+    token: jwt,
+    body: { email: INVITED_EMAIL, workspaces: [{ workspaceId: inviteWorkspaceId, workspaceRole: 'member' }] },
+  });
+  expect(invited.status, invited.raw).toBe(201);
+  statuses.invite = invited.status;
+  // The response carries no token (GC-K).
+  expect(invited.raw).not.toMatch(/[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}/);
+
+  // Two HELD tokens, planted the way the invitation specs plant them: minted here, digest
+  // under the migrator with the tenant flag, the raw value in this closure and nowhere else.
+  const [owner] = usersFor(EMAIL);
+  expect(owner).toBeDefined();
+  const heldForSignup = plantInvitation(tenantId as string, inviteWorkspaceId, owner.id, INVITED_EMAIL);
+  const heldForAccept = plantInvitation(tenantId as string, inviteWorkspaceId, owner.id, INVITED_EMAIL);
+
+  // Anonymous lookup, 200; the same secret under a swapped prefix, 404 with the fixed body.
+  const lookedUp = await request('/api/invitations/lookup', { method: 'POST', body: { token: heldForSignup } });
+  expect(lookedUp.status, lookedUp.raw).toBe(200);
+  statuses.lookup = lookedUp.status;
+  const swapped = `${'ffffffff-ffff-4fff-8fff-ffffffffffff'}.${heldForSignup.split('.')[1]}`;
+  const lookedUpSwapped = await request('/api/invitations/lookup', { method: 'POST', body: { token: swapped } });
+  expect(lookedUpSwapped.status, lookedUpSwapped.raw).toBe(404);
+  statuses.lookupSwapped = lookedUpSwapped.status;
+
+  // The invited signup — the token in the auth mount's body, through `hooks.before` and the
+  // `onUserCreated` invited branch, in the child, outside the Nest graph.
+  const inviteeSignedUp = await authRequest(server, 'POST', '/sign-up/email', {
+    body: { email: INVITED_EMAIL, password: POLICY_COMPLIANT_PASSWORD, name: SIGNUP_NAME, invitationToken: heldForSignup },
+  });
+  expect(inviteeSignedUp.status, inviteeSignedUp.raw).toBe(200);
+  statuses.invitedSignUp = inviteeSignedUp.status;
+
+  const inviteeSignedIn = await signIn(server, INVITED_EMAIL, POLICY_COMPLIANT_PASSWORD);
+  expect(inviteeSignedIn.status, inviteeSignedIn.raw).toBe(200);
+  statuses.inviteeSignIn = inviteeSignedIn.status;
+  const inviteeCookie = sessionTokenCookie(inviteeSignedIn);
+  expect(inviteeCookie, inviteeSignedIn.setCookie.join('\n')).toBeDefined();
+  const inviteeSessionCookieValue = inviteeCookie?.value ?? '';
+  expect(inviteeSessionCookieValue.length).toBeGreaterThan(16);
+
+  const inviteeMinted = await mintToken(server, inviteeSignedIn.cookie);
+  expect(inviteeMinted.status, inviteeMinted.raw).toBe(200);
+  statuses.inviteeMint = inviteeMinted.status;
+  const inviteeToken = (inviteeMinted.body as { token?: unknown }).token as string;
+  expect(inviteeToken.split('.')).toHaveLength(3);
+  // Invited INTO the owner's tenant, not a tenant of its own (SC-7).
+  expect(jwtClaims(inviteeToken).tid).toBe(tenantId);
+
+  const inviteeList = await request('/api/workspaces', { token: inviteeToken });
+  expect(inviteeList.status, inviteeList.raw).toBe(200);
+  statuses.inviteeList = inviteeList.status;
+  expect(((inviteeList.body as { items: { id: string }[] }).items).map((item) => item.id)).toEqual([inviteWorkspaceId]);
+
+  // Accept as an EXISTING member of the same tenant (the owner), 200; the same token again
+  // is 409 `invitation_already_accepted`, and the token the signup consumed is 409 too —
+  // two refusals whose messages are fixed strings and whose bodies carry no token.
+  const accepted = await request('/api/invitations/accept', { method: 'POST', token: jwt, body: { token: heldForAccept } });
+  expect(accepted.status, accepted.raw).toBe(200);
+  statuses.accept = accepted.status;
+  const acceptedTwice = await request('/api/invitations/accept', { method: 'POST', token: jwt, body: { token: heldForAccept } });
+  expect(acceptedTwice.status, acceptedTwice.raw).toBe(409);
+  statuses.acceptTwice = acceptedTwice.status;
+  const acceptConsumed = await request('/api/invitations/accept', { method: 'POST', token: jwt, body: { token: heldForSignup } });
+  expect(acceptConsumed.status, acceptConsumed.raw).toBe(409);
+  statuses.acceptConsumed = acceptConsumed.status;
+  for (const refusal of [acceptedTwice, acceptConsumed, lookedUpSwapped]) {
+    expect(refusal.raw).not.toContain(heldForAccept.split('.')[1]);
+    expect(refusal.raw).not.toContain(heldForSignup.split('.')[1]);
+  }
+
+  // Six requests went through the interceptor before the invitation legs (two lists, create,
+  // rename, archive, the wrong-field create); the malformed bodies, the auth calls and the
+  // 401 do not, by construction — see the interceptor's header. The invitation legs add
+  // EIGHT more: the second create, the invite, two lookups, the invitee's list, three
+  // accepts. Wait for all fourteen and for the AC-35 line.
   const output = await untilCaptured(
     (captured) =>
-      requestLines(captured).length >= 6 &&
+      requestLines(captured).length >= 14 &&
       emittedLines(captured).some((line) => line.record.msg === FRAMEWORK_400_CONTEXT),
-    'six request-log lines and the framework-400 error line',
+    'fourteen request-log lines and the framework-400 error line',
   );
 
-  return { tenantId: tenantId as string, token: jwt, sessionCookieValue, workspaceId, statuses, output };
+  return {
+    tenantId: tenantId as string,
+    token: jwt,
+    sessionCookieValue,
+    workspaceId,
+    inviteWorkspaceId,
+    heldTokens: [heldForSignup, heldForAccept],
+    inviteeToken,
+    inviteeSessionCookieValue,
+    statuses,
+    output,
+  };
+}
+
+/**
+ * Plants one pending invitation naming `workspaceId` at `member` and returns its RAW token —
+ * minted in this process by `issueCapabilityToken`, digest inserted under the migrator with
+ * the tenant flag (`invitations` and `invitation_workspaces` carry FORCE ROW LEVEL SECURITY),
+ * the raw value returned to the caller's local variable and written nowhere else. The same
+ * shape `test/auth/signup-invited.int-spec.ts` uses, over psql rather than the repository so
+ * this file needs no in-process database client.
+ */
+function plantInvitation(tenantId: string, workspaceId: string, inviterUserId: string, email: string): string {
+  const { raw, digest } = issueCapabilityToken(tenantId);
+
+  execSql(
+    migrationDsn(),
+    `BEGIN;
+     INSERT INTO invitations (id, tenant_id, email, token_digest, expires_at, invited_by_user_id, inviter_email)
+       VALUES (:'id'::uuid, :'tenant'::uuid, :'email', decode(:'digest', 'hex'), now() + interval '7 days', :'inviter', :'inviter_email');
+     INSERT INTO invitation_workspaces (tenant_id, invitation_id, workspace_id, role)
+       VALUES (:'tenant'::uuid, :'id'::uuid, :'workspace'::uuid, 'member'::workspace_role);
+     COMMIT;`,
+    {
+      tenantId,
+      variables: {
+        id: randomUUID(),
+        tenant: tenantId,
+        email,
+        digest: digest.toString('hex'),
+        inviter: inviterUserId,
+        inviter_email: EMAIL,
+        workspace: workspaceId,
+      },
+    },
+  );
+
+  return raw;
+}
+
+/**
+ * AC-1b-34: the console-transport child. Owner signs up, signs in, mints, creates a workspace
+ * and invites through the REAL route; the token is read OUT OF THE RENDERED MAIL in the
+ * child's output — the way an invitee reads it, and the only place this function reads one
+ * from — then driven through the anonymous lookup, a REFUSED invited signup (prefix swapped:
+ * `hooks.before` answers a fixed-string APIError), the real invited signup, sign-in, mint and
+ * the invitee's list.
+ */
+async function runConsoleFlow(): Promise<ConsoleArtefacts> {
+  const statuses: Record<string, number> = {};
+  const child = consoleServer;
+
+  const signedUp = await signUp(child, CONSOLE_OWNER_EMAIL, POLICY_COMPLIANT_PASSWORD);
+  expect(signedUp.status, signedUp.raw).toBe(200);
+  statuses.signUp = signedUp.status;
+  const signedIn = await signIn(child, CONSOLE_OWNER_EMAIL, POLICY_COMPLIANT_PASSWORD);
+  expect(signedIn.status, signedIn.raw).toBe(200);
+  const minted = await mintToken(child, signedIn.cookie);
+  expect(minted.status, minted.raw).toBe(200);
+  const ownerToken = (minted.body as { token?: unknown }).token as string;
+  const tenantId = jwtClaims(ownerToken).tid as string;
+
+  const workspace = await request('/api/workspaces', { method: 'POST', token: ownerToken, body: { name: 'Console Acme' }, against: child });
+  expect(workspace.status, workspace.raw).toBe(201);
+  const workspaceId = (workspace.body as { id: string }).id;
+
+  const invited = await request('/api/invitations', {
+    method: 'POST',
+    token: ownerToken,
+    body: { email: CONSOLE_INVITED_EMAIL, workspaces: [{ workspaceId, workspaceRole: 'member' }] },
+    against: child,
+  });
+  expect(invited.status, invited.raw).toBe(201);
+  statuses.invite = invited.status;
+
+  // The mail lands in the capture after commit; read the token out of its link.
+  const withMail = await untilCaptured((captured) => captured.includes(CONSOLE_MAIL_FOOTER), 'the console mail block', child);
+  const tokenFromMail = TOKEN_IN_FRAGMENT.exec(withMail)?.[1];
+  expect(tokenFromMail, withMail).toBeDefined();
+  const token = tokenFromMail as string;
+
+  const lookedUp = await request('/api/invitations/lookup', { method: 'POST', body: { token }, against: child });
+  expect(lookedUp.status, lookedUp.raw).toBe(200);
+  statuses.lookup = lookedUp.status;
+
+  // A refused invited signup: the same secret under a prefix nobody issued. `hooks.before`
+  // refuses with a fixed-string APIError; whatever Better Auth logs of it lands here.
+  const refusedSignUp = await authRequest(child, 'POST', '/sign-up/email', {
+    body: {
+      email: CONSOLE_INVITED_EMAIL,
+      password: POLICY_COMPLIANT_PASSWORD,
+      name: SIGNUP_NAME,
+      invitationToken: `ffffffff-ffff-4fff-8fff-ffffffffffff.${token.split('.')[1]}`,
+    },
+  });
+  expect(refusedSignUp.status, refusedSignUp.raw).toBeGreaterThanOrEqual(400);
+  expect(refusedSignUp.status, refusedSignUp.raw).toBeLessThan(500);
+  statuses.refusedInvitedSignUp = refusedSignUp.status;
+  expect(refusedSignUp.raw).not.toContain(token.split('.')[1]);
+
+  const inviteeSignedUp = await authRequest(child, 'POST', '/sign-up/email', {
+    body: { email: CONSOLE_INVITED_EMAIL, password: POLICY_COMPLIANT_PASSWORD, name: SIGNUP_NAME, invitationToken: token },
+  });
+  expect(inviteeSignedUp.status, inviteeSignedUp.raw).toBe(200);
+  statuses.invitedSignUp = inviteeSignedUp.status;
+  const inviteeSignedIn = await signIn(child, CONSOLE_INVITED_EMAIL, POLICY_COMPLIANT_PASSWORD);
+  expect(inviteeSignedIn.status, inviteeSignedIn.raw).toBe(200);
+  const inviteeMinted = await mintToken(child, inviteeSignedIn.cookie);
+  expect(inviteeMinted.status, inviteeMinted.raw).toBe(200);
+  const inviteeToken = (inviteeMinted.body as { token?: unknown }).token as string;
+  expect(jwtClaims(inviteeToken).tid).toBe(tenantId);
+  const inviteeList = await request('/api/workspaces', { token: inviteeToken, against: child });
+  expect(inviteeList.status, inviteeList.raw).toBe(200);
+  statuses.inviteeList = inviteeList.status;
+
+  // Four request lines: the workspace create, the invite, the lookup, the invitee's list.
+  const output = await untilCaptured((captured) => requestLines(captured).length >= 4, 'four request-log lines', child);
+
+  return { tenantId, tokenFromMail: token, ownerToken, inviteeToken, statuses, output };
 }
 
 beforeAll(() => {
+  // THE MAIN CHILD: `authServerEnv` and NO `MAIL_TRANSPORT` — `none`, `NoopMailSender` — on
+  // purpose (AC-1b-35, header). `WEB_APP_ORIGINS` so the invite link renders (the render
+  // runs before the Noop drop; unset, `mail_dispatch_failed` would replace the drop).
   serverBoot = startApiServer({
-    env: (baseUrl) => ({ ...authServerEnv(baseUrl), LOG_LEVEL: 'info' }),
+    env: (baseUrl) => ({ ...authServerEnv(baseUrl), LOG_LEVEL: 'info', WEB_APP_ORIGINS: WEB_ORIGIN }),
   });
   serverBoot.catch(() => undefined);
+  // THE CONSOLE CHILD (AC-1b-34): the one transport that prints the message, and so the
+  // token, to stdout BY DESIGN — the assertion is that it appears THERE and nowhere else.
+  consoleBoot = startApiServer({
+    env: (baseUrl) => ({ ...authServerEnv(baseUrl), LOG_LEVEL: 'info', WEB_APP_ORIGINS: WEB_ORIGIN, MAIL_TRANSPORT: 'console' }),
+  });
+  consoleBoot.catch(() => undefined);
 });
 
 beforeEach(async () => {
   server = await serverBoot;
+  consoleServer = await consoleBoot;
 
   if (flow === undefined) {
-    clearSignupState(EMAIL);
+    clearSignupState(EMAIL, INVITED_EMAIL);
     flow = runFlow();
   }
 
   artefacts = await flow;
-}, 180_000);
+
+  if (consoleFlow === undefined) {
+    clearSignupState(CONSOLE_OWNER_EMAIL, CONSOLE_INVITED_EMAIL);
+    consoleFlow = runConsoleFlow();
+  }
+
+  consoleArtefacts = await consoleFlow;
+}, 240_000);
 
 afterAll(async () => {
   await server?.stop();
-  clearSignupState(EMAIL);
+  await consoleServer?.stop();
+  clearSignupState(EMAIL, INVITED_EMAIL, CONSOLE_OWNER_EMAIL, CONSOLE_INVITED_EMAIL);
 });
 
 /** ADR-0028 over one parsed line: every key is named, pino's own, the `err` seam, or censored. */
@@ -391,21 +703,31 @@ describe('AC-33: the request path emits lines, and no credential is among their 
 
     // The count clause F-295 refuses to do without: zero lines would make everything below
     // true of an empty process.
-    expect(lines.length, artefacts.output).toBeGreaterThanOrEqual(6);
+    expect(lines.length, artefacts.output).toBeGreaterThanOrEqual(14);
 
     const routes = lines.map((line) => line.record.route);
     expect(routes).toContain('/api/workspaces');
-    expect(routes).toContain('/api/workspaces/:id');
-    expect(routes).toContain('/api/workspaces/:id/archive');
+    // `:workspaceId` since TASK-1b-06 (D-07): the log-safe pattern, never a concrete id.
+    expect(routes).toContain('/api/workspaces/:workspaceId');
+    expect(routes).toContain('/api/workspaces/:workspaceId/archive');
 
     for (const line of lines) {
       expect(line.record.level, line.raw).toBe('info');
-      expect(line.record.tenant_id, line.raw).toBe(artefacts.tenantId);
+      // Every authenticated line carries the tenant — the owner's AND the invitee's, who was
+      // invited INTO it. The one `@Public()` route runs with no tenant context and carries
+      // none (TASK-1b-10): a tenant id on that line would be a value read from the body.
+      if (line.record.route === '/api/invitations/lookup') {
+        expect(line.record, line.raw).not.toHaveProperty('tenant_id');
+      } else {
+        expect(line.record.tenant_id, line.raw).toBe(artefacts.tenantId);
+      }
       expect(typeof line.record.request_id, line.raw).toBe('string');
       expect(typeof line.record.duration_ms, line.raw).toBe('number');
-      expect([200, 201, 400], line.raw).toContain(line.record.status);
-      // The pattern, never the concrete path: the workspace id is on no `route`.
+      // 404 and 409: the swapped-prefix lookup and the two refused accepts (TASK-1b-10).
+      expect([200, 201, 400, 404, 409], line.raw).toContain(line.record.status);
+      // The pattern, never the concrete path: no id is on any `route`.
       expect(String(line.record.route)).not.toContain(artefacts.workspaceId);
+      expect(String(line.record.route)).not.toContain(artefacts.inviteWorkspaceId);
     }
 
     // The flow was real: every status is what the routes promise.
@@ -497,9 +819,13 @@ describe('AC-34: every field on every line is named in LOGGABLE_FIELDS or render
 
   it('the request lines carry exactly the five required fields beside msg and pino’s own keys', () => {
     for (const line of requestLines(artefacts.output)) {
-      expect(Object.keys(line.record).sort(), line.raw).toEqual(
-        ['duration_ms', 'env', 'level', 'msg', 'request_id', 'route', 'service', 'status', 'tenant_id', 'time'].sort(),
-      );
+      // The public lookup carries no tenant (no context to read one from); every other line
+      // carries the five, and no line carries a sixth.
+      const required = line.record.route === '/api/invitations/lookup'
+        ? ['duration_ms', 'env', 'level', 'msg', 'request_id', 'route', 'service', 'status', 'time']
+        : ['duration_ms', 'env', 'level', 'msg', 'request_id', 'route', 'service', 'status', 'tenant_id', 'time'];
+
+      expect(Object.keys(line.record).sort(), line.raw).toEqual(required.sort());
     }
   });
 });
@@ -538,5 +864,209 @@ describe('AC-35: an error carrying the request body is logged as the policy fiel
       expect(Object.keys(line.record).sort(), line.raw).toEqual(['code', 'env', 'level', 'msg', 'service', 'time']);
       expect(line.raw).not.toContain(POLICY_COMPLIANT_PASSWORD);
     }
+  });
+});
+
+/**
+ * The lines of `output` that sit INSIDE a `ConsoleMailSender` block: from a header line to
+ * the next footer line, inclusive. Everything else is "outside".
+ */
+function splitConsoleBlocks(output: string): { readonly inside: string[]; readonly outside: string[] } {
+  const inside: string[] = [];
+  const outside: string[] = [];
+  let within = false;
+
+  for (const line of output.split('\n')) {
+    if (line === CONSOLE_MAIL_HEADER) {
+      within = true;
+    }
+
+    (within ? inside : outside).push(line);
+
+    if (line === CONSOLE_MAIL_FOOTER) {
+      within = false;
+    }
+  }
+
+  return { inside, outside };
+}
+
+describe('AC-1b-35, AC-1b-36: with the transport unset, the invite → lookup → invited signup → sign-in → accept flow leaves no token, address or credential in the process output', () => {
+  it('the flow was real: every invitation leg answered what the routes promise', () => {
+    expect(artefacts.statuses).toMatchObject({
+      createInviteWorkspace: 201,
+      invite: 201,
+      lookup: 200,
+      lookupSwapped: 404,
+      invitedSignUp: 200,
+      inviteeSignIn: 200,
+      inviteeMint: 200,
+      inviteeList: 200,
+      accept: 200,
+      acceptTwice: 409,
+      acceptConsumed: 409,
+    });
+    expect(artefacts.heldTokens).toHaveLength(2);
+  });
+
+  it('AC-1b-35: neither held raw token nor its secret half appears anywhere in the bytes the process wrote — the console block does not exist because no transport was declared', () => {
+    // The transport is UNSET in this child (`authServerEnv` declares none and this file adds
+    // none): `NoopMailSender` dropped the route-issued message after it was RENDERED, and the
+    // held tokens crossed the auth mount's body parser, the hooks, the lookup and the accept
+    // handlers. Not one byte of any of the three may be here.
+    expect(artefacts.output).not.toContain(CONSOLE_MAIL_HEADER);
+
+    for (const raw of artefacts.heldTokens) {
+      const [prefix, secret] = raw.split('.');
+      expect(prefix).toBe(artefacts.tenantId);
+      expect(secret.length).toBe(43);
+      expect(artefacts.output).not.toContain(raw);
+      expect(artefacts.output).not.toContain(secret);
+      expect(artefacts.output).not.toContain(encodeURIComponent(raw));
+    }
+
+    // ...and no OTHER token-shaped string either — the route-issued token this process never
+    // saw would match this and nothing else in a pino line legitimately does.
+    expect(artefacts.output).not.toMatch(/[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}/);
+  });
+
+  it('AC-1b-35: the invited address appears zero times — whole, lower-cased, URL-encoded, and as its local part', () => {
+    expect(artefacts.output).not.toContain(INVITED_EMAIL);
+    expect(artefacts.output.toLowerCase()).not.toContain(INVITED_EMAIL.toLowerCase());
+    expect(artefacts.output).not.toContain(encodeURIComponent(INVITED_EMAIL));
+    expect(artefacts.output).not.toContain(INVITED_EMAIL.split('@')[0]);
+  });
+
+  it('the invitee’s session token and JWT appear zero times, whole and in the pieces a serialiser could split them into', () => {
+    const value = artefacts.inviteeSessionCookieValue;
+    expect(value.length).toBeGreaterThan(16);
+    const decoded = decodeURIComponent(value);
+    const tokenHalf = decoded.split('.')[0];
+    expect(artefacts.output).not.toContain(value);
+    expect(artefacts.output).not.toContain(decoded);
+    expect(artefacts.output).not.toContain(tokenHalf);
+
+    const segments = artefacts.inviteeToken.split('.');
+    expect(segments).toHaveLength(3);
+    expect(artefacts.output).not.toContain(artefacts.inviteeToken);
+    for (const segment of segments) {
+      expect(artefacts.output).not.toContain(segment);
+    }
+  });
+
+  it('AC-1b-36: the lookup and accept request lines carry the route PATTERN and no body-derived field; the refusal lines are fixed strings', () => {
+    const lookups = requestLines(artefacts.output).filter((line) => line.record.route === '/api/invitations/lookup');
+    const accepts = requestLines(artefacts.output).filter((line) => line.record.route === '/api/invitations/accept');
+    const invites = requestLines(artefacts.output).filter((line) => line.record.route === '/api/invitations');
+
+    // Two lookups (200, 404), three accepts (200, 409, 409), one invite (201) — by status, so
+    // a line that went missing is named by which request it was.
+    expect(lookups.map((line) => line.record.status).sort()).toEqual([200, 404]);
+    expect(accepts.map((line) => line.record.status).sort()).toEqual([200, 409, 409]);
+    expect(invites.map((line) => line.record.status)).toEqual([201]);
+
+    for (const line of [...lookups, ...accepts, ...invites]) {
+      // No body-derived field: the keys are the request line's and nothing else — no `token`,
+      // no `email`, no `invitation_id`, no `workspace_id` (GC-G).
+      const beyondTheEnvelope = Object.keys(line.record).filter(
+        (key) => !PINO_OWN_KEYS.has(key) && !['msg', 'request_id', 'route', 'status', 'duration_ms', 'tenant_id'].includes(key),
+      );
+      expect(beyondTheEnvelope, line.raw).toEqual([]);
+      expect(line.raw).not.toContain(INVITED_EMAIL);
+      expect(line.raw).not.toContain(artefacts.inviteWorkspaceId);
+    }
+
+    // The public route's lines carry no tenant; the authenticated ones carry the owner's.
+    for (const line of lookups) {
+      expect(line.record, line.raw).not.toHaveProperty('tenant_id');
+    }
+    for (const line of accepts) {
+      expect(line.record.tenant_id, line.raw).toBe(artefacts.tenantId);
+    }
+
+    // The two 409s and the 404 are DomainErrors the filter logs — whatever it wrote of them
+    // carries the fixed code and message and no token byte. Asserted over every line that
+    // names an invitation code, so a `msg` interpolating a value would be caught here.
+    const refusalLines = emittedLines(artefacts.output).filter((line) =>
+      /invitation_(already_accepted|expired|revoked|tenant_conflict)|Invitation not found/.test(line.raw),
+    );
+    for (const line of refusalLines) {
+      expect(keysNeitherNamedNorCensored(line.record), line.raw).toEqual([]);
+      for (const raw of artefacts.heldTokens) {
+        expect(line.raw).not.toContain(raw.split('.')[1]);
+      }
+    }
+  });
+});
+
+describe('AC-1b-34: with MAIL_TRANSPORT=console the token appears ONLY inside the ConsoleMailSender block and on no JSON line', () => {
+  it('the flow was real: the token was read out of the rendered mail and drove lookup, a refused and a real invited signup, and the invitee’s list', () => {
+    expect(consoleArtefacts.statuses).toMatchObject({
+      invite: 201,
+      lookup: 200,
+      invitedSignUp: 200,
+      inviteeList: 200,
+    });
+    expect(consoleArtefacts.statuses.refusedInvitedSignUp).toBeGreaterThanOrEqual(400);
+    expect(consoleArtefacts.tokenFromMail.split('.')[0]).toBe(consoleArtefacts.tenantId);
+  });
+
+  it('every line carrying the raw token or its secret half is inside a console block; no line that parses as JSON carries either', () => {
+    const { inside, outside } = splitConsoleBlocks(consoleArtefacts.output);
+    const secret = consoleArtefacts.tokenFromMail.split('.')[1];
+
+    // Non-vacuity: the block exists and the token IS in it (a transport that printed nothing
+    // would satisfy the negative below trivially).
+    expect(inside.filter((line) => line.includes(consoleArtefacts.tokenFromMail)).length).toBeGreaterThan(0);
+    expect(inside.filter((line) => line.includes(CONSOLE_INVITED_EMAIL)).length).toBeGreaterThan(0);
+
+    // The negative, stated three ways: no line outside a block carries the token or its
+    // secret; no line ANYWHERE that parses as JSON does; and no line outside a block carries
+    // the invited address.
+    expect(outside.filter((line) => line.includes(secret))).toEqual([]);
+    expect(outside.filter((line) => line.includes(encodeURIComponent(consoleArtefacts.tokenFromMail)))).toEqual([]);
+    expect(
+      emittedLines(consoleArtefacts.output)
+        .filter((line) => Object.keys(line.record).length > 0)
+        .filter((line) => line.raw.includes(secret) || line.raw.includes(CONSOLE_INVITED_EMAIL))
+        .map((line) => line.raw),
+    ).toEqual([]);
+    expect(outside.filter((line) => line.includes(CONSOLE_INVITED_EMAIL))).toEqual([]);
+    expect(outside.filter((line) => line.includes(CONSOLE_INVITED_EMAIL.split('@')[0]))).toEqual([]);
+
+    // The block is the console transport's own shape and nothing else prints inside it: every
+    // inside line is header, footer, `To:`, `Subject:`, blank, or rendered text — no JSON.
+    for (const line of inside) {
+      expect(() => JSON.parse(line) as unknown, line).toThrow();
+    }
+  });
+
+  it('every line outside a console block is one JSON record whose keys are allowlisted, save the two non-pino writers already on record', () => {
+    const { outside } = splitConsoleBlocks(consoleArtefacts.output);
+    const lines = emittedLines(outside.join('\n'));
+
+    const notJson = lines
+      .filter((line) => Object.keys(line.record).length === 0)
+      .map((line) => line.raw.replace(ANSI_ESCAPE, ''));
+    expect(
+      notJson.filter((line) => !NEST_BOOTSTRAP_LINE.test(line) && !BETTER_AUTH_PACKAGE_LOGGER_LINE.test(line)),
+    ).toEqual([]);
+
+    const offending = lines
+      .filter((line) => Object.keys(line.record).length > 0)
+      .flatMap((line) => keysNeitherNamedNorCensored(line.record).map((key) => `${key} on ${line.raw}`));
+    expect(offending).toEqual([]);
+
+    // The passwords, the owner's and the invitee's JWTs: zero times, as in the main child.
+    expect(consoleArtefacts.output).not.toContain(POLICY_COMPLIANT_PASSWORD);
+    for (const jwt of [consoleArtefacts.ownerToken, consoleArtefacts.inviteeToken]) {
+      for (const segment of jwt.split('.')) {
+        expect(consoleArtefacts.output).not.toContain(segment);
+      }
+    }
+    // The owner's address is not in the message either way (the message is addressed to the
+    // invitee and names the inviter by the `inviterEmail` field — which IS the owner's
+    // address, by design, inside the block only).
+    expect(outside.filter((line) => line.includes(CONSOLE_OWNER_EMAIL))).toEqual([]);
   });
 });

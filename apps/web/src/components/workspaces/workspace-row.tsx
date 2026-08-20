@@ -30,7 +30,18 @@
  * The row owns its two requests and the field-level rename message; the list owns what
  * happens next (`onChanged` re-fetches and announces; `onFailure` handles `not_found`, the
  * session expiry and the generic message).
+ *
+ * THE "INVITE" LINK (TASK-1b-14, AC-1b-29: "`/workspaces` shows the link only on rows with
+ * `workspaceRole: 'workspace_admin'`"). An active row the caller administers links to
+ * `/workspaces/<id>/invitations` (`INVITATIONS_ROUTE`), named "Invite to <name>". A member
+ * or viewer, a row whose `workspaceRole` the API did not send (the field is additive and
+ * optional on the contract until TASK-1b-06's `.optional()` is removed), and an archived
+ * row get no link: the API answers 403 to a member and 400 to an invite on an archived
+ * workspace, and the row does not offer what would be refused. HIDING IS NOT ENFORCEMENT —
+ * the API is (workspace-authorization.md, "Minimum role per surface"). Rename and archive
+ * are left as they were (shown on every active row; the API refuses a non-admin with 403).
  */
+import Link from 'next/link';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactElement } from 'react';
 
@@ -38,6 +49,7 @@ import { WORKSPACE_NAME_MAX_LENGTH } from '@shortkit/contracts';
 import type { Workspace } from '@shortkit/contracts';
 
 import { apiClient } from '../../lib/api/client';
+import { INVITATIONS_ROUTE } from '../invitations/invitations-api';
 import {
   WORKSPACE_MESSAGES,
   archiveWorkspaceRequest,
@@ -237,6 +249,7 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
   }
 
   const isArchived = workspace.archivedAt !== null;
+  const canInvite = !isArchived && workspace.workspaceRole === 'workspace_admin';
   const renameFormId = `${idBase}-rename-form`;
   const inputId = `${idBase}-rename`;
   const errorId = `${inputId}-error`;
@@ -253,6 +266,11 @@ export function WorkspaceRow({ workspace, onChanged, onFailure }: WorkspaceRowPr
       {isArchived ? null : (
         <>
           <div className="workspace-row-actions">
+            {canInvite ? (
+              <Link className="workspace-row-link" href={INVITATIONS_ROUTE(workspace.id)}>
+                Invite <span className="visually-hidden">to {workspace.name}</span>
+              </Link>
+            ) : null}
             <button
               ref={renameButtonRef}
               type="button"

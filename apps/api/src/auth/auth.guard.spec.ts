@@ -185,7 +185,8 @@ describe('AuthGuard over HTTP', () => {
     const result = await probe(PRIVATE, { authorization: `Bearer ${token}` });
 
     expect(result.status, result.raw).toBe(200);
-    expect(result.body).toEqual({ userId: USER_ID, tenantId: TENANT_ID, emailVerified: true });
+    // `email` since TASK-1b-05 (D-06): the claim, verbatim, for the mail template.
+    expect(result.body).toEqual({ userId: USER_ID, tenantId: TENANT_ID, email: 'operator@example.com', emailVerified: true });
     expect(handlerRuns).toEqual(['private']);
   });
 

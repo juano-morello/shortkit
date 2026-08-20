@@ -47,15 +47,27 @@ export class TenantContextMismatchError extends Error {}
 export interface RequestContext {
   readonly userId: string;
   readonly tenantId: string;
+  readonly email: string;        // the `email` claim, verbatim (TASK-1b-05, D-06). NEVER logged.
   readonly emailVerified: boolean;
-  workspaceId?: string;          // set by WorkspaceGuard (TASK-017)
-  workspaceRole?: WorkspaceRole; // set by WorkspaceGuard (TASK-017)
-  tenantRole?: TenantRole;       // set by WorkspaceGuard (TASK-017)
+  workspaceId?: string;          // set by WorkspaceAuthorizationInterceptor (TASK-1b-05)
+  workspaceRole?: WorkspaceRole; // set by WorkspaceAuthorizationInterceptor (TASK-1b-05)
+  tenantRole?: TenantRole;       // set by WorkspaceAuthorizationInterceptor (TASK-1b-05)
 }
 
 /** Justification is required, not optional. TASK-056 reports it. */
 export declare function Public(justification: string): MethodDecorator & ClassDecorator;
 ```
+
+> **Amended 2026-08-18 (TASK-1b-05, D-06).** `RequestContext.email` is the `email` claim
+> (`auth-tokens.md`, "Verification", step 8), populated by `AuthGuard` beside `sub`, `tid`
+> and `ev`, still from claims only. It exists because the invitation mail template needs the
+> inviter's address and `shortkit_app` cannot read `user` (ADR-0050). It is **not** in
+> `LOGGABLE_FIELDS` (`logging-and-headers.md`, GC-G) and nothing reads it into a log line;
+> a record carrying it renders `[redacted]`. The three optional fields are set by
+> `WorkspaceAuthorizationInterceptor` (`workspace-authorization.md`, "The two enforcement
+> forms") on a route carrying `@RequireWorkspaceRole` / `@RequireTenantRole`, after the lookup
+> passes; on any other route they stay unset. `WorkspaceGuard` (TASK-017) never existed as a
+> guard — see that contract for why the enforcement point is an interceptor.
 
 ## SQL issued by `withTenantTransaction`
 
@@ -181,12 +193,16 @@ prints the justification.
 
 ### Authorization moves into the handler, and does not disappear
 
-Added 2026-08-04 (F-020). Skipping the interceptor means **there is no ambient tenant
-context when guards run**, and `WorkspaceGuard`'s membership lookup needs one. Left
-unstated, an implementer meets a guard that throws on the only irreversible route in the
-system, and the cheapest green fix is to make `WorkspaceGuard` tolerate a missing
-context. That removes the owner check from tenant erasure and lets any tenant `member`
-destroy the whole tenant.
+Added 2026-08-04 (F-020). Skipping the interceptor means ~~**there is no ambient tenant
+context when guards run**~~ **Form A cannot be used on the route** — amended 2026-08-18
+(TASK-1b-05, D-05): there is never an ambient tenant context when guards run, on any route,
+which is exactly why the enforcement point is `WorkspaceAuthorizationInterceptor`, the third
+`APP_INTERCEPTOR`, running inside the transaction the second one opens; what a
+`@NoTenantTransaction` route lacks is that transaction, and the membership lookup needs
+one. Left unstated, an implementer meets an interceptor that throws on the only irreversible
+route in the system, and the cheapest green fix is to make it tolerate a missing context.
+That removes the owner check from tenant erasure and lets any tenant `member` destroy the
+whole tenant.
 
 Three rules, all normative:
 
@@ -199,7 +215,11 @@ Three rules, all normative:
 3. **`WorkspaceGuard` fails closed.** With no active tenant context it throws
    `TenantContextMissingError`, producing a 500. It never returns true and never
    degrades to an unchecked pass. A 500 on a misconfigured route is correct; a silent
-   pass on the erasure route is not.
+   pass on the erasure route is not. *Shipped 2026-08-18 as `WorkspaceAuthorizationInterceptor`:
+   the repositories it reads are `tenantDb()`-only, so the throw precedes any statement; and
+   rule 1's combination — either decorator beside `@NoTenantTransaction()` or `@Public()` —
+   is an `AuthorizationMisconfiguredError` (500) at the first request, until TASK-056's
+   static assertion exists.*
 
 Route enumeration cannot see an in-handler check, so an integration test asserting 403
 for a tenant `member` and a tenant `admin` is the only coverage of AC-105 on this route.

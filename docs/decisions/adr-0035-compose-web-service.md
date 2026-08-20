@@ -247,6 +247,21 @@ not TASK-059's to resolve.
   the compose one, and a developer copying it to `.env.local` gets values for a stack they
   may not be running.
 
+### Dated note, 2026-08-18 — the `api` service declares `MAIL_TRANSPORT=console` (D-02, TASK-1b-11)
+
+Item 1b put an invitation surface on this stack, and the invitation is a link that arrives
+by mail. `docker-compose.yml`'s `api.environment` now carries
+`MAIL_TRANSPORT: ${MAIL_TRANSPORT:-console}`: every message the API would send is written to
+the container's stdout as one plain-text block, so a developer and `check-compose-stack.sh`
+read the accept link out of `docker compose logs api` and no mailbox is involved. Ruled by
+Juano on 2026-08-18 over the alternative of leaving the stack silent and giving the check a
+test-only way at the token (a debug surface on the production image, rejected). The cost,
+stated: a single-use bearer credential in a laptop's container log, which nothing else reads.
+It changes nothing this ADR decided about `web`; the link's origin is the first entry of
+`WEB_APP_ORIGINS`, `http://localhost:3000`, which is where `/invitations/accept` is served.
+Unset stays `none` (ADR-0017): a production-shaped deployment never declares `console`, and
+`MAIL_TRANSPORT=none docker compose up` is the silent stack.
+
 ### Follow-ups this creates
 
 - TASK-059 writes `apps/web/Dockerfile` and updates `apps/web/.env.example`.

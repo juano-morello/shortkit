@@ -162,8 +162,9 @@ describe('AuthGuard against a token minted by the real issuer', () => {
     // Invariant 1: `tenantId` on the request IS the tenant the membership row names, and it
     // came from the claims alone — the guard made no database read to get it.
     const claims = jwtClaims(token);
-    expect(result.body).toEqual({ userId, tenantId, emailVerified: false });
-    expect(result.body).toEqual({ userId: claims.sub, tenantId: claims.tid, emailVerified: claims.ev });
+    // `email` since TASK-1b-05 (D-06): the claim, verbatim — the address the account was created with.
+    expect(result.body).toEqual({ userId, tenantId, email: EMAIL, emailVerified: false });
+    expect(result.body).toEqual({ userId: claims.sub, tenantId: claims.tid, email: claims.email, emailVerified: claims.ev });
   });
 
   it('AC-10: the same route with no Authorization header is 401 unauthenticated and the handler never runs', async () => {

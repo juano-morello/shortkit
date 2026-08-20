@@ -5,17 +5,25 @@ once, creates a workspace per client, points that client's branded domain at the
 workspace, and invites teammates scoped to the clients they work on. Visitors never see
 the product. They get one redirect that resolves fast or does not.
 
-**Signup, sessions and workspaces are here. The rest is not.** After the
-`identity-membership` branch, an operator signs up, signs in and holds a session; signup
-creates a tenant and the operator's membership in it (`tenant_memberships`); the operator
-lists, creates, renames and archives workspaces through four authenticated routes under
-`/api/workspaces` and one screen in `apps/web`. The browser never calls the API directly.
-Every request goes through the web app's own BFF proxy at `/api/bff/…`, which holds the
-session cookies. Each matched API request writes one structured log line. Nothing else
-exists: no invitations and no mail, no links and no redirect, no custom domains, no export
-or erasure paths, no marketing site. The five increments that turn the substrate into the
-product above are named in `docs/roadmap.md`, in the order they have to land; item 1a is
-what this branch delivers.
+**Signup, sessions, workspaces and invitations are here. The rest is not.** After the
+`identity-membership` and `invitations` branches, an operator signs up, signs in and holds
+a session; signup creates a tenant and the operator's membership in it
+(`tenant_memberships`); the operator lists, creates, renames and archives workspaces
+through five authenticated routes under `/api/workspaces` and one screen in `apps/web`. A
+workspace admin invites an address to one or more workspaces, each at a role, through five
+routes under `/api/invitations` and a screen per workspace; the invitation is a link that
+arrives by mail — printed to the API's log in the local stack, sent by Resend where a
+deployment declares it. The invitee opens the link and creates an account with it (or
+accepts it while signed in to an account in the same tenant); they land in the inviter's
+tenant, no tenant of their own is created, and they see only the workspaces they were
+granted. A workspace role is enforced on every workspace route, read from `memberships` on
+every request. The browser never calls the API directly. Every request goes through the
+web app's own BFF proxy at `/api/bff/…`, which holds the session cookies. Each matched API
+request writes one structured log line. Nothing else exists: no member management after
+the invitation, no links and no redirect, no custom domains, no export or erasure paths,
+no marketing site. The five increments that turn the substrate into the product above are
+named in `docs/roadmap.md`, in the order they have to land; item 1, both halves, is what
+these two branches deliver.
 
 Two rules shape the code that exists:
 
@@ -23,14 +31,18 @@ Two rules shape the code that exists:
   transaction that has bound the tenant to the connection, and row-level security backs
   that up. Isolation gets measured by a suite that runs against a real database, not
   asserted in a comment. The suite states its own boundary on every run and writes it into
-  `report.json`, and the boundary is still narrow: four tables (`tenants`; a fixture table
+  `report.json`, and the boundary is still narrow: seven tables (`tenants`; a fixture table
   it creates and drops per run from the same production policy builder; `tenant_memberships`;
-  and `workspaces`, attacked as a table and through the five methods of its repository) and
-  the four registered `/api/workspaces` endpoints, attacked as a second signed-in operator.
-  Every one of those subjects is registered by hand, not discovered from the module graph,
-  and the run says so. A green run means the mechanism works for the surface someone
-  registered. **It does not mean the system has no uncovered cross-tenant surface: a route
-  nobody registered is a route nobody attacked, and most of the system is unwritten.**
+  `workspaces`; and `memberships`, `invitations` and `invitation_workspaces` — attacked as
+  tables and, for `workspaces`, `memberships` and the two invitation tables, through the
+  methods of their three repository classes) and the ten registered endpoints under
+  `/api/workspaces` and `/api/invitations`, attacked as a second signed-in operator. The
+  exact boundary is `COVERAGE_BOUNDARY` in `apps/api/test/isolation/coverage.ts`, and it is
+  what the report carries. Every one of those subjects is registered by hand, not
+  discovered from the module graph, and the run says so. A green run means the mechanism
+  works for the surface someone registered. **It does not mean the system has no uncovered
+  cross-tenant surface: a route nobody registered is a route nobody attacked, and most of
+  the system is unwritten.**
 - **One set of contracts.** `packages/contracts` holds the zod schemas the API builds its
   error envelope from and the web client narrows on. It ships TypeScript source with no
   build step, so an incompatible change breaks `pnpm typecheck` in the same commit — and
@@ -46,8 +58,8 @@ statement behind a cache, no ORM, and no import from the management API — is r
 
 | Workspace | Package | What it is |
 | --- | --- | --- |
-| `apps/api` | `@shortkit/api` | NestJS. `GET /health` at the root; Better Auth mounted on Express at `/api/auth/*` ahead of Nest, behind a body cap and IP-keyed buckets; four workspace routes under `/api/workspaces`, behind a bearer-token guard and a per-request tenant transaction |
-| `apps/web` | `@shortkit/web` | Next.js App Router. `/signup`, `/sign-in`, `/workspaces`, a root page and a 404; the BFF proxy under `/api/bff/…` that holds the session cookies and forwards to the API |
+| `apps/api` | `@shortkit/api` | NestJS. `GET /health` at the root; Better Auth mounted on Express at `/api/auth/*` ahead of Nest, behind a body cap and IP-keyed buckets, with an invited-signup branch that joins a tenant instead of creating one; five workspace routes under `/api/workspaces` and five invitation routes under `/api/invitations`, behind a bearer-token guard, a per-request tenant transaction and a workspace-role check; a `MailSender` port with `console`, `resend`, `fake` and `none` transports, selected by `MAIL_TRANSPORT` |
+| `apps/web` | `@shortkit/web` | Next.js App Router. `/signup` (which also takes an invitation token), `/sign-in`, `/workspaces`, `/workspaces/<id>/invitations`, `/invitations/accept`, a root page and a 404; the BFF proxy under `/api/bff/…` that holds the session cookies and forwards to the API |
 | `packages/contracts` | `@shortkit/contracts` | Shared zod schemas and the types inferred from them |
 
 ## Requirements
@@ -69,7 +81,7 @@ Run these from the repository root.
 | `pnpm test` | Vitest across all three workspaces, with no database and no network |
 | `pnpm build` | Bundles the API to `apps/api/dist/` with tsup and builds the Next.js app |
 | `pnpm test:integration` | API suites that need a live Postgres |
-| `pnpm test:compose` | Brings the whole stack up from nothing with Docker and asserts eighteen clauses over it |
+| `pnpm test:compose` | Brings the whole stack up from nothing with Docker and asserts twenty-two clauses over it |
 
 `pnpm build` bundles the API with tsup rather than emitting file by file.
 `packages/contracts` ships TypeScript source and has no build step (ADR-0005), so
@@ -86,7 +98,7 @@ cannot break the stack silently.
 
 ## Where the decisions live
 
-`docs/decisions/` holds 61 ADRs and `docs/contracts/` holds 27 contracts. The code cites
+`docs/decisions/` holds 62 ADRs and `docs/contracts/` holds 27 contracts. The code cites
 them by number — `ADR-0003` in a docblock, a `Contract:` header at the top of a file — and
 every one of those citations resolves inside this repository. When a contract and the
 shipped file disagree the shipped file wins, and the divergence is a finding.
@@ -127,13 +139,31 @@ file exists, `pnpm test:compose` refuses to run at all (`cannot run the AC-115 c
 there is a .env at the repository root`, exit 2, nothing measured) — move it aside first.
 
 Nothing else needs exporting. `docker-compose.yml` sets every other variable the stack
-reads: the role passwords, `BETTER_AUTH_URL` and `WEB_APP_ORIGINS` for the API,
-`API_BASE_URL` for the web app. It leaves the API's two trust declarations
+reads: the role passwords, `BETTER_AUTH_URL`, `WEB_APP_ORIGINS` and `MAIL_TRANSPORT` for
+the API, `API_BASE_URL` for the web app. It leaves the API's two trust declarations
 (`CLIENT_TRUST_BOUNDARY`, `BFF_TRUST_BOUNDARY`) unset, because the stack has no proxy in
 front of the API and shares no BFF secret between the two services; `apps/api/.env.example`
 says what that costs. That file and `apps/web/.env.example` list every variable each
 process reads. Compose reads neither: they are templates for a process run outside the
 stack, and each says how to use it.
+
+**Invite links are printed, not sent.** The stack declares `MAIL_TRANSPORT=console`
+(D-02, 2026-08-18), so every message the API would send is written to the `api`
+container's stdout as plain text — recipient, subject, body — and nothing leaves the
+machine. Invite someone from `http://localhost:3000/workspaces/<id>/invitations`, then:
+
+```
+docker compose logs api
+```
+
+Each message is one block between a header and a footer line, with the accept link on a
+line of its own; open it in the same browser and the invitation completes. `console` is
+opt-in and this stack opts in. With `MAIL_TRANSPORT` unset the API binds a sender that
+sends nothing and logs one warn line per suppressed message; no deployment declares
+`console`, because stdout is a log store everywhere but a laptop. `MAIL_TRANSPORT=resend`
+needs `RESEND_API_KEY` and `MAIL_FROM` as well and refuses to boot without them;
+`apps/api/.env.example` has the table. `MAIL_TRANSPORT=none docker compose up` runs the
+silent stack.
 
 Postgres comes up with its roles provisioned, the migrations are applied, the seed
 inserts one demo tenant, the API starts, and the web app starts once the API is healthy.
@@ -144,6 +174,8 @@ inserts one demo tenant, the API starts, and the web app starts once the API is 
 | `http://localhost:3000/signup` | the signup form; the request goes through the web app's own `/api/bff/…` route to the API |
 | `http://localhost:3000/sign-in` | the sign-in form, same path |
 | `http://localhost:3000/workspaces` | the workspace list, create, rename and archive screen; a request with no session bounces to `/sign-in` |
+| `http://localhost:3000/workspaces/<id>/invitations` | invite an address to that workspace at a role, list its invitations, revoke one; workspace admins only |
+| `http://localhost:3000/invitations/accept` | where an invite link lands; the token is in the URL fragment, never sent to a server; offers signup with the token, or accept while signed in |
 | `http://localhost:3001/health` | `{"status":"ok","commit":"…"}` |
 | `postgres://shortkit_app:app@127.0.0.1:55432/shortkit` | the database |
 
@@ -156,14 +188,18 @@ deploy target is chosen for the API (ADR-0030).
 
 `pnpm test:compose` measures the same stack, one step earlier: it generates and exports
 its own `BETTER_AUTH_SECRET` for the duration of the run, so it needs nothing exported
-first. It tears any existing stack down to nothing, brings it up, and reports eighteen
+first. It tears any existing stack down to nothing, brings it up, and reports twenty-two
 clauses — every service healthy,
 `shortkit_app` authenticating over TCP with the fixture password and refused with a wrong
 one, every migration recorded as applied, the demo tenant readable by that same role,
 `/health` answering 200 with `status` of `"ok"`, a signup, a sign-in and a workspace
-creation driven through the web app's proxy in that order, and the data surviving a second
-`up` and a `restart`. Each clause fails on its own and prints why, so the output says which part
-broke rather than that something did.
+creation driven through the web app's proxy in that order, then the second human: an
+invitation from that owner, its link read out of `docker compose logs api`, an invited
+signup that creates no tenant, and a sign-in that lists exactly the granted workspace at
+`member` and nothing else — and the data surviving a second `up` and a `restart`. Each
+clause fails on its own and prints why, so the output says which part broke rather than
+that something did. The invitation clauses are `BLOCKED`, not failed, on a stack whose API
+is not printing mail: nothing about that path was measured, and the table says so.
 
 ### What a green stack does not give you
 
@@ -178,8 +214,8 @@ which is why `web` waits for `api` to be healthy before it starts. A signup post
 `http://localhost:3000` reaches the API and creates an account against an empty database,
 with no seed data involved. The web container's health check asks for `/` and nothing
 else, so two green containers prove the path exists and not that the flow works;
-`pnpm test:compose` is what drives a signup, a sign-in and a workspace creation through
-that proxy and asserts each one. Two things the
+`pnpm test:compose` is what drives a signup, a sign-in, a workspace creation, an
+invitation and its acceptance through that proxy and asserts each one. Two things the
 stack still does not do: it forwards no browser address to the API (the two services
 share no `BFF_PROXY_SECRET`), so the IP-keyed rate limits do not bind here; and
 `http://api:3001` resolves only inside the compose network, so a browser reaches the API
@@ -232,6 +268,10 @@ situations, and in the first two nothing else works:
    contents, so `migrate` reports success having executed no statement.
    `docs/architecture/migrations.md` has the detail.
 3. **A branch switch across a migration.** The volume does not switch with the branch.
+   A volume from before `feat/invitations` is the case to know about: its `workspaces` rows
+   have no `memberships` row for their creator, and after migration `0003` the workspace
+   list is membership-filtered, so an owner who created workspaces on the old volume sees
+   none of them. There is no backfill; ADR-0062 says why. `down -v` and start again.
 
 `docker compose restart` prints `migrate` and `seed` as failed, every time, and the stack
 is fine. Compose restarts exited one-shot containers too and ignores `depends_on`
@@ -256,6 +296,8 @@ The volume is unencrypted developer storage. It survives `docker compose down`,
 `git clean -xdf` and a branch switch, and `docker volume ls` is the only place it appears.
 Today it holds one synthetic demo tenant, Postgres's own password verifiers for three
 fixture roles, and whatever you typed: a local signup writes its email address and password
-hash to Better Auth's `user` and `account` tables, and its workspace names to `workspaces`.
-Since 2026-08-18 that is real personal data if you typed a real address, so the volume is
-not something to hand around.
+hash to Better Auth's `user` and `account` tables, its workspace names to `workspaces`, and
+every address it invited to `invitations` (the token's digest, never the token). Since
+2026-08-18 that is real personal data if you typed a real address, so the volume is not
+something to hand around — and so is `docker compose logs api`, which under `console`
+holds every invited address and every invite link.

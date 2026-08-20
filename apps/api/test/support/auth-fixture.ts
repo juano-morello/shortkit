@@ -203,6 +203,16 @@ export async function authRequest(
   const response = await fetch(`${server.baseUrl}/api/auth${path}`, {
     method,
     headers: {
+      // TASK-1b-10 (a review finding). NO KEEP-ALIVE ON A FIXTURE SOCKET. undici pools the
+      // socket to the child across calls, and the child's `keepAliveTimeout` (5 s) closes it
+      // from the other end; a caller that comes back to it after a long gap — the isolation
+      // harness re-mints a token per attempt after psql resets and censuses, sometimes minutes
+      // after the previous auth call — can pick the socket up in the instant the child's FIN
+      // lands and get `fetch failed: other side closed` on a request that never arrived.
+      // `connection: close` is honoured by undici (measured on Node 24: the header arrives
+      // and the server closes after the response), so every auth call opens its own socket.
+      // One header, no behavioural change for any assertion: nothing here keys on a socket.
+      connection: 'close',
       origin: server.baseUrl,
       ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(options.cookie === undefined || options.cookie === ''

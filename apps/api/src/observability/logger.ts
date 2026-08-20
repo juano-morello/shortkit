@@ -62,6 +62,7 @@ export const LOGGABLE_FIELDS: ReadonlySet<string> = new Set([
   'retry_in_ms', // main.ts, boot retry
   'route', // logging-and-headers.md, Required fields. The PATTERN, never a path
   'status', // logging-and-headers.md, Required fields
+  'template', // mail/senders/*.ts, a MailTemplate literal (mail-sender.md, "Signal")
   'tenant_id', // logging-and-headers.md, Required fields
 ]);
 

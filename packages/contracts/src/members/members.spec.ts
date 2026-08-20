@@ -16,21 +16,28 @@
  * exported step that brands — with `asTenantRole` re-checking membership so the brand keeps
  * meaning "checked" rather than "cast".
  *
- * The compile-time half is carried by the two `@ts-expect-error` directives below. THEY DO
+ * The compile-time half is carried by the `@ts-expect-error` directives below. THEY DO
  * NOT RUN UNDER `pnpm test` — vitest transpiles with swc and never typechecks. They are
  * assertions against `pnpm typecheck`, which is AC-8's own second clause, and each fails
  * that command with "Unused '@ts-expect-error' directive" the day the wire type starts
  * carrying a brand.
+ *
+ * The workspace-membership pair (TASK-1b-01, STORY-1b-01/04, item 1b) is asserted the same
+ * way, below the tenant one. It is not on any 1b route; it exists so `MembershipRepository`
+ * (TASK-1b-05) brands a `memberships` row through one sanctioned path.
  */
 import { describe, expect, it } from 'vitest';
 
 import { isZodError, toValidationDetails } from '../errors';
-import type { TenantRole } from '../roles';
+import type { TenantRole, WorkspaceRole } from '../roles';
 
 import {
   brandTenantMembership,
+  brandWorkspaceMembership,
   parseTenantMembership,
+  parseWorkspaceMembership,
   tenantMembershipContract,
+  workspaceMembershipContract,
 } from './index';
 
 /**
@@ -146,5 +153,107 @@ describe('brandTenantMembership', () => {
     // Refusing is what keeps the brand meaning "this value was checked" rather than "this
     // value was cast", which is the whole of ADR-0023's claim.
     expect([roleOrThrows('owner'), roleOrThrows('superuser')]).toEqual(['owner', 'throws']);
+  });
+});
+
+/** D-11's six fields. `workspaceId` is a uuid; `userId` is again Better Auth's own id. */
+const WIRE_WORKSPACE_MEMBERSHIP = {
+  id: '55555555-5555-4555-8555-555555555555',
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  userId: 'nZ8kQpR2xLmT4vB6',
+  role: 'workspace_admin',
+  createdAt: '2026-08-18T09:00:00.000Z',
+} as const;
+
+describe('workspaceMembershipContract', () => {
+  it('AC-1b-17 (D-11): the six fields survive a parse', () => {
+    expect(workspaceMembershipContract.parse({ ...WIRE_WORKSPACE_MEMBERSHIP })).toEqual({
+      id: '55555555-5555-4555-8555-555555555555',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      userId: 'nZ8kQpR2xLmT4vB6',
+      role: 'workspace_admin',
+      createdAt: '2026-08-18T09:00:00.000Z',
+    });
+  });
+
+  it('AC-1b-17: workspaceId and tenantId must be uuids; userId need not be', () => {
+    expect([
+      workspaceMembershipContract.safeParse({ ...WIRE_WORKSPACE_MEMBERSHIP, workspaceId: 'W1' }).success,
+      workspaceMembershipContract.safeParse({ ...WIRE_WORKSPACE_MEMBERSHIP, tenantId: 'tenant-a' }).success,
+      workspaceMembershipContract.safeParse({ ...WIRE_WORKSPACE_MEMBERSHIP, userId: 'x9' }).success,
+    ]).toEqual([false, false, true]);
+  });
+
+  it('AC-1b-17: a role outside WORKSPACE_ROLES is refused and keys an issue under role', () => {
+    // `owner` is a TENANT role. Same shape as the tenant test's `workspace_admin` row, in the
+    // other direction: the two enums share `member` and nothing else.
+    const outcome = workspaceMembershipContract.safeParse({ ...WIRE_WORKSPACE_MEMBERSHIP, role: 'owner' });
+
+    expect(outcome.success).toBe(false);
+
+    if (outcome.success) {
+      return;
+    }
+
+    expect(toValidationDetails(outcome.error).fieldErrors.role?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it('AC-1b-17 (ADR-0048): the inferred wire role is unbranded, so it is not assignable to WorkspaceRole', () => {
+    const wire = workspaceMembershipContract.parse({ ...WIRE_WORKSPACE_MEMBERSHIP });
+
+    // @ts-expect-error a brand in an inferred contract type is what ADR-0048 refuses
+    const laundered: WorkspaceRole = wire.role;
+
+    expect(laundered).toBe('workspace_admin');
+  });
+});
+
+describe('parseWorkspaceMembership', () => {
+  it('AC-1b-17 (ADR-0048): it returns the parsed value with the role branded through asWorkspaceRole', () => {
+    expect(parseWorkspaceMembership({ ...WIRE_WORKSPACE_MEMBERSHIP })).toEqual({
+      id: '55555555-5555-4555-8555-555555555555',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      workspaceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      userId: 'nZ8kQpR2xLmT4vB6',
+      role: 'workspace_admin',
+      createdAt: '2026-08-18T09:00:00.000Z',
+    });
+  });
+
+  it('AC-1b-17 (ADR-0048): the parse runs before the brand, so a bad role throws a ZodError', () => {
+    let thrown: unknown;
+
+    try {
+      parseWorkspaceMembership({ ...WIRE_WORKSPACE_MEMBERSHIP, role: 'superuser' });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(isZodError(thrown)).toBe(true);
+  });
+});
+
+describe('brandWorkspaceMembership', () => {
+  function roleOrThrows(role: string): string {
+    const wire = workspaceMembershipContract.parse({ ...WIRE_WORKSPACE_MEMBERSHIP });
+
+    try {
+      // @ts-expect-error the wire type already excludes this; the runtime check is the point
+      return brandWorkspaceMembership({ ...wire, role }).role;
+    } catch {
+      return 'throws';
+    }
+  }
+
+  it('AC-1b-17 (ADR-0048): it brands an already-parsed role and refuses one outside WORKSPACE_ROLES', () => {
+    // `admin` is the row that matters: a tenant role that is one string away from
+    // `workspace_admin`, and the value the Form B hole in roles.ts would launder.
+    expect([roleOrThrows('viewer'), roleOrThrows('admin'), roleOrThrows('superuser')]).toEqual([
+      'viewer',
+      'throws',
+      'throws',
+    ]);
   });
 });

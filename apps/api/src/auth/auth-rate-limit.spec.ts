@@ -33,7 +33,7 @@ const SIGN_IN = AUTH_RATE_LIMIT_BUCKETS.signInPerIp;
 const SIGN_UP = AUTH_RATE_LIMIT_BUCKETS.signUpPerIp;
 const OTHER = AUTH_RATE_LIMIT_BUCKETS.otherPerIp;
 
-async function outcome(run: () => Promise<void>): Promise<'allowed' | AuthRateLimitExceededError | unknown> {
+async function outcome(run: () => Promise<unknown>): Promise<'allowed' | AuthRateLimitExceededError | unknown> {
   try {
     await run();
     return 'allowed';
@@ -65,16 +65,102 @@ afterEach(() => {
 });
 
 describe('the bucket table', () => {
-  it('ADR-0013: sign-in 10 per 5 min, sign-up 3 per hour, everything else 60 per min, all IP-keyed', () => {
-    // The email-keyed sign-in bucket (5 per 15 min) is DELIBERATELY ABSENT: it runs inside
-    // Better Auth as a `hooks.before` middleware and belongs to item 1b, and `beforeHooks` is
-    // empty until then (TASK-003). Recorded here so its absence is a statement rather than
-    // an omission — across many addresses an attacker is bounded only by the three below.
+  it('ADR-0013: sign-in 10 per 5 min per IP and 5 per 15 min per email, sign-up 3 per hour, everything else 60 per min', () => {
+    // The email-keyed sign-in bucket (5 per 15 min) is the fourth row since TASK-1b-09
+    // (D-15). It is NOT charged by this middleware: it runs inside Better Auth as the first
+    // `beforeHooks` entry (`email-rate-limit-hook.ts`), against the SAME port instance
+    // `main.ts` hands to `authRateLimit`, keyed on the hashed normalised address.
     expect(AUTH_RATE_LIMIT_BUCKETS).toEqual({
       signInPerIp: { limit: 10, windowSeconds: 300 },
+      signInPerEmail: { limit: 5, windowSeconds: 900 },
       signUpPerIp: { limit: 3, windowSeconds: 3600 },
       otherPerIp: { limit: 60, windowSeconds: 60 },
     });
+  });
+});
+
+describe('LocalAuthRateLimiter.release (TASK-1b-09, the failed-attempts rule)', () => {
+  let limiter: LocalAuthRateLimiter;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-18T12:00:00.000Z'));
+    limiter = new LocalAuthRateLimiter();
+  });
+
+  afterEach(() => {
+    limiter.onModuleDestroy();
+  });
+
+  it('gives one charge back: five charges, one release of the last, one more admitted, then refused', async () => {
+    let charge = await limiter.check('signInPerEmail', 'k');
+    for (let i = 0; i < 4; i += 1) {
+      charge = await limiter.check('signInPerEmail', 'k');
+    }
+    await limiter.release('signInPerEmail', 'k', charge);
+
+    await expect(limiter.check('signInPerEmail', 'k')).resolves.toEqual({ windowStart: expect.any(Number) as number });
+    await expect(limiter.check('signInPerEmail', 'k')).rejects.toBeInstanceOf(AuthRateLimitExceededError);
+  });
+
+  it('check reports the fixed window it charged, aligned to the epoch', async () => {
+    const charge = await limiter.check('signInPerEmail', 'k');
+    const windowMs = AUTH_RATE_LIMIT_BUCKETS.signInPerEmail.windowSeconds * 1000;
+
+    expect(charge.windowStart).toBe(Math.floor(Date.now() / windowMs) * windowMs);
+    expect(charge.windowStart).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('floors at zero and is idempotent: releasing an uncharged key, or the same charge more than once, admits no extra attempt', async () => {
+    await limiter.release('signInPerEmail', 'never', { windowStart: 0 });
+    const charge = await limiter.check('signInPerEmail', 'k');
+    await limiter.release('signInPerEmail', 'k', charge);
+    await limiter.release('signInPerEmail', 'k', charge);
+    await limiter.release('signInPerEmail', 'k', charge);
+
+    // A key that owes nothing is not held.
+    expect(limiter.size('signInPerEmail')).toBe(0);
+    // Exactly the limit is admitted afterwards, not the limit plus the over-releases.
+    expect(await allowedOf(limiter, 'signInPerEmail', 'k', 7)).toBe(5);
+  });
+
+  it('a charge → release → charge cycle keeps the count at one, so successes never accumulate', async () => {
+    for (let i = 0; i < 20; i += 1) {
+      const charge = await limiter.check('signInPerEmail', 'k');
+      await limiter.release('signInPerEmail', 'k', charge);
+    }
+
+    expect(await allowedOf(limiter, 'signInPerEmail', 'k', 7)).toBe(5);
+  });
+
+  it('a charge from window N released after the roll leaves window N+1 untouched — including an unrelated charge that opened it (review LOW)', async () => {
+    const stale = await limiter.check('signInPerEmail', 'k');
+    vi.setSystemTime(new Date('2026-08-18T12:15:00.000Z'));
+    // An unrelated failed attempt for the same key opens window N+1 with count 1 …
+    await limiter.check('signInPerEmail', 'k');
+    // … and the old success's release must not refund it.
+    await limiter.release('signInPerEmail', 'k', stale);
+
+    expect(limiter.size('signInPerEmail')).toBe(1);
+    expect(await allowedOf(limiter, 'signInPerEmail', 'k', 7)).toBe(4);
+  });
+
+  it('a stale charge released into an empty new window is a no-op', async () => {
+    const stale = await limiter.check('signInPerEmail', 'k');
+    vi.setSystemTime(new Date('2026-08-18T12:15:00.000Z'));
+    await limiter.release('signInPerEmail', 'k', stale);
+
+    expect(await allowedOf(limiter, 'signInPerEmail', 'k', 7)).toBe(5);
+  });
+
+  it('is per key and per bucket', async () => {
+    const a = await limiter.check('signInPerEmail', 'a');
+    const ip = await limiter.check('signInPerIp', 'a');
+    await limiter.release('signInPerEmail', 'b', a);
+    await limiter.release('signInPerIp', 'a', ip);
+
+    expect(await allowedOf(limiter, 'signInPerEmail', 'a', 7)).toBe(4);
+    expect(await allowedOf(limiter, 'signInPerIp', 'a', 12)).toBe(10);
   });
 });
 
@@ -237,7 +323,9 @@ describe('authRateLimit', () => {
       calls,
       check: async (bucket, key) => {
         calls.push([bucket, key]);
+        return { windowStart: 0 };
       },
+      release: async () => undefined,
     };
   };
 
@@ -302,6 +390,7 @@ describe('authRateLimit', () => {
       check: async () => {
         throw new AuthRateLimitExceededError('signInPerIp', 42);
       },
+      release: async () => undefined,
     };
 
     const { next, written } = await run(port, fakeRequest('POST', '/api/auth/sign-in/email', { 'x-test-client-ip': '203.0.113.7' }));
@@ -327,6 +416,7 @@ describe('authRateLimit', () => {
       check: async () => {
         throw new Error('store unavailable');
       },
+      release: async () => undefined,
     };
 
     const { next, written } = await run(port, fakeRequest('POST', '/api/auth/sign-in/email', { 'x-test-client-ip': '203.0.113.7' }));

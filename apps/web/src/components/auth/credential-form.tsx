@@ -38,6 +38,7 @@ import {
 import type { SignInRequest, SignUpRequest, ValidationDetails } from '@shortkit/contracts';
 
 import { ApiError, RequestAbortedError, apiClient } from '../../lib/api/client';
+import { asCapabilityToken } from '../invitations/invitations-api';
 
 export type CredentialFormMode = 'signup' | 'sign-in';
 
@@ -47,7 +48,24 @@ export interface CredentialFormProps {
   mode: CredentialFormMode;
   /** Called once, after the BFF answered 2xx with a body the contract accepts. */
   onSuccess: () => void;
+  /**
+   * TASK-1b-12 (item 1b, D-03/D-18). An invitation capability token to attach to a SIGNUP.
+   * It rides as `invitationToken` in the JSON body of `POST /auth/sign-up/email` and nowhere
+   * else: never a param, never a query, never an error string. Ignored in `sign-in` mode
+   * (that route has no invited branch). Checked against `capabilityTokenContract`
+   * (`asCapabilityToken`, the one web-side shape check) BEFORE it is spread: an empty or
+   * malformed value is treated as absent (key omitted, nothing posted), so the form never
+   * sends anything but a token-shaped string — the same outcome the API's
+   * `invitationTokenFrom` predicate gives a non-string (AC-1b-10), one hop earlier. The
+   * signup contract is a strict-keys object, so the token is spread AFTER the parse —
+   * `signUpRequestContract` would strip it — onto the body the API's schema
+   * (`.and(z.record(...))`) admits.
+   */
+  invitationToken?: string;
 }
+
+/** The signup body with the invited-branch field. The API reads it in `hooks.before` (D-18). */
+type SignUpBody = SignUpRequest & { invitationToken?: string };
 
 /**
  * The BFF strips `token` from every proxied auth-surface body (F-208), so the browser never
@@ -169,7 +187,7 @@ function serverFieldErrors(error: ApiError): ValidationDetails | null {
   return parsed.success ? parsed.data : null;
 }
 
-export function CredentialForm({ mode, onSuccess }: CredentialFormProps): ReactElement {
+export function CredentialForm({ mode, onSuccess, invitationToken }: CredentialFormProps): ReactElement {
   const fields = FIELDS[mode];
   const idBase = useId();
   const formRef = useRef<HTMLFormElement>(null);
@@ -238,10 +256,18 @@ export function CredentialForm({ mode, onSuccess }: CredentialFormProps): ReactE
 
     try {
       if (mode === 'signup') {
+        // The token joins the body after the contract parse (which would strip it) and only
+        // when it is token-shaped (`asCapabilityToken`); otherwise the key is absent, not
+        // `undefined`, so an uninvited signup's body is byte-for-byte what it was before
+        // item 1b, and a malformed value is never posted.
+        const token = asCapabilityToken(invitationToken);
+        const body: SignUpBody =
+          token === null ? (parsed.data as SignUpRequest) : { ...(parsed.data as SignUpRequest), invitationToken: token };
+
         await apiClient({
           method: 'POST',
           path: SIGN_UP_PATH,
-          body: parsed.data as SignUpRequest,
+          body,
           contract: authScreenResponseContract,
         });
       } else {

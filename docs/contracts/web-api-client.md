@@ -261,7 +261,10 @@ Ordered. Normative.
    browser-facing response. `apiClient` does not read that header, so through the real
    client the signup and sign-in screens show a rate-limit message with no seconds. Recorded
    in `docs/roadmap.md` under "Carried forward from `identity-membership`, 2026-08-18"
-   (W5-01).
+   (W5-01). **Closed 2026-08-18 (item 1b, TASK-1b-12):** `apiClient` now normalises both —
+   the `Retry-After` header first, the body's `retryAfterSeconds` second — and the paragraph
+   above the note is true through the real client. The note stays as the record that it was
+   not, for one branch.
 5. Body not matching the envelope, including Better Auth's native errors from
    `/api/auth/*` (ADR-0013): mapped to `ApiError` with `code: 'internal_error'` and the
    original status, except Better Auth's documented shapes which are mapped explicitly.

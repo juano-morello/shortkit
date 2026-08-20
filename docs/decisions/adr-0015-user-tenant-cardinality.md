@@ -214,6 +214,15 @@ fails" true rather than aspirational.
   `findByCapabilityToken`'s verified row on the invited branch. It also owns the
   integration test that route enumeration cannot replace. This is more than its
   `Produces` block enumerates; see the TASK constraints in the design return.
+  *Discharged 2026-08-18 by TASK-1b-09 (item 1b): the branch is `provisionForNewUser` in
+  `apps/api/src/auth/invitation-signup.ts` — a string `invitationToken` on the signup body →
+  `acceptInvitationByCapabilityToken(token, { userId, tenantMembership: 'create' })`, the
+  tenant id from the verified row, no `tenants` row written; otherwise
+  `createTenantForNewUser`. The validation runs in `hooks.before` so an invalid token creates
+  no `user` row. The test is `apps/api/test/auth/signup-invited.int-spec.ts`, including the
+  prefix-swap case (no user, no row of any kind in the other tenant). The residue this ADR
+  accepts is unchanged: an accept that fails after the `user` row commits leaves that row
+  orphaned and the invitation `pending`.*
 - TASK-016 keeps `memberships` workspace-scoped and reads `TenantRole` from
   `tenant_memberships`.
 - TASK-021 adds `invitation_tenant_conflict` and threads the token through signup.

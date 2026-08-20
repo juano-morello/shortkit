@@ -216,19 +216,28 @@ and stays opt-in.
 
 ### Follow-ups this creates
 
-- TASK-010 owns `MailSender`, `OutboundMail`, all **four** implementations
-  (`NoopMailSender` added by F-386), `assertMailTransportConfigured`,
-  `resolveMailTransport`, the two test guards, the `template` entry in `LOGGABLE_FIELDS`,
-  and the verification template.
-- TASK-021 adds the invitation template and dispatches from `afterCommit`.
+- ~~TASK-010 owns~~ **Shipped 2026-08-18 by TASK-1b-02 (item 1b), TASK-010 having never
+  landed:** `MailSender`, `OutboundMail`, all **four** implementations (`NoopMailSender` added
+  by F-386), `assertMailTransportConfigured`, `resolveMailTransport`, the two test guards,
+  the `template` entry in `LOGGABLE_FIELDS` — **landed**, in `logger.ts` and the
+  `logging-and-headers.md` fence together — the invitation template, and a minimal
+  verification template with no caller. The adapter is `fetch`, not the SDK; no dependency
+  was added. The shipped shapes that go beyond the contract's block (the error class, the
+  console block's exact bytes, the optional constructor options) are recorded as dated notes
+  in `docs/contracts/mail-sender.md`.
+- TASK-1b-08 dispatches from `afterCommit` (was TASK-021).
 - Bounce handling, a resend action, and a real `From` domain belong to a later
   initiative.
 - **The compose stack may declare `MAIL_TRANSPORT=console`** once an invitation surface
   exists there, so a developer can read the invite URL out of the log. It is a usability
   change, not a safety one: absence already resolves to `NoopMailSender`. Whoever owns
   `docker-compose.yml` and ADR-0035 makes that call. F-386's pass did not touch either file.
-- **The design stub `design/stubs/apps/api/src/mail/mail-sender.ts` still carries the struck
-  `NODE_ENV` binding** in four docblocks and has no `NoopMailSender`. It sat outside F-386's
-  write surface. TASK-010 retires it under ADR-0039; a stub sweep before then should correct
-  it, because it is the file an implementer compiles against.
+  **Ruled 2026-08-18 (D-02, Juano): it does.** TASK-1b-11 sets it; unset stays `none`.
+  **Done 2026-08-18:** `docker-compose.yml` carries `MAIL_TRANSPORT: ${MAIL_TRANSPORT:-console}`
+  with the comment, ADR-0035 carries the dated note, and `check-compose-stack.sh` reads the
+  invite link out of `docker compose logs api` in four clauses.
+- ~~The design stub `design/stubs/apps/api/src/mail/mail-sender.ts` still carries the struck
+  `NODE_ENV` binding~~ **Struck 2026-08-18 (TASK-1b-02):** `design/stubs/**` no longer exists
+  in the repository, so there is nothing to retire and F-401 is discharged by absence.
+  `mail-sender.md`'s "Normative form" now names the shipped files.
 - Contract: `docs/contracts/mail-sender.md`.

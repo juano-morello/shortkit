@@ -27,8 +27,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * needed the AC.
  *
  * So the subject set is every `.ts` file under `apps/api/src` that is not a `.spec.ts`,
- * found by walking the directory. Nothing here carries a file name except the ONE
- * exemption below, and that exemption is a single path with a stated reason.
+ * found by walking the directory. Nothing here carries a file name except the TWO
+ * exemptions below, each a single path with a stated reason: the composition root, and
+ * (since item 1b) the console mail transport, whose stdout write is a delivery channel
+ * rather than a log line.
  *
  * Each file is parsed with the TypeScript compiler's own parser rather than grepped. Two
  * things that a grep gets wrong and this does not: `import type { Logger } from 'pino'` in
@@ -74,6 +76,23 @@ const NEST_LOGGER_EXPORTS = new Set(['Logger', 'ConsoleLogger']);
  * here is a finding, not a precedent.
  */
 const COMPOSITION_ROOT = 'apps/api/src/observability/logger.ts';
+
+/**
+ * THE SECOND, ADDED 2026-08-18 (item 1b, TASK-1b-02), AND IT IS NOT A LOGGER. `ConsoleMailSender`
+ * is the `MAIL_TRANSPORT=console` delivery channel (`docs/contracts/mail-sender.md`): it
+ * writes a rendered mail body — recipient address, invitation URL, token — to stdout with
+ * `console.log` because that content may NEVER go through the logger (`to` and the URL are
+ * on the never-allowlist, GC-K), and stdout is where an operator who declared `console`
+ * asked to read it. It is a mail transport that happens to share a descriptor with the log,
+ * not a log line, and it is bound only by explicit declaration — absence binds a sender that
+ * writes nothing anywhere. The eslint `no-console` carve-out is one `disable-next-line` on
+ * that statement, and `mail/senders.spec.ts` asserts the exact bytes it writes. A THIRD
+ * entry here is a finding, not a precedent; this one is named in
+ * `logging-and-headers.md`, "Never call `console.*`".
+ */
+const CONSOLE_MAIL_TRANSPORT = 'apps/api/src/mail/senders/console-mail-sender.ts';
+
+const EXEMPT = new Set([COMPOSITION_ROOT, CONSOLE_MAIL_TRANSPORT]);
 
 /** Where the shared instance lives, as every consumer outside its directory spells it. */
 const SHARED_LOGGER_MODULE = /(^|\/)observability\/logger$/;
@@ -304,7 +323,7 @@ describe('every module in the API source tree that can reach a logger', () => {
     // paths `logging-and-headers.md` currently names as exceptions. `toEqual([])` so the
     // failure names each module and says how it got its logger.
     const violations = modules
-      .filter((module) => module.path !== COMPOSITION_ROOT)
+      .filter((module) => !EXEMPT.has(module.path))
       .flatMap((module) =>
         module.otherLoggerSources.map((source) => `${module.path}: ${source}`),
       );
@@ -318,7 +337,7 @@ describe('every module in the API source tree that can reach a logger', () => {
     // clause the AC states — enumerate the emitters, and require each to have the
     // composition root's instance and nothing else.
     const emitters = modules.filter(
-      (module) => module.path !== COMPOSITION_ROOT && module.emissions.length > 0,
+      (module) => !EXEMPT.has(module.path) && module.emissions.length > 0,
     );
 
     const orphans = emitters

@@ -7,6 +7,40 @@ supersedes: null
 date: 2026-08-04
 ---
 
+> **Amended 2026-08-18 (item 1b, TASK-1b-04). The decision stands; three facts below are
+> now stale and are corrected here rather than rewritten in place.**
+>
+> - **The public routes are one, not two.** `POST /api/invitations/lookup { token }` is
+>   the only `@Public()` route (D-03, mechanism A: the token travels in the URL fragment
+>   of the mail link and in request bodies, never in a path or query). Existing-account
+>   acceptance is the **authenticated** `POST /api/invitations/accept { token }`, which
+>   runs inside the interceptor's transaction on the caller's `tid` and answers 409
+>   `invitation_tenant_conflict` — before any statement — when the token's prefix names
+>   another tenant (D-04). The third anonymous path is the sign-up hook
+>   (`hooks.before` + the invited `onUserCreated` branch), unchanged in shape.
+>   `GET /api/invitations/:token` and `POST /api/invitations/:token/accept` are not built.
+> - **The entry point is two plain functions, not a repository method.**
+>   `findInvitationByCapabilityToken(raw)` and `acceptInvitationByCapabilityToken(raw,
+>   grant)` in `apps/api/src/invitations/capability-lookup.ts` are the only code that
+>   opens `withTenantTransaction` on a token's prefix (sanctioned source 3, D-17). They are
+>   functions because the Better Auth hooks run outside the Nest graph and cannot inject;
+>   the Nest service calls the same two. `InvitationRepository` never parses a token and
+>   exposes no digest. A spec greps `apps/api/src` for `parseCapabilityToken(` callers and
+>   for files that both import from `invitations/tokens/` and call `withTenantTransaction(`.
+> - **Where the mechanism is recorded.** `docs/contracts/invitation-tokens.md`, sections
+>   "The single entry point" (shipped shape), "Normative sequence" (the shipped sequence,
+>   including the conflict-before-statement step), "Acceptance is one transaction" (D-01,
+>   D-04, D-12) and "Where the raw token actually travels" (mechanism A chosen, the four
+>   channels re-scored); the plan's `decisions.md` D-03/D-04/D-17. The isolation attempts
+>   for the two routes and the prefix swap are TASK-1b-10's (D-19).
+>
+> The rate-limit paragraph under "Negative / accepted cost" already names the one public
+> route's IP bucket; read "two public invitation routes" elsewhere in this file as "the
+> public lookup route, the authenticated accept, and the sign-up hook". And
+> "`ISOLATION_EXCLUSIONS`, which stays at two" below is now "stays at three": ADR-0045
+> (TASK-002) added `TenantMembershipLookup.tenantIdForUser` after this ADR was written,
+> and 1b adds nothing to the array.
+
 ## Context
 
 The security audit found a hole I left open. Two routes are `@Public()` because the

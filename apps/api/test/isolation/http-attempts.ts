@@ -31,9 +31,9 @@
  * A REFUSAL IS NOT A PASS, AND OVER HTTP THAT IS EASIER TO GET WRONG (F-296, F-342)
  * ===========================================================================
  *
- * A 404 from `PATCH /api/workspaces/:id` proves the row was invisible to the policy, OR
- * that the id was wrong, OR that the route was misspelled — and only the first is
- * isolation. So every write attempt runs a POSITIVE CONTROL in the same attempt: the OWNER
+ * A 404 from `PATCH /api/workspaces/:workspaceId` proves the row was invisible to the
+ * policy, OR that the id was wrong, OR that the route was misspelled, OR (since TASK-1b-06)
+ * that the actor holds no membership on its own row — and only the first is isolation. So every write attempt runs a POSITIVE CONTROL in the same attempt: the OWNER
  * of the addressed row issues the SAME request and must get a 2xx. If the owner's request
  * does not succeed, the route or the id is wrong, the cross-tenant refusal proves nothing,
  * and the attempt is scored `unverified` (it THROWS, which the runner classifies as a
@@ -46,6 +46,20 @@
  * shape however it likes.
  *
  * Both directions always: the runner attempts every method as (A, B) and (B, A).
+ *
+ * ===========================================================================
+ * SINCE TASK-1b-10: A SECOND GROUP, THE INVITATION ROUTES, AND THREE SHAPES THE FIRST
+ * GROUP NEVER NEEDED
+ * ===========================================================================
+ *
+ * `registrations.ts` builds two `EndpointAccessConfig`s over the same two signed-in
+ * operators: the workspace routes (table `workspaces`) and the invitation routes (table
+ * `invitations`, each tenant holding one seeded invitation whose RAW TOKEN the fixture keeps
+ * in memory). Three spec fields exist for that group and are documented on
+ * `EndpointAttemptSpec` below: `auth: 'anonymous'` for the one `@Public()` route,
+ * `buildOwnRequest` for the positive control an argument swap cannot express, and
+ * `targetMutated` for a refusal that must also be tied to the database — the accept route's
+ * 409, which is raised before any statement (D-04) and so proves nothing on its own.
  */
 import { startApiServer } from '../support/api-server';
 import type { ApiServer } from '../support/api-server';
@@ -150,6 +164,9 @@ const SIGNED_IN_EMAIL_B = 'isolation-endpoint-b@example.com';
 /** The two addresses the harness signs up, exposed so a caller can clear their signup state. */
 export const SIGNED_IN_EMAILS = [SIGNED_IN_EMAIL_A, SIGNED_IN_EMAIL_B] as const;
 
+/** The invite link's base in the child (see `signedInTenants`); a fixture value, never fetched. */
+const SIGNED_IN_WEB_ORIGIN = 'http://localhost:3000';
+
 /**
  * Two concurrent signed-in operators, minted through the shipped auth surface against a
  * freshly booted child API. The caller stops `server` and clears the two addresses'
@@ -162,7 +179,16 @@ export async function signedInTenants(): Promise<SignedInTenants> {
   // self-heal the way `createTenantFixtures()` does; on a clean database this is a no-op.
   clearSignupState(...SIGNED_IN_EMAILS);
 
-  const server = await startApiServer({ env: authServerEnv });
+  // TASK-1b-10. `WEB_APP_ORIGINS` beside the auth fixture's environment: the invitation
+  // endpoint group's positive control is a real `POST /api/invitations`, whose after-commit
+  // dispatch renders the mail — and the link base is that variable's first concrete origin
+  // (`inviteLinkOrigin()`). Unset, every positive control would still be 201 but would
+  // leave a `mail_dispatch_failed` error line per attempt in the child's output. The
+  // transport stays UNSET (`none`, `NoopMailSender`): the rendered message, raw token and
+  // all, is built and dropped, and no byte of it reaches this process or a log line.
+  const server = await startApiServer({
+    env: (baseUrl) => ({ ...authServerEnv(baseUrl), WEB_APP_ORIGINS: SIGNED_IN_WEB_ORIGIN }),
+  });
 
   try {
     const a = await signInOneTenant(server, SIGNED_IN_EMAIL_A);
@@ -202,12 +228,12 @@ export interface EndpointAttemptSpec {
   /** The method name in the surface id's log form and the run log. */
   readonly name: string;
   readonly method: HttpMethod;
-  /** The route PATTERN, e.g. `/api/workspaces/:id` — never a concrete path (log-safe). */
+  /** The route PATTERN, e.g. `/api/workspaces/:workspaceId` — never a concrete path (log-safe). */
   readonly route: string;
   readonly httpKind: 'read' | 'write';
   readonly reaches: 'existing-row' | 'new-row';
   /**
-   * REQUIRED, like every registered method. All four workspace routes are owner-qualified:
+   * REQUIRED, like every registered method. All five workspace routes are owner-qualified:
    * every statement the endpoint issues carries `tenant_id = currentTenantId()` or sets it
    * on insert, and the route offers no parameter or body field by which a caller names
    * another tenant — so the endpoint enforces owner-qualification whatever the request says.
@@ -216,6 +242,40 @@ export interface EndpointAttemptSpec {
   /** The CROSS-TENANT request: `actor` acting against `target`'s row. */
   buildRequest(actor: TenantFixture, target: TenantFixture, ctx: EndpointAttemptContext): EndpointRequest;
   readonly expectedRefusal: EndpointRefusal;
+  /**
+   * TASK-1b-10. THE POSITIVE CONTROL, when swapping `buildRequest`'s arguments does not
+   * build it. For every route that addresses a ROW — get, rename, archive, list-by-workspace,
+   * revoke, accept — `buildRequest(target, actor)` is "the actor on its own row" and needs
+   * no override. `POST /api/invitations/lookup` addresses a TOKEN whose prefix the attack
+   * swaps: swapping the arguments would build the target's secret under the actor's
+   * prefix, a second attack rather than a control. So the control is stated on its own:
+   * the actor's untouched token, which must answer 200.
+   */
+  buildOwnRequest?(actor: TenantFixture, ctx: EndpointAttemptContext): EndpointRequest;
+  /**
+   * TASK-1b-10. `bearer` (default) sends the actor's freshly minted token; `anonymous`
+   * sends NO Authorization header — the one `@Public()` route is attempted the way an
+   * invitee reaches it, and a bearer on it would prove nothing about the route's own
+   * authorisation (the capability token, ADR-0021).
+   */
+  readonly auth?: 'bearer' | 'anonymous';
+  /**
+   * TASK-1b-10. A DATABASE READBACK after a `status` refusal: `true` when the TARGET's rows
+   * changed in a way the request could have caused, judged as one affected row (a leak),
+   * whatever the status said. `POST /api/invitations/accept` uses it: the 409 is an
+   * application refusal raised BEFORE any statement (D-04), so on its own it is a status the
+   * harness accepts only with the owner's 200 beside it; the readback — the target's
+   * invitation still `pending`, no `memberships` row for the actor's user in the target —
+   * is what ties the refusal to the database rather than to the response body.
+   */
+  targetMutated?(actor: TenantFixture, target: TenantFixture, ctx: EndpointAttemptContext): boolean;
+  /**
+   * TASK-1b-10. Hand-set on the `@Public()` route only (coverage.ts, `TenantScopedMethod`).
+   * Left undefined, the route is reported `authenticated: true`, which every other route is.
+   */
+  readonly authenticated?: boolean;
+  readonly publicJustification?: string;
+  readonly usesCapabilityToken?: boolean;
 }
 
 export interface EndpointAccessConfig {
@@ -243,14 +303,24 @@ async function issue(
   baseUrl: string,
   method: HttpMethod,
   request: EndpointRequest,
-  token: string,
+  token: string | undefined,
 ): Promise<HttpResult> {
   const payload = request.body === undefined ? undefined : JSON.stringify(request.body);
 
   const response = await fetch(`${baseUrl}${request.path}`, {
     method,
     headers: {
-      authorization: `Bearer ${token}`,
+      // TASK-1b-10. NO KEEP-ALIVE ON AN ATTEMPT SOCKET. Every attempt is separated from
+      // the next by a reset and two censuses — several psql spawns, seconds apart — and
+      // undici keeps the socket to the child alive across that gap while the child's
+      // `keepAliveTimeout` (5 s) closes it from the other end. The reuse of a socket the
+      // server has just closed surfaces as `fetch failed: other side closed` on a request
+      // that never reached the route, and the runner would score that `unverified` — a red
+      // run naming a surface that was never attempted. `connection: close` is honoured by
+      // undici (measured on Node 24: the header arrives and the server closes after the
+      // response), so every request here opens its own socket and none can be stale.
+      connection: 'close',
+      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
       ...(payload === undefined ? {} : { 'content-type': 'application/json' }),
     },
     ...(payload === undefined ? {} : { body: payload }),
@@ -311,7 +381,16 @@ export function endpointAccess(config: EndpointAccessConfig): TenantScopedSurfac
       target: TenantFixture,
     ): Promise<CrossTenantAttemptResult> => {
       const request = spec.buildRequest(actor, target, ctx);
-      const actorToken = await config.tokenFor(actor.id);
+      // The `@Public()` route is attempted with NO bearer (TASK-1b-10): its authorisation is
+      // the capability token in the body, and the harness measures the tenant routing of
+      // that token, not the guard.
+      const actorToken = spec.auth === 'anonymous' ? undefined : await config.tokenFor(actor.id);
+      // The actor's own request: on its own row by argument swap, or as the spec states it
+      // when the swap would build a second attack rather than a control (lookup).
+      const ownRequest = (): EndpointRequest =>
+        spec.buildOwnRequest === undefined
+          ? spec.buildRequest(target, actor, ctx)
+          : spec.buildOwnRequest(actor, ctx);
 
       // ======================================================================
       // POSITIVE CONTROL. The actor performs the SAME operation on ITS OWN row, and it
@@ -326,9 +405,9 @@ export function endpointAccess(config: EndpointAccessConfig): TenantScopedSurfac
       // per-row digest — would report the re-seed itself as a cross-tenant change (measured).
       // ======================================================================
       if (spec.expectedRefusal.kind === 'status') {
-        // Rename/archive: the actor operates on its own row. `buildRequest` addresses its
+        // Get/rename/archive: the actor operates on its own row. `buildRequest` addresses its
         // second argument's row, so swapping the arguments builds the actor-on-own request.
-        const own = spec.buildRequest(target, actor, ctx);
+        const own = ownRequest();
         const positive = await issue(config.baseUrl, spec.method, own, actorToken);
 
         if (!isSuccess(positive.status)) {
@@ -340,7 +419,7 @@ export function endpointAccess(config: EndpointAccessConfig): TenantScopedSurfac
       } else if (spec.expectedRefusal.kind === 'absent-from-list') {
         // Read: the actor lists its own and must see its own seeded row, which proves the
         // route returns data — so an empty cross-tenant list is isolation, not a dead route.
-        const own = spec.buildRequest(target, actor, ctx);
+        const own = ownRequest();
         const positive = await issue(config.baseUrl, spec.method, own, actorToken);
         const items = (positive.body as { items?: { id?: string }[] }).items ?? [];
 
@@ -359,7 +438,10 @@ export function endpointAccess(config: EndpointAccessConfig): TenantScopedSurfac
       switch (spec.expectedRefusal.kind) {
         case 'status': {
           if (crossTenant.status === spec.expectedRefusal.status) {
-            return { rowsAffected: 0 };
+            // TASK-1b-10. The refusal status is only half the answer when the spec can read
+            // the target back: a 409 raised before any statement, or a 404 from a route
+            // that wrote first and refused second, both leave the database as the judge.
+            return { rowsAffected: spec.targetMutated?.(actor, target, ctx) === true ? 1 : 0 };
           }
 
           if (isSuccess(crossTenant.status)) {
@@ -425,6 +507,9 @@ export function endpointAccess(config: EndpointAccessConfig): TenantScopedSurfac
       reaches: spec.reaches,
       qualification: spec.qualification,
       surfaceId,
+      ...(spec.authenticated === undefined ? {} : { authenticated: spec.authenticated }),
+      ...(spec.publicJustification === undefined ? {} : { publicJustification: spec.publicJustification }),
+      ...(spec.usesCapabilityToken === undefined ? {} : { usesCapabilityToken: spec.usesCapabilityToken }),
       attempt,
     };
   });

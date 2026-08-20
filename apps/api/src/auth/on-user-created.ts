@@ -3,10 +3,15 @@
  *           (the `databaseHooks.user.create.after` row and its error case)
  * ADR: adr-0015-user-tenant-cardinality.md, adr-0054-signup-residue-repriced-across-two-roles.md,
  *      adr-0002-tenant-context-binding.md, adr-0003-rls-policy-template-and-roles.md
- * Produced by: TASK-003. Called by: `auth.config.ts`'s `databaseHooks.user.create.after`.
+ * Produced by: TASK-003. Called by: `auth/invitation-signup.ts`'s `provisionForNewUser`, which
+ *              `auth.config.ts`'s `databaseHooks.user.create.after` runs.
  *
- * ADR-0015's uninvited branch, which is the only branch in this initiative: mint a tenant
- * id, open the tenant transaction on it, and write both rows inside that one context.
+ * ADR-0015's UNINVITED branch: mint a tenant id, open the tenant transaction on it, and
+ * write both rows inside that one context. It was the only branch while identity-membership
+ * shipped; since 2026-08-18 (TASK-1b-09) `provisionForNewUser` takes the invited branch when
+ * the signup body carried a valid `invitationToken` — `acceptInvitationByCapabilityToken`
+ * writes the membership rows in the INVITER's tenant and this function is not called — and
+ * this one otherwise.
  *
  * ============================================================================
  * THE ID IS MINTED HERE BECAUSE THE POLICY NEEDS IT BEFORE THE INSERT (ADR-0021).

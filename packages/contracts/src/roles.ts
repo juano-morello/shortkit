@@ -1,7 +1,9 @@
 /**
  * Contract: docs/contracts/workspace-authorization.md
  * ADR: adr-0015-user-tenant-cardinality.md, adr-0023-branded-role-types.md
- * Produced by: TASK-016
+ * Produced by: TASK-016 (the sets and the brands; `asTenantRole`, `tenantRoleRank`),
+ *              TASK-1b-01 (`asWorkspaceRole`, `roleRank` — implemented 2026-08-18, ADR-0048's
+ *              "stay throwing" is a dated note now)
  *
  * Role sets are FIXED by refinement amendments. Not open for reinterpretation.
  *   WORKSPACE_ROLES  Amendment A-1, unchanged.
@@ -95,8 +97,17 @@ export function asTenantRole<T extends string>(_value: Unbranded<T>): TenantRole
   return _value as unknown as TenantRole;
 }
 
+/**
+ * Implemented by TASK-1b-01 (item 1b), the same guard shape as `asTenantRole`. Its first
+ * caller is `parseWorkspaceMembership` (`members/index.ts`, ADR-0048); its second is the
+ * `memberships` row read in `MembershipRepository`.
+ */
 export function asWorkspaceRole<T extends string>(_value: Unbranded<T>): WorkspaceRole {
-  throw new Error('not implemented');
+  if (!(WORKSPACE_ROLES as readonly string[]).includes(_value)) {
+    throw new Error(`not a workspace role: ${_value}`);
+  }
+
+  return _value as unknown as WorkspaceRole;
 }
 
 /** Rank is data, in one table. No conditional anywhere else compares role names. */
@@ -118,9 +129,20 @@ export const TENANT_ROLE_RANK: Record<TenantRoleValue, number> = {
   member: 0,
 };
 
-/** Throws on an unknown key rather than returning undefined. */
+/**
+ * Throws on an unknown key rather than returning undefined. Guards with `WORKSPACE_ROLES`
+ * membership rather than an `undefined` check on the lookup, for the reason
+ * `tenantRoleRank`'s docblock gives: an object literal indexed by an arbitrary string
+ * returns an inherited property (`toString`, `__proto__`, ...) instead of `undefined`.
+ * Implemented by TASK-1b-01 (item 1b); `meetsWorkspaceRole` is the caller every
+ * workspace-role check goes through.
+ */
 export function roleRank(_role: WorkspaceRole): number {
-  throw new Error('not implemented');
+  if (!(WORKSPACE_ROLES as readonly string[]).includes(_role)) {
+    throw new Error(`not a workspace role: ${_role}`);
+  }
+
+  return WORKSPACE_ROLE_RANK[_role as unknown as WorkspaceRoleValue];
 }
 
 /**

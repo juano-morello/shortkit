@@ -35,7 +35,9 @@
  *   6. Revocation: `isRevoked(claims.jti)`. Revoked, 401 `unauthenticated`. Store cannot
  *      answer, SKIP OPEN and log (ADR-0012), so a captured token stays usable for at most
  *      its remaining 300 s.
- *   8. Populate `RequestContext` from `sub`, `tid`, `ev`. FROM CLAIMS ONLY. NO DATABASE READ.
+ *   8. Populate `RequestContext` from `sub`, `tid`, `email`, `ev`. FROM CLAIMS ONLY. NO
+ *      DATABASE READ. `email` since TASK-1b-05 (D-06): the mail template needs the inviter's
+ *      address and the app role cannot read `user`; it is never logged (GC-G).
  *
  * Steps 3, 4, 5 and 7 are one call, `verifyAndReadClaims`, and 7 runs before 6. The card
  * writes 6 before 7; the deviation is deliberate and observable only in what the store is
@@ -157,6 +159,7 @@ export class AuthGuard implements CanActivate {
     request[REQUEST_CONTEXT_KEY] = {
       userId: claims.sub,
       tenantId: claims.tid,
+      email: claims.email,
       emailVerified: claims.ev,
     };
 

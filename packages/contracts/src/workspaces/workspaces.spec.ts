@@ -1,5 +1,6 @@
 /**
  * STORY-004 — AC-21 to AC-24, the contract half. TASK-012.
+ * STORY-1b-04 — AC-1b-17/18, the `workspaceRole` field. TASK-1b-06.
  *
  * Contract: docs/contracts/workspaces.md ("Endpoints"), error-envelope.md
  * ADR: adr-0005-contract-distribution.md, adr-0025-zod-error-recognition-in-contracts.md
@@ -15,6 +16,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { isZodError, toValidationDetails } from '../errors';
+
+import { WORKSPACE_ROLES } from '../roles';
 
 import {
   WORKSPACE_NAME_MAX_LENGTH,
@@ -206,6 +209,38 @@ describe('workspaceContract', () => {
     expect(workspaceContract.safeParse({ ...WIRE_WORKSPACE, id: 'not-a-uuid' }).success).toBe(false);
     expect(workspaceContract.safeParse({ ...WIRE_WORKSPACE, archivedAt: undefined }).success).toBe(false);
     expect(workspaceContract.safeParse({ ...WIRE_WORKSPACE, createdAt: 'yesterday' }).success).toBe(false);
+  });
+
+  describe('workspaceRole (TASK-1b-06)', () => {
+    it.each(WORKSPACE_ROLES)('AC-1b-17/18: %s parses and is kept, unbranded, under `workspaceRole`', (role) => {
+      const parsed = workspaceContract.parse({ ...WIRE_WORKSPACE, workspaceRole: role });
+
+      expect(parsed.workspaceRole).toBe(role);
+      expect(Object.keys(parsed).sort()).toEqual(['archivedAt', 'createdAt', 'id', 'name', 'updatedAt', 'workspaceRole']);
+    });
+
+    it('is a workspace role and never a tenant role: `owner` and `admin` are refused', () => {
+      expect(workspaceContract.safeParse({ ...WIRE_WORKSPACE, workspaceRole: 'owner' }).success).toBe(false);
+      expect(workspaceContract.safeParse({ ...WIRE_WORKSPACE, workspaceRole: 'admin' }).success).toBe(false);
+      expect(workspaceContract.safeParse({ ...WIRE_WORKSPACE, workspaceRole: '' }).success).toBe(false);
+    });
+
+    it('a bare `role` key is not the field: it is stripped and does not populate workspaceRole', () => {
+      const parsed = workspaceContract.parse({ ...WIRE_WORKSPACE, role: 'workspace_admin' });
+
+      expect('role' in parsed).toBe(false);
+      expect(parsed.workspaceRole).toBeUndefined();
+    });
+
+    it('is admitted absent (additive versioning: the pre-1b shape still parses; TASK-1b-14 tightens it)', () => {
+      expect(workspaceContract.parse({ ...WIRE_WORKSPACE })).toEqual(WIRE_WORKSPACE);
+    });
+
+    it('is carried by every item of the list response', () => {
+      const item = { ...WIRE_WORKSPACE, workspaceRole: 'member' };
+
+      expect(workspaceListResponseContract.parse({ items: [item] })).toEqual({ items: [item] });
+    });
   });
 });
 

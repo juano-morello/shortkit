@@ -39,7 +39,8 @@ import { describe, expect, it } from 'vitest';
 
 import { signUpRequestContract } from './auth';
 import * as entryPoint from './index';
-import { parseTenantMembership } from './members';
+import { createInvitationRequestContract } from './invitations';
+import { parseTenantMembership, parseWorkspaceMembership } from './members';
 import { workspaceContract } from './workspaces';
 
 describe('package entry point', () => {
@@ -59,5 +60,20 @@ describe('package entry point', () => {
     // The same pin for the line TASK-012 uncommented: `apps/web` reads `workspaceContract`
     // through this barrel and nothing else would notice the line going back to a comment.
     expect(entryPoint.workspaceContract === workspaceContract).toBe(true);
+  });
+
+  it('AC-1b-1 (ADR-0005, TASK-1b-01): the invitation contracts and the workspace-membership pair are reachable through src/index.ts', () => {
+    // The line TASK-1b-01 uncommented (`export * from './invitations'`) and the second pair
+    // `members/index.ts` grew. Both deployables read `createInvitationRequestContract` through
+    // this barrel; `parseWorkspaceMembership` is what `MembershipRepository` brands through.
+    expect({
+      'invitations: createInvitationRequestContract':
+        entryPoint.createInvitationRequestContract === createInvitationRequestContract,
+      'members: parseWorkspaceMembership':
+        entryPoint.parseWorkspaceMembership === parseWorkspaceMembership,
+    }).toEqual({
+      'invitations: createInvitationRequestContract': true,
+      'members: parseWorkspaceMembership': true,
+    });
   });
 });

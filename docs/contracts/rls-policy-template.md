@@ -268,11 +268,11 @@ existing table.
 | Table | Tenant-scoped | Redirect read policy | Producing TASK |
 |---|---|---|---|
 | `tenants` | root (has `id`, not `tenant_id`); own four-policy set, **no ordinary DELETE** | no | 005 |
-| `tenant_memberships` | yes | no | 013 |
-| `workspaces` | yes | no | 013 |
-| `memberships` | yes | no | 016 |
-| `invitations` | yes | no | 020 |
-| `invitation_workspaces` | yes | no | 020 |
+| `tenant_memberships` | yes | no | ~~013~~ 002 (identity-membership; note below) |
+| `workspaces` | yes | no | ~~013~~ 011 (identity-membership; note below) |
+| `memberships` | yes | no | ~~016~~ 1b-03 (invitations; note below) |
+| `invitations` | yes | no | ~~020~~ 1b-03 (invitations; note below) |
+| `invitation_workspaces` | yes | no | ~~020~~ 1b-03 (invitations; note below) |
 | `domains` | yes | **yes** | 023, extended 038 |
 | `links` | yes | **yes** | 023, extended 027 |
 | `click_events` | yes | no | 033 |
@@ -282,6 +282,15 @@ existing table.
 Auth tables are outside this contract by decision (ADR-0003, ADR-0015). Tenant-facing
 code reads `user` only through `userDirectory.findByIds()`, which joins
 `tenant_memberships`, so RLS on the joined table performs the filtering.
+
+*Amended 2026-08-18 (TASK-1b-11, ledger 1b-W1-12).* The "Producing TASK" column was written
+against the 2026-08-03 plan, whose cards were retired unshipped. The struck ids are that
+plan's; the ids beside them are the cards that shipped each table: `tenant_memberships` in
+identity-membership TASK-002 (migration `0001`), `workspaces` in TASK-011 (`0002`), and
+`memberships`, `invitations` and `invitation_workspaces` together in invitations TASK-1b-03
+(`0003`, `tenantScopedPolicies()` for all three, ADR-0062). The four rows below them —
+`domains`, `links`, `click_events`, `audit_entries` — are not built and keep the old ids
+until their initiatives open.
 
 ## Invariants a caller may rely on
 

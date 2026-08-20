@@ -9,6 +9,9 @@
  * here, alphabetically.
  */
 export * from './auth';
+export * from './invitation-workspaces';
+export * from './invitations';
+export * from './memberships';
 export * from './tenant-memberships';
 export * from './tenants';
 export * from './workspaces';

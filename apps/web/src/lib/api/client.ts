@@ -19,6 +19,12 @@
  * `mapBetterAuthError` and `buildUpstreamUrl` are MATERIALISED — the three F-291 deferrals
  * are done, their consumers (the BFF proxy route and the auth surface) now exist. The 422
  * code question (F-289) is decided in `mapBetterAuthError`'s docblock.
+ *
+ * Amended 2026-08-18 (TASK-1b-12, invitations wave 2; D-16, D-18): `apiClient` and
+ * `serverApiClient` normalise a 429 into `ApiError.retryAfterSeconds` (W5-01 closed —
+ * `interpretResponse` reads `Retry-After`, then the body field), and `BETTER_AUTH_CODE_MAP`
+ * gains the five invitation codes the signup hooks answer with. The token-in-params example
+ * above is retired: the token travels in a BODY (GC-K).
  */
 import { isErrorEnvelope } from '@shortkit/contracts';
 import type { z } from 'zod';
@@ -43,14 +49,18 @@ export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
  * the old claim (the spread, Object.keys, JSON.stringify) cannot see `cause`, because
  * `cause` is non-enumerable. See "cause is a channel, and it is closed" in the contract.
  *
- *   apiClient({ method: 'GET', path: '/invitations/:token',
- *               params: { token: raw }, contract: invitationContract })
+ *   apiClient({ method: 'PATCH', path: '/workspaces/:id',
+ *               params: { id }, body, contract: workspaceContract })
  *
- * NEVER `path: `/invitations/${raw}``. TASK-022's invitation token is
- * <tenantId>.<43-char base64url secret> — a bearer credential whose own contract says it
- * is "never stored, never logged, and never returned by any read" — and every default
- * sink downstream (unhandled rejection, Next error overlay, any telemetry SDK added
- * later) prints `message` and own properties with no code written to make it happen.
+ * NEVER `path: `/workspaces/${id}``. And the invitation capability token —
+ * <tenantId>.<43-char base64url secret>, a bearer credential whose own contract says it
+ * is "never stored, never logged, and never returned by any read" — is NOT a `params`
+ * value either (item 1b, D-03/GC-K): the routes that take it are `POST /invitations/lookup`
+ * and `POST /invitations/accept` with `{ token }` in the BODY, so it reaches no URL at all.
+ * (An earlier revision of this docblock showed `GET /invitations/:token` with the token in
+ * `params`; that route was never built and the example is retired.) Every default sink
+ * downstream (unhandled rejection, Next error overlay, any telemetry SDK added later)
+ * prints `message` and own properties with no code written to make it happen.
  */
 export interface ApiRequest<TRes, TBody = unknown> {
   method: HttpMethod;
@@ -416,8 +426,18 @@ function requestInit<TRes>(req: ApiRequest<TRes>): RequestInit {
  * Neither is a `ContractViolationError`. AC-15 reserves that for a response the caller was
  * told to expect data in; an error the API deliberately returned is not malformed data.
  */
-function toApiError(status: number, raw: string): ApiError {
+function toApiError(status: number, raw: string, retryAfterHeader: string | null): ApiError {
   const body = tryParseJson(raw);
+
+  // Step 4 (TASK-1b-12; W5-01 closed, D-16). A 429 carries `retryAfterSeconds`: the
+  // `Retry-After` header first (the Nest guard, the Express limiters, and the BFF's
+  // re-emission for `/api/auth/*`), the numeric `retryAfterSeconds` body field second (the
+  // Better Auth email bucket, F-027). Same rule and same helpers as `mapBetterAuthError`, so
+  // the two legs cannot disagree. A 429 with NO envelope is still `rate_limited`, not step
+  // 5's `internal_error`: the status alone is unambiguous (`ERROR_CODE_STATUS` pairs no
+  // other code with 429), and a screen branching on the code needs it.
+  const retryAfterSeconds =
+    status === 429 ? (retryAfterFromHeader(retryAfterHeader) ?? retryAfterFromBody(body)) : undefined;
 
   if (isErrorEnvelope(body)) {
     return new ApiError({
@@ -425,13 +445,15 @@ function toApiError(status: number, raw: string): ApiError {
       status,
       message: body.message,
       details: body.details,
+      retryAfterSeconds,
     });
   }
 
   return new ApiError({
-    code: 'internal_error',
+    code: status === 429 ? 'rate_limited' : 'internal_error',
     status,
     message: UNEXPECTED_RESPONSE_MESSAGE,
+    retryAfterSeconds,
   });
 }
 
@@ -451,9 +473,9 @@ function tryParseJson(raw: string): unknown {
  *
  * Token refresh happens inside the proxy and is invisible here: a screen never sees
  * `token_expired`.
- * 429 handling and Retry-After belong here, centrally (TASK-052, AC-87) — see the seam
- * noted below. Form state survives: this throws, it never resets, navigates or clears an
- * input.
+ * 429 handling and Retry-After are applied here, centrally (`toApiError`, step 4; done by
+ * TASK-1b-12 after TASK-052 left the initiative). Form state survives: this throws, it
+ * never resets, navigates or clears an input.
  *
  * Response handling follows web-api-client.md in its stated order. AC-15 turns on the
  * four-way split it produces, and every one of them is distinguishable by class:
@@ -479,9 +501,9 @@ function tryParseJson(raw: string): unknown {
  * assertion is needed and none belongs here. The binding is dropped from `catch` because
  * nothing reads it; `catch (cause)` would fail lint as an unused variable.
  *
- * 429/`Retry-After` normalisation is NOT implemented here. It is TASK-052's (AC-87), which
- * is deferred; `ApiError.retryAfterSeconds` is therefore always undefined today. A 429
- * arrives through step 2 as an ordinary `ApiError` with `code: 'rate_limited'`.
+ * 429/`Retry-After` normalisation (step 4) IS implemented, in `toApiError`, since
+ * TASK-1b-12 (W5-01, D-16): a 429 arrives as an `ApiError` with `code: 'rate_limited'` and
+ * `retryAfterSeconds` from the header, or from the body field when the header is absent.
  */
 export async function apiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes> {
   const url = buildRequestUrl(req);
@@ -515,7 +537,7 @@ export async function apiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes> {
     throw new NetworkError(networkReadMessage(req.method, req.path), req.path);
   }
 
-  return interpretResponse(req, response.status, response.ok, raw);
+  return interpretResponse(req, response.status, response.ok, raw, response.headers.get('retry-after'));
 }
 
 /**
@@ -524,9 +546,15 @@ export async function apiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes> {
  * is one implementation. The transport/abort steps (6, 7) stay at each caller, because they
  * key on that caller's own `fetch` rejection.
  */
-function interpretResponse<TRes>(req: ApiRequest<TRes>, status: number, ok: boolean, raw: string): TRes {
+function interpretResponse<TRes>(
+  req: ApiRequest<TRes>,
+  status: number,
+  ok: boolean,
+  raw: string,
+  retryAfterHeader: string | null,
+): TRes {
   if (!ok) {
-    throw toApiError(status, raw);
+    throw toApiError(status, raw, retryAfterHeader);
   }
 
   let body: unknown;
@@ -634,7 +662,7 @@ export async function serverApiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes
     redirect(SERVER_COMPONENT_REFRESH_PATH);
   }
 
-  return interpretResponse(req, response.status, response.ok, raw);
+  return interpretResponse(req, response.status, response.ok, raw, response.headers.get('retry-after'));
 }
 
 /**
@@ -739,6 +767,19 @@ const BETTER_AUTH_CODE_MAP: Record<string, ErrorCode> = {
   // The token-mint refusal for an account with no tenant membership (auth.config.ts,
   // ADR-0055). A 403 the user cannot fix by retrying; not surfaced as their message.
   NO_TENANT_MEMBERSHIP: 'internal_error',
+  // Item 1b (TASK-1b-12; D-18, auth-tokens.md). The signup `hooks.before` invitation
+  // validation answers these when a signup carries an `invitationToken`; the statuses the
+  // hook sends are `ERROR_CODE_STATUS[mapped]` (404, 410, 410, 409) and are preserved as
+  // the transport status here. Their messages are fixed strings (F-216) but are NOT
+  // surfaced: the accept page renders its own copy per code (`InvitationStateMessage`),
+  // so the wire text and the screen text cannot drift, and the same code from a Nest
+  // route (`POST /api/invitations/lookup`) renders the same sentence.
+  INVITATION_NOT_FOUND: 'not_found',
+  INVITATION_EXPIRED: 'invitation_expired',
+  INVITATION_REVOKED: 'invitation_revoked',
+  INVITATION_ALREADY_ACCEPTED: 'invitation_already_accepted',
+  // The hook could not complete the lookup (a database fault). Nothing the user can act on.
+  INVITATION_LOOKUP_FAILED: 'internal_error',
 };
 
 /** Native codes whose message is safe and useful to show a signed-out visitor. */

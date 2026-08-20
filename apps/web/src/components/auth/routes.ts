@@ -20,3 +20,22 @@ export const RETURN_TO_PARAM = 'returnTo';
 
 /** The sign-in URL signup navigates to on success. Carries no credential and no address. */
 export const SIGN_IN_AFTER_SIGNUP_URL = `${SIGN_IN_ROUTE}?${SIGNUP_CREATED_PARAM}=${SIGNUP_CREATED_VALUE}`;
+
+/**
+ * TASK-1b-12 (item 1b). The accept page (TASK-1b-13, `app/(auth)/invitations/accept`). The
+ * email link is `<origin>/invitations/accept#token=<raw>`: the token is in the FRAGMENT, so
+ * this route string never carries it and neither does any `returnTo` built from it (D-03).
+ * One home; `components/invitations/invitations-api.ts` re-exports it.
+ */
+export const INVITATION_ACCEPT_ROUTE = '/invitations/accept';
+
+/**
+ * Where an INVITED signup lands (AC-1b-12, amended 2026-08-18 by the coordinator's ruling
+ * on TASK-1b-13): the sign-in screen with `?created=1` and NO `returnTo`. The API's signup
+ * hook has already accepted the invitation when the account was created (D-18), so there
+ * is nothing left for the accept page to do; sign-in's default landing, `/workspaces`, is
+ * where the new member belongs. Kept as its own constant so the accept page and its spec
+ * name the journey in one place; today equal to `SIGN_IN_AFTER_SIGNUP_URL`. Carries no
+ * credential, no address and no token.
+ */
+export const SIGN_IN_AFTER_INVITED_SIGNUP_URL = SIGN_IN_AFTER_SIGNUP_URL;

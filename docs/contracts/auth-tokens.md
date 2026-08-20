@@ -251,7 +251,9 @@ For every other route, in order, any failure short-circuiting:
    The safety was real but accidental; this makes it deliberate and correctly shaped.
 7. `ev === true`, else 403 `email_not_verified` (AC-17).
 8. Populate `RequestContext` from `{ sub, tid, email, ev }`. **No database query at any
-   step.**
+   step.** *Amended 2026-08-18 (TASK-1b-05, D-06): `email` now lands on the context as
+   `RequestContext.email`, verbatim; before this it was parsed and dropped. `tenant-context.md`
+   carries the field. It is not a loggable field and nothing logs it (GC-G).*
 
 `TenantTransactionInterceptor` then opens `withTenantTransaction(ctx.tenantId, ...)`,
 unless the route carries `@Public()` or `@NoTenantTransaction()` (`tenant-context.md`).
@@ -331,8 +333,12 @@ Neither is readable by client JavaScript. Nothing else stores a credential.
    for replay detection or as a per-token cache key.
 6. Public routes in `launch-core`, each with a recorded justification:
    `GET /:slug` (anonymous visitor), `GET /health` (platform probe),
-   `GET /api/invitations/:token` and `POST /api/invitations/:token/accept`
-   (the invitee may have no account yet).
+   ~~`GET /api/invitations/:token` and `POST /api/invitations/:token/accept`
+   (the invitee may have no account yet)~~ **`POST /api/invitations/lookup`** (the invitee
+   may have no account yet; the token travels in the body — D-03). *Amended 2026-08-18
+   (TASK-1b-05): the accept leg is `POST /api/invitations/accept` and is **authenticated**
+   (D-04); an invitee with no account accepts by signing up with `invitationToken` on
+   `POST /api/auth/sign-up/email`, which is Better Auth's public surface, not a Nest route.*
 7. A `POST` to `/api/auth/*` carrying an `Origin` that is the API's own origin or one of
    `WEB_APP_ORIGINS` passes the origin check. One carrying no `Origin`, or an origin
    outside that list, gets a 403 with `code` `MISSING_OR_NULL_ORIGIN` or `INVALID_ORIGIN`

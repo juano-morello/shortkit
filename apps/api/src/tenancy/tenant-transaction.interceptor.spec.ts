@@ -404,7 +404,7 @@ describe('TenantTransactionInterceptor over HTTP', () => {
 
     expect(result.status, result.raw).toBe(200);
     expect(result.body).toEqual({
-      context: { userId: USER_ID, tenantId: TENANT_ID, emailVerified: true },
+      context: { userId: USER_ID, tenantId: TENANT_ID, email: 'operator@example.com', emailVerified: true },
       ambient: { threw: TenantContextMissingError.name },
     });
     expect(handlerRuns).toEqual(['own-transactions']);

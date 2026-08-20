@@ -15,6 +15,14 @@
 - **ADRs:** ADR-0013, ADR-0046, ADR-0050, ADR-0051, ADR-0052, ADR-0055, ADR-0056, ADR-0057,
   ADR-0058, ADR-0059, ADR-0060, ADR-0061.
 - **Revised 2026-08-16** after the wave-2 design security pass and three rulings by Juano.
+- **Amended 2026-08-18 (TASK-1b-09, item 1b wave 3).** The two `beforeHooks` entries and the
+  invited branch of `databaseHooks.user.create.after` shipped. `AuthBeforeHookContext` and
+  `AuthBeforeHook` are now DEFINED in `apps/api/src/auth/before-hook.ts` and re-exported by
+  `auth.config.ts` under the same names, because `db/better-auth-database-callers.spec.ts` scan 5
+  bounds — by text, type imports included — who may import `auth.config`, and the two hook
+  modules must not be on that list. The exported surface below is unchanged. The F-216 note under
+  invariant 4 is now met (fixed strings); the composed-config table and the error-cases table
+  carry the new rows, marked with this date.
 
 ## `auth.config.ts`
 
@@ -29,6 +37,10 @@ export type AuthBeforeHook = (ctx: AuthBeforeHookContext) => Promise<void>;
 
 /** Created EMPTY. Appenders `push`. Nobody assigns. */
 export const beforeHooks: AuthBeforeHook[];
+
+/** Added 2026-08-18 (TASK-1b-09). Same rule. Holds the email bucket's release hook. */
+export type AuthAfterHook = (ctx: AuthBeforeHookContext) => Promise<void>;
+export const afterHooks: AuthAfterHook[];
 
 /** The one composed instance. TASK-004 mounts it with `toNodeHandler(auth)`. */
 export const auth: Auth;
@@ -170,9 +182,10 @@ implementer works from while the amendments are still being applied.
 | `emailAndPassword.autoSignIn` | **`false`.** Stops signup issuing a session, and turns the duplicate-address 422 into a 200. **Closes the status-code oracle, not necessarily the disclosure** (invariant 12) | ADR-0061 | **yes** |
 | `emailAndPassword.requireEmailVerification` | **deliberately unset**, so the default `false` stands. Mail is out of scope | ADR-0061 | |
 | `emailAndPassword.minPasswordLength` / `.maxPasswordLength` | **deliberately unset.** The library's 8 and 128 are inherited | `auth-tokens.md`, **Juano's ruling 2026-08-16** | |
-| `databaseHooks.user.create.after` | `createTenantForNewUser` | ADR-0015, ADR-0054 | |
+| `databaseHooks.user.create.after` | ~~`createTenantForNewUser`~~ **`createTenant(user, ctx)` → `provisionForNewUser(user, ctx)` (`auth/invitation-signup.ts`), amended 2026-08-18 (TASK-1b-09):** with a string `ctx.body.invitationToken` → `acceptInvitationByCapabilityToken(token, { userId, tenantMembership: 'create' })` — the memberships land in the INVITER's tenant, taken from the verified row, and NO `tenants` row is written; otherwise `createTenantForNewUser(user)`. `ctx` is the endpoint context `with-hooks.mjs` passes as the second argument (the request's `AsyncLocalStorage`), so `ctx.body` is the body the before hook saw; no per-request stash exists. Either branch's failure is `500 TENANT_PROVISIONING_FAILED` | ADR-0015, ADR-0054, ADR-0021, D-18 | |
 | `databaseHooks.session.delete.after` | `revocationStore.revoke(session.id)` | ADR-0013 | |
-| `hooks.before` | `createAuthMiddleware` iterating `beforeHooks` | ADR-0013, F-054 | |
+| `hooks.after` | *added 2026-08-18 (TASK-1b-09, architect ruling):* `createAuthMiddleware` iterating `afterHooks`, an exported registry with the same appended-never-assigned rule as `beforeHooks`, holding exactly `[emailRateLimitReleaseHook]` — on `/sign-in/email`, when `ctx.context.returned` is defined and not an `APIError` (the endpoint's value on success, the thrown `APIError` on failure; the numeric status is not on the context), the email bucket's charge is released under the same key. An after hook NEVER throws: the endpoint already answered. `auth.config.spec.ts` pins the contents and the text rule | `rate-limit.md`, ADR-0013, F-054 | |
+| `hooks.before` | `createAuthMiddleware` iterating `beforeHooks`. **Since 2026-08-18 (TASK-1b-09) the array holds exactly `[emailRateLimitHook, invitationValidationHook]`, in that order, pushed by `auth.config.ts` itself** — the email-keyed sign-in bucket first (D-15; `auth/email-rate-limit-hook.ts`, port bound by `main.ts` through `bindEmailRateLimitPort`), then invitation validation on `/sign-up/email` (`auth/invitation-signup.ts`). `auth.config.spec.ts` asserts the contents, the order, and that the file never assigns the binding after its declaration | ADR-0013, F-054, D-15, D-18 | |
 
 ### Password bounds: `auth.config.ts` sets neither key
 
@@ -252,6 +265,13 @@ Moving a deployment from `http` to `https` renames every cookie and signs every 
 | Sign-up that succeeds | `200` with `token: null` and **no `Set-Cookie`**. The caller must sign in separately | ADR-0061 |
 | `POST` under `/api/auth/*` with no `Origin`, or an untrusted one | `403 MISSING_OR_NULL_ORIGIN` or `403 INVALID_ORIGIN` | `auth-tokens.md` |
 | A `before` hook throws something that is not an `APIError` | `dist/api/dispatch.mjs:86-89` rethrows it, the endpoint never runs, and the caller gets a **body-less 500** from `better-call/dist/router.mjs:94-98` | ADR-0013 F-228, ADR-0055 |
+| Sign-in for one address, sixth **failed** attempt in 15 minutes (any client IP, any casing or padding of the address; a successful sign-in releases its charge, so successes never count) — *added 2026-08-18, TASK-1b-09* | `429 {"code":"rate_limited","message":"Too many sign-in attempts for this account. Try again shortly.","retryAfterSeconds":<n>}` from `emailRateLimitHook`, with `Retry-After: <n>` measured present on 1.6.26 (best effort per `rate-limit.md`). Charged BEFORE the endpoint, so a padded address that Better Auth would 400 still costs one; a non-string or empty `email` is neither charged nor refused (F-228) | `rate-limit.md`, ADR-0013, F-025, F-027 |
+| Sign-up carrying a string `invitationToken` that is malformed, unknown, or names another tenant — *added 2026-08-18, TASK-1b-09* | `404 {"code":"INVITATION_NOT_FOUND","message":"Invitation not found."}` from `invitationValidationHook`. **No `user` row is created.** One body for all three (ADR-0021) | `invitation-tokens.md`, ADR-0021, D-18 |
+| … whose invitation is expired / revoked / already accepted | `410 {"code":"INVITATION_EXPIRED","message":"This invitation has expired."}` / `410 {"code":"INVITATION_REVOKED","message":"This invitation has been revoked."}` / `409 {"code":"INVITATION_ALREADY_ACCEPTED","message":"This invitation has already been accepted."}`. No `user` row | `invitation-tokens.md`, D-18 |
+| … and the lookup itself fails (a driver fault) | `500 {"code":"INVITATION_LOOKUP_FAILED","message":"The invitation could not be verified. Try again shortly."}` — an `APIError` WITH a body rather than the body-less 500 above, after one `logger.error` with `code: invitation_lookup_failed` and `errorLogFields(error, { includeMessage: false })`. No `user` row | ADR-0055, F-228, GC-G |
+| Sign-up whose `invitationToken` is present but not a non-empty string (object, number, `''`, `null`, array) | Treated as an UNINVITED signup by both hooks: `200`, a tenant of its own (AC-1b-10). Never a 500 | F-228, D-18 |
+| Sign-up with a valid token for an address that already has an account | ADR-0061's generic `200`; no hook fires; the invitation stays `pending` (AC-1b-11) | ADR-0061, D-04 |
+| The invited branch's accept fails after the `user` row commits | The same `500 TENANT_PROVISIONING_FAILED` as the uninvited row above; the accept transaction rolled back, so the invitation is still `pending` and no membership row exists anywhere; the orphaned `user` row is ADR-0015's accepted residue | ADR-0054, ADR-0015 |
 | `jwks` rows encrypted under a previous secret | `BetterAuthError('Failed to decrypt private key...')` from `sign.mjs:34-39`, surfacing as a body-less 500 on `GET /token` while the process stays healthy | ADR-0057 |
 | Any other failure inside the mount | body-less `500`, and the error with its stack written by a `console.error` **inside `better-call`** that ADR-0052's binding does not reach | ADR-0055 |
 
@@ -268,7 +288,10 @@ additions to the eight rows in `auth-tokens.md`'s table and are escalated there.
    request's `Host` header. `AuthGuard` step 4 compares against that same value.
 3. **`beforeHooks` is appended to and never assigned.** A caller may rely on every earlier
    hook still being present after it pushes. Ordering is registration order, and the loop
-   short-circuits on a throw.
+   short-circuits on a throw. *Since 2026-08-18 the array holds two entries — the email
+   bucket, then invitation validation — pushed by `auth.config.ts` in one statement; a third
+   appender pushes after them, and `auth.config.spec.ts`'s text rule (no `beforeHooks =` after
+   the declaration) is what it will meet.*
 4. **A `hooks.before` entry that refuses throws an `APIError` and nothing else.** Anything
    else aborts the request with a body-less 500 and skips every later hook.
 
@@ -288,6 +311,16 @@ additions to the eight rows in `auth-tokens.md`'s table and are escalated there.
    > the message that would carry a token and an email. **Whoever writes that hook owns the
    > decision about what its message may contain**, and this invariant is where they will meet
    > it.
+   >
+   > **MET 2026-08-18 (TASK-1b-09): fixed strings only.** Every `APIError` either hook throws
+   > carries one of the exported constants `EMAIL_RATE_LIMITED_MESSAGE`,
+   > `INVITATION_NOT_FOUND_MESSAGE`, `INVITATION_EXPIRED_MESSAGE`, `INVITATION_REVOKED_MESSAGE`,
+   > `INVITATION_ALREADY_ACCEPTED_MESSAGE`, `INVITATION_LOOKUP_FAILED_MESSAGE` — no token,
+   > address, tenant id, user id or invitation id is ever interpolated. `invitation-signup.spec.ts`
+   > asserts the constants name no value; `test/auth/signup-invited.int-spec.ts` and
+   > `test/auth/sign-in-email-bucket.int-spec.ts` scan the child's captured stdout+stderr for
+   > every token minted and every address used and find none. The unexpected-failure branch
+   > logs once through the bound logger with `includeMessage: false` and rethrows a fixed 500.
 5. **A hook that does not apply to `ctx.path` returns immediately.** `ctx.body` is
    **unvalidated** at this point: probes against 1.6.26 delivered `ctx.body.email` as an
    object, as a number, and `ctx.body` as `undefined` (ADR-0013, F-228).

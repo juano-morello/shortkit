@@ -1259,3 +1259,111 @@ describe('serverApiClient (server components, one hop to the API)', () => {
     expect(redirect).toHaveBeenCalledWith(SERVER_COMPONENT_REFRESH_PATH);
   });
 });
+
+// ===========================================================================
+// TASK-1b-12 (invitations wave 2): the 429 normalisation `apiClient` deferred (W5-01, D-16)
+// and the four invitation codes the signup hook can answer with (D-18).
+// ===========================================================================
+import { ERROR_CODE_STATUS } from '@shortkit/contracts';
+
+describe('apiClient normalises a Nest 429 into ApiError.retryAfterSeconds (W5-01, D-16, web-api-client.md step 4)', () => {
+  it('reads delta-seconds off the Retry-After header of a rate_limited envelope', async () => {
+    networkAnswers(
+      new Response(JSON.stringify(wellFormedEnvelope('rate_limited', 'Too many requests.')), {
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': '17' },
+      }),
+    );
+
+    const outcome = await attempt(() => apiClient(listIds()));
+
+    expect(outcome).toBeInstanceOf(ApiError);
+    expect((outcome as ApiError).code).toBe('rate_limited');
+    expect((outcome as ApiError).status).toBe(429);
+    expect((outcome as ApiError).retryAfterSeconds).toBe(17);
+  });
+
+  it('falls back to a numeric retryAfterSeconds body field when the header is absent (F-027)', async () => {
+    networkAnswers(jsonResponse(429, { code: 'rate_limited', message: 'Too many requests.', retryAfterSeconds: 9 }));
+
+    const outcome = await attempt(() => apiClient(listIds()));
+
+    expect((outcome as ApiError).code).toBe('rate_limited');
+    expect((outcome as ApiError).retryAfterSeconds).toBe(9);
+  });
+
+  it('prefers the header over the body field, and ignores an HTTP-date header', async () => {
+    networkAnswers(
+      new Response(JSON.stringify({ code: 'rate_limited', message: 'x', retryAfterSeconds: 9 }), {
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': '3' },
+      }),
+    );
+    expect((await attempt(() => apiClient(listIds())) as ApiError).retryAfterSeconds).toBe(3);
+
+    networkAnswers(
+      new Response(JSON.stringify({ code: 'rate_limited', message: 'x', retryAfterSeconds: 9 }), {
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' },
+      }),
+    );
+    expect((await attempt(() => apiClient(listIds())) as ApiError).retryAfterSeconds).toBe(9);
+  });
+
+  it('a 429 whose body is no envelope is still rate_limited, with the header value', async () => {
+    networkAnswers(
+      new Response('Too Many Requests', {
+        status: 429,
+        headers: { 'content-type': 'text/plain', 'retry-after': '5' },
+      }),
+    );
+
+    const outcome = await attempt(() => apiClient(listIds()));
+
+    expect((outcome as ApiError).code).toBe('rate_limited');
+    expect((outcome as ApiError).status).toBe(429);
+    expect((outcome as ApiError).retryAfterSeconds).toBe(5);
+  });
+
+  it('a non-429 error ignores a stray Retry-After header', async () => {
+    networkAnswers(
+      new Response(JSON.stringify(wellFormedEnvelope('not_found', 'No.')), {
+        status: 404,
+        headers: { 'content-type': 'application/json', 'retry-after': '5' },
+      }),
+    );
+
+    expect((await attempt(() => apiClient(listIds())) as ApiError).retryAfterSeconds).toBeUndefined();
+  });
+});
+
+describe('mapBetterAuthError maps the invitation codes the signup hooks answer with (D-18, auth-tokens.md)', () => {
+  it.each([
+    ['INVITATION_NOT_FOUND', 'not_found'],
+    ['INVITATION_EXPIRED', 'invitation_expired'],
+    ['INVITATION_REVOKED', 'invitation_revoked'],
+    ['INVITATION_ALREADY_ACCEPTED', 'invitation_already_accepted'],
+  ] as const)('%s -> %s at ERROR_CODE_STATUS, transport status preserved', (native, code) => {
+    const status = ERROR_CODE_STATUS[code];
+    const error = mapBetterAuthError(status, { code: native, message: 'fixed' });
+
+    expect(error.code).toBe(code);
+    expect(error.status).toBe(status);
+  });
+
+  it('INVITATION_LOOKUP_FAILED is internal_error at 500 and surfaces no message', () => {
+    const error = mapBetterAuthError(500, { code: 'INVITATION_LOOKUP_FAILED', message: 'lookup failed: <internal>' });
+
+    expect(error.code).toBe('internal_error');
+    expect(error.status).toBe(500);
+    expect(error.message).not.toContain('<internal>');
+  });
+
+  it('never surfaces the native invitation message: the screen renders its own copy per code', () => {
+    // The hook's messages are fixed strings (F-216), but the web copy is keyed by code
+    // (InvitationStateMessage) so the two cannot drift, and nothing the hook says is echoed.
+    const error = mapBetterAuthError(410, { code: 'INVITATION_EXPIRED', message: 'The invitation has expired.' });
+
+    expect(error.message).not.toBe('The invitation has expired.');
+  });
+});
