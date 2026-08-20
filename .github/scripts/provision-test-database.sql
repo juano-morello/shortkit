@@ -1,4 +1,5 @@
--- The roles, database and grants the `integration` job's Postgres service needs.
+-- The roles, databases and grants the `integration` and `performance` jobs' Postgres
+-- services need.
 --
 -- Contract: docs/contracts/rls-policy-template.md ("Roles")
 -- ADR: docs/decisions/adr-0003-rls-policy-template-and-roles.md
@@ -13,8 +14,17 @@
 -- bakes the same SQL into the container through Compose's `configs:` block, which drops
 -- it into /docker-entrypoint-initdb.d before the real server starts. GitHub Actions'
 -- `services:` has no equivalent: a service is a bare image plus env vars and health
--- options, with nowhere to put an init script. So the `integration` job stands the
--- service up on the bootstrap superuser alone and runs this file against it as a step.
+-- options, with nowhere to put an init script. So each job stands the service up on the
+-- bootstrap superuser alone and runs this file against it as a step.
+--
+-- TWO DATABASES, AND THE SECOND ONE IS NOT OPTIONAL. `integration` runs against
+-- `shortkit_test`. `performance` runs `db:seed`, and that script refuses any database but
+-- `shortkit` by name (`apps/api/scripts/seed.mts:94`, ADR-0034): the platform tenant and
+-- the system default domain are not demo rows a job may plant wherever it likes. So this
+-- file creates both, with identical owners and identical grants, and each job points its
+-- three DSNs at the one it needs. Creating both in both jobs costs an empty database in a
+-- container that is destroyed with the runner, and it keeps one provisioning file rather
+-- than one per job.
 --
 -- THAT MEANS TWO COPIES OF THE ROLE MODEL, AND THEY CAN DRIFT. If you change the roles
 -- or grants here, change docker-compose.test.yml in the same commit, and the other way
@@ -38,6 +48,7 @@ CREATE ROLE shortkit_auth     LOGIN PASSWORD 'auth'     NOBYPASSRLS;
 -- The migrator owns the database, so it owns schema `public` through pg_database_owner
 -- and runs DDL with no further grant. The app role owns nothing (ADR-0003).
 CREATE DATABASE shortkit_test OWNER shortkit_migrator;
+CREATE DATABASE shortkit      OWNER shortkit_migrator;
 
 -- The two properties the whole tenancy guarantee rests on, asserted rather than assumed.
 -- A CREATE ROLE that quietly inherited an attribute from a template, or a future edit
@@ -76,10 +87,24 @@ BEGIN
       'shortkit_app, shortkit_migrator and shortkit_auth must all exist and be distinct roles: the migrator owns the schema, the app role owns nothing and the auth role owns nothing (ADR-0003, ADR-0050).';
   END IF;
 
-  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'shortkit_test')
-     IS DISTINCT FROM 'shortkit_migrator' THEN
+  -- Both databases, and the message names whichever one failed. Written as a scan rather
+  -- than as two copies of one comparison so that a third database added later is either
+  -- covered here or visibly absent from this list.
+  SELECT string_agg(datname, ', ' ORDER BY datname)
+    INTO bad
+    FROM pg_database
+   WHERE datname IN ('shortkit_test', 'shortkit')
+     AND pg_get_userbyid(datdba) IS DISTINCT FROM 'shortkit_migrator';
+
+  IF bad IS NOT NULL THEN
     RAISE EXCEPTION
-      'shortkit_test is not owned by shortkit_migrator. ALTER DEFAULT PRIVILEGES below is scoped to that identity, so the app role would receive no grant on migrated tables.';
+      'database(s) % are not owned by shortkit_migrator. ALTER DEFAULT PRIVILEGES below is scoped to that identity, so the app role would receive no grant on migrated tables.',
+      bad;
+  END IF;
+
+  IF (SELECT count(*) FROM pg_database WHERE datname IN ('shortkit_test', 'shortkit')) <> 2 THEN
+    RAISE EXCEPTION
+      'both shortkit_test (integration) and shortkit (performance, because db:seed refuses any other name) must exist.';
   END IF;
 END $$;
 
@@ -96,6 +121,19 @@ GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
 -- default privilege at all (rls-policy-template.md "Roles", ADR-0050). shortkit_auth's
 -- DML on the five Better Auth tables is hand-written per table in migration 0001
 -- (TASK-002) instead.
+ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO shortkit_app;
+
+-- The same three statements against `shortkit`, byte for byte. A default privilege is
+-- per database, so the block above buys the performance job nothing. If you change either
+-- copy, change the other in the same commit: they are one rule applied twice, and a
+-- difference between them is a grant one job has and the other does not.
+\connect shortkit
+
+GRANT USAGE ON SCHEMA public TO shortkit_app, shortkit_auth;
+
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shortkit_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator IN SCHEMA public

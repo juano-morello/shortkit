@@ -447,12 +447,17 @@ jobs:
     # a queue cancellation apart from a defect in this job.
     timeout-minutes: 30
     env:
-      # The same three DSNs and the same two ports as `integration`, deliberately: the
-      # commands below then read identically to that job's and to docker-compose.test.yml's
-      # header. Fixture credentials for containers destroyed with the runner.
-      DATABASE_URL: postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test
-      DATABASE_MIGRATION_URL: postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test
-      DATABASE_AUTH_URL: postgres://shortkit_auth:auth@127.0.0.1:55433/shortkit_test
+      # The same three roles and the same two ports as `integration`, and a DIFFERENT
+      # DATABASE. `db:seed` refuses any database but `shortkit` by name
+      # (`apps/api/scripts/seed.mts:94`, ADR-0034), and this job seeds the platform tenant
+      # and the system default domain because `POST /api/links` resolves a foreign key
+      # against the domain row. Pointed at `shortkit_test` this job cannot pass at all: it
+      # was, and it did not, on its first run against a runner. Provisioning creates both
+      # databases with identical grants. Fixture credentials for containers destroyed with
+      # the runner.
+      DATABASE_URL: postgres://shortkit_app:app@127.0.0.1:55433/shortkit
+      DATABASE_MIGRATION_URL: postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit
+      DATABASE_AUTH_URL: postgres://shortkit_auth:auth@127.0.0.1:55433/shortkit
       # No password, for the same reason `integration` has none: GitHub's `services:` has no
       # `command:`, so a service container cannot be given `redis-server --requirepass`. The
       # container is job-local and destroyed with the runner.
@@ -620,9 +625,13 @@ jobs:
       # The API's log, on failure only. A red gate needs the server's own account of the run:
       # a boot refusal, a degraded-cache line, a click-flush error. Printing it on success
       # would bury it.
+      # `|| true`, and it is the one place in this workflow that carries it. A step whose
+      # whole job is to surface the reason another step failed must not fail itself: the
+      # API log does not exist when the failure came before `Start the API`, and a second
+      # red step on a missing file is one more thing between a reader and the real error.
       - name: The API log, if anything above failed
         if: failure()
-        run: cat "${{ runner.temp }}/api.log"
+        run: cat "${{ runner.temp }}/api.log" || true
 
   # The branch's required check, and the only one that should be (test-strategy.md).
   # GitHub Actions rejects a workflow whose `needs` names a job that does not exist, so a
