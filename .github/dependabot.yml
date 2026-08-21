@@ -36,6 +36,16 @@ updates:
       interval: weekly
     groups:
       minor-and-patch:
+        # better-auth is EXCLUDED FROM THE GROUP, and its own minor is why. 1.7.0 keyed
+        # accounts on `(issuer, accountId)` and expects an `issuer` field the hand-written
+        # pinned schema does not have (ADR-0043), so the group PR carrying it failed
+        # `auth-schema.spec.ts` and answered 500 on signup. Grouped, that fact arrives
+        # attached to eleven unrelated bumps and the whole set stops moving; ungrouped, it
+        # arrives on its own with its own release notes, which is what the paragraph above
+        # already asks for on majors. The rule there applies to it whatever the semver
+        # digit says: this package holds the session, the schema and the signing key.
+        exclude-patterns:
+          - better-auth
         update-types:
           - minor
           - patch
