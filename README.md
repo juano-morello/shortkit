@@ -87,9 +87,12 @@ the two permitted statement shapes.
 
 ## Requirements
 
-- Node 24.13 or newer. `@types/node` tracks the same line, so the API surface the
-  compiler knows is the one the runtime has. `engineStrict` in `pnpm-workspace.yaml`
-  makes the floor a hard failure: an older Node fails the install instead of warning
+- Node 24.15 or newer. `@types/node` tracks the same major, so the API surface the
+  compiler knows is the one the runtime has; the 24 line of that package stops at
+  24.13.3, so the types stay there while the floor moves. `engineStrict` in
+  `pnpm-workspace.yaml` makes the floor a hard failure: an older Node fails the install
+  instead of warning. The floor moved from 24.13.0 on 2026-08-21, because `jsdom@30`
+  declares `^22.22.2 || ^24.15.0 || >=26.0.0` and CI runs the floor exactly
 - pnpm 11.20.0, pinned in `packageManager` with the tarball hash Corepack verifies
 
 ## Commands
