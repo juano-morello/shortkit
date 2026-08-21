@@ -12,6 +12,12 @@ import {
   linkKey,
   linkTtlSeconds,
 } from './redirect-cache';
+import {
+  GUARDED_DEL_SCRIPT,
+  GUARDED_SET_SCRIPT,
+  INVALIDATION_GUARD_TTL_S,
+  guardKey,
+} from './redirect-cache';
 import type { CachedHost, CachedLink, RedirectCacheClient } from './redirect-cache';
 
 /**
@@ -40,6 +46,8 @@ class FakeRedis implements RedirectCacheClient {
   behaviour: Behaviour = 'ok';
   readonly commands: Command[] = [];
   readonly store = new Map<string, string>();
+  /** What the last write asked the server to hold the key for. */
+  readonly ttls = new Map<string, number>();
 
   get(key: string): Promise<string | null> {
     this.commands.push(['get', key]);
@@ -61,6 +69,50 @@ class FakeRedis implements RedirectCacheClient {
     this.commands.push(['del', key]);
 
     return this.answer(() => (this.store.delete(key) ? 1 : 0));
+  }
+
+  /**
+   * The two shipped scripts, run against the `Map`, recognised by identity rather than
+   * parsed.
+   *
+   * A fake that interpreted Lua would be a second implementation of the thing under test and
+   * would agree with itself. These branches are the SEMANTICS the scripts promise, asserted
+   * here so the key strings, the argument order and the refusal are decidable with no Docker
+   * (AC-1); `test/cache/redirect-cache.int-spec.ts` runs the real bytes against a real server,
+   * which is the only place the Lua itself can be proved.
+   */
+  eval(script: string, numberOfKeys: number, ...args: (string | number)[]): Promise<unknown> {
+    this.commands.push(['eval', script, numberOfKeys, ...args]);
+
+    if (script === GUARDED_SET_SCRIPT) {
+      const [key, guard, value, ttl] = args as [string, string, string, number];
+
+      return this.answer(() => {
+        if (this.store.has(guard)) {
+          return 0;
+        }
+
+        this.store.set(key, value);
+        this.ttls.set(key, ttl);
+
+        return 1;
+      });
+    }
+
+    if (script === GUARDED_DEL_SCRIPT) {
+      const [key, guard, guardTtl] = args as [string, string, number];
+
+      return this.answer(() => {
+        const removed = this.store.delete(key) ? 1 : 0;
+
+        this.store.set(guard, '1');
+        this.ttls.set(guard, guardTtl);
+
+        return removed;
+      });
+    }
+
+    throw new Error(`the fake was handed a script it does not implement: ${script}`);
   }
 
   private answer<T>(produce: () => T): Promise<T> {
@@ -128,7 +180,14 @@ describe('keys (redirect-cache.md "Keys", GC-P)', () => {
     await namespaced.setLink(HOSTNAME, SLUG, link);
     await namespaced.delLink(HOSTNAME, SLUG);
 
-    expect(client.commands.map(([, key]) => key).filter((key) => !String(key).startsWith('sk:ci-1234:'))).toEqual([]);
+    // A `get` carries its key second; an `eval` carries the record key and its guard third
+    // and fourth. Every one of them is namespaced, INCLUDING THE GUARDS, which is what makes
+    // GC-P's collision rule cover the mechanism added for the stale-set race for free.
+    const keys = client.commands.flatMap((command) =>
+      command[0] === 'eval' ? [command[3], command[4]] : [command[1]],
+    );
+
+    expect(keys.filter((key) => !String(key).startsWith('sk:ci-1234:'))).toEqual([]);
     expect(client.commands.length).toBe(6);
   });
 });
@@ -218,7 +277,7 @@ describe('TTLs (redirect-cache.md "TTLs", ADR-0009)', () => {
       void cache.setLink(HOSTNAME, SLUG, { ...link, ea: seconds(120) });
       void cache.setLink(HOSTNAME, 'other12', link);
 
-      expect(client.commands.map(([, , , , ttl]) => ttl)).toEqual([120, LINK_TTL_S]);
+      expect(client.commands.map((command) => command[6])).toEqual([120, LINK_TTL_S]);
     } finally {
       vi.useRealTimers();
     }
@@ -229,15 +288,30 @@ describe('TTLs (redirect-cache.md "TTLs", ADR-0009)', () => {
     await cache.setHost(HOSTNAME, 'miss');
     await cache.setLink(HOSTNAME, SLUG, 'miss');
 
-    expect(client.commands.map(([, , , , ttl]) => ttl)).toEqual([HOST_TTL_S, HOST_MISS_TTL_S, LINK_MISS_TTL_S]);
+    expect(client.commands.map((command) => command[6])).toEqual([HOST_TTL_S, HOST_MISS_TTL_S, LINK_MISS_TTL_S]);
   });
 });
 
 describe('one command per write (redirect-cache.md "What the implementer must guarantee")', () => {
-  it('a write is SET key value EX ttl, never SET then EXPIRE', async () => {
+  it('a write is ONE command carrying its own TTL, never a write then an EXPIRE', async () => {
     await cache.setLink(HOSTNAME, SLUG, link);
 
-    expect(client.commands).toEqual([['set', 'sk:dev:rdr:v1:links.example.test:AbC1234', expect.any(String), 'EX', LINK_TTL_S]]);
+    // Since the stale-set race was closed it is an `eval` rather than a `set`, and the
+    // property the old assertion existed for is unchanged: one round trip, and the TTL
+    // arrives with the value rather than in a second command that can be lost between them.
+    // `'EX'` is asserted inside the script text for that reason.
+    expect(client.commands).toEqual([
+      [
+        'eval',
+        GUARDED_SET_SCRIPT,
+        2,
+        'sk:dev:rdr:v1:links.example.test:AbC1234',
+        'sk:dev:rdr:v1:links.example.test:AbC1234:gd',
+        expect.any(String),
+        LINK_TTL_S,
+      ],
+    ]);
+    expect(GUARDED_SET_SCRIPT).toContain("'EX'");
   });
 
   it('a read is one GET, whatever the outcome', async () => {
@@ -340,6 +414,59 @@ describe('writes and deletions under failure', () => {
     await expect(cache.delLink(HOSTNAME, SLUG)).resolves.toBeUndefined();
 
     await expect(cache.getLink(HOSTNAME, SLUG)).resolves.toBe('unavailable');
+  });
+});
+
+describe('the invalidation guard (redirect-cache.md "The stale set race")', () => {
+  it('a fill that lands after a deletion is REFUSED, which is the race the second pass only narrowed', async () => {
+    await cache.setLink(HOSTNAME, SLUG, link);
+    await cache.delLink(HOSTNAME, SLUG);
+
+    // The request that read the pre-edit row before the commit, writing back afterwards.
+    await cache.setLink(HOSTNAME, SLUG, link);
+
+    expect(client.store.has(linkKey('dev', HOSTNAME, SLUG))).toBe(false);
+  });
+
+  it('the refusal is silent: a fill is never an error, and the next request pays one Postgres read', async () => {
+    await cache.delLink(HOSTNAME, SLUG);
+
+    await expect(cache.setLink(HOSTNAME, SLUG, link)).resolves.toBeUndefined();
+  });
+
+  it('a deletion leaves the guard at INVALIDATION_GUARD_TTL_S, derived from the statement timeout', async () => {
+    await cache.delHost(HOSTNAME);
+
+    const guard = guardKey(hostKey('dev', HOSTNAME));
+
+    expect({ present: client.store.has(guard), ttl: client.ttls.get(guard) }).toEqual({
+      present: true,
+      ttl: INVALIDATION_GUARD_TTL_S,
+    });
+  });
+
+  it('the guard key is the record key plus `:gd`, so GC-P’s namespace rule covers it unchanged', () => {
+    expect({
+      host: guardKey(hostKey('ci-1234', HOSTNAME)),
+      link: guardKey(linkKey('ci-1234', HOSTNAME, SLUG)),
+    }).toEqual({
+      host: 'sk:ci-1234:hst:v1:links.example.test:gd',
+      link: 'sk:ci-1234:rdr:v1:links.example.test:AbC1234:gd',
+    });
+  });
+
+  it('an UNGUARDED key still fills: the guard refuses one key, never the surface', async () => {
+    await cache.delLink(HOSTNAME, SLUG);
+
+    await cache.setLink(HOSTNAME, 'OtHeR12', link);
+
+    expect(client.store.has(linkKey('dev', HOSTNAME, 'OtHeR12'))).toBe(true);
+  });
+
+  it('the deletion still answers for itself: the guard cannot make a failed one look successful', async () => {
+    client.behaviour = 'reject';
+
+    await expect(cache.delLink(HOSTNAME, SLUG)).rejects.toThrow(/not connected|unavailable/i);
   });
 });
 

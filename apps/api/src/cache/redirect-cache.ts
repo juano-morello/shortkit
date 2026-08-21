@@ -54,6 +54,12 @@ export interface RedirectCacheClient {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, mode: 'EX', ttl: number): Promise<unknown>;
   del(key: string): Promise<unknown>;
+  /**
+   * The two scripts above, and nothing else. `set` and `del` stay on this interface because
+   * the guard is not the only writer: `redirect-cache.int-spec.ts` and the fixtures plant
+   * records directly, and a narrower interface would push them onto a second client.
+   */
+  eval(script: string, numberOfKeys: number, ...args: (string | number)[]): Promise<unknown>;
 }
 
 /**
@@ -135,6 +141,81 @@ export function hostKey(namespace: string, hostname: string): string {
 export function linkKey(namespace: string, hostname: string, slug: string): string {
   return `sk:${namespace}:rdr:v1:${hostname}:${slug}`;
 }
+
+/**
+ * ============================================================================
+ * THE INVALIDATION GUARD. IT CLOSES THE STALE-SET RACE THE SECOND DELETION ONLY NARROWED.
+ * ============================================================================
+ *
+ * `redirect-cache.md`, "The stale set race", records the residual this closes: a request
+ * that read the pre-edit row from Postgres, and whose write-back lands after BOTH deletions,
+ * still wins, and then serves for a fresh TTL on a surface that is never rate limited. The
+ * double deletion narrowed the window. Nothing closed it, because nothing on the write side
+ * could tell a fill carrying a pre-commit row from one carrying the row the editor just
+ * wrote.
+ *
+ * A deletion now leaves a GUARD behind it, and a fill refuses to write while that guard
+ * lives. The two are one round trip each, through the scripts below, so a fill still costs
+ * one command and a HIT STILL COSTS NOTHING AT ALL: the read path is untouched, which is the
+ * property the contract insisted on when it put the mitigation in the subscriber.
+ *
+ * THE KEY IS THE RECORD'S KEY PLUS `:gd`. It inherits the namespace, so GC-P's collision rule
+ * covers it for free, and it cannot collide with a record: a hostname arrives lower-cased and
+ * port-stripped, a slug is drawn from ADR-0007's 57 symbols, and neither can contain `:gd`
+ * at the end of a key that is otherwise well-formed.
+ */
+export function guardKey(recordKey: string): string {
+  return `${recordKey}:gd`;
+}
+
+/**
+ * How long a deletion refuses fills for that key.
+ *
+ * IT IS DERIVED, NOT CHOSEN. A stale fill can only come from a request whose Postgres read
+ * predates the commit, and such a request is bounded by the API's `statement_timeout` of 5 s
+ * (`tenant-context.md`) plus the time to hand the record back to Redis. The delayed second
+ * deletion sits at 1 s inside that. 10 s is the next round number above the sum, and doubling
+ * the timeout is the margin.
+ *
+ * THE COST, STATED. For up to 10 s after an edit, every request for that key reads Postgres:
+ * the guard refuses the fresh fill as well as the stale one, because the record alone does not
+ * say which it is. On the hottest link at the gated rate that is 1000 reads, each already
+ * measured at a p99 the baseline records, and it happens once per edit rather than once per
+ * request. Distinguishing them would mean carrying the row's own timestamp in the record and
+ * comparing it against the guard, which is a record-shape change and therefore a key-version
+ * change; it is the refinement if this window ever costs something real.
+ */
+export const INVALIDATION_GUARD_TTL_S = 10;
+
+/**
+ * `SET key value EX ttl`, unless the guard is there.
+ *
+ * KEYS[1] the record, KEYS[2] its guard, ARGV[1] the value, ARGV[2] the TTL. Returns 1 when
+ * it wrote and 0 when the guard refused it. One round trip, and atomic: a `GET` then a `SET`
+ * from the client would leave exactly the window this exists to close, one instruction wide.
+ */
+export const GUARDED_SET_SCRIPT = `
+if redis.call('exists', KEYS[2]) == 1 then
+  return 0
+end
+redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2])
+return 1
+`;
+
+/**
+ * `DEL key`, and leave the guard.
+ *
+ * KEYS[1] the record, KEYS[2] its guard, ARGV[1] the guard's TTL. Returns what `DEL` returned,
+ * so the caller's rejection rule is unchanged: `delHost`/`delLink` still answer for whether the
+ * deletion happened, and the guard is not allowed to make a failed deletion look successful.
+ * Atomic for the same reason as above, in the other direction: a `DEL` whose guard did not land
+ * is the state this whole mechanism is about.
+ */
+export const GUARDED_DEL_SCRIPT = `
+local removed = redis.call('del', KEYS[1])
+redis.call('set', KEYS[2], '1', 'EX', ARGV[1])
+return removed
+`;
 
 export interface RedirectCache {
   getHost(hostname: string): Promise<CachedHost | 'miss' | 'unavailable'>;
@@ -264,7 +345,19 @@ export class RedisRedirectCache implements RedirectCache {
     }
 
     try {
-      await this.client.set(key, value === 'miss' ? MISS_SENTINEL : JSON.stringify(value), 'EX', ttl);
+      // GUARDED, NOT `set`. A fill that lands after a deletion is refused for as long as
+      // `INVALIDATION_GUARD_TTL_S`, which is what closes the stale-set race rather than
+      // narrowing it. The return value is deliberately unread: a refused write is the
+      // mechanism working, not a failure, and the next request pays one Postgres query
+      // exactly as a miss would.
+      await this.client.eval(
+        GUARDED_SET_SCRIPT,
+        2,
+        key,
+        guardKey(key),
+        value === 'miss' ? MISS_SENTINEL : JSON.stringify(value),
+        ttl,
+      );
     } catch {
       // Swallowed on purpose: see the file docblock. The next request pays one Postgres
       // query, which is the same price the miss would have cost.
@@ -278,7 +371,9 @@ export class RedisRedirectCache implements RedirectCache {
     }
 
     try {
-      await this.client.del(key);
+      // The deletion and its guard, atomically. The script returns what `DEL` returned, so
+      // the rejection rule below is the one this method always had.
+      await this.client.eval(GUARDED_DEL_SCRIPT, 2, key, guardKey(key), INVALIDATION_GUARD_TTL_S);
     } catch (error) {
       throw new RedirectCacheUnavailableError(NOT_CONNECTED_MESSAGE, { cause: error });
     }

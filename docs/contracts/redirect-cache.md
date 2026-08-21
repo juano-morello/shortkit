@@ -304,21 +304,47 @@ Nothing is scheduled when the first pass exhausted its retries: that path has al
 reported. The read path pays nothing for any of this, which is why the mitigation is here and
 not in front of the fill.
 
-**The residual, which this does NOT close.** A fill that lands after the SECOND deletion still
-wins, and is then bounded only by the TTL, exactly as the retry-exhaustion case above is. What
-narrows is the window: from "any request in flight across the commit" to "a request whose
-Postgres read predates the commit and whose cache write lands more than a second after it".
-Both halves are measured in `cache-invalidation.subscriber.spec.ts` and, against a live Redis,
-in `test/links/cache-invalidation.int-spec.ts`: a fill between the two deletions is swept, and
-a fill after them is not.
+**The residual this left, and the guard that closed it (2026-08-21).** Until then a fill that
+landed after the SECOND deletion still won, and was then bounded only by the TTL. What the
+second pass narrowed was the window, from "any request in flight across the commit" to "a
+request whose Postgres read predates the commit and whose cache write lands more than a second
+after it". It is now closed rather than narrowed.
+
+**A deletion leaves a guard, and a fill refuses to write while it lives.** `guardKey(recordKey)`
+is the record's own key plus `:gd`, so the namespace and GC-P's collision rule cover it with no
+second rule to keep in step. `INVALIDATION_GUARD_TTL_S` is 10 s, DERIVED rather than chosen: a
+stale fill can only come from a request whose Postgres read predates the commit, and such a
+request is bounded by the API's 5 s `statement_timeout` (`tenant-context.md`) plus the write
+back; the delayed second deletion sits at 1 s inside that, and doubling the timeout is the
+margin.
+
+**Both halves are one round trip, and a HIT STILL COSTS NOTHING.** `GUARDED_SET_SCRIPT` and
+`GUARDED_DEL_SCRIPT` do the check and the write in one `EVAL` each, so a fill costs the one
+command it always cost and the read path is untouched. That is why the earlier sentence about
+the mitigation living in the subscriber "because the read path pays nothing" still holds: the
+guard is on the WRITE, and only a write pays for it. A client-side `GET` then `SET` would have
+left exactly the window this exists to close, one instruction wide, which is why it is a script.
+
+**The accepted cost, stated.** For up to 10 s after an edit, every request for that key reads
+Postgres: the guard refuses the fresh fill as well as the stale one, because a record alone does
+not say which it is. At the gated rate on the hottest link that is 1000 reads, once per edit
+rather than once per request, each at a p99 `docs/performance/redirect-baseline.md` records.
+Distinguishing them means carrying the row's own timestamp in the record and comparing it with
+the guard, which is a record-shape change and therefore a key-version change; that is the
+refinement if this window ever costs something real.
+
+Measured in `cache-invalidation.subscriber.spec.ts`, in `redirect-cache.spec.ts` (the refusal,
+the guard's TTL, and the key), and against a live Redis in `test/links/cache-invalidation.int-spec.ts`
+and `test/cache/redirect-cache.int-spec.ts`: a fill between the two deletions is swept, and a
+fill after them is now refused.
 
 ## Invariants a caller may rely on
 
 1. A destination edit is visible on the redirect path within 5 seconds of commit
-   (GC-2, AC-51), by deletion rather than by expiry, with the TTL at 3600 s. Two recorded
-   residuals sit under this: a deletion that failed its whole retry schedule (logged), and a
-   fill that lands after the delayed second deletion (silent, bounded by the TTL). Both are
-   above, under "Invalidation".
+   (GC-2, AC-51), by deletion rather than by expiry, with the TTL at 3600 s. ONE recorded
+   residual sits under this: a deletion that failed its whole retry schedule, which is logged
+   and nothing else. The other, a fill landing after the delayed second deletion, was closed
+   on 2026-08-21 by the invalidation guard; both are above, under "Invalidation".
 2. `'unavailable'` never causes a 404. It causes a Postgres read (AC-52, AC-53).
 3. Every read is bounded at 50 ms (ADR-0012).
 4. A cache hit performs zero Postgres queries (AC-49), including for expiry evaluation,
