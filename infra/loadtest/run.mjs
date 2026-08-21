@@ -73,16 +73,25 @@ const RATE_TOLERANCE = 0.95;
 /**
  * The wait between seeding the link and warming the cache, and it is not padding.
  *
- * Creating a link invalidates its cache records TWICE: once immediately and once after
- * `INVALIDATION_SECOND_PASS_DELAY_MS` (1000 ms, `links/cache-invalidation.subscriber.ts`),
- * which sweeps a stale write-back left by a read that was in flight during the commit. A
- * harness that warms the cache inside that second window has its warm entry deleted from
- * under it, and the first request of the measured run is a Postgres read.
+ * Creating a link invalidates its cache records, and TWO mechanisms sit on that invalidation.
  *
- * MEASURED, not assumed: without this wait every run reported exactly one keyspace miss and a
- * cacheHitRatio of 0.9988, which `gate.mjs` correctly discards.
+ * 1. It is deleted again after `INVALIDATION_SECOND_PASS_DELAY_MS` (1000 ms,
+ *    `links/cache-invalidation.subscriber.ts`), which sweeps a stale write-back left by a read
+ *    that was in flight during the commit. A harness that warms inside that window has its
+ *    warm entry deleted from under it.
+ * 2. Since 2026-08-21 the deletion also leaves a guard, and every fill is REFUSED while it
+ *    lives: `INVALIDATION_GUARD_TTL_S` is 10 s (`cache/redirect-cache.ts`). A harness that
+ *    warms inside THAT window does not have its entry deleted; it never writes one.
+ *
+ * MEASURED IN BOTH DIRECTIONS, not assumed. At 2 s, which covered only the first mechanism,
+ * every run reported exactly one keyspace miss and a cacheHitRatio of 0.9988. At 2 s against
+ * the guard, CI reported 0.899315 and `gate.mjs` correctly refused the run for not having
+ * measured the cache-hit path at all.
+ *
+ * 12 s is the guard plus the two seconds that already worked. It costs 30 s across the three
+ * runs, which is the price of measuring the thing this gate exists to measure.
  */
-const SEED_SETTLE_MS = 2 * 1000;
+const SEED_SETTLE_MS = 12 * 1000;
 
 const options = readOptions();
 
