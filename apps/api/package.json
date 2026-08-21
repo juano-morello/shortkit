@@ -15,32 +15,32 @@
     "db:seed": "node scripts/seed.mts"
   },
   "dependencies": {
-    "@nestjs/common": "11.1.28",
-    "@nestjs/core": "11.1.28",
-    "@nestjs/platform-express": "11.1.28",
+    "@nestjs/common": "11.2.1",
+    "@nestjs/core": "11.2.1",
+    "@nestjs/platform-express": "11.2.1",
     "@shortkit/contracts": "workspace:*",
     "better-auth": "1.6.26",
     "drizzle-orm": "0.45.2",
     "express": "5.2.1",
     "helmet": "8.3.0",
     "ioredis": "6.0.0",
-    "jose": "6.2.8",
-    "pg": "8.22.0",
+    "jose": "6.2.9",
+    "pg": "8.23.0",
     "pino": "10.3.1",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2"
   },
   "devDependencies": {
-    "@nestjs/testing": "11.1.28",
-    "@swc/core": "1.15.46",
+    "@nestjs/testing": "11.2.1",
+    "@swc/core": "1.16.0",
     "@types/express": "5.0.6",
     "@types/node": "24.13.3",
-    "@types/pg": "8.20.4",
+    "@types/pg": "8.23.1",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.5",
     "tsup": "8.5.1",
     "typescript": "5.9.3",
-    "unplugin-swc": "1.5.10",
+    "unplugin-swc": "1.5.11",
     "vitest": "3.2.7"
   }
 }
