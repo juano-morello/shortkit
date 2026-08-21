@@ -12,7 +12,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { runTransaction, SEED_TRANSACTIONS } from '../../scripts/seed.mts';
 import { AppModule } from '../../src/app.module';
 import { cacheAvailable, closeRedisClient } from '../../src/cache/redis-client';
-import { LINK_MISS_TTL_S, LINK_TTL_S, REDIRECT_CACHE } from '../../src/cache/redirect-cache';
+import {
+  INVALIDATION_GUARD_TTL_S,
+  LINK_MISS_TTL_S,
+  LINK_TTL_S,
+  REDIRECT_CACHE,
+} from '../../src/cache/redirect-cache';
 import type { CachedLink, RedirectCache } from '../../src/cache/redirect-cache';
 import { closeDatabase } from '../../src/db/client';
 import { PLATFORM_TENANT_ID } from '../../src/db/platform';
@@ -184,6 +189,45 @@ function ttlOf(slug: string): number {
   return Number(redis.cli('ttl', keyFor(slug)));
 }
 
+/**
+ * Drops the invalidation guard for `slug`, straight through the CLI.
+ *
+ * A FIXTURE BYPASS, AND IT IS NAMED SO IT CANNOT BE MISREAD AS PRODUCTION BEHAVIOUR. Since
+ * 2026-08-21 every deletion leaves a guard and every fill inside it is refused, and a CREATE
+ * is a deletion like any other (it removes the negative entry a scan left behind, AC-2-23).
+ * So a test that creates a link and then plants a warm record is planting it inside the guard
+ * its own create left, and the plant is refused: seven fixtures in this file went red that way
+ * before this existed, all of them setting up a precondition for something the guard is not
+ * the subject of.
+ *
+ * The three tests that ARE about the guard never call this. Their fills are attempted against
+ * a live guard on purpose, which is the whole assertion.
+ */
+function clearGuard(slug: string): void {
+  redis.cli('del', `${keyFor(slug)}:gd`);
+}
+
+/**
+ * A fill ATTEMPTED through the shipped cache, with no assertion that it landed.
+ *
+ * `warm` asserts, because every caller of it is setting up a precondition and a fixture that
+ * silently did nothing is the vacuous pass this file exists to avoid. The stale-set tests are
+ * the exception: since 2026-08-21 a fill inside the invalidation guard is REFUSED, and that
+ * refusal is the thing under test rather than a broken fixture.
+ */
+async function attemptWarm(link: Link, slug = link.slug): Promise<void> {
+  await cache.setLink(HOSTNAME, slug, {
+    v: 1,
+    id: link.id,
+    d: link.destinationUrl,
+    dm: link.domainId,
+    w: link.workspaceId,
+    t: tenantId,
+    ea: null,
+    aa: null,
+  });
+}
+
 /** A positive record for `link`, written through the shipped cache so the TTL is the real one. */
 async function warm(link: Link, slug = link.slug): Promise<void> {
   const record: CachedLink = {
@@ -197,6 +241,7 @@ async function warm(link: Link, slug = link.slug): Promise<void> {
     aa: null,
   };
 
+  clearGuard(slug);
   await cache.setLink(HOSTNAME, slug, record);
 
   expect(exists(slug), `the fixture failed to warm ${slug}`).toBe(true);
@@ -204,6 +249,7 @@ async function warm(link: Link, slug = link.slug): Promise<void> {
 
 /** The negative entry a request for an unknown slug leaves behind (60 s, ADR-0008). */
 async function warmMiss(slug: string): Promise<void> {
+  clearGuard(slug);
   await cache.setLink(HOSTNAME, slug, 'miss');
 
   expect(exists(slug), `the fixture failed to warm the negative entry for ${slug}`).toBe(true);
@@ -418,24 +464,29 @@ describe('AC-2-21: a destination edit deletes the rdr key, with the shipped TTL 
 
 /**
  * ============================================================================
- * THE STALE SET RACE, ON A LIVE SERVER (TASK-2-07 review).
+ * THE STALE SET RACE, ON A LIVE SERVER (TASK-2-07 review; the guard, 2026-08-21).
  * ============================================================================
  *
  * A redirect that read the pre-edit row before the commit writes it into Redis AFTER this
- * subscriber deleted the key. Nothing on the read path corrects it, so without the delayed
- * second deletion the record serves with a fresh 3600 s TTL, on the one surface with no rate
- * limit. The fill below stands in for that redirect, and it is written through the SHIPPED
- * cache with the shipped TTL, so what the second pass removes is a real record and not a
- * marker.
+ * subscriber deleted the key. Nothing on the read path corrects it, so the record would serve
+ * with a fresh 3600 s TTL on the one surface with no rate limit.
+ *
+ * TWO MECHANISMS SIT ON THAT, AND THEY ARE NOT THE SAME MECHANISM. The delayed second
+ * deletion sweeps a record that is already there. The invalidation guard refuses the write in
+ * the first place, for `INVALIDATION_GUARD_TTL_S` after a deletion. The guard is what closes
+ * the race; the second pass stays because it also answers a first deletion that a reconnecting
+ * client dropped, which the guard cannot see.
+ *
+ * Every fill below is written through the SHIPPED cache, so what is refused or swept is a real
+ * record and not a marker.
  */
-describe('the delayed second deletion sweeps a fill that landed after the first', () => {
-  it('removes a record written between the two deletions, within the budget', async () => {
+describe('the invalidation guard refuses a fill that races a deletion', () => {
+  it('refuses a fill BETWEEN the two deletions, so there is nothing left for the second pass', async () => {
     const link = await createLink({ slug: slugFor('race') });
 
     await warm(link);
-    // THE CREATE SCHEDULED A PASS OF ITS OWN (delete-on-create is a mutation like any other),
-    // and it would remove the fill below on its own schedule. Dropped, so the only sweep that
-    // can explain the assertion is the edit's.
+    // THE CREATE SCHEDULED A PASS OF ITS OWN (delete-on-create is a mutation like any other).
+    // Dropped, so the only mechanism that can explain the assertion is the edit's.
     cancelScheduledInvalidationPasses();
 
     const edited = await api(`/api/links/${link.id}`, {
@@ -447,29 +498,15 @@ describe('the delayed second deletion sweeps a fill that landed after the first'
     // The first pass runs inside the request, so the key is already gone here.
     expect(exists(link.slug)).toBe(false);
 
-    // The racing redirect finally writes what it read before the commit.
-    await warm(link);
-    expect(ttlOf(link.slug)).toBeGreaterThan(LINK_TTL_S - 60);
+    // The racing redirect finally writes what it read before the commit. Before the guard it
+    // landed with a fresh 3600 s TTL and the second pass removed it a second later; now it
+    // never lands, which is the difference between narrowing the window and closing it.
+    await attemptWarm(link);
 
-    const started = Date.now();
-
-    await goneWithin(link.slug);
-
-    const elapsed = Date.now() - started;
-
-    // IT WAS THE SECOND PASS. The key was present after the first deletion and after the
-    // fill, and it went away most of a second later rather than instantly, which nothing else
-    // in this process was going to do before the 3600 s TTL.
-    expect(elapsed).toBeGreaterThan(INVALIDATION_SECOND_PASS_DELAY_MS / 2);
-    expect(elapsed).toBeLessThan(PROPAGATION_BUDGET_MS);
+    expect(exists(link.slug)).toBe(false);
   }, 120_000);
 
-  /**
-   * The residual, measured rather than described: a fill that lands after the second pass
-   * survives it, and the TTL is the only bound left. `redirect-cache.md` says so under
-   * "Invalidation"; this is the assertion behind the sentence.
-   */
-  it('does not sweep a fill that lands after the second pass', async () => {
+  it('refuses a fill that lands AFTER the second pass, which is the residual it used to leave', async () => {
     const link = await createLink({ slug: slugFor('late') });
 
     await warm(link);
@@ -482,10 +519,37 @@ describe('the delayed second deletion sweeps a fill that landed after the first'
 
     expect(edited.status, edited.raw).toBe(200);
 
-    // Past the schedule, then fill: nothing is coming to remove this one.
+    // Past the schedule: no sweep is coming, and before the guard this fill survived until
+    // the TTL. `redirect-cache.md` recorded that as the residual the second pass did not
+    // close, and this assertion is the sentence that replaced it.
     await sleep(INVALIDATION_SECOND_PASS_DELAY_MS + 500);
-    await warm(link);
-    await sleep(INVALIDATION_SECOND_PASS_DELAY_MS + 500);
+    await attemptWarm(link);
+
+    expect(exists(link.slug)).toBe(false);
+  }, 120_000);
+
+  it('is BOUNDED: once the guard expires the key fills again, so an edit costs seconds and not the TTL', async () => {
+    const link = await createLink({ slug: slugFor('bound') });
+
+    cancelScheduledInvalidationPasses();
+
+    const edited = await api(`/api/links/${link.id}`, {
+      method: 'PATCH',
+      body: { destinationUrl: EDITED_DESTINATION },
+    });
+
+    expect(edited.status, edited.raw).toBe(200);
+    // Inside the window, refused.
+    await attemptWarm(link);
+    expect(exists(link.slug)).toBe(false);
+
+    // Outside it, an ordinary fill. This is the assertion that keeps the guard from being a
+    // cache that quietly stopped caching: the cost of an edit is INVALIDATION_GUARD_TTL_S of
+    // Postgres reads for that key, and nothing beyond it.
+    // `attemptWarm`, NOT `warm`: the fixture bypass would clear the very guard whose expiry
+    // this test exists to prove. The fill has to succeed because the guard is gone on its own.
+    await sleep(INVALIDATION_GUARD_TTL_S * 1000 + 1000);
+    await attemptWarm(link);
 
     expect(exists(link.slug)).toBe(true);
   }, 120_000);
