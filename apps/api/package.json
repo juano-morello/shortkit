@@ -39,7 +39,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.5",
     "tsup": "8.5.1",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "unplugin-swc": "1.5.11",
     "vitest": "3.2.7"
   }
