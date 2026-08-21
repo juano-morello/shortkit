@@ -19,7 +19,7 @@ import type { CachedLink } from '../../src/cache/redirect-cache';
 import { closeDatabase } from '../../src/db/client';
 import { PLATFORM_TENANT_ID, SYSTEM_DEFAULT_DOMAIN_ID } from '../../src/db/platform';
 import { REDIRECT_ROUTE_PREFIX_EXCLUSION } from '../../src/redirect/redirect.module';
-import { startScratchRedis } from '../cache/scratch-redis';
+import { SCRATCH_REDIS_PORTS, startScratchRedis } from '../cache/scratch-redis';
 import type { ScratchRedis } from '../cache/scratch-redis';
 import {
   TENANT_A,
@@ -80,7 +80,7 @@ import {
 
 const NAMESPACE = `it-2-07-cache-${String(process.pid)}`;
 const CONTAINER_TIMEOUT_MS = 180_000;
-const REDIS_PORT = 56_382;
+const REDIS_PORT = SCRATCH_REDIS_PORTS.redirectCache;
 
 let redis: ScratchRedis;
 let app: INestApplication | undefined;

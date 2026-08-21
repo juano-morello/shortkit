@@ -17,7 +17,7 @@ import { closeDatabase } from '../../src/db/client';
 import { PLATFORM_TENANT_ID } from '../../src/db/platform';
 import { RedirectModule, REDIRECT_ROUTE_PREFIX_EXCLUSION } from '../../src/redirect/redirect.module';
 import { RedirectService } from '../../src/redirect/redirect.service';
-import { startScratchRedis } from '../cache/scratch-redis';
+import { SCRATCH_REDIS_PORTS, startScratchRedis } from '../cache/scratch-redis';
 import type { ScratchRedis } from '../cache/scratch-redis';
 import {
   assertAppRoleCannotBypassRls,
@@ -65,7 +65,7 @@ import {
 const NAMESPACE = `it-2-07-degraded-${String(process.pid)}`;
 const CONTAINER_TIMEOUT_MS = 180_000;
 const TEST_TIMEOUT_MS = 120_000;
-const REDIS_PORT = 56_382;
+const REDIS_PORT = SCRATCH_REDIS_PORTS.redirectDegraded;
 
 /**
  * One request against a server that is CONNECTED and never answering. The path makes at most
