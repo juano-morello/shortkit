@@ -28,8 +28,8 @@ Each item below needs the one above it. Item 1 shipped in two halves, the second
 
    **Split at the Refine gate, 2026-08-12.** The sentence held two increments.
 
-   - **1a: `identity-membership`, implemented on branch `feat/identity-membership`, PR
-     pending.** Signup, session, tenant membership and workspaces. Better Auth per ADR-0013,
+   - **1a: `identity-membership`, merged to `main` on 2026-08-18 as #9.** Signup, session,
+     tenant membership and workspaces. Better Auth per ADR-0013,
      `tenant_memberships` per ADR-0015 with its `UNIQUE (user_id)`, a tenant-scoped
      `workspaces` table, and three screens in `apps/web`. Email verification off as a dated
      decision, because `MAIL_TRANSPORT` unset binds `NoopMailSender` and requiring
@@ -45,10 +45,9 @@ Each item below needs the one above it. Item 1 shipped in two halves, the second
      registered by hand; and the compose stack driving signup, sign-in and workspace
      creation end to end. Out, by the split above: mail, invitations, `memberships` and
      `WorkspaceRole` enforcement, all 1b.
-   - **1b: invitations, implemented on branch `feat/invitations`, PR pending, stacked on
-     #9 (`feat/identity-membership`) and retargeted to `main` once #9 merges.** The
-     second-human path: capability tokens per ADR-0021, mail, the accept legs, `memberships`
-     and `WorkspaceRole` enforcement. **F-018, F-300/F-362 and F-386/F-401 belonged to this
+   - **1b: invitations, merged to `main` on 2026-08-20 as #10.** The second-human path:
+     capability tokens per ADR-0021, mail, the accept legs, `memberships` and
+     `WorkspaceRole` enforcement. **F-018, F-300/F-362 and F-386/F-401 belonged to this
      entry** and are discharged below.
 
      **Shipped 2026-08-18.** Three tables in one migration (`memberships`, `invitations`,
@@ -91,8 +90,8 @@ Each item below needs the one above it. Item 1 shipped in two halves, the second
 2. **Links and the redirect hot path.** A multi-tenant URL shortener on the system default
    domain, with a redirect that stays fast, stays correct when someone edits a destination,
    degrades instead of failing when Redis is gone, and accumulates click events.
-   **Implemented on branch `feat/links-redirect`, PR pending, stacked on `feat/invitations`
-   and retargeted to `main` as the branches ahead of it merge.**
+   **Merged to `main` on 2026-08-20 as #13**, after #10 and the debt sweep (#12) went in
+   ahead of it.
 
    **Shipped 2026-08-19.** Three tables in one migration (`domains`, `links`,
    `click_events`, `0005`, `tenantScopedPolicies()` for all three plus the first applied
@@ -451,6 +450,33 @@ The 1b wave ledger's residuals, each with its ledger id. None is closed by the b
   contract was implemented, the story sentence stands corrected here.
 - **1b-W1-13**, an accepted cost under ADR-0062: `reparentAll` on the composite-FK tables scores a
   widened `USING` as unverified (23503) rather than fail; still red, and inherent.
+
+## Carried forward from the merge itself, 2026-08-21
+
+Three things the merges taught, recorded because none of them has a carrier otherwise.
+
+- **Two gates had never run on a runner, and both were wrong.** `performance` pointed its
+  three DSNs at `shortkit_test` and then ran `db:seed`, which refuses any database but
+  `shortkit` by name (`seed.mts:94`, ADR-0034), so the gate could not have passed at all;
+  provisioning now creates both databases with identical grants. `redirect.int-spec.ts` and
+  `click-emission.int-spec.ts` were written before TASK-2-07 added the cache and never
+  revisited, so five assertions measured the cache rather than the Postgres path they name;
+  they passed locally only because a run with no `REDIS_URL` binds a cache that answers
+  `unavailable` to every read. Both are fixed, and the shape is F-390's prediction arriving
+  twice: **a gate nobody has watched run is a claim, not a control.**
+- **A scratch-Redis suite can fail on the runner's Docker, not on the code.** One
+  `integration` run failed both suites that start their own Redis with `driver failed
+  programming external connectivity on endpoint`, while its twin passed on the identical
+  commit; a re-run went green. The ports are already distinct per suite by design, so this
+  was the daemon and not a collision. **Recorded rather than retried in code**: one
+  observation is not a pattern, and a retry loop around a container start hides a broken
+  daemon as easily as it absorbs a flake. If it recurs, this is the note that says so.
+- **The two residuals that lose data or signal both wait on item 3.** Nothing deletes a host
+  key, and no code path writes `domains` at all, so the invalidation has no producer until
+  custom domains adds the first one. Every click row hashes the same sentinel because no
+  environment declares a trusted client address header, and none honestly can while the
+  redirect is reached directly: a declared header with no hop in front of it is a value the
+  visitor chose, which is F-009. Both close inside the work that creates their producer.
 
 ## Carried forward from `links-redirect` (item 2), 2026-08-19
 
