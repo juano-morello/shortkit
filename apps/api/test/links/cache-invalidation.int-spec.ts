@@ -22,7 +22,7 @@ import {
   cancelScheduledInvalidationPasses,
 } from '../../src/links/cache-invalidation.subscriber';
 import { logger } from '../../src/observability/logger';
-import { startScratchRedis } from '../cache/scratch-redis';
+import { SCRATCH_REDIS_PORTS, startScratchRedis } from '../cache/scratch-redis';
 import type { ScratchRedis } from '../cache/scratch-redis';
 import { startApiServer } from '../support/api-server';
 import type { ApiServer } from '../support/api-server';
@@ -286,7 +286,7 @@ beforeAll(async () => {
   assertAppRoleCannotBypassRls();
   await seedPlatform();
 
-  redis = startScratchRedis('2-08');
+  redis = startScratchRedis('2-08', SCRATCH_REDIS_PORTS.invalidation);
 
   // Read by `CacheModule`'s factory when the module below compiles, so they are set first.
   // The namespace carries the pid, which is GC-P's `ci-{run_id}` rule one scale down.

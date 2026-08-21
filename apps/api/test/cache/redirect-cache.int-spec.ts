@@ -10,7 +10,7 @@ import {
 import { HOST_TTL_S, LINK_MISS_TTL_S, LINK_TTL_S, MISS_SENTINEL } from '../../src/cache/redirect-cache';
 import type { CachedHost, CachedLink, RedirectCache } from '../../src/cache/redirect-cache';
 
-import { startScratchRedis } from './scratch-redis';
+import { SCRATCH_REDIS_PORTS, startScratchRedis } from './scratch-redis';
 import type { ScratchRedis } from './scratch-redis';
 
 /**
@@ -114,7 +114,7 @@ async function eventuallyServes(budgetMs: number): Promise<boolean> {
 }
 
 beforeAll(async () => {
-  redis = startScratchRedis('2-03');
+  redis = startScratchRedis('2-03', SCRATCH_REDIS_PORTS.cacheCodec);
 
   // The module reads these once, on the first `redirectCacheFor`, and the client is built
   // from them. `REDIS_KEY_NAMESPACE` carries the pid so two runs on one machine cannot

@@ -48,10 +48,39 @@ const HOST_PORT = Number(process.env.REDIS_TEST_PORT ?? 56_381);
 /**
  * TASK-2-07 added the `hostPort` parameter below rather than a second copy of this file: the
  * redirect's own degradation suites break a server too, and two suites cannot share one
- * container when one of them stops it. They pass 56382. Files run one at a time
- * (`fileParallelism: false`), so today the ports need only differ from the two compose ones;
- * pinning one per suite is what keeps that true if the setting ever changes.
+ * container when one of them stops it.
+ *
+ * ============================================================================
+ * ONE PORT PER SUITE, AND "THEY RUN SEQUENTIALLY" IS NOT ENOUGH (2026-08-21)
+ * ============================================================================
+ *
+ * The sentence that stood here said the ports "need only differ from the two compose ones",
+ * because `fileParallelism: false` means files run one at a time. MEASURED FALSE ON A RUNNER,
+ * twice in one afternoon, once on a pull request that changed nothing but Markdown:
+ *
+ *   could not start a scratch Redis (redis:7-alpine): docker: Error response from daemon:
+ *   failed to set up container networking: driver failed programming external connectivity
+ *   on endpoint
+ *
+ * Sequential FILES do not mean sequential PORTS. `docker rm -f` returns before the daemon has
+ * finished releasing the binding, so the next file's container asks for a port the previous
+ * one is still giving up, and the bind fails. Four suites were sharing two ports, which is
+ * exactly two chances per run for the second one to lose that race.
+ *
+ * The table below is the whole fix: one port per suite, derived from `HOST_PORT` so
+ * `REDIS_TEST_PORT` still shifts the block on a machine where these are taken. A fifth suite
+ * adds an entry here rather than inheriting a number someone else is already releasing.
  */
+export const SCRATCH_REDIS_PORTS = {
+  /** `test/cache/redirect-cache.int-spec.ts` */
+  cacheCodec: HOST_PORT,
+  /** `test/links/cache-invalidation.int-spec.ts` */
+  invalidation: HOST_PORT + 1,
+  /** `test/redirect/redirect-cache.int-spec.ts` */
+  redirectCache: HOST_PORT + 2,
+  /** `test/redirect/redirect-degraded.int-spec.ts` */
+  redirectDegraded: HOST_PORT + 3,
+} as const;
 
 const READY_ATTEMPTS = 120;
 const READY_INTERVAL_MS = 250;
