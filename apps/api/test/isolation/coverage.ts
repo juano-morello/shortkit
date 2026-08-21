@@ -1,9 +1,9 @@
 /**
- * Contract: docs/contracts/isolation-coverage.md — this file is that contract's
+ * Contract: docs/contracts/isolation-coverage.md. This file is that contract's
  *           NORMATIVE FORM. Read the two together; the clause each export answers is
  *           named in its own comment.
  * ADR: adr-0020-isolation-suite-enumeration.md, adr-0003, adr-0019
- * Produced by: TASK-006 (the harness below) — TASK-056 fills in route discovery, the
+ * Produced by: TASK-006 (the harness below). TASK-056 fills in route discovery, the
  *              four grep clauses, the pg_policies shape assertion and the Form A/B/C
  *              scan, all fenced off at the bottom of this file.
  * AC-12.
@@ -15,8 +15,8 @@
  * ===========================================================================
  *
  * IN THIS WAVE, THE SET OF SUBJECTS IS THE REGISTRY. `discoveredSurfaces()` maps over
- * `registrations.ts`, so `uncovered` is structurally `[]` and cannot fail on its own —
- * an earlier version of this header claimed enumeration where there was a list, and r1
+ * `registrations.ts`, so `uncovered` is structurally `[]` and cannot fail on its own.
+ * An earlier version of this header claimed enumeration where there was a list, and r1
  * measured the consequence: a tenant-scoped table nobody registered leaked every row to
  * every tenant with both gates green and its name in no artifact.
  *
@@ -28,13 +28,13 @@
  * are both deferred.
  *
  * IT ASKS FIVE INDEPENDENT QUESTIONS, NOT ONE, AND THE FIRST VERSION ASKED ONLY ONE.
- * r1 matched on the literal column name `tenant_id` — the assumption ADR-0019 itself
- * files under "accepted cost" — and r2 measured what that misses: a table whose owner
+ * r1 matched on the literal column name `tenant_id` (the assumption ADR-0019 itself
+ * files under "accepted cost"), and r2 measured what that misses: a table whose owner
  * column is called `owning_tenant`, force-RLS'd with a `USING (true)` policy, leaking
  * every row to every tenant, invisible to the drift check, named in no artifact, and
  * called protected by `db:check-policies`. r3 measured that arms 3 and 4 are properties
  * of a table being PROTECTED, so the UNPROTECTED shape of the same table was still
- * invisible — caught then only by `db:check-policies`, which is a different gate, which
+ * invisible: caught then only by `db:check-policies`, which is a different gate, which
  * is not what "second, independent enumeration" means. Arm 5 is a foreign key to
  * `tenants(id)` and depends on neither protection nor a column name. The five arms, and
  * the shape that still escapes all of them, are at `tenantScopedTableDrift()` below.
@@ -55,7 +55,7 @@
  * `@TenantScopedRepository()` exist since identity-membership (the four `/api/workspaces`
  * routes and `WorkspaceRepository`; the decorator became real in TASK-006), but the three
  * discovery mechanisms in isolation-coverage.md's "Discovery" section still discover
- * nothing — they throw, and they are TASK-056's to build. Every surface attacked today
+ * nothing: they throw, and they are TASK-056's to build. Every surface attacked today
  * was registered by hand. What this file delivers is the layer beneath discovery: the
  * registry it will register into, the attempt semantics it will drive, and the report it
  * will fill.
@@ -63,27 +63,27 @@
  * SO A GREEN RUN OF `cross-tenant-isolation.int-spec.ts` SAYS EXACTLY THIS: for the two
  * tables that exist, a tenant transaction belonging to A cannot read, update, delete or
  * plant a row belonging to B, OR TAKE OWNERSHIP OF ONE, through any of the EIGHT
- * statement shapes below — five that name the owning tenant in a WHERE clause and THREE
- * THAT NAME NOTHING AT ALL — and no such attempt moved, removed or overwrote a row
+ * statement shapes below (five that name the owning tenant in a WHERE clause and THREE
+ * THAT NAME NOTHING AT ALL), and no such attempt moved, removed or overwrote a row
  * belonging to another tenant.
  *
  * THE LAST THREE ARE THE BLOCKERS OF TWO CONSECUTIVE ROUNDS, AND THEY ARE NOT A DETAIL.
  *
  * `updateAll` and `deleteAll` are r2's (F-302). Every write the harness attempted until
  * then was qualified by the owner column, so PostgreSQL routed it through the SELECT
- * policy — the rule `test/support/rls-fixture.ts:175-188` already had measured and
- * written down — and reported zero rows however wide open the UPDATE or DELETE policy
+ * policy (the rule `test/support/rls-fixture.ts:175-188` already had measured and
+ * written down), and reported zero rows however wide open the UPDATE or DELETE policy
  * was. Measured on the migrated production table: `tenants_self_update` altered to
  * `USING (true) WITH CHECK (true)`, then `UPDATE tenants SET name = 'x'` with no WHERE,
- * in an ordinary tenant-A transaction, reported UPDATE 2 and destroyed tenant B's row —
+ * in an ordinary tenant-A transaction, reported UPDATE 2 and destroyed tenant B's row,
  * while this suite reported 15 passed, exit 0, and `db:check-policies` OK.
  *
  * `reparentAll` is r3's (F-330), and it is the worse half. Tighten that WITH CHECK back
- * to the predicate the production builder actually emits — leaving only the USING
- * widened — and the statement above is REFUSED with 42501, which the harness scored as a
+ * to the predicate the production builder actually emits (leaving only the USING
+ * widened), and the statement above is REFUSED with 42501, which the harness scored as a
  * denial. Measured: every attempt green, `verdict: pass`, over a policy admitting every
  * row of every tenant. A refusal proves the WITH CHECK held and says NOTHING about the
- * USING clause, and no shape in this harness had ever written the owner column — which
+ * USING clause, and no shape in this harness had ever written the owner column, which
  * is the statement that defect permits. `UPDATE <t> SET tenant_id = <actor>` reports
  * UPDATE 2 and leaves tenant B's row belonging to tenant A. Theft rather than vandalism,
  * and every mechanism r2 added was blind to it.
@@ -107,7 +107,7 @@
  * behind it are gone.
  *
  * IT DOES NOT SAY that the system
- * has no cross-tenant surface — most of the system is not written. Ruled 2026-08-06:
+ * has no cross-tenant surface: most of the system is not written. Ruled 2026-08-06:
  * AC-12 is met against a partial table set, deliberately, and the boundary is stated
  * rather than implied.
  *
@@ -126,8 +126,8 @@
  * BYPASSRLS. The thing that would make an attempt pass wrongly is the database
  * answering wrongly.
  *
- * The remaining risk — that the harness reports `pass` because it is looking in the
- * wrong place — is closed by a NEGATIVE CONTROL rather than by prose: `leak-canary.ts`
+ * The remaining risk, that the harness reports `pass` because it is looking in the
+ * wrong place, is closed by a NEGATIVE CONTROL rather than by prose: `leak-canary.ts`
  * builds a table shaped exactly like a tenant-scoped one and deliberately omits
  * `ENABLE ROW LEVEL SECURITY`, which is the exact defect `scripts/check-policies.mts`
  * exists to catch. The suite runs this same harness over it and requires EVERY one of
@@ -142,7 +142,7 @@
  *
  * AND SINCE r4 THERE IS ONE POSITIVE CONTROL AMONG THEM (F-344).
  * `isolation_guarded_check_canary` is correctly isolated and carries a WITH CHECK
- * stricter than its USING, which is what an ordinary business predicate produces — and
+ * stricter than its USING, which is what an ordinary business predicate produces. And
  * r3's `unverified` rule fired on it, leaving the run permanently red over a table with
  * nothing wrong with it. A check that goes red on correct code is the check that gets
  * deleted rather than fixed, so the shape a correct table CANNOT be reported as is now
@@ -185,7 +185,7 @@ export interface DiscoveredSurface {
 }
 
 /**
- * isolation-coverage.md declares six fields — `id`, `ownerUserId`, `token`,
+ * isolation-coverage.md declares six fields: `id`, `ownerUserId`, `token`,
  * `workspaceId`, `linkId`, `domainId`. Five of them name rows in tables no migration
  * creates yet: `user` and `tenant_memberships` (TASK-013), `workspaces` (TASK-018),
  * `links` and `domains` (TASK-024, TASK-028).
@@ -193,11 +193,24 @@ export interface DiscoveredSurface {
  * RULED 2026-08-06: do not block on them and do not invent them. The two fields below
  * are the ones a fixture can honestly hold today, and the wave that adds each table
  * adds its field here in the same commit that registers the table. This divergence from
- * the contract is deliberate and recorded, not an oversight — see TASK-006's report.
+ * the contract is deliberate and recorded, not an oversight. See TASK-006's report.
  */
 export interface TenantFixture {
   readonly id: string;
   readonly name: string;
+  /**
+   * THE THIRD OF THE CONTRACT'S SIX FIELDS, AND THE FIRST TO LAND (TASK-2-10). The link this
+   * tenant owns, which is what the six link endpoint attempts address.
+   *
+   * OPTIONAL, because only the endpoint fixtures can honestly hold it. The link is written
+   * ONCE by `POST /api/links` and put back verbatim by every reset
+   * (`registrations.ts`, `plantSignedInLinks`), so the id is stable for the whole run and a
+   * spec that reads it is reading the row the product wrote. The SQL battery's fixtures are
+   * still the two tenants `createRlsFixture()` seeds, whose link is `registrations.ts`'s own
+   * constant and reachable through `seededParentsOf`; giving them this field would mean
+   * `coverage.ts` naming a fixture row id, which is the direction this file does not go.
+   */
+  readonly linkId?: string;
 }
 
 export interface TenantFixtures {
@@ -207,7 +220,7 @@ export interface TenantFixtures {
 
 /**
  * What an attempt hands back for judging. A read reports `rows`; a write reports
- * `rowsAffected`. An attempt that the database refused simply THROWS — the runner
+ * `rowsAffected`. An attempt that the database refused simply THROWS: the runner
  * catches it, and a refusal is a pass (isolation-coverage.md, "Attempt semantics":
  * "zero rows returned, or a throw").
  */
@@ -260,7 +273,7 @@ export interface TenantScopedMethod {
    *
    *   'unqualified'      no WHERE at all, so the rows the ACTOR owns are legitimately
    *                      affected. The leak is a row count in excess of what the actor
-   *                      can see of its own — `UPDATE 2` from a single-tenant context —
+   *                      can see of its own (`UPDATE 2` from a single-tenant context),
    *                      and it is visible in the command tag before any census runs.
    *
    * A defaulted field is how this blind spot comes back: a later TASK registering a
@@ -270,14 +283,14 @@ export interface TenantScopedMethod {
   readonly qualification: 'owner-qualified' | 'unqualified';
   /**
    * TASK-014. Present iff this method is an HTTP attempt, in which case it is
-   * `route:${method} ${pattern}` and overrides `surfaceIdOf(subject, name)` — so an
+   * `route:${method} ${pattern}` and overrides `surfaceIdOf(subject, name)`, so an
    * endpoint attempt names the ROUTE in the report rather than a repository method. A
    * table or repository method leaves it undefined and keeps the `repo:` id.
    */
   readonly surfaceId?: SurfaceId;
   /**
    * TASK-1b-10. HAND-SET ON THE ONE `@Public()` ROUTE UNTIL TASK-056 DISCOVERS IT.
-   * `discoveredSurfaces()` reports every method as `authenticated: true` — every table
+   * `discoveredSurfaces()` reports every method as `authenticated: true`. Every table
    * and repository method runs inside a tenant transaction and every workspace route sits
    * behind the guard. `POST /api/invitations/lookup` is neither: it carries `@Public()`, the
    * capability token is its whole authorisation (ADR-0021, GC-L), and the tenant transaction
@@ -295,7 +308,7 @@ export interface TenantScopedMethod {
 }
 
 /**
- * One tenant-scoped subject: a repository, or — until repositories exist — the table
+ * One tenant-scoped subject: a repository, or (until repositories exist) the table
  * access object that stands in for one. The later schema TASK that lands
  * `LinkRepository` registers it here and its methods are enumerated the same way.
  */
@@ -322,20 +335,20 @@ export interface TenantScopedSurfaceRegistration {
    *
    * r3 added one: `declinedShapes`, a reason string carried into `report.json`, guarded
    * by three independent edits so a decline could not arrive as a silent diff. The guard
-   * rails were right and the first — and only — use was not. `tenants` declined the
+   * rails were right and the first (and only) use was not. `tenants` declined the
    * owner-column write on the premise that `UPDATE tenants SET id = <actor>` "is refused
    * by the primary key index with 23505 before any policy is evaluated". Measured on the
    * migrated table on 2026-08-11: under the migration's own policies it reports UPDATE 1
    * and NO ERROR, because the USING clause admits only the actor's own row and the
    * assignment is an identity update; the 23505 appears only once the USING is widened.
    * The shape separated a correct policy from a wide-open one, in both directions, and
-   * the decline removed one of the table's two live unqualified write attempts — while
+   * the decline removed one of the table's two live unqualified write attempts, while
    * the artifact SC-1 points at published the false reason as a fact.
    *
    * An absence of evidence recorded as a fact is F-296's shape and it is what this file
    * keeps repeating, so the mechanism is gone rather than corrected. A table that cannot
-   * express a shape as written changes the STATEMENT — see `unqualifiedWritesAlsoSet` in
-   * registrations.ts, which is how F-344's stricter-WITH-CHECK table stays green — and a
+   * express a shape as written changes the STATEMENT (see `unqualifiedWritesAlsoSet` in
+   * registrations.ts, which is how F-344's stricter-WITH-CHECK table stays green), and a
    * table that genuinely cannot answer goes `unverified` and red, which is a measurement
    * rather than a declaration.
    */
@@ -393,8 +406,8 @@ export interface AttemptOutcome {
  * WHY THE CONTRACT'S TWO VALUES ARE NOT ENOUGH. `report.json` was written ONCE, after
  * the attempts, so a run that died earlier left the PREVIOUS run's `"verdict": "pass"`
  * on disk. Measured on 2026-08-11: with `tenants_self_select` altered to `USING (true)`,
- * the fixture threw in `beforeAll` — the F-293 absolute census assertion doing exactly
- * its job — vitest exited 1 with all 15 tests skipped, and `report.json` still read
+ * the fixture threw in `beforeAll` (the F-293 absolute census assertion doing exactly
+ * its job), vitest exited 1 with all 15 tests skipped, and `report.json` still read
  * `verdict=pass runAt=<the previous run's timestamp>`. The most alarming failure this
  * harness has is now precisely the one that strands a stale pass.
  *
@@ -411,7 +424,7 @@ export interface AttemptOutcome {
  *
  * F-304 closed "a stale pass from a previous run". It left "a confident pass from THIS
  * run that this run then disproved". `writeIsolationReport()` was the last statement in
- * `beforeAll`, and ELEVEN OF THE EIGHTEEN TESTS RUN AFTER IT — the protection-count
+ * `beforeAll`, and ELEVEN OF THE EIGHTEEN TESTS RUN AFTER IT: the protection-count
  * assertions, all seven control runs, both drift probes, the refusal roster, and
  * `assertNoTenantIdAltered()`. None of them could reach the artifact.
  *
@@ -419,7 +432,7 @@ export interface AttemptOutcome {
  * EXIT=1, and `report.json` read `verdict=pass attempts=28 failed=[]` FOR THAT RUN. The
  * suite is strictly stronger than its own report, because `verdict` was computed from
  * the attempt judgements alone. The most alarming case is `assertNoTenantIdAltered()`
- * failing — a row changed tenant across the run — which is BY CONSTRUCTION something no
+ * failing (a row changed tenant across the run), which is BY CONSTRUCTION something no
  * attempt judged.
  *
  * So the artifact is now written TWICE AND ONLY TWICE, and neither write can produce a
@@ -490,7 +503,7 @@ export interface IsolationReport {
   /** Stated in the artifact itself, so a reader of report.json sees the boundary. */
   coverageBoundary: string;
   /**
-   * F-331. THE JUDGEMENT OVER THE ATTEMPTS ALONE — what `verdict` used to mean, and
+   * F-331. THE JUDGEMENT OVER THE ATTEMPTS ALONE: what `verdict` used to mean, and
    * what the control runs in the suite assert against. Kept as its own field so that
    * `verdict` can be the stronger, conjoined answer without losing this one.
    */
@@ -519,10 +532,10 @@ export interface IsolationReport {
  *
  * Raised from two to three on 2026-08-14 by ADR-0045, which is that justification. The
  * third entry is the token-mint membership lookup: `tid` must be in every token, it comes
- * from a tenant-scoped table, and at mint time no tenant is known — so neither
+ * from a tenant-scoped table, and at mint time no tenant is known, so neither
  * `withTenantTransaction` nor a plain `databaseTransaction` can produce it.
  *
- * Two of the three surfaces do not exist yet — `RedirectReadRepository` is TASK-029's and
+ * Two of the three surfaces do not exist yet: `RedirectReadRepository` is TASK-029's and
  * `PrivilegedTenantEraser` is TASK-054's. `TenantMembershipLookup` DOES exist, from this
  * wave, at `apps/api/src/auth/tenant-id-for-user.ts`. The list is carried whether or not
  * a surface is built, because the LENGTH is the control: a new entry has to arrive as a
@@ -562,7 +575,7 @@ export const UNENUMERABLE_SURFACES = [
     // TASK-1b-10 (AC-1b-33): the INVITED branch, which is the entry the contract's own
     // block names. `onUserCreated` reads the token `hooks.before` validated, opens the
     // tenant transaction from the row's tenant id (never from the token string, GC-E) and
-    // writes one `tenant_memberships` row plus the named `memberships` rows — the single
+    // writes one `tenant_memberships` row plus the named `memberships` rows: the single
     // anonymous path that writes tenant-scoped rows on behalf of a tenant the caller does
     // not yet belong to. `signup-invited.int-spec.ts` covers it end to end, including the
     // prefix-swapped token that creates no user and no membership anywhere (ADR-0021).
@@ -572,8 +585,8 @@ export const UNENUMERABLE_SURFACES = [
     coveredBy: 'apps/api/test/auth/signup-invited.int-spec.ts',
   },
   {
-    // The UNINVITED branch — signup creates a tenant that is the generated uuid and one
-    // `owner` membership in it — kept as its own entry (TASK-014 had repointed the single
+    // The UNINVITED branch (signup creates a tenant that is the generated uuid and one
+    // `owner` membership in it), kept as its own entry (TASK-014 had repointed the single
     // entry at this file) so the report names both branches with the file covering each.
     id: 'hook:onUserCreated (uninvited branch)',
     reason:
@@ -589,24 +602,53 @@ export const UNENUMERABLE_SURFACES = [
 
 /** Reproduced verbatim into `report.json`, so the artifact SC-1 points at is not read as stronger than it is. */
 export const COVERAGE_BOUNDARY =
-  'TASK-1b-10, wave 4 of 1b (amending TASK-1b-03 and TASK-015). This run covers SEVEN ' +
-  'TABLES, THREE REPOSITORY CLASSES and TEN ENDPOINTS, in TWO ATTEMPT CATEGORIES. ' +
-  'THE SEVEN TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
+  'TASK-2-10, wave 5 of item 2 (amending TASK-2-02, TASK-1b-10, TASK-1b-03 and TASK-015). ' +
+  'This run covers TEN TABLES, SIX REPOSITORY CLASSES and SIXTEEN ENDPOINTS, in TWO ' +
+  'ATTEMPT CATEGORIES: 117 surfaces, each attempted in BOTH directions, 234 attempts (76 ' +
+  'reads, 158 writes, 60 of the writes carrying no WHERE clause at all). ' +
+  'THE TEN TABLES, attacked as SQL through withTenantTransaction as shortkit_app: ' +
   '`tenants` (the migrated cascade root, four bespoke policies), `rls_fixture_rows` (a ' +
   'FIXTURE TABLE this suite creates and drops per run, built from the production ' +
-  'tenantScopedPolicies()), `tenant_memberships` (migrated, TASK-002 — carrying the ' +
+  'tenantScopedPolicies()), `tenant_memberships` (migrated, TASK-002; carrying the ' +
   'token-mint FOR SELECT escape as a third policy), `workspaces` (migrated, TASK-011), ' +
-  'and `memberships`, `invitations` and `invitation_workspaces` (migrated, TASK-1b-03, ' +
-  'migration 0003 — the template unchanged, two policies each). Each is hit with EIGHT ' +
+  '`memberships`, `invitations` and `invitation_workspaces` (migrated, TASK-1b-03, ' +
+  'migration 0003; the template unchanged, two policies each), and `domains`, `links` ' +
+  'and `click_events` (migrated, TASK-2-02, migration 0005). `domains` and `links` carry ' +
+  'a THIRD policy each: the FIRST APPLIED INSTANCES of redirectReadPolicy(), the FOR ' +
+  'SELECT redirect escape ADR-0003 approves for those two tables and no others, which had ' +
+  'no applied instance anywhere until that migration. NO ATTEMPT HERE CAN REACH IT (' +
+  'withTenantTransaction sets app.tenant_id and never app.redirect_context, so the policy ' +
+  'reads NULL through its nullif and admits nothing), and its PRESENCE is asserted from ' +
+  'pg_policies rather than assumed, because a migration that never emitted it would leave ' +
+  'the carried repo:RedirectReadRepository.resolveByHostAndSlug exclusion justified by a ' +
+  'policy the database does not have while every attempt below stayed green. ' +
+  '`click_events` takes the template and nothing else: the click flush runs inside ' +
+  'withTenantTransaction grouped by tenant, so click emission is NOT a GC-5 exclusion. ' +
+  'Each is hit with EIGHT ' +
   'statement shapes in BOTH directions; three of the eight carry NO WHERE CLAUSE (F-302) ' +
-  'and one of those assigns the owner column (F-330). THREE OF THE SEVEN ARE ALSO ' +
+  'and one of those assigns the owner column (F-330). FIVE OF THE TEN ARE ALSO ' +
   "ATTACKED THROUGH THEIR REPOSITORY CLASS, called inside the ACTOR's tenant transaction " +
   "with the TARGET's ids: the six methods of WorkspaceRepository (TASK-011, TASK-1b-06), " +
-  'the four of InvitationRepository (create, listForWorkspace, findById, revoke) and the ' +
+  'the four of InvitationRepository (create, listForWorkspace, findById, revoke), the ' +
   'four of MembershipRepository (roleFor, workspaceIdsFor, create, listForWorkspace) ' +
-  "(TASK-1b-10). Every repository method is owner-qualified by the class's own contract; " +
+  '(TASK-1b-10), the five of LinkRepository (createIfSlugFree, findById, listForWorkspace, ' +
+  'update, delete: TASK-2-05) and ONE METHOD EACH on the two click classes, which is the ' +
+  'whole tenant-facing surface on that table: ClickEventWriterRepository.append and ' +
+  'ClickEventReaderRepository.query (TASK-2-09, AC-2-39/AC-60: append-only is enforced by ' +
+  'the ABSENCE of methods, so the registry naming exactly two is part of that claim). SIX ' +
+  "CLASSES. Every repository method is owner-qualified by the class's own contract; " +
   'the unqualified writes on each table come from its sibling TableAccess subject. ' +
-  'THE TEN ENDPOINTS, attacked as HTTP requests by a second signed-in operator against ' +
+  'THE FOUR MUTATING METHODS ON `links` AND `click_events` ARE JUDGED AGAINST THE DATABASE ' +
+  "RATHER THAN AGAINST WHAT THE CLASS RETURNED (TASK-2-10): createIfSlugFree, update and " +
+  'delete each answer their own not-found error for a row the actor cannot see, and append ' +
+  'returns void, so each attempt reads the TARGET\'s rows back through the migrator under ' +
+  "the target's own flag afterwards, and reads exactly what a leak would have left behind: " +
+  "no link on the planted slug, the target's link still " +
+  'carrying the destination the create route wrote, the row still present, no appended ' +
+  'click row. rowsAffected is reported from THAT. append is additionally the one ' +
+  "repository attempt whose expected answer is a REFUSAL: it opens no transaction of its " +
+  'own, so the policy WITH CHECK is what answers, and the harness classifies the 42501. ' +
+  'THE SIXTEEN ENDPOINTS, attacked as HTTP requests by a second signed-in operator against ' +
   'the composition root the child API booted (TASK-014, SC-4): the FIVE workspace routes ' +
   '`POST /api/workspaces`, `GET /api/workspaces`, `GET /api/workspaces/:workspaceId`, ' +
   '`PATCH /api/workspaces/:workspaceId`, `POST /api/workspaces/:workspaceId/archive` (each ' +
@@ -614,7 +656,7 @@ export const COVERAGE_BOUNDARY =
   "routes `POST /api/invitations` (naming the target's workspace: 404), `GET " +
   "/api/invitations?workspaceId=` (the target's: 404), `DELETE /api/invitations/:id` (the " +
   "target's invitation: 404), `POST /api/invitations/accept` (the target's raw token as " +
-  'the actor: 409 invitation_tenant_conflict — an APPLICATION refusal raised before any ' +
+  'the actor: 409 invitation_tenant_conflict, an APPLICATION refusal raised before any ' +
   'statement, not a policy answer, so it counts only because the actor accepting ITS OWN ' +
   "tenant's invitation is 200 in the same attempt AND the target's invitation is read " +
   "back still pending with no membership row for the actor's user in the target's " +
@@ -629,35 +671,61 @@ export const COVERAGE_BOUNDARY =
   'in the same attempt. "Zero rows read in the target" on that attempt is proven by the ' +
   "policy premise (the actor's digest exists only in the actor's tenant, and the target's " +
   "transaction is shown by the table battery to see no row of the actor's) plus the " +
-  'digest miss, NOT by a statement counter — no SELECT-counting trigger exists and ' +
+  'digest miss, NOT by a statement counter: no SELECT-counting trigger exists and ' +
   'pg_stat counters are not tenant-attributable; the suite additionally asserts the ' +
   "swapped-prefix answer is byte-identical to a never-issued token's. Two real users, two " +
   'real memberships, two real tokens and two real invitations (raw tokens held in memory ' +
   'by the fixture, digests planted under the migrator) are minted through the shipped ' +
-  'auth surface — not forged — and each route is attempted in both directions. A 404, 403 ' +
+  'auth surface (not forged), and each route is attempted in both directions. A 404, 403 ' +
   'or 409 counts as a pass ONLY when the OWNER of the addressed row succeeds (2xx) at the ' +
   'same request in the same run: otherwise the id or the route is wrong, the refusal ' +
   'proves nothing, and the attempt is `unverified` and red. A mutating attempt is verified ' +
   'against the DATABASE, never the response body. ' +
+  'AND THE SIX ITEM-2 ROUTES (TASK-2-10, D-2-12): `POST /api/links` (the body naming the ' +
+  "target's workspace: 404, Form A on a workspace the actor holds no membership in and " +
+  "cannot see), `GET /api/links?workspaceId=` (the target's: 404, the same interceptor " +
+  "refusing before the service lists), `GET /api/links/:linkId`, `PATCH /api/links/:linkId` " +
+  'and `DELETE /api/links/:linkId` (the target\'s link: 404 each, Form B, where ' +
+  'LinkRepository.findById runs inside the actor\'s tenant transaction and answers null ' +
+  'before any role is read) and `GET /api/links/:linkId/clicks` (the same 404, decided on ' +
+  'the LINK before the click reader is reached, which is why that attempt sits in the link ' +
+  'group and brackets `links`). THE LINK EACH TENANT OWNS IS WRITTEN BY THE SHIPPED CREATE ' +
+  'ROUTE, not by an INSERT this suite invented: its domain pair, slug, destination and id ' +
+  'are the product\'s, every reset puts that row back verbatim so the id is stable for the ' +
+  'run, and `TenantFixture` carries it as `linkId`. The two mutating attempts are tied to ' +
+  "the database: after the 404, the target's link must still be present and still carry the " +
+  'destination the create route wrote. ' +
+  'THE REDIRECT SURFACE IS REGISTERED PUBLIC AND DELIBERATELY NOT ATTEMPTED (AC-2-41). ' +
+  '`GET /:slug` carries @Public(\'anonymous visitor redirect\') and is ANONYMOUS AND ' +
+  'CROSS-TENANT BY DESIGN: any visitor resolves any tenant\'s slug, so there is no ' +
+  'cross-tenant attempt to write against it and this file does not pretend otherwise. The ' +
+  'boundary that DOES exist there is what a redirect transaction may READ, and that is the ' +
+  'carried exclusion repo:RedirectReadRepository.resolveByHostAndSlug, narrowed three ways ' +
+  'and all three asserted rather than stated: the FOR SELECT policy PAIR (redirectReadPolicy() ' +
+  'applied to `domains` and `links` and to no other table, read from pg_policies), the READ ' +
+  'ONLY transaction, and the one file that may set app.redirect_context ' +
+  '(`src/redirect/db/redirect-read.ts`, grep clauses A1 and A2 applied to that flag). The ' +
+  'redirect is also outside the rate limiter and outside the tenant interceptor, which is ' +
+  'the same @Public() decision seen from two other angles. ' +
   'ROLE VERSUS TENANT: the isolation suite attacks the TENANT boundary. Role semantics ' +
-  'inside one tenant — a `member` on PATCH is 403, a same-tenant non-member on GET ' +
-  '/:workspaceId is 404 — are covered by test/workspaces, test/authorization and ' +
+  'inside one tenant (a `member` on PATCH is 403, a same-tenant non-member on GET ' +
+  '/:workspaceId is 404) are covered by test/workspaces, test/authorization and ' +
   'test/invitations (AC-1b-19, 23, 24), not here: a third signed-in principal per tenant ' +
   'would double the fixture for a property the tenant attempts cannot see anyway (a user of ' +
-  'tenant B cannot hold a membership in tenant A — composite FK plus policy). ' +
+  'tenant B cannot hold a membership in tenant A: composite FK plus policy). ' +
   'THE SET WAS REGISTERED BY HAND, NOT DISCOVERED. There is no route or repository ' +
   'enumeration in this wave: the table and repository subjects are the registry in ' +
-  'registrations.ts and the endpoint subjects are two hand-written lists of ' +
-  'EndpointAttemptSpecs. A ROUTE NOBODY REGISTERED IS A ROUTE NOBODY ATTACKED — ' +
+  'registrations.ts and the endpoint subjects are THREE hand-written lists of ' +
+  'EndpointAttemptSpecs. A ROUTE NOBODY REGISTERED IS A ROUTE NOBODY ATTACKED: ' +
   'module-graph route discovery, the @TenantScopedRepository decorator enumeration (which ' +
   'would also surface TenantMembershipRepository.roleFor, unregistered today), the four ' +
   "grep clauses and the pg_policies shape assertion are all TASK-056's and unbuilt; the " +
   "`publicRoutes` list and the lookup's `usesCapabilityToken` flag are hand-set on the " +
   'registration until then. What keeps the TABLE registry honest is the database ' +
   'cross-check: a relation in schema public must be registered if ANY of FIVE independent ' +
-  'properties holds — it is `tenants`; it carries a column named tenant_id; row-level ' +
+  'properties holds: it is `tenants`; it carries a column named tenant_id; row-level ' +
   'security is enabled AND forced on it; one of its policies reads app.tenant_id; or it ' +
-  'declares a FOREIGN KEY to tenants(id) — and a difference in either direction fails the ' +
+  'declares a FOREIGN KEY to tenants(id). A difference in either direction fails the ' +
   'run and names the table (ADR-0019, SQL half). That cross-check does NOT reach routes: a ' +
   'controller nobody registered is invisible to it, which is the endpoint half of the same ' +
   '"registered by hand" bound. ' +
@@ -669,23 +737,38 @@ export const COVERAGE_BOUNDARY =
   'not own before or after any attempt. An attempt that proved nothing is `unverified` and ' +
   'fails the run. ' +
   'WHAT THIS RUN STILL DOES NOT PROVE. Coverage is bounded by the shapes someone thought ' +
-  "of — Juano's 2026-08-11 ruling — and this initiative adds routes and repository classes " +
+  "of (Juano's 2026-08-11 ruling), and this initiative adds routes and repository classes " +
   'to that same bound rather than escaping it. FIVE STATEMENT SHAPES F-341 NAMES ARE NOT ' +
   'BUILT: INSERT ... ON CONFLICT DO UPDATE (the save()/upsert() idiom, reaching the UPDATE ' +
-  "policy's USING on conflict — and note the accept path's ON CONFLICT DO NOTHING is the " +
-  'shape chosen precisely to stay clear of it, D-12); MERGE (each WHEN branch a different ' +
+  "policy's USING on conflict. And note the accept path's ON CONFLICT DO NOTHING is the " +
+  'shape chosen precisely to stay clear of it, D-12; item 2 makes that absence ' +
+  'LOAD-BEARING IN TWO MORE PLACES, both of which chose a shape that avoids it: ' +
+  'LinkRepository settles the slug collision with a SAVEPOINT redraw rather than an upsert ' +
+  '(slug.md), and the click flush inserts ON CONFLICT (id) DO NOTHING, which is what makes ' +
+  'a retried batch idempotent on client-generated ids (ADR-0010). A later edit reaching for ' +
+  'save() on either puts this repository back inside the gap, and no shape here would ' +
+  'notice); MERGE (each WHEN branch a different ' +
   'policy); eviction, UPDATE <t> SET <owner> = <a tenant the fixture never seeds> (the ' +
   'count rule detects it but the digest cannot name the recipient); cascade and trigger ' +
   'effects on a SIBLING table (bounded today only because tenants has no ordinary DELETE ' +
   'policy); and SELECT ... FOR UPDATE / FOR SHARE (a locking read applies the UPDATE ' +
   "policy's USING, an existence side channel). ISOLATION_EXCLUSIONS carries the surfaces " +
-  'deliberately outside the tenant-facing interface — redirect resolution, GDPR erasure, ' +
-  'and the token-mint membership lookup — each narrowed by database policy and justified ' +
+  'deliberately outside the tenant-facing interface (redirect resolution, GDPR erasure, ' +
+  'and the token-mint membership lookup), each narrowed by database policy and justified ' +
   'in-file; the LENGTH of that list is the control (still three), so a new exclusion ' +
   'arrives as a one-line diff a reviewer sees. The invited signup branch is UNENUMERABLE ' +
   '(Better Auth is mounted outside the Nest graph) and is covered by a named integration ' +
-  'test rather than an attempt here. And most of the system is simply unwritten: there are ' +
-  'no `links`, `domains` or `click_events` tables and no other authenticated routes.';
+  'test rather than an attempt here. AND WHAT ITEM 2 STILL DOES NOT REACH, now that every ' +
+  'shipped repository class and every shipped /api route is registered: the redirect READ ' +
+  'PATH itself runs no attempt here (it is the excluded surface above, and what bounds it ' +
+  'is the policy pair, the read-only transaction and the grep, not a statement this harness ' +
+  'issues); the click BUFFER is not a registered surface, because it holds rows in memory ' +
+  'and the boundary is the flush, which is ClickEventWriterRepository.append and is ' +
+  'attempted; `domains` has no repository class in item 2, so its rows are reachable only ' +
+  'through the battery and the seeded system default row (ADR-0063); and the web BFF is ' +
+  'another process with its own suite. The counts in this text are hand-written literals, ' +
+  "by Juano's ruling, and they are what the spec file asserts the run against: a battery " +
+  'that quietly lost a method moves one of them.';
 
 /* ========================================================================== *
  * The registry. This is the enumeration mechanism.
@@ -739,7 +822,7 @@ export interface RegistryDatabaseDrift {
  * part of the schema the registry describes. A CLOSED LIST, for the same reason
  * `ISOLATION_EXCLUSIONS` is one: naming a real table here is the way to hide it from
  * SC-1, and it has to be a one-line diff a reviewer sees. `rls_fixture_rows` is NOT
- * here — it is registered, and it is attempted.
+ * here: it is registered, and it is attempted.
  */
 export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
   'isolation_leak_canary',
@@ -750,21 +833,21 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
   'isolation_half_seeded_canary',
   'isolation_unqualified_write_canary',
   // F-346, found in r4. `isolation_owner_theft_canary` shipped in r3 and was never added
-  // here, so every control run that had built it also reported it as registry drift —
+  // here, so every control run that had built it also reported it as registry drift,
   // and `attemptVerdict` is `fail` whenever drift is non-empty, whatever the attempts
   // said. The F-330 control's `expect(control.verdict).toBe('fail')` was therefore
   // satisfied by the omission rather than by the policies, measured:
   // `inDatabaseNotRegistered: ["isolation_owner_theft_canary"]`. A control table missing
   // from this list turns every later control's verdict assertion into a tripwire for the
   // list itself, which is the same class as the F-294 refusal roster firing for the wrong
-  // reason. The F-344 control — the one that must come back `pass` — is what now fails
+  // reason. The F-344 control (the one that must come back `pass`) is what now fails
   // when this list is incomplete.
   'isolation_owner_theft_canary',
   'isolation_pk_owner_canary',
   'isolation_guarded_check_canary',
   // F-352. Its leaky twin: the same stricter WITH CHECK, over a wide-open USING.
   'isolation_guarded_leak_canary',
-  // F-133. The token-mint escape's policy in three shapes — the production predicate and
+  // F-133. The token-mint escape's policy in three shapes: the production predicate and
   // two widenings of it. They carry `tenant_id` and a foreign key to `tenants`, so the
   // drift check names them like any other tenant-scoped table, and the F-346 rule applies:
   // a control table missing from this list turns every later control's verdict assertion
@@ -774,7 +857,7 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
   'isolation_membership_lookup_flag_gated_canary',
   // TASK-015. The endpoint-level negative control (AC-31): a workspaces-shaped table with
   // ENABLE ROW LEVEL SECURITY omitted, reached through an in-test control endpoint. Built
-  // and dropped inside its own test, so the main run never sees it — but the control run's
+  // and dropped inside its own test, so the main run never sees it, but the control run's
   // own drift check would, and the F-346 rule requires its `fail` to be the attempts' answer
   // and not a drift tripwire, so it is exempted here like every other control table.
   'isolation_endpoint_control_canary',
@@ -796,7 +879,7 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
  * is invisible to both the schema filter and the SQL cross-check, and nothing notices."*
  * The auditor measured the consequence against this harness: `audit_events(owning_tenant)`
  * with ENABLE + FORCE and a `USING (true)` policy leaks `bob@tenant-b.example` to tenant
- * A — reproduced here on 2026-08-11 — while the suite is 15 passed, `registryDrift` is
+ * A (reproduced here on 2026-08-11) while the suite is 15 passed, `registryDrift` is
  * empty in both directions, `db:check-policies` reports "OK: 2 table(s) ... all protected"
  * and the table is named in no artifact.
  *
@@ -804,21 +887,21 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
  * known the column can vary. The drift query was the one place that assumed it could not.
  * The four arms below are independent, and defeating the check means defeating all four:
  *
- *   1. `tenants`, the cascade root — tenant-scoped and carrying no tenant column at all,
+ *   1. `tenants`, the cascade root: tenant-scoped and carrying no tenant column at all,
  *      named exactly as ADR-0019's exclusion list names it.
  *   2. a column literally named `tenant_id`. KEPT, because it is the only arm that sees
- *      a table with NO row-level security whatsoever — the `isolation_leak_canary`
+ *      a table with NO row-level security whatsoever: the `isolation_leak_canary`
  *      shape, and the one `scripts/check-policies.mts` exists for.
  *   3. row-level security ENABLED AND FORCED. Column-name agnostic, and the arm that
  *      catches the measured `audit_events(owning_tenant)` case.
  *   4. a policy whose predicate reads `app.tenant_id`, whatever it compares it against.
  *      Catches a table protected by a tenant policy that arm 3 would miss because FORCE
- *      was forgotten — which is a leak in its own right and one this arm names.
+ *      was forgotten, which is a leak in its own right and one this arm names.
  *
  * ARM 5, ADDED FOR F-333, IS THE ONE THAT DOES NOT DEPEND ON PROTECTION OR ON A NAME.
  * Arms 3 and 4 are properties of a table being PROTECTED, so the re-audit measured what
  * they cannot see: three probes, each with owner column `owning_tenant` and each leaking
- * `bob@tenant-b.example` to tenant A —
+ * `bob@tenant-b.example` to tenant A:
  *
  *   wave3_audit_norls    no RLS at all                    -> arms 1-4: NOT NAMED
  *   wave3_audit_noforce  ENABLE, no FORCE, USING (true)   -> arms 1-4: NOT NAMED
@@ -826,7 +909,7 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
  *
  * The unprotected shape is the WORST one, and it was invisible to every arm except the
  * literal column name F-303 was filed against. `db:check-policies` did catch the other
- * two and `ci.yml` runs it first, so the composite gate held — but that made this check
+ * two and `ci.yml` runs it first, so the composite gate held, but that made this check
  * neither second nor independent for that shape, which is what its own header claimed.
  *
  * 5. a FOREIGN KEY to `tenants(id)`. That is the property every tenant-scoped table in
@@ -842,8 +925,8 @@ export const SUITE_OWNED_CONTROL_TABLES: readonly string[] = [
  * convention in three independent ways at once, and nothing here would name it.
  *
  * ACCEPTED COST, STATED. Arms 3 and 4 are properties of protection rather than of
- * tenancy, so a table force-RLS'd for some other reason — a future audit log locked to
- * one role, say — would be reported as drift, and so would a table with a foreign key to
+ * tenancy, so a table force-RLS'd for some other reason (a future audit log locked to
+ * one role, say) would be reported as drift, and so would a table with a foreign key to
  * `tenants` that carries no tenant's data. That fails CLOSED: the run goes red and names
  * the table, and the remedy is a registration or a justified entry in a closed list,
  * both of which are one-line diffs a reviewer sees. The alternative failed OPEN, and
@@ -882,7 +965,7 @@ export function tenantScopedTableDrift(
                            and (coalesce(p.qual, '') like '%app.tenant_id%'
                                 or coalesce(p.with_check, '') like '%app.tenant_id%'))
              -- 5. F-333: a foreign key to tenants(id). Independent of protection AND of
-             --    the column's name — the only arm that sees an UNPROTECTED table whose
+             --    the column's name, the only arm that sees an UNPROTECTED table whose
              --    owner column is not called tenant_id, which is the worst shape.
              or exists (select 1
                           from pg_constraint fk
@@ -926,8 +1009,8 @@ export function discoveredSurfaces(
     registration.methods.map((method): DiscoveredSurface => {
       const id = methodSurfaceId(registration, method);
 
-      // TASK-1b-10: `authenticated` defaults to true — every table and repository method is
-      // behind the tenant transaction, every workspace route behind the guard — and the one
+      // TASK-1b-10: `authenticated` defaults to true (every table and repository method is
+      // behind the tenant transaction, every workspace route behind the guard), and the one
       // registration that says otherwise is the `@Public()` capability-token lookup, which
       // carries its justification and the `usesCapabilityToken` flag AC-1b-32 names.
       const authenticated = method.authenticated ?? true;
@@ -976,7 +1059,7 @@ export async function createTenantFixtures(): Promise<TenantFixtures> {
   if (baseline.length === 0) {
     throw new Error(
       'the ownership census is empty before any attempt has run. Either no subject is ' +
-        'registered, or neither tenant can see a row it owns — in which case every ' +
+        'registered, or neither tenant can see a row it owns, in which case every ' +
         'cross-tenant attempt below would return zero rows whatever the policies say.',
     );
   }
@@ -1001,8 +1084,8 @@ interface CensusRow {
   readonly owner: string;
   /**
    * F-302. `md5(<row>::text)` over the WHOLE row, computed by the database. An overwrite
-   * PRESERVES OWNERSHIP — `UPDATE tenants SET name = 'pwned-by-tenant-A'` leaves every
-   * `id` and every owner exactly where they were — so a census of ids and owners is
+   * PRESERVES OWNERSHIP (`UPDATE tenants SET name = 'pwned-by-tenant-A'` leaves every
+   * `id` and every owner exactly where they were), so a census of ids and owners is
    * identical before and after a tenant has destroyed another tenant's data. The digest
    * is what makes that visible, and it needs no per-registration configuration: it
    * covers every column the table has, including columns a later TASK adds.
@@ -1027,7 +1110,7 @@ function censusContentLine(row: CensusRow): string {
  * The actor's own rows are excluded DELIBERATELY, and this is the clause that lets an
  * unqualified write be attempted at all: `DELETE FROM rls_fixture_rows` issued in tenant
  * A's transaction is SUPPOSED to remove A's own row, and comparing all rows either side
- * of it would report correct behaviour as a leak. Nothing is lost by the exclusion — a
+ * of it would report correct behaviour as a leak. Nothing is lost by the exclusion: a
  * row that moved from the actor to anyone else APPEARS in this set afterwards, and a row
  * that moved the other way DISAPPEARS from it, so both directions of a re-parenting are
  * still caught.
@@ -1046,7 +1129,7 @@ function sameTenant(one: string, other: string): boolean {
 /**
  * F-293. Every census line where the tenant that could SEE a row is not the tenant that
  * OWNS it. The harness computed these lines from the first day and compared them only
- * before-versus-after an attempt, which is blind to a leak that is already there — and
+ * before-versus-after an attempt, which is blind to a leak that is already there, and
  * blind to a leak visible only to the tenant that never acted.
  */
 function censusLeaks(rows: readonly CensusRow[]): string[] {
@@ -1104,7 +1187,7 @@ async function censusRows(
  * can see, and the transaction it runs in is the same production path the attempts use.
  *
  * TWO THINGS ARE ASSERTED OVER IT, AND THE SECOND WAS MISSING UNTIL r2 (F-293). The
- * differential one — this census before an attempt against the same census after it —
+ * differential one (this census before an attempt against the same census after it)
  * catches a row that MOVED. The absolute one, `censusLeaks()`, catches a row that was
  * already visible to a tenant that does not own it: seen-by must equal owner on every
  * line. A leak present at baseline is identical before and after every attempt, so the
@@ -1124,8 +1207,8 @@ export async function tenantOwnershipCensus(
  * one `createTenantFixtures()` took.
  *
  * The runner below ALSO compares the census either side of every individual attempt,
- * which is strictly stronger — it names the method that moved a row instead of only
- * reporting that one did — so this is the contract's declared form kept available for
+ * which is strictly stronger (it names the method that moved a row instead of only
+ * reporting that one did), so this is the contract's declared form kept available for
  * TASK-056, not the only place ownership is checked.
  */
 export async function assertNoTenantIdAltered(): Promise<void> {
@@ -1162,7 +1245,7 @@ function judge(
 
   for (const row of result.rows ?? []) {
     if (!(registration.ownerColumn in row)) {
-      // Not a leak — a broken attempt. An attempt whose projection omits the owner
+      // Not a leak: a broken attempt. An attempt whose projection omits the owner
       // column cannot be judged, and silently passing it is how a harness stops
       // detecting anything.
       throw new Error(
@@ -1215,7 +1298,7 @@ function judge(
         `${String(affected)} row(s) affected while the acting tenant ${actor.id} can see ` +
         `only ${String(actorOwnRowsVisible)} row(s) of its own in ${registration.table}. ` +
         `At least ${String(affected - actorOwnRowsVisible)} row(s) belonging to another ` +
-        `tenant were written — ${target.id} is the only other tenant seeded in this ` +
+        `tenant were written. ${target.id} is the only other tenant seeded in this ` +
         'fixture. PostgreSQL routes an owner-qualified write through the SELECT policy ' +
         'and this statement past it, so this count is the only thing that sees a ' +
         'wide-open UPDATE or DELETE policy (F-302, AC-95).',
@@ -1231,7 +1314,7 @@ function judge(
  * The previous form returned `${name} [${code}]` and DROPPED the message whenever a
  * SQLSTATE was present. Both auditors measured the consequence independently: an RLS
  * `WITH CHECK` violation and `permission denied for table ...` are both 42501, so both
- * rendered as the identical string `error [42501]` — which is what `report.json` carried
+ * rendered as the identical string `error [42501]`, which is what `report.json` carried
  * for two of the ten attempts. A refusal that cannot be told apart from a missing grant
  * is not evidence that a policy refused anything.
  *
@@ -1305,13 +1388,13 @@ function premiseFailure(
 }
 
 /**
- * Runs one method in one direction and judges it. Never throws for a leak — it RECORDS
+ * Runs one method in one direction and judges it. Never throws for a leak: it RECORDS
  * one, so a run reports every method rather than stopping at the first (AC-12, AC-96).
  *
  * THREE OUTCOMES, NOT TWO. `unverified` is what an attempt gets when it neither leaked
  * nor proved anything: the database refused it for a reason that was not a policy, or
  * the premise above did not hold. It fails the run and names the surface, in the same
- * shape as `uncovered` — the alternative is what r1 measured, a green report over
+ * shape as `uncovered`: the alternative is what r1 measured, a green report over
  * surfaces that were never tested.
  */
 async function attempt(
@@ -1373,13 +1456,13 @@ async function attempt(
     // WHAT A REFUSAL IS EVIDENCE OF, AND F-330: IT DEPENDS ON THE STATEMENT.
     // ========================================================================
     //
-    // RLS NEVER REFUSES A SELECT — it returns zero rows. A read that threw did not run,
+    // RLS NEVER REFUSES A SELECT: it returns zero rows. A read that threw did not run,
     // so whatever it proves, it is not that a policy denied it (F-294).
     //
     // AND A REFUSAL PROVES THE WITH CHECK HELD, NOT THAT THE USING DID. Those are
     // different halves of a policy and they answer different questions: USING decides
     // WHICH EXISTING ROWS the statement may reach, WITH CHECK decides WHAT THE RESULTING
-    // ROW MAY LOOK LIKE. For an owner-qualified write the distinction does not matter —
+    // ROW MAY LOOK LIKE. For an owner-qualified write the distinction does not matter:
     // the statement names the target, so a refusal on any ground means the target's row
     // was not written. For an UNQUALIFIED write it is the whole question: the statement
     // sweeps every row the USING clause admits, and a WITH CHECK refusal on the FIRST
@@ -1387,11 +1470,11 @@ async function attempt(
     // produces.
     //
     // MEASURED, on the migrated production table. `ALTER POLICY tenants_self_update ON
-    // tenants USING (true)` — WITH CHECK left exactly as the migration wrote it — and:
+    // tenants USING (true)` (WITH CHECK left exactly as the migration wrote it), and:
     //
     //   pass  A->B  updateAll  (write on tenants, affected 0)
-    //         — refused: error [42501]: new row violates row-level security policy
-    //   pass  B->A  updateAll  — the same
+    //         refused: error [42501]: new row violates row-level security policy
+    //   pass  B->A  updateAll  (the same)
     //   report.json: verdict=pass, failed=[], unverified=[], 28 attempts
     //
     // Every attempt green over a table whose UPDATE policy admits every row of every
@@ -1411,13 +1494,13 @@ async function attempt(
         ? `this UNQUALIFIED write was refused by row-level security: ${refusal.description}. ` +
           'That proves the WITH CHECK clause held. It proves NOTHING about the USING ' +
           'clause, which is the half that decides which existing rows the statement ' +
-          'could reach — and an unqualified statement reaches every row USING admits. A ' +
+          'could reach. And an unqualified statement reaches every row USING admits. A ' +
           'wide-open USING with a correct WITH CHECK produces exactly this refusal, and ' +
           'it was measured producing it on the migrated `tenants` table while every ' +
           'attempt in the run scored a pass (F-330). ' +
           'IF THIS TABLE IS CORRECTLY ISOLATED, THE REMEDY IS THE STATEMENT AND NOT THIS ' +
-          'RULE (F-344): a WITH CHECK stricter than its USING — a soft-delete guard, an ' +
-          'immutability-on-archive predicate, a plan limit — refuses this write on the ' +
+          'RULE (F-344): a WITH CHECK stricter than its USING (a soft-delete guard, an ' +
+          'immutability-on-archive predicate, a plan limit) refuses this write on the ' +
           'ACTOR\'S OWN ROW, and `reparentAll` is refused by it identically, so re-issuing ' +
           'as that shape does not help. Give the registration `unqualifiedWritesAlsoSet` ' +
           'naming the columns the check requires; the statement still carries no WHERE ' +
@@ -1469,7 +1552,7 @@ async function attempt(
   // F-302. An unqualified write that reached the actor's own rows is CORRECT behaviour
   // and it leaves the fixture edited, so the fixture is put back before the run moves
   // on. `reset()` already runs before every attempt, so this only matters for the last
-  // attempt of a run — but that is exactly the state `assertNoTenantIdAltered()` and the
+  // attempt of a run, but that is exactly the state `assertNoTenantIdAltered()` and the
   // F-295 positive control read afterwards, and a `DELETE FROM rls_fixture_rows` issued
   // as tenant B legitimately removes B's own row.
   //
@@ -1498,7 +1581,7 @@ async function attempt(
 /**
  * isolation-coverage.md's declared entry point: assert one surface, throwing on a leak.
  *
- * A surface with no registered attempt FAILS AS UNCOVERED and is never skipped — the
+ * A surface with no registered attempt FAILS AS UNCOVERED and is never skipped: the
  * contract's "Attempt semantics" says so in as many words, and a skip is how a surface
  * with awkward arguments quietly leaves the suite.
  */
@@ -1543,7 +1626,7 @@ let lastReport: IsolationReport | null = null;
  * TASK-014. One battery of registrations against one pair of tenant fixtures. The table
  * subjects run against the seeded `tenants`/`tenant_memberships`/`workspaces` fixtures;
  * the HTTP endpoint subjects run against the two SIGNED-IN operators, whose tenant ids and
- * tokens are different — so a run can carry both, each group with the fixtures its attempts
+ * tokens are different, so a run can carry both, each group with the fixtures its attempts
  * were built for, and the report combines them.
  */
 export interface AttemptGroup {
@@ -1580,9 +1663,9 @@ export async function runAttemptGroups(
     for (const registration of group.registrations) {
       for (const method of registration.methods) {
         // F-293. BOTH DIRECTIONS. One call site attempting `(tenantA, tenantB)` was the
-        // blocker r1 found: the actor was always A, so a policy leaking only to B — an
+        // blocker r1 found: the actor was always A, so a policy leaking only to B (an
         // "internal tenant" carve-out, a support read, a predicate compared against a
-        // hard-coded id — was never attempted at all.
+        // hard-coded id) was never attempted at all.
         for (const direction of ATTEMPT_DIRECTIONS) {
           attempts.push(await attempt(registration, method, group.fixtures, direction));
         }
@@ -1592,7 +1675,7 @@ export async function runAttemptGroups(
 
   // One surface id per surface, however many directions it was attempted in.
   const covered = [...new Set(attempts.map((outcome) => outcome.id))];
-  // 1b-W4-03: EVERY discovered surface must be attempted or named in an exclusion — the
+  // 1b-W4-03: EVERY discovered surface must be attempted or named in an exclusion, the
   // `@Public()` ones included. This previously filtered to `surface.authenticated` first,
   // so a future public surface registered with `authenticated: false` and no attempt would
   // have escaped the coverage net silently; public surfaces are exactly the ones an
@@ -1643,7 +1726,7 @@ export async function runAttemptGroups(
     unenumerable: UNENUMERABLE_SURFACES.map((surface) => ({ ...surface })),
     coverageBoundary: COVERAGE_BOUNDARY,
     attemptVerdict,
-    // F-331. The attempt judgement alone on the in-memory report — which is the question
+    // F-331. The attempt judgement alone on the in-memory report, which is the question
     // a control run asks. `finishIsolationReport()` is what conjoins it with what the
     // runner observed before anything reaches disk.
     verdict: attemptVerdict,
@@ -1664,7 +1747,7 @@ export function isolationReport(): IsolationReport {
 }
 
 /**
- * `apps/api/test/isolation/report.json` — the artifact SC-1 points at.
+ * `apps/api/test/isolation/report.json`, the artifact SC-1 points at.
  *
  * F-331. WRITE 2 OF 3, AND IT DELIBERATELY DOES NOT PUBLISH A VERDICT. The attempts are
  * this run's and worth stranding on disk if the process dies mid-suite; the verdict is
@@ -1678,7 +1761,7 @@ export function writeIsolationReport(report: IsolationReport, path: string): voi
     suiteOutcome: 'incomplete',
     incompleteBecause:
       'The attempts below are THIS run\'s and were judged: see `attemptVerdict`. The ' +
-      'run itself had not finished when this was written — the control runs, the drift ' +
+      'run itself had not finished when this was written: the control runs, the drift ' +
       'probes, the protection-count assertions and assertNoTenantIdAltered() all run ' +
       'after it, and any of them can disprove an attemptVerdict of `pass`. If you are ' +
       'reading this, the suite did not reach its afterAll: treat `attemptVerdict` as ' +
@@ -1695,7 +1778,7 @@ export function writeIsolationReport(report: IsolationReport, path: string): voi
  * disk is the conjunction: an attempt battery that passed AND a suite that did not
  * contradict it. A red run can no longer leave a green artifact.
  *
- * `report` is null when `beforeAll` threw — vitest still runs `afterAll` in that case
+ * `report` is null when `beforeAll` threw: vitest still runs `afterAll` in that case
  * (measured), and there is no report to publish, so the `incomplete` marker stands.
  */
 export function finishIsolationReport(
@@ -1733,7 +1816,7 @@ export function finishIsolationReport(
       ? {
           incompleteBecause:
             'The attempts were judged, but the runner did not report a result for every ' +
-            'test in this file — the suite was filtered, skipped, or died (F-331).',
+            'test in this file: the suite was filtered, skipped, or died (F-331).',
         }
       : { incompleteBecause: undefined }),
   };
@@ -1744,8 +1827,8 @@ export function finishIsolationReport(
 /**
  * F-304. WRITE 1 OF 3. CALLED AT MODULE SCOPE, BEFORE ANYTHING THAT CAN THROW.
  *
- * Stamps the artifact `incomplete` so that a run which dies — a fixture that throws on a
- * pre-existing leak, a dropped connection, a killed process — leaves a file that says it
+ * Stamps the artifact `incomplete` so that a run which dies (a fixture that throws on a
+ * pre-existing leak, a dropped connection, a killed process) leaves a file that says it
  * did not finish, rather than the last successful run's `"verdict": "pass"`.
  *
  * Deleting the file instead would also be unambiguous and it is what the finding offers
@@ -1756,11 +1839,11 @@ export function finishIsolationReport(
  * F-332. IT IS CALLED AT MODULE SCOPE AND NOT FROM `beforeAll`, AND THAT IS THE FIX.
  * vitest does not run `beforeAll` when every test in the file is filtered out, so
  * `-t 'a name that matches no test'` gave 18 skipped, EXIT=0, and the PREVIOUS run's
- * `pass` still on disk with no marker at all — measured. Module scope runs at collection,
+ * `pass` still on disk with no marker at all (measured). Module scope runs at collection,
  * which happens for a filtered run.
  *
  * WHAT MODULE SCOPE STILL DOES NOT COVER, STATED: a collection error. If an import throws
- * — `registerTenantScopedSurfaces()` rejecting a duplicate subject, say — the module body
+ * (`registerTenantScopedSurfaces()` rejecting a duplicate subject, say), the module body
  * never executes and the stale artifact survives. Closing that needs `globalSetup` in
  * `vitest.integration.config.ts`, which is outside this TASK's `paths`. Recorded for
  * F-297: an upload step that fails when the artifact's `runAt` predates the job closes it
@@ -1786,7 +1869,7 @@ export function beginIsolationReport(path: string, because?: string): void {
       `This run started at the runAt above and has not written its result yet. ${
         because ?? 'If you are reading this, the run did not finish: it threw before ' +
           'judging its attempts, or the process was killed.'
-      } NOTHING HERE IS EVIDENCE OF ISOLATION — an empty ` +
+      } NOTHING HERE IS EVIDENCE OF ISOLATION: an empty ` +
       '`failed` list means no attempt was scored, not that no attempt leaked. This ' +
       'marker exists because the artifact previously kept the PREVIOUS run\'s ' +
       '"verdict": "pass" in exactly this situation (F-304).',
@@ -1798,7 +1881,7 @@ export function beginIsolationReport(path: string, because?: string): void {
 /** AC-12's "enumerates which methods were exercised", for the run log a human reads. */
 export function formatIsolationReport(report: IsolationReport): string {
   const lines = [
-    `isolation coverage — ${report.verdict.toUpperCase()} — ${report.runAt}`,
+    `isolation coverage: ${report.verdict.toUpperCase()} (${report.runAt})`,
     report.coverageBoundary,
     '',
     ...report.attempts.map(
@@ -1806,7 +1889,7 @@ export function formatIsolationReport(report: IsolationReport): string {
         `  ${{ pass: 'pass', fail: 'FAIL', unverified: 'UNVERIFIED' }[outcome.outcome]}  ` +
         `${outcome.direction ?? '?'}  ${outcome.id}  (${outcome.kind} on ${outcome.table}` +
         `, saw ${outcome.rowsSeen ?? 0}, affected ${outcome.rowsAffected ?? 0})` +
-        (outcome.refusedWith === undefined ? '' : ` — refused: ${outcome.refusedWith}`) +
+        (outcome.refusedWith === undefined ? '' : `; refused: ${outcome.refusedWith}`) +
         (outcome.unverifiedBecause === undefined
           ? ''
           : `\n      ? ${outcome.unverifiedBecause}`) +
@@ -1825,7 +1908,7 @@ export function formatIsolationReport(report: IsolationReport): string {
       '',
       '  TENANT-SCOPED IN THE DATABASE AND REGISTERED NOWHERE (F-296):',
       ...drift.inDatabaseNotRegistered.map(
-        (table) => `    - ${table} — add a registerTenantScopedSurfaces() call in registrations.ts`,
+        (table) => `    - ${table}: add a registerTenantScopedSurfaces() call in registrations.ts`,
       ),
     );
   }
@@ -1884,7 +1967,7 @@ export const CONTEXT_FLAG_OWNERS: ReadonlyArray<{ flag: string; file: string }> 
   { flag: 'app.privileged_erase', file: 'apps/api/src/gdpr/privileged-eraser.ts' },
   // The fourth flag (ADR-0045, F-047). The only row here whose file exists today, and
   // therefore the only one `context-flag-owners.spec.ts` can match against a real
-  // `set_config` call — which is why that control asserts A1's SUBSET direction and not
+  // `set_config` call, which is why that control asserts A1's SUBSET direction and not
   // its exactly-one direction until TASK-029 and TASK-054 land the other two setters.
   { flag: 'app.membership_lookup_user', file: 'apps/api/src/auth/membership-lookup.ts' },
 ];

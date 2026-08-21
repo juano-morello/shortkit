@@ -23,7 +23,7 @@ import { RequireTenantRole, RequireWorkspaceRole } from './roles';
 import { WorkspaceAuthorizer } from './workspace-authorizer';
 
 /**
- * STORY-1b-04 — AC-1b-19, AC-1b-20 and AC-1b-21 semantics on a probe, in process. TASK-1b-05,
+ * STORY-1b-04: AC-1b-19, AC-1b-20 and AC-1b-21 semantics on a probe, in process. TASK-1b-05,
  * wave 2.
  *
  * Contract: `docs/contracts/workspace-authorization.md` (Form A: id resolution order, the
@@ -34,7 +34,7 @@ import { WorkspaceAuthorizer } from './workspace-authorizer';
  *
  * ============================================================================
  * THE REAL GUARD, THE REAL THREE INTERCEPTORS IN THE RULED ORDER, THE REAL FILTER, THE REAL
- * MODULE GRAPH — A FAKE TRANSACTION UNDER `withTenantTransaction`, AND TWO FAKE REPOSITORIES.
+ * MODULE GRAPH, A FAKE TRANSACTION UNDER `withTenantTransaction`, AND TWO FAKE REPOSITORIES.
  * ============================================================================
  *
  * The application is compiled from `AppModule` the way `tenant-transaction.interceptor.spec.ts`
@@ -43,15 +43,15 @@ import { WorkspaceAuthorizer } from './workspace-authorizer';
  * it (`pnpm test` runs with no database), so `withTenantTransaction` opens its store for real
  * and the interceptor under test runs where it will run in production: inside it.
  *
- * The two repositories are overridden with fakes answering from in-memory tables — the SQL
+ * The two repositories are overridden with fakes answering from in-memory tables: the SQL
  * they compile is `membership.repository.spec.ts`'s business, and RLS is the integration
  * suite's. EACH FAKE CALLS `tenantDb()` BEFORE IT ANSWERS, so the property this spec is most
  * about survives the substitution: with no active tenant context the lookup THROWS, and the
  * interceptor is never handed a role it could pass on. Every lookup is recorded, so "no
  * membership row was read" is an assertion and not an inference.
  *
- * What the fake cannot show — that Postgres actually hides tenant B's workspace from tenant
- * A's member, that a `memberships` row updated directly applies on the next request — is
+ * What the fake cannot show (that Postgres actually hides tenant B's workspace from tenant
+ * A's member, that a `memberships` row updated directly applies on the next request) is
  * `test/authorization/workspace-authorization.int-spec.ts`, against a live database.
  */
 
@@ -118,7 +118,7 @@ function seed(): void {
 
 const fakeMemberships = {
   roleFor: (workspaceId: string, userId: string): Promise<WorkspaceRole | null> => {
-    tenantDb(); // throws TenantContextMissingError outside a transaction — the real repository's floor
+    tenantDb(); // throws TenantContextMissingError outside a transaction: the real repository's floor
     lookups.push(`workspace:${workspaceId}:${userId}`);
     return Promise.resolve(workspaceRoles.get(`${workspaceId}:${userId}`) ?? null);
   },
@@ -454,7 +454,7 @@ describe('Form A over HTTP: rank enforcement (AC-1b-19)', () => {
     expect(handlerRuns).toEqual(['read']);
   });
 
-  it('AC-1b-21: a role changed in the table applies to the very next request — nothing is cached', async () => {
+  it('AC-1b-21: a role changed in the table applies to the very next request: nothing is cached', async () => {
     expect((await probe(`/api/authz-probe/workspaces/${W1}/archive`, { method: 'POST', as: MEMBER })).status).toBe(403);
 
     workspaceRoles.set(`${W1}:${MEMBER}`, WORKSPACE_ROLE.workspace_admin);
@@ -481,7 +481,7 @@ describe('Form A over HTTP: no membership is 404, and 404 comes before 403', () 
     expect(handlerRuns).toEqual([]);
   });
 
-  it('an id no membership names, and a malformed id, both answer the same 404 body — the malformed one without a lookup', async () => {
+  it('an id no membership names, and a malformed id, both answer the same 404 body: the malformed one without a lookup', async () => {
     const unknown = await probe(`/api/authz-probe/workspaces/${NEVER_ISSUED}`, { as: ADMIN });
     expect(unknown.status, unknown.raw).toBe(404);
     expect(unknown.body).toEqual(NOT_FOUND_BODY);
@@ -567,7 +567,7 @@ describe('RequireTenantRole over HTTP', () => {
     expect(lookups).toEqual([`tenant:${ADMIN}`, `tenant:${ADMIN}`, `tenant:${TENANT_MEMBER}`, `tenant:${TENANT_MEMBER}`]);
   });
 
-  it('a tenant member (an invitee) is refused both with 403 insufficient_tenant_role — invariant 4', async () => {
+  it('a tenant member (an invitee) is refused both with 403 insufficient_tenant_role: invariant 4', async () => {
     for (const path of ['/api/authz-probe/tenant-admin', '/api/authz-probe/tenant-owner']) {
       const refused = await probe(path, { method: 'POST', as: MEMBER });
       expect(refused.status, refused.raw).toBe(403);

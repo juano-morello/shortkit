@@ -1,6 +1,6 @@
 /**
- * TASK-012 — WorkspacesService, the parts decidable without a database.
- * TASK-1b-06 — the creator's membership in one call, the list filtered by the caller, the
+ * TASK-012: WorkspacesService, the parts decidable without a database.
+ * TASK-1b-06: the creator's membership in one call, the list filtered by the caller, the
  * role on the wire, and the fail-closed `roleOf`.
  *
  * Contract: docs/contracts/workspaces.md ("Endpoints"), error-envelope.md,
@@ -10,14 +10,14 @@
  * database, the policy, the tenant transaction and the interceptor's rank check are
  * `test/workspaces/workspaces.int-spec.ts`'s. Decidable here:
  *
- *   1. the mapping from a repository row to the client shape — `Date` to ISO string, null
+ *   1. the mapping from a repository row to the client shape: `Date` to ISO string, null
  *      `archivedAt` kept null, NO `tenantId` on the way out, and `workspaceRole` carried;
  *   2. `create` writes the workspace and then the creator's `workspace_admin` membership,
  *      naming the created id and the actor's user (D-10), and answers `workspace_admin`;
  *   3. `list` asks `listForUser` for the ACTOR's user, passes `includeArchived` through
  *      (defaulting it to false), and reports each row's joined role;
  *   4. `get`/`rename`/`archive` report `RequestContext.workspaceRole` and, with none on the
- *      context, throw a plain Error rather than answer — the route is missing its decorator;
+ *      context, throw a plain Error rather than answer: the route is missing its decorator;
  *   5. a `WorkspaceNotFoundError` from the repository propagates AS ITSELF, unwrapped: the
  *      filter does not walk `cause`, so a wrapper would turn the 404 into a 500.
  */
@@ -183,7 +183,7 @@ describe('WorkspacesService.create', () => {
     const fake = new FakeRepository();
 
     await expect(serviceOver(fake, failure).create(actor(), { name: 'Acme' })).rejects.toBe(failure);
-    // The workspace insert was issued before the membership failed — the rollback is the
+    // The workspace insert was issued before the membership failed: the rollback is the
     // interceptor's, not a compensating action here.
     expect(fake.calls.map((call) => call.method)).toEqual(['create', 'memberships.create']);
   });
@@ -277,7 +277,7 @@ describe('WorkspacesService.get', () => {
     expect(Object.keys(got).sort()).toEqual(CLIENT_KEYS);
   });
 
-  it('a null from the repository is WorkspaceNotFoundError — the same 404 the interceptor gives a non-member', async () => {
+  it('a null from the repository is WorkspaceNotFoundError: the same 404 the interceptor gives a non-member', async () => {
     const fake = new FakeRepository({ findById: null });
 
     await expect(serviceOver(fake).get(actor(WORKSPACE_ROLE.viewer), WORKSPACE)).rejects.toBeInstanceOf(WorkspaceNotFoundError);

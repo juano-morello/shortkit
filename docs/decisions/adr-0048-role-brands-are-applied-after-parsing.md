@@ -19,15 +19,15 @@ Those two sentences cannot both hold without putting a brand in an inferred cont
 and `roles.ts:150-156` forbids exactly that:
 
 > UNBRANDED, deliberately. This feeds `z.enum()` in the invitation contract, and a branded
-> member type would carry the brand into the inferred contract type — a brand at a JSON
+> member type would carry the brand into the inferred contract type: a brand at a JSON
 > boundary, which ADR-0023 forbids. A brand is a compile-time claim about where a value has
 > been validated; a value arriving in a request body has been nowhere.
 >
-> RULE: every zod enum sources from an unbranded array — `TENANT_ROLES`,
+> RULE: every zod enum sources from an unbranded array: `TENANT_ROLES`,
 > `WORKSPACE_ROLES`, or this one. Branding happens after parsing, via `asTenantRole` /
 > `asWorkspaceRole`.
 
-The rule already names the resolution — "branding happens after parsing" — and no artifact
+The rule already names the resolution ("branding happens after parsing"), and no artifact
 says what the after-parsing step looks like or who owns it. `asTenantRole` has no caller
 today, which is why it could stay a stub through a whole initiative.
 
@@ -78,7 +78,7 @@ merely the zod parse that happened one line earlier.
 (refinement, Scope/Out), and implementing them would ship two functions with no caller. Only
 `asTenantRole` and `tenantRoleRank` are implemented, which is what TASK-001's card already
 says. *Dated note, 2026-08-18 (item 1b, TASK-1b-01; ledger 1b-W1-01):* both are implemented
-now, in the same guard shape as `asTenantRole`, because item 1b brought their callers —
+now, in the same guard shape as `asTenantRole`, because item 1b brought their callers:
 `WorkspaceAuthorization` and `meetsWorkspaceRole`. The rule of this ADR is unchanged: the
 brand is applied after parsing and never inferred.
 
@@ -91,7 +91,7 @@ interface, and a `parseX` that brands. Any contract that infers a branded type i
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
 | `role: z.enum(TENANT_ROLES).transform(asTenantRole)` inside the contract, and let `z.infer` carry the brand | One declaration, one type, one name. Callers get a branded role from `parse()` with nothing extra to remember | The inferred type is branded, which is the thing `roles.ts:150-156` names and refuses. It also breaks the schema for its other job: a schema with an output transform is no longer usable to validate a value the client is about to send, because the input and output types differ, and `apps/web` builds request bodies against these types. And it makes the brand a claim zod makes rather than one `asTenantRole` makes, so the "only sanctioned casts" comment at `roles.ts:75-85` stops being true | Contradicts an accepted ADR's stated rule, in the file that states it |
-| Leave `role` unbranded everywhere and delete the brands | Simplest possible. No second type, no parse function | Throws away ADR-0023, whose whole purpose was to make `assertTenant('member')` a compile error after a Form B escalation got through review. It also leaves `asTenantRole` and `tenantRoleRank` stubbed for a second initiative, so `meetsTenantRole` — which every tenant-role check will call — still throws | Reverses an accepted ADR to save one function |
+| Leave `role` unbranded everywhere and delete the brands | Simplest possible. No second type, no parse function | Throws away ADR-0023, whose whole purpose was to make `assertTenant('member')` a compile error after a Form B escalation got through review. It also leaves `asTenantRole` and `tenantRoleRank` stubbed for a second initiative, so `meetsTenantRole` (which every tenant-role check will call) still throws | Reverses an accepted ADR to save one function |
 | Brand at the consumer: no `parseTenantMembership`, each caller writes `asTenantRole(row.role)` | Nothing new in the contracts package | Puts the branding step at every call site, which is where ADR-0023 says a mistake gets made. It also gives `asTenantRole` a caller in `apps/api` and none in `packages/contracts`, so the function that defines the boundary lives on one side of it | The point of a single sanctioned cast is that it has few call sites, not many |
 
 ## Consequences

@@ -9,7 +9,7 @@ CREATE TABLE "tenants" (
 -- "The cascade root: tenants", and lands in the same commit as the table.
 --
 -- `tenants` carries `id`, not `tenant_id`, so tenantScopedPolicies() does not apply:
--- this is the bespoke four-policy set. FORCE matters as much as ENABLE — without it
+-- this is the bespoke four-policy set. FORCE matters as much as ENABLE: without it
 -- shortkit_migrator, which owns the table, is exempt from all four.
 ALTER TABLE "tenants" ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint

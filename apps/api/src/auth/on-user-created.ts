@@ -9,8 +9,8 @@
  * ADR-0015's UNINVITED branch: mint a tenant id, open the tenant transaction on it, and
  * write both rows inside that one context. It was the only branch while identity-membership
  * shipped; since 2026-08-18 (TASK-1b-09) `provisionForNewUser` takes the invited branch when
- * the signup body carried a valid `invitationToken` — `acceptInvitationByCapabilityToken`
- * writes the membership rows in the INVITER's tenant and this function is not called — and
+ * the signup body carried a valid `invitationToken`: `acceptInvitationByCapabilityToken`
+ * writes the membership rows in the INVITER's tenant and this function is not called, and
  * this one otherwise.
  *
  * ============================================================================
@@ -28,8 +28,8 @@
  *
  * The residue if either write fails is a `user` row with no `tenant_memberships` row: an
  * account that cannot obtain a `tid` claim and therefore cannot authenticate anywhere.
- * ADR-0015 rules that orphan ACCEPTED and rules the alternative — a membership row in a
- * tenant nobody proved access to — unacceptable. NO COMPENSATING DELETE OF THE `user` ROW
+ * ADR-0015 rules that orphan ACCEPTED and rules the alternative (a membership row in a
+ * tenant nobody proved access to) unacceptable. NO COMPENSATING DELETE OF THE `user` ROW
  * is added here; a cleanup path is a second decision and needs an ADR amendment, and the
  * two rows are written by two different roles on two different pools (ADR-0050), so this
  * function could not roll the first one back even if it were allowed to.
@@ -83,7 +83,7 @@ export async function createTenantForNewUser(user: {
       //
       // `INSERT ... RETURNING` gives back the row it wrote, and a write that
       // `tenant_memberships_tenant_isolation`'s `WITH CHECK` refuses raises `42501` rather
-      // than returning an empty result — so against the migrated policies this branch
+      // than returning an empty result, so against the migrated policies this branch
       // cannot fire, and no test exercises it. It is beyond what the card asks for, was
       // disclosed as such, and is kept for one reason: if a later policy, adapter or
       // driver ever DOES filter this write silently, the alternative is a resolved signup

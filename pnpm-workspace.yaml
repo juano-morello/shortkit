@@ -3,7 +3,7 @@ packages:
   - packages/*
 
 # Makes the `engines.node` floor in package.json a hard failure rather than a
-# warning. It lives here and not in `.npmrc` because `.npmrc` is gitignored —
+# warning. It lives here and not in `.npmrc` because `.npmrc` is gitignored:
 # `actions/setup-node` appends a registry `_authToken` to it, and git ignores
 # files rather than lines, so the file cannot be both committed and safe.
 engineStrict: true
@@ -17,8 +17,8 @@ allowBuilds:
 
 # GHSA-2v37-7h3g-55p8, high: a custom generator with size zero loops forever in
 # nanoid < 3.3.18. It reaches the production graph as `apps/web > next > postcss >
-# nanoid`, so `pnpm audit --prod --no-optional --audit-level moderate` — the
-# `quality` gate — exits 1 on it.
+# nanoid`, so `pnpm audit --prod --no-optional --audit-level moderate` (the
+# `quality` gate) exits 1 on it.
 #
 # AN OVERRIDE AND NOT A REGISTER ROW. `docs/security/known-advisories.md` is for
 # advisories with no fix available; this one has a patch that needs no range

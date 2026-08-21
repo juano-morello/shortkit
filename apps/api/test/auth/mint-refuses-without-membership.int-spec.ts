@@ -17,7 +17,7 @@ import {
 import { assertTenantsIsMigrated } from '../support/rls-fixture';
 
 /**
- * STORY-001 — AC-4's MINT LEG. TASK-003, wave 2.
+ * STORY-001: AC-4's MINT LEG. TASK-003, wave 2.
  *
  * Contract: `docs/contracts/auth-config-surface.md` ("Error cases", invariant 7).
  * ADR-0055, ADR-0015, ADR-0013.
@@ -31,7 +31,7 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
  * ============================================================================
  *
  * `test/auth/tenant-memberships.int-spec.ts` asserts that `tenantIdForUser` rejects with
- * `NoTenantMembershipError` rather than resolving `null` or `''` — the primary stop ADR-0015
+ * `NoTenantMembershipError` rather than resolving `null` or `''`: the primary stop ADR-0015
  * names. What it cannot reach is the clause "no JWT is returned, and the caller receives an
  * error": that is the MINT PATH, and the mint path is `definePayload` inside the composed
  * instance. AC-4 was green on a partial proof until this file existed. Recorded on
@@ -58,7 +58,7 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
  * an `APIError`, better-auth's router `onError` returns `undefined`, and better-call answers
  * `500` WITH A NULL BODY while writing the whole error and its stack through a
  * `console.error` one package below the logger ADR-0052 binds. So "an error rather than a
- * token" has a decided shape — 403 and a `code` — and asserting only "no token came back"
+ * token" has a decided shape (403 and a `code`), and asserting only "no token came back"
  * would pass over the body-less 500 that ADR-0055 exists to prevent.
  */
 
@@ -82,7 +82,7 @@ async function signInWithNoMembership(): Promise<string> {
 
   // THE PREMISE, ASSERTED RATHER THAN ASSUMED. `tenant_memberships_privileged_erase` grants
   // no read, so a `DELETE ... WHERE user_id = …` with no readable context finds no row and
-  // reports `DELETE 0` WITH NO ERROR AT ALL — measured, and recorded on `rls-fixture.ts`.
+  // reports `DELETE 0` WITH NO ERROR AT ALL: measured, and recorded on `rls-fixture.ts`.
   // Without this line, a fixture that silently deleted nothing would leave every assertion
   // below testing a perfectly ordinary account.
   expect(membershipsFor(user.id), 'the membership row was not removed').toEqual([]);
@@ -114,11 +114,11 @@ describe('minting a JWT for a user with no tenant membership', () => {
     // 403 AND NOT 401 (ADR-0055): the session is valid and the credential is not the
     // problem, so telling the BFF to re-authenticate sends it into a loop that cannot
     // terminate. The `code` is asserted beside the status because a caller branching on
-    // status alone cannot tell this from any other forbidden — `auth-tokens.md` records that
+    // status alone cannot tell this from any other forbidden: `auth-tokens.md` records that
     // these bodies are Better Auth's native `{ message, code }` and not `ErrorEnvelope`, and
     // TASK-008 maps them by `code` at the web client boundary.
     //
-    // A body-less 500 — what a non-`APIError` throw produces — fails this assertion as
+    // A body-less 500 (what a non-`APIError` throw produces) fails this assertion as
     // `{ status: 500, code: undefined }`, which is the exact shape ADR-0055 was written to
     // stop and which a "no token was returned" assertion would have passed.
     const cookie = await signInWithNoMembership();
@@ -135,8 +135,8 @@ describe('minting a JWT for a user with no tenant membership', () => {
   it('AC-4: no token is returned, so nothing is issued carrying an absent tid', async () => {
     // The clause AC-4 states in its own words. Asserted separately from the status because
     // they are different defects: a 403 that nevertheless carried a token would be the worse
-    // one, and the alternative ADR-0055 rejected — "return a payload with a sentinel `tid`
-    // and let `AuthGuard` reject it" — produces exactly that. A signed token for an account
+    // one, and the alternative ADR-0055 rejected ("return a payload with a sentinel `tid`
+    // and let `AuthGuard` reject it") produces exactly that. A signed token for an account
     // with no tenant is valid to anything that verifies the signature without reading `tid`.
     const cookie = await signInWithNoMembership();
 
@@ -155,7 +155,7 @@ describe('minting a JWT for a user with no tenant membership', () => {
     // ============================================================================
     //
     // `dist/plugins/jwt/index.mjs:185-188` mints a token from the `/get-session` after-hook
-    // and sets it as `set-auth-jwt` unless the key is set — so without it, `definePayload`
+    // and sets it as `set-auth-jwt` unless the key is set, so without it, `definePayload`
     // throwing breaks `get-session` as well as `/token`. Those are OPPOSITE answers: "you
     // have a session" is true and must be answerable, "you may have a token" is false.
     // Failing both collapses the distinction and leaves the BFF unable to tell a signed-out

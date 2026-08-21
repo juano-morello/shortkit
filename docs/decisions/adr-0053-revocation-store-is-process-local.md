@@ -204,7 +204,44 @@ because both hold the port.
 - TASK-005 catches `RevocationStoreUnavailableError` and skips open, per `auth-tokens.md`
   step 5. Its own card already says so.
 - TASK-030 binds a Redis implementation to the same port and removes mechanisms 1 and 2 in
-  that commit.
+  that commit. **Superseded 2026-08-19: see the note immediately below.**
+
+### `redisClient` now exists, and this store still does not use it (2026-08-19, D-2-01)
+
+Item 2 (links and the redirect hot path) landed `apps/api/src/cache/redis-client.ts`:
+`ioredis` is a dependency of `@shortkit/api`, one client is constructed on ADR-0012's six
+options when `REDIS_URL` is declared, and the redirect cache is bound to it (TASK-2-03,
+ADR-0012, `redirect-cache.md`). **Two sentences in this ADR are therefore now false as
+written and are corrected here rather than left standing:** the Context's "no `redis` or
+`ioredis` dependency in any `package.json` … `redisClient` is deferred TASK-030, which is
+not in this initiative", and the follow-up above.
+
+**Juano ruled DEFER (D-2-01, 2026-08-19).** The revocation store stays
+`InMemoryRevocationStore` and the three rate limiters stay process-local
+(`LocalAuthRateLimiter`, `rate-limit.md`'s per-machine tenant bucket). One process is still
+the only topology (ADR-0030 stands, `docker-compose.yml` runs one `api`, and there is still
+no deploy manifest), so a Redis-backed store buys nothing behaviourally at N=1 except
+revocations surviving an API restart, bounded at 300 s, and it would put a new moving part
+on the auth path in the same wave the cache's failure posture is being proven. The cost of
+deferring is this paragraph; the cost of taking it was degraded-path parity tests for three
+limiters and a store, spent on a property no running topology exhibits.
+
+**The trigger moves with the ruling.** This ADR's replacement condition is no longer "when
+`redisClient` exists". It exists. It is now **the ADR that supersedes ADR-0030, or the
+first topology running more than one API process, whichever comes first.** That is the same
+condition mechanism 3 already names, so the two now agree instead of the earlier one firing
+first and silently.
+
+**Mechanisms 1 and 2 stay**, both of them: the once-per-process `warn` on the first `revoke`
+(`code: 'auth_revocation_process_local'`), and `revocation-store.spec.ts`'s assertion that
+`docker-compose.yml`'s `api` service has gained no `deploy:`, `replicas:` or `scale:` key.
+Item 2 adds a `redis` service to that file (D-2-16); the assertion reads the `api` service
+only and is unaffected.
+
+Nothing in `auth/` or `common/rate-limit/**` changed in item 2, and nothing may reach the
+client to change it quietly: `cache.module.ts` is its only caller, and
+`redis-client.spec.ts` fails if any file outside `apps/api/src/cache/**` names
+`redisClient`. Rebinding is a card (`TASK-2-15`, written and dormant), not an import.
 - **`auth_revocation_degraded_total` does not exist and no metrics facility exists in
   `apps/api/src`.** Grepped: zero hits for the counter name and no counter or metric
   registry anywhere in the tree. `auth-tokens.md` and ADR-0013 both name it. Until something

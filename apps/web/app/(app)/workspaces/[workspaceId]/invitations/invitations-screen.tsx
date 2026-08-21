@@ -21,7 +21,7 @@
  *
  * FAILURES BY `code`, never by status: `unauthenticated` mid-use navigates to sign-in with
  * a `returnTo` back to THIS page; `not_found` / `invitation_already_accepted` on a revoke
- * mean the row was stale — re-fetch and say so; `forbidden` (the two 403 codes) says this
+ * mean the row was stale: re-fetch and say so; `forbidden` (the two 403 codes) says this
  * account cannot revoke here; `rate_limited` says how long; the rest is one retry line.
  *
  * AN ARCHIVED WORKSPACE gets the list (viewing) and no form: the API answers 400
@@ -98,7 +98,16 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
   const reloadInFlight = useRef(false);
 
   const [items, setItems] = useState<Invitation[]>(initialItems);
-  const [status, setStatus] = useState('');
+  /**
+   * The announcement carries a nonce bumped on every SET, not on every change: React writes
+   * no DOM text node when the string is unchanged, so revoking one stale invitation and
+   * then another announced "That invitation no longer exists." once and acted twice. The
+   * `<p role="status">` itself stays mounted (a live region must be in the accessibility
+   * tree before its contents change, or assistive technology may never announce it at all)
+   * and the keyed span inside it is what is removed and re-inserted. Same mechanism as the
+   * links screens'.
+   */
+  const [status, setStatus] = useState<{ message: string; nonce: number }>({ message: '', nonce: 0 });
   const [error, setError] = useState<string | null>(null);
   // Bumped when an announcement must also take focus; a counter rather than a
   // reset-in-effect boolean, so the effect below only reads it (react-hooks/set-state-in-effect).
@@ -109,7 +118,7 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
   // One clock per list change, so every row's derived Expired badge agrees. Taken once at
   // first render and again after each re-fetch (a row is only ever re-judged when the list
   // is). The server and client renders read clocks milliseconds apart; a row whose expiry
-  // falls in that gap would hydrate with a different badge — accepted, it self-corrects on
+  // falls in that gap would hydrate with a different badge. Accepted: it self-corrects on
   // the next change and the API's own answer to its token is unaffected.
   const [now, setNow] = useState<number>(() => Date.now());
 
@@ -150,6 +159,11 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
     }
   }, [router, workspace.id]);
 
+  /** Every write to the live region goes through here, so no caller can forget the nonce. */
+  function announce(message: string): void {
+    setStatus((current) => ({ message, nonce: current.nonce + 1 }));
+  }
+
   /**
    * Re-fetches, then announces. A standing "could not be refreshed" alert stays up UNTIL the
    * re-fetch succeeds (its "Reload the list" control has to stay mounted while it runs), and
@@ -158,7 +172,7 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
   async function announceAfter(message: string, moveFocusToStatus: boolean): Promise<void> {
     if (await refresh()) {
       setError(null);
-      setStatus(message);
+      announce(message);
 
       if (moveFocusToStatus) {
         setFocusStatus((n) => n + 1);
@@ -229,7 +243,7 @@ export function InvitationsScreen({ workspace, initialItems }: InvitationsScreen
       </p>
 
       <p ref={statusRef} role="status" aria-live="polite" tabIndex={-1} className="workspaces-status">
-        {status}
+        <span key={status.nonce}>{status.message}</span>
       </p>
 
       {error === null ? null : (

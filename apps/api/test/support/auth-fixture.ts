@@ -43,8 +43,8 @@ import type { ApiServer } from './api-server';
 export const POLICY_COMPLIANT_PASSWORD = 'quilted-harbour-19-lantern';
 
 /**
- * One character. **No artifact in this repository states a password policy** — not
- * `STORY-005`, not ADR-0013, not `docs/contracts/auth-tokens.md` — so the only
+ * One character. **No artifact in this repository states a password policy** (not
+ * `STORY-005`, not ADR-0013, not `docs/contracts/auth-tokens.md`), so the only
  * policy of record is the pinned release's own floor, which probing
  * `better-auth@1.6.26` puts at 8 characters (7 answers `400 PASSWORD_TOO_SHORT`, 8 is
  * accepted). A single character fails that floor and every policy anyone could state
@@ -76,7 +76,7 @@ export const SIGNUP_NAME = 'Integration Fixture';
  * `GIT_COMMIT_SHA` is here for the same reason `BFF_PROXY_SECRET` is: ADR-0027 makes
  * `main.ts` refuse to boot without a full 40-character lowercase hex value, one refusal
  * earlier than `assertBffProxySecretConfigured()` in the boot sequence. The value below
- * is not this repository's HEAD and does not need to be — ADR-0027 only requires the
+ * is not this repository's HEAD and does not need to be: ADR-0027 only requires the
  * *format*, and nothing in the spawned process computes a SHA to compare it against.
  */
 export function authServerEnv(baseUrl: string): Record<string, string> {
@@ -88,11 +88,23 @@ export function authServerEnv(baseUrl: string): Record<string, string> {
     BETTER_AUTH_URL: baseUrl,
     BETTER_AUTH_SECRET: 'integration-fixture-better-auth-secret-not-a-real-key',
     /**
-     * base64url, unpadded, 43 characters — the format `apps/web/scripts/
+     * base64url, unpadded, 43 characters, the format `apps/web/scripts/
      * assert-no-inlined-secrets.mjs` enforces on the Vercel half (F-169). A fixture
      * value for a throwaway process; nothing signs anything real with it.
      */
     BFF_PROXY_SECRET: 'FIXTURE-bff-proxy-secret_not_a_real_value_00',
+    /**
+     * REQUIRED SINCE TASK-2-09, unconditionally (D-2-17): the API refuses to boot without
+     * it, so a child spawned with this environment and nothing else exits 1 and every test
+     * in the calling file reports "the API exited before it accepted a connection". It is
+     * declared here rather than left to the runner because every caller of this function
+     * needs a bootable child and none of them cares what the key is; a suite that asserts
+     * on `ip_hash` values passes its own key over this one.
+     *
+     * 32 bytes, base64url, 43 characters, the shape `ip-hash.ts` enforces. A fixture for a
+     * throwaway process: the only addresses it ever hashes are the ones a suite invents.
+     */
+    CLICK_IP_HASH_KEY: 'FIXTURE-click-ip-hash-key-not-a-real-value0',
   };
 }
 
@@ -102,7 +114,7 @@ export function authServerEnv(baseUrl: string): Record<string, string> {
  * `dsn()` reads `DATABASE_URL`/`DATABASE_MIGRATION_URL`, so the remedy stays in one
  * shape across both files: no fallback from `DATABASE_AUTH_URL` to `DATABASE_URL`,
  * because a fallback here would spawn the API child connecting to Better Auth's tables
- * as `shortkit_app` — exactly the role ADR-0050's split exists to keep off them.
+ * as `shortkit_app`, exactly the role ADR-0050's split exists to keep off them.
  */
 function dsnOrThrow(variable: 'DATABASE_URL' | 'DATABASE_AUTH_URL', role: string): string {
   const value = process.env[variable];
@@ -112,7 +124,7 @@ function dsnOrThrow(variable: 'DATABASE_URL' | 'DATABASE_AUTH_URL', role: string
       `${variable} is not set. The integration suite needs a live Postgres: start it ` +
         'with `docker compose -f docker-compose.test.yml up -d` and export DATABASE_URL ' +
         '(shortkit_app), DATABASE_MIGRATION_URL (shortkit_migrator) and DATABASE_AUTH_URL ' +
-        `(shortkit_auth) — see that file's header for the exact export lines. This call ` +
+        `(shortkit_auth). See that file's header for the exact export lines. This call ` +
         `needed ${variable} (${role}).`,
     );
   }
@@ -131,7 +143,7 @@ export interface AuthResponse {
    * Every `Set-Cookie` header verbatim, attributes included.
    *
    * ADDED 2026-08-16, wave 2. `cookie` above is built for ROUND-TRIPPING a session back to
-   * the server, so it strips every attribute — which means nothing that reads it can see
+   * the server, so it strips every attribute, which means nothing that reads it can see
    * `Secure`, `HttpOnly`, `SameSite`, `Max-Age` or the `__Secure-` name prefix, and
    * `auth-config-surface.md`'s cookie table is exactly a statement about those. Exposed
    * here rather than parsed out of a raw `Response` in a spec, so one parser serves every
@@ -177,7 +189,7 @@ export function parseSetCookie(header: string): ParsedCookie {
  *
  * Matched on the name ENDING in `better-auth.session_token` rather than equalling it,
  * because `advanced.useSecureCookies` renames every cookie with a `__Secure-` prefix
- * (`cookies/index.mjs:20,30`) — so a caller asserting on the prefix has to be able to find
+ * (`cookies/index.mjs:20,30`), so a caller asserting on the prefix has to be able to find
  * the cookie whichever name it carries.
  */
 export function sessionTokenCookie(response: AuthResponse): ParsedCookie | undefined {
@@ -191,7 +203,7 @@ export function sessionTokenCookie(response: AuthResponse): ParsedCookie | undef
  *
  * The body is read as text before it is parsed, so a non-JSON response fails an
  * assertion in a test rather than throwing out of `response.json()` and reporting a
- * parse error instead of the status the route answered with — the same reason
+ * parse error instead of the status the route answered with, the same reason
  * `src/health/health.spec.ts` does it.
  */
 export async function authRequest(
@@ -205,9 +217,9 @@ export async function authRequest(
     headers: {
       // TASK-1b-10 (a review finding). NO KEEP-ALIVE ON A FIXTURE SOCKET. undici pools the
       // socket to the child across calls, and the child's `keepAliveTimeout` (5 s) closes it
-      // from the other end; a caller that comes back to it after a long gap — the isolation
+      // from the other end; a caller that comes back to it after a long gap (the isolation
       // harness re-mints a token per attempt after psql resets and censuses, sometimes minutes
-      // after the previous auth call — can pick the socket up in the instant the child's FIN
+      // after the previous auth call) can pick the socket up in the instant the child's FIN
       // lands and get `fetch failed: other side closed` on a request that never arrived.
       // `connection: close` is honoured by undici (measured on Node 24: the header arrives
       // and the server closes after the response), so every auth call opens its own socket.
@@ -349,7 +361,7 @@ export async function getSession(server: ApiServer, cookie: string): Promise<Aut
   return authRequest(server, 'GET', '/get-session', { cookie });
 }
 
-/** `GET /api/auth/token` — the mint, and the request ADR-0014's BFF makes to refresh. */
+/** `GET /api/auth/token`: the mint, and the request ADR-0014's BFF makes to refresh. */
 export async function mintToken(server: ApiServer, cookie: string): Promise<AuthResponse> {
   return authRequest(server, 'GET', '/token', { cookie });
 }
@@ -451,7 +463,7 @@ export interface MembershipRow extends Record<string, unknown> {
  * to its policies even though it owns the table (migration `0001`). Two policies can admit
  * a read: `tenant_memberships_tenant_isolation`, which needs the tenant id the caller is
  * asking FOR, and `tenant_memberships_membership_lookup` (ADR-0045), which admits exactly
- * the rows whose `user_id` equals this flag — across every tenant, which is the direction a
+ * the rows whose `user_id` equals this flag, across every tenant, which is the direction a
  * "did signup write exactly one membership, anywhere?" assertion needs.
  *
  * So a caller that knows only a user id can still ask, and the answer is the whole truth
@@ -480,13 +492,13 @@ export interface TenantRow extends Record<string, unknown> {
  * ============================================================================
  *
  * `tenants_self_select` is `USING (id = nullif(current_setting('app.tenant_id', true), '')::uuid)`
- * and the table is FORCE ROW LEVEL SECURITY, so **one context sees at most one row** — its
+ * and the table is FORCE ROW LEVEL SECURITY, so **one context sees at most one row**, its
  * own. Every DSN the integration suite is given is NOBYPASSRLS on purpose
  * (`docker-compose.test.yml`: "a superuser is exempt from every policy and would make
  * AC-8..AC-11 vacuous"), so no reader here can produce `SELECT count(*) FROM tenants`.
  *
- * A caller therefore asserts on the tenant it can NAME — the one its membership row points
- * at — and cannot assert that no OTHER tenant row was written. That residual is stated on
+ * A caller therefore asserts on the tenant it can NAME (the one its membership row points
+ * at) and cannot assert that no OTHER tenant row was written. That residual is stated on
  * the assertion that needs it, in `test/auth/signup-creates-tenant.int-spec.ts`.
  */
 export function tenantRow(tenantId: string): TenantRow | undefined {
@@ -510,8 +522,8 @@ export function tenantRow(tenantId: string): TenantRow | undefined {
  * and the AC is still worth having because `tenantIdForUser` throwing is the primary stop
  * ADR-0015 names.
  *
- * BOTH FLAGS, and the second is not decoration — the same measurement `rls-fixture.ts`
- * records: `tenant_memberships_privileged_erase` is `FOR DELETE` and grants no read, so a
+ * BOTH FLAGS, and the second is not decoration (the same measurement `rls-fixture.ts`
+ * records): `tenant_memberships_privileged_erase` is `FOR DELETE` and grants no read, so a
  * `DELETE ... WHERE user_id = ...` references a column, PostgreSQL applies the SELECT
  * policies to it, and with no readable context the statement finds no row and reports
  * `DELETE 0` with no error at all.
@@ -542,7 +554,7 @@ export function eraseTenant(tenantId: string): void {
 }
 
 /**
- * Takes an address back to "the tables are empty" — the state AC-1 is stated over.
+ * Takes an address back to "the tables are empty", the state AC-1 is stated over.
  *
  * ORDER IS LOAD-BEARING. The tenants a signup created are only reachable through that
  * user's membership rows, so they have to be erased BEFORE `clearAuthTables()` removes the
@@ -585,7 +597,7 @@ export function accountsFor(email: string): AccountRow[] {
  * Marks an account verified by writing the column the verification flow would.
  *
  * AC-20 and AC-21 are stated against a **verified** account, and the only other way to
- * reach that state is the verification email — TASK-010, one wave after this one. The
+ * reach that state is the verification email (TASK-010, one wave after this one). The
  * write goes through the migrator role because `shortkit_app` is the API's identity,
  * not the fixture's.
  */
@@ -626,8 +638,8 @@ export function sessionsFor(email: string): SessionRow[] {
  *
  * Signup signs the new account in and sign-in opens a second session, so an address
  * normally holds two and "the session" is ambiguous. A test that needs to speak about
- * one specific session clears them first and then opens exactly one — verified
- * ambiguous by probe, not assumed.
+ * one specific session clears them first and then opens exactly one (verified
+ * ambiguous by probe, not assumed).
  *
  * The rows go by SQL rather than through `revoke-session`, so nothing here depends on
  * the endpoint under test in the same file.
@@ -679,7 +691,7 @@ export function bringSessionExpiryForward(seconds: number): void {
  *
  * Deliberately tolerant of tables that do not exist: they do not, until TASK-009
  * lands, and a fixture that threw here would make every test in the suite fail on
- * setup instead of on its own assertion — which is the one failure mode a red run must
+ * setup instead of on its own assertion, which is the one failure mode a red run must
  * not have.
  */
 export function clearAuthTables(): void {

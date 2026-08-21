@@ -17,7 +17,7 @@ import { RATE_LIMIT_PORT } from './rate-limit.types';
  * Declares the port and binds the guard, the way `AuthModule` declares `AUTH_RATE_LIMIT_PORT`
  * and binds `AuthGuard`: the guard reaches the store through the token and never through a
  * client directly, so a wave-1 guard is built against a Redis client that does not exist yet
- * (`redisClient`, TASK-030) and is limited by the in-process bucket meanwhile — the same
+ * (`redisClient`, TASK-030) and is limited by the in-process bucket meanwhile: the same
  * implementation ADR-0012 already requires for Redis-unavailable degradation. There is no
  * unprotected window and no no-op default; an unbound token fails at boot.
  *
@@ -31,7 +31,7 @@ import { RATE_LIMIT_PORT } from './rate-limit.types';
  * Nest applies `APP_GUARD` providers in module scan order, which is `AppModule`'s import
  * order, and runs global guards in that order. `AuthGuard` first, this guard second: the
  * contract fixes "the guard runs AFTER `AuthGuard` (it needs `tenantId`) and BEFORE
- * `TenantTransactionInterceptor`" — the second half is Nest's lifecycle (every guard before
+ * `TenantTransactionInterceptor`": the second half is Nest's lifecycle (every guard before
  * any interceptor), the first is this import order, and `app.module.spec.ts` pins it by
  * reading the resolved global guard list. Since debt sweep D1 the order is load-bearing: the
  * tenant branch reads the `RequestContext` `AuthGuard` wrote, and a refused write never

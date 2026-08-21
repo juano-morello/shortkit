@@ -1,5 +1,5 @@
 /**
- * TASK-1b-04 — the two token-entry functions, the parts decidable without a database.
+ * TASK-1b-04: the two token-entry functions, the parts decidable without a database.
  *
  * Contract: docs/contracts/invitation-tokens.md ("Normative sequence", "404 is one body").
  * ADR-0021, ADR-0015 (D-04), GC-K, GC-L, D-17.
@@ -396,7 +396,7 @@ describe('find: reads the preview and never writes', () => {
 });
 
 describe('accept: the consume and the writes', () => {
-  it("'create': consume, grants, memberships on conflict do nothing, tenant_memberships on conflict do nothing — in that order", async () => {
+  it("'create': consume, grants, memberships on conflict do nothing, tenant_memberships on conflict do nothing, in that order", async () => {
     const recorded = installFakeDatabase();
 
     const accepted = await acceptInvitationByCapabilityToken(ISSUED.raw, {

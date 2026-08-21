@@ -8,14 +8,14 @@
  * PURE. NO DATABASE, NO LOGGER, NO TENANT CONTEXT. THREE FUNCTIONS AND ONE ERROR.
  * ============================================================================
  *
- * `<tenantId>.<secret>` — a canonical lower-case uuid (36), the first `.`, and 32 bytes
+ * `<tenantId>.<secret>`: a canonical lower-case uuid (36), the first `.`, and 32 bytes
  * from `crypto.randomBytes` as unpadded base64url (43). The left half ROUTES: it is the
  * tenant id `capability-lookup.ts` opens `withTenantTransaction` on. The right half
  * AUTHORISES: only its SHA-256 digest is stored (`invitations.token_digest`, 32 bytes),
  * and possession of the raw secret is the whole proof. Nothing here verifies anything;
  * verification is the digest lookup under RLS, which is the other file's job and the
  * only place `parseCapabilityToken` may be called from (`capability-lookup.spec.ts`
- * greps for it — GC-L, D-17).
+ * greps for it; GC-L, D-17).
  *
  * ============================================================================
  * THE RAW TOKEN NEVER REACHES A STRING THIS MODULE BUILDS (ADR-0029, GC-K).
@@ -25,7 +25,7 @@
  * not its length, not which half failed: the value is an unauthenticated body field, and
  * a well-formed token that fails the digest must be indistinguishable from a malformed
  * one at every surface (invitation-tokens.md: "404 is one body"). `assertUuid` in
- * `tenant-context.ts` is deliberately NOT used for the left half — its
+ * `tenant-context.ts` is deliberately NOT used for the left half: its
  * `InvalidTenantIdError` echoes eight characters of the value, which is right for a
  * programming error and wrong for a bearer credential. The uuid shape is checked here
  * with the same regex, so `withTenantTransaction`'s own assertion is a second floor and
@@ -105,8 +105,8 @@ export function digestOf(secret: string): Buffer {
 }
 
 /**
- * Mints one token for a tenant. Returns the raw token — which the caller hands to the mail
- * template and to nothing else (GC-K) — and the digest the repository stores. The tenant
+ * Mints one token for a tenant. Returns the raw token (which the caller hands to the mail
+ * template and to nothing else (GC-K)), and the digest the repository stores. The tenant
  * id is the caller's own (`currentTenantId()` on the create route), so a bad one is a
  * programming error; it is still refused, because the string is about to be sent to a
  * stranger as a routing prefix. The message names no value.

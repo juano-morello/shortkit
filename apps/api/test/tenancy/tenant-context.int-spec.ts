@@ -1,10 +1,10 @@
 /**
- * STORY-003 — AC-8, AC-9, AC-10, AC-11.
+ * STORY-003: AC-8, AC-9, AC-10, AC-11.
  *
  * Integration only, by ADR-0001 and test-strategy.md: row-level security cannot be
  * faked in a mock. A mocked repository proves the mock honours tenancy, not that
  * Postgres does. Every assertion here runs against a live Postgres 17, as the
- * `shortkit_app` role, which holds neither `SUPERUSER` nor `BYPASSRLS` — the
+ * `shortkit_app` role, which holds neither `SUPERUSER` nor `BYPASSRLS`: the
  * fixture refuses to run otherwise, because an exempt role makes all of it vacuous.
  *
  * Nothing here reaches for `tenantStorage`, the pool, or any other internal: the
@@ -25,7 +25,7 @@
  * verified by mutating the implementation rather than by an arriving red:
  *   - F-120, the two accessors agreeing ACROSS the transaction boundary, and the
  *     escaping error's `message` carrying no bound value. Round 1 covered the inside-`fn`
- *     half only, and the leak — which is the half `sdlc-security-auditor` raised — was
+ *     half only, and the leak (which is the half `sdlc-security-auditor` raised) was
  *     asserted nowhere.
  *   - F-121, a continuation escaping a ROLLED BACK transaction. Both round-1 tests
  *     commit, so a guard set on the success path rather than in `finally` passed them.
@@ -36,7 +36,7 @@
  * recreates `tenants` and `rls_fixture_rows` per test, and vitest runs FILES in
  * parallel while running the tests inside one file sequentially. A second
  * `.int-spec.ts` sharing this fixture fails with `relation "rls_fixture_rows" does
- * not exist` roughly half the time — observed, not predicted. Splitting this file
+ * not exist` roughly half the time: observed, not predicted. Splitting this file
  * needs `fileParallelism: false` in `vitest.integration.config.ts` first, which is
  * TASK-005's file rather than the test architect's.
  */
@@ -285,7 +285,7 @@ describe('tenant-scoped persistence', () => {
  * F-120. drizzle wraps a failed statement in `DrizzleQueryError` at the STATEMENT
  * boundary; `databaseTransaction` unwraps it at the TRANSACTION boundary. Everything
  * caught inside `fn` therefore still holds the wrapper, whose `code` is `undefined`
- * and whose `message` is `Failed query: ${query}\nparams: ${params}` — the SQL text
+ * and whose `message` is `Failed query: ${query}\nparams: ${params}`: the SQL text
  * and every bound value.
  *
  * The caller this exists to protect is TASK-025's collision loop, whose shape is
@@ -365,9 +365,9 @@ describe('a database error caught inside the wrapped function', () => {
 
   it('F-120: the accessors read the same code and constraint inside fn and after the error escapes the transaction', async () => {
     // F-120's required_change in its own words: "Make the driver error the same shape at
-    // every catch site inside fn." The two catch sites are different OBJECTS — drizzle's
+    // every catch site inside fn." The two catch sites are different OBJECTS: drizzle's
     // `DrizzleQueryError` inside, the driver's `pg.DatabaseError` outside, because
-    // `databaseTransaction` unwraps at the transaction boundary — and the whole point of
+    // `databaseTransaction` unwraps at the transaction boundary, and the whole point of
     // the accessors is that a caller cannot tell which one it holds. The test above
     // covers the inside half alone; nothing covered the outside half through the
     // accessors, and nothing covered the two agreeing.
@@ -414,7 +414,7 @@ describe('a database error caught inside the wrapped function', () => {
   it('F-120: the error that escapes the transaction carries neither the SQL text nor the bound values', async () => {
     // The security half of F-120. drizzle's wrapper message is the literal
     // `Failed query: ${query}\nparams: ${params}` (tenant-context.md, "Driver errors
-    // inside `fn`"), so it carries the statement and every bound value — here a tenant
+    // inside `fn`"), so it carries the statement and every bound value: here a tenant
     // id and a row id, in production a user email, a workspace name or a link
     // destination. TASK-007's filter logs `message` on an unhandled error, so what this
     // asserts is that the value reaching the log store is the driver's own summary.
@@ -447,8 +447,8 @@ describe('a database error caught inside the wrapped function', () => {
 /**
  * F-121. `tenantStorage.run` binds INSIDE the `databaseTransaction` callback, so the
  * store and the handle it carries outlive the transaction. Node keeps that store
- * visible to every continuation descended from inside the callback — which is what a
- * fire-and-forget `void this.warmCache()` inside `fn` is — and `pg` does not disable
+ * visible to every continuation descended from inside the callback, which is what a
+ * fire-and-forget `void this.warmCache()` inside `fn` is, and `pg` does not disable
  * `query` on a released client. The continuation therefore reaches a connection the
  * pool has already handed on.
  */
@@ -481,7 +481,7 @@ describe('the tenant context after its transaction has settled', () => {
 
   /**
    * The same shape, but the transaction ROLLS BACK instead of committing. The handle is
-   * back in the pool either way — drizzle releases the client in its `finally` — so the
+   * back in the pool either way (drizzle releases the client in its `finally`) so the
    * hazard is identical, while the guard sits in `withTenantTransaction`'s own `finally`
    * and only that placement covers both. A guard set on the success path passes both
    * tests above and leaves this one open.
@@ -534,7 +534,7 @@ describe('the tenant context after its transaction has settled', () => {
   it('F-121: a nested withTenantTransaction that resumes after COMMIT does not reuse the settled transaction', async () => {
     // The reuse branch opens no BEGIN and issues no set_config, so this is the path
     // that runs a tenant-scoped statement with no transaction and no context flag at
-    // all — GC-5's hole, reached without touching anything the contract forbids.
+    // all: GC-5's hole, reached without touching anything the contract forbids.
     const outcome = await afterTheTransactionSettles(async () =>
       withTenantTransaction(TENANT_A, async (db) => {
         const result = await db.execute(sql`select 1 as reached_the_database`);
@@ -790,7 +790,7 @@ describe('the connection pool', () => {
 
     // Without this listener the assertion below cannot be written at all: Node
     // rethrows an unhandled `'error'` event, so the failure is the runner dying
-    // rather than a test reporting. The listener is the observation, not the fix —
+    // rather than a test reporting. The listener is the observation, not the fix:
     // the fix is `pool.on('error', ...)` inside client.ts.
     process.on('uncaughtException', capture);
 
@@ -798,7 +798,7 @@ describe('the connection pool', () => {
       const pid = await withTenantTransaction(TENANT_A, async (db) => {
         // The routine trigger F-123 names: ADR-0002 targets Neon, which drops idle
         // connections on scale-to-zero. A restart, a failover and this setting all
-        // reach the client the same way — a FATAL on a connection sitting in the pool.
+        // reach the client the same way: a FATAL on a connection sitting in the pool.
         await db.execute(sql`select set_config('idle_session_timeout', '500', false)`);
 
         const result = await db.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`);
@@ -828,7 +828,7 @@ describe('the connection pool', () => {
     const CONCURRENT = 40;
     /**
      * A connection acquisition that has not resolved in six seconds is not a bounded
-     * failure by any definition an HTTP request can use — the default
+     * failure by any definition an HTTP request can use: the default
      * `statement_timeout` this module sets is five.
      */
     const WINDOW_MS = 6000;
@@ -915,7 +915,7 @@ describe('a transaction that sits idle between two statements', () => {
     // Postgres kills the backend while no query is active, so `pg` reaches
     // `client.emit('error')` on a CHECKED-OUT client, and `pool.on('error')` does not
     // fire for one. Without `pool.on('connect', ...)` in client.ts there is no listener
-    // and Node takes the process down — which would end this run rather than fail this
+    // and Node takes the process down, which would end this run rather than fail this
     // test, so the capture below is what makes the assertion writable at all.
     process.on('uncaughtException', capture);
 
@@ -990,7 +990,7 @@ describe('the boot-time runtime-role assertion', () => {
 
   /**
    * `client.ts` reads `DATABASE_URL` once and caches the pool, and exports no way to
-   * point it somewhere else — `closeDatabase()` is the seam. Restored in `finally`,
+   * point it somewhere else: `closeDatabase()` is the seam. Restored in `finally`,
    * and the pool is dropped again on the way out so the next test rebuilds it against
    * the runtime role.
    */

@@ -12,7 +12,7 @@ import { AUTH_RATE_LIMIT_BUCKETS, AuthRateLimitExceededError } from './ports/aut
 import type { AuthRateLimitBucket, AuthRateLimitPort } from './ports/auth-rate-limit.port';
 
 /**
- * STORY-001 — no AC states this; `docs/contracts/rate-limit.md` does. TASK-004, wave 3.
+ * STORY-001: no AC states this; `docs/contracts/rate-limit.md` does. TASK-004, wave 3.
  *
  * Contract: `docs/contracts/rate-limit.md` ("`/api/auth/*` is covered by a separate limiter",
  * "`LocalAuthRateLimiter` is bounded, per bucket", "Response on limit"),
@@ -133,7 +133,7 @@ describe('LocalAuthRateLimiter.release (TASK-1b-09, the failed-attempts rule)', 
     expect(await allowedOf(limiter, 'signInPerEmail', 'k', 7)).toBe(5);
   });
 
-  it('a charge from window N released after the roll leaves window N+1 untouched — including an unrelated charge that opened it (review LOW)', async () => {
+  it('a charge from window N released after the roll leaves window N+1 untouched, including an unrelated charge that opened it (review LOW)', async () => {
     const stale = await limiter.check('signInPerEmail', 'k');
     vi.setSystemTime(new Date('2026-08-18T12:15:00.000Z'));
     // An unrelated failed attempt for the same key opens window N+1 with count 1 …
@@ -329,7 +329,7 @@ describe('authRateLimit', () => {
     };
   };
 
-  it('ADR-0013: routes map to their buckets — sign-in, sign-up, and everything else under /api/auth', async () => {
+  it('ADR-0013: routes map to their buckets: sign-in, sign-up, and everything else under /api/auth', async () => {
     vi.stubEnv('TRUSTED_CLIENT_IP_HEADER', 'x-test-client-ip');
     const port = recording();
     const headers = { 'x-test-client-ip': '203.0.113.7' };

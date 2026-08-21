@@ -11,7 +11,7 @@
  *
  * The first authenticated routes shortkit has had. All five sit under the `/api` global
  * prefix `main.ts` sets (ADR-0006), all five are guarded by the global `AuthGuard` and run
- * inside the tenant transaction the global `TenantTransactionInterceptor` opens — nothing
+ * inside the tenant transaction the global `TenantTransactionInterceptor` opens: nothing
  * here says so, which is the point of the two being global. No `@Public()`, no
  * `@NoTenantTransaction()`.
  *
@@ -23,8 +23,8 @@
  *
  * THE MINIMUM ROLE IS DECLARED HERE AND ENFORCED IN `WorkspaceAuthorizationInterceptor`
  * (Form A, `workspace-authorization.md`), which runs inside the transaction, reads the
- * `memberships` row for `params.workspaceId` — hence the param NAME: it is what Form A
- * resolves first (D-07) — and answers 404 `not_found` for no membership, another tenant's id
+ * `memberships` row for `params.workspaceId` (hence the param NAME: it is what Form A
+ * resolves first (D-07)), and answers 404 `not_found` for no membership, another tenant's id
  * or a non-uuid, 403 `insufficient_workspace_role` for a rank below the minimum, before this
  * handler runs. `POST /api/workspaces` is tenant-level: `RequireTenantRole(admin)`, which the
  * signup `owner` (rank 20) passes and an invitee's `member` (rank 0) does not (AC-1b-17). The
@@ -33,14 +33,14 @@
  *
  * WHO IS ASKING is `currentActor()`: the `RequestContext` the guard wrote, made ambient by
  * the authorization interceptor for every authenticated route, carrying `userId` (the
- * creator, the list's subject) and — on the decorated routes — `workspaceRole`, which is what
+ * creator, the list's subject) and, on the decorated routes, `workspaceRole`, which is what
  * the response's `workspaceRole` reports. Outside a request it throws (500); it never answers
  * for nobody.
  *
  * REQUESTS ARE PARSED THROUGH THE CONTRACTS INSIDE THE HANDLER. No `ZodValidationPipe`
  * exists yet (ADR-0025, "Follow-ups"), and `apps/api` declares no `zod` dependency, so the
  * schema is called by hand and the `ZodError` it throws is turned into a `DomainError`
- * carrying `validation_failed` and `toValidationDetails(error)` — the same shape the filter's
+ * carrying `validation_failed` and `toValidationDetails(error)`: the same shape the filter's
  * own branch 2 would build, produced here so the route decides its code where it decides
  * everything else. `isZodError` and `toValidationDetails` come from `@shortkit/contracts`;
  * zod is imported nowhere in this file, value or type.
@@ -55,7 +55,7 @@
  * caller is not a member of: the interceptor's lookup answers "no membership" for a
  * non-uuid without reaching Postgres, with the body `WorkspaceRepository` gives a missing
  * row, and answering 400 for one shape and 404 for another would let a caller tell a
- * well-formed miss from a malformed one — a small oracle, and one `docs/contracts/workspaces.md`
+ * well-formed miss from a malformed one: a small oracle, and one `docs/contracts/workspaces.md`
  * rules out.
  */
 import {
@@ -90,7 +90,7 @@ import { WorkspacesService } from './workspaces.service';
  * The same text the filter's own validation branches carry (`error-envelope.md`, "Message
  * constants"): a client renders per code and never branches on a message, and the failing
  * fields are in `details`. Restated rather than imported because the filter keeps its
- * constants module-private, and F-098's point — no third string — holds as long as the value
+ * constants module-private, and F-098's point (no third string) holds as long as the value
  * is the same.
  */
 const VALIDATION_FAILED_MESSAGE = 'The request could not be validated.';

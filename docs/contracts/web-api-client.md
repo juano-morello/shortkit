@@ -123,8 +123,8 @@ design's endpoint tables carry no template that repeats a name today; the closes
 Added 2026-08-10 (F-284, F-285, ADR-0029). Normative and ordered. This is the browser-leg
 mirror of the upstream construction the proxy performs, and it exists for the same reason:
 the previous rule was `` `${BFF_PATH_PREFIX}${path}` `` with no validation, so
-`/links/../../auth/token` reached `/api/auth/token` — normalised by the browser **before the
-request is sent**, so the proxy's own segment rejection never runs — and an unescaped `?` in
+`/links/../../auth/token` reached `/api/auth/token` (normalised by the browser **before the
+request is sent**, so the proxy's own segment rejection never runs), and an unescaped `?` in
 an interpolated segment appended attacker-chosen parameters to an authenticated call.
 
 ```
@@ -199,7 +199,7 @@ prints carries the repeated name in plain sight.
 `invalidRouteMessage` names the method and **not the offending path**, because at step 1 the
 path is the value under suspicion: it is the only one of the seven builders whose path
 argument has not passed the pattern, and a rejection that echoes the value it rejected is the
-leak wearing a different hat. `invalidParamValueMessage` never names the value either — a
+leak wearing a different hat. `invalidParamValueMessage` never names the value either: a
 param value is caller-supplied by definition, and the invitation token is one.
 
 Steps 1, 2, 3 and 6 throw a plain `Error`. They are programming defects, not runtime
@@ -261,8 +261,8 @@ Ordered. Normative.
    browser-facing response. `apiClient` does not read that header, so through the real
    client the signup and sign-in screens show a rate-limit message with no seconds. Recorded
    in `docs/roadmap.md` under "Carried forward from `identity-membership`, 2026-08-18"
-   (W5-01). **Closed 2026-08-18 (item 1b, TASK-1b-12):** `apiClient` now normalises both —
-   the `Retry-After` header first, the body's `retryAfterSeconds` second — and the paragraph
+   (W5-01). **Closed 2026-08-18 (item 1b, TASK-1b-12):** `apiClient` now normalises both
+   (the `Retry-After` header first, the body's `retryAfterSeconds` second), and the paragraph
    above the note is true through the real client. The note stays as the record that it was
    not, for one branch.
 5. Body not matching the envelope, including Better Auth's native errors from
@@ -421,7 +421,7 @@ by whichever TASK builds `mapBetterAuthError`; the constraints on the answer are
 | auth | `Authorization: Bearer <sk_at cookie>` |
 | cookies upstream | **never forwarded** |
 | request headers forwarded | `content-type`, `accept`, `x-request-id`, and **`origin` on mutating methods only** (see below). **Two allowlists, read together**: `FORWARDED_REQUEST_HEADERS` is not the whole set, and building the upstream headers from it alone breaks every auth mutation (F-288). **Inbound `x-shortkit-*` headers are never forwarded**; the proxy sets both of its own afresh on every request |
-| headers the proxy **adds** | `x-shortkit-client-ip` (the browser's address — see the rule below), `x-shortkit-proxy-auth` (`BFF_PROXY_SECRET`) upstream, and `cache-control: no-store` on **every** response it returns (see below) |
+| headers the proxy **adds** | `x-shortkit-client-ip` (the browser's address; see the rule below), `x-shortkit-proxy-auth` (`BFF_PROXY_SECRET`) upstream, and `cache-control: no-store` on **every** response it returns (see below) |
 | response headers returned | `content-type`, `retry-after`, `x-request-id` only. `cache-control` is **not** in the allowlist: upstream's value is dropped and the proxy sets its own |
 | CSRF | mutating methods require `Origin` to equal the deployment origin, else 403. **Mutating means anything that is not `GET` or `HEAD`**, case-insensitively; see "Which methods are mutating" below |
 | redirects | `redirect: 'manual'` on the upstream fetch. A 3xx is returned to the caller, never followed |
@@ -561,7 +561,7 @@ export const PROXY_RESPONSE_CACHE_CONTROL = 'no-store' as const;
 `RETURNED_RESPONSE_HEADERS` omitted `cache-control`, so an API response carrying `no-store`
 for tenant data arrived at the browser with no cache directive and the decision fell to
 browser heuristics on a 200 GET. Someone with later filesystem access to the same browser
-profile — a shared or kiosk machine, a recovered disk — could read another tenant's link,
+profile (a shared or kiosk machine, a recovered disk) could read another tenant's link,
 member or domain data out of the HTTP cache after the session cookie expired.
 
 **The rejected alternative is adding `cache-control` to `RETURNED_RESPONSE_HEADERS`.** It
@@ -572,8 +572,8 @@ header, enforced by nothing. Twenty-odd routes have to be right; one has to be w
 it at the proxy fails closed and depends on one line in one file.
 
 **The cost accepted:** no response through `/api/bff/*` can ever be cached by the browser,
-including one that safely could be. Nothing in this design wants that today — everything
-crossing this boundary is authenticated tenant JSON — so the cost is a future option, not a
+including one that safely could be. Nothing in this design wants that today (everything
+crossing this boundary is authenticated tenant JSON) so the cost is a future option, not a
 present loss. Taking that option means amending this section, not adding a special case at a
 call site.
 
@@ -590,7 +590,7 @@ forwarding headers on non-Enterprise plans, and unlike `x-forwarded-for` it is n
 rewritten by a proxy stacked on top of Vercel.
 
 - **Never** `x-forwarded-for` split on commas, and **never the leftmost entry of any
-  multi-valued list** — that is the construct F-009 exists to forbid, moved one hop
+  multi-valued list**: that is the construct F-009 exists to forbid, moved one hop
   upstream.
 - When the header is absent (local `next dev`), the proxy **omits**
   `x-shortkit-client-ip` entirely. It never substitutes another header.
@@ -606,8 +606,8 @@ rewritten by a proxy stacked on top of Vercel.
 
 `BFF_PROXY_SECRET` is a **required, server-only** environment variable on Vercel,
 registered by TASK-004 alongside `API_BASE_URL` (never `NEXT_PUBLIC_*`). Its value is
-**never logged on the Vercel side** — not in route-handler logs, not in error paths
-that serialise headers — mirroring the API-side redaction (`logging-and-headers.md`,
+**never logged on the Vercel side** (not in route-handler logs, not in error paths
+that serialise headers) mirroring the API-side redaction (`logging-and-headers.md`,
 F-032). On the Fly side the variable is required at boot in production
 (`rate-limit.md`, F-033).
 
@@ -656,8 +656,8 @@ refresh-and-bounce `GET /api/bff/session/refresh` (invariant 5) are static route
 7. The proxy cannot reach any upstream path outside `/api/`. Traversal segments are
    rejected before the URL is built.
 8. **The API sees the browser's address, not Vercel's.** The proxy adds
-   `x-shortkit-client-ip` — sourced from `x-vercel-forwarded-for` only, never a
-   leftmost list entry (F-035) — and authenticates it with `x-shortkit-proxy-auth`.
+   `x-shortkit-client-ip`, sourced from `x-vercel-forwarded-for` only, never a
+   leftmost list entry (F-035), and authenticates it with `x-shortkit-proxy-auth`.
    Without this every IP-keyed rate limit would collapse into one bucket shared by
    every user (`rate-limit.md`). A client-supplied `x-shortkit-client-ip` arriving
    without a valid secret is ignored, so this does not reintroduce F-009's trust
@@ -691,8 +691,8 @@ refresh-and-bounce `GET /api/bff/session/refresh` (invariant 5) are static route
     route template is validated before the request is built, param values are
     percent-encoded and may not be `.`, `..` or empty, and the resolved URL is asserted to
     still be under the prefix after WHATWG normalisation. Traversal that the browser
-    normalises before sending — which never reaches the proxy and so never meets
-    `buildUpstreamUrl`'s rejection — is refused here instead.
+    normalises before sending (which never reaches the proxy and so never meets
+    `buildUpstreamUrl`'s rejection) is refused here instead.
 13. **No response returned through `/api/bff/*` may be stored by the browser.** Added
     2026-08-10 (F-287). Every proxied response carries `Cache-Control: no-store`, set by
     the proxy and not inherited from upstream.
@@ -730,7 +730,7 @@ refresh-and-bounce `GET /api/bff/session/refresh` (invariant 5) are static route
   export `FORWARDED_REQUEST_HEADERS`, `FORWARDED_REQUEST_HEADERS_MUTATING_ONLY`
   (`['origin']`), `NON_MUTATING_METHODS` (`['GET', 'HEAD']`), `MUTATING_METHODS` and
   `isMutatingMethod`. This document is not what the proxy
-  implementer reads — the file is, because this document names it as the normative form —
+  implementer reads (the file is, because this document names it as the normative form),
   and a file offering one allowlist under a docblock enumerating what is deliberately
   absent states, to that reader, that the set is complete. It is not: building
   `upstreamHeaders` from `FORWARDED_REQUEST_HEADERS` alone answers
@@ -772,8 +772,8 @@ changing `code`'s type is not.
 **The 2026-08-10 amendment (F-284, ADR-0029) is additive in shape and breaking in meaning,
 and that distinction is the whole of its compatibility story.** No field was removed and no
 type changed: `ApiRequest.path` is still `string`, `ContractViolationError.path` is still a
-present `string`. What changed is the value each holds — a route template, not a resolved
-path — so nothing fails to compile and a caller written against the old semantics is wrong at
+present `string`. What changed is the value each holds (a route template, not a resolved
+path) so nothing fails to compile and a caller written against the old semantics is wrong at
 runtime rather than at build time. That is normally the worse kind of change. It is
 acceptable here for one reason, checked rather than assumed: `apiClient` has no callers.
 `apps/web/src` contains two files, `client.ts` and `client.spec.ts`, and every one of the

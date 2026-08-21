@@ -9,7 +9,7 @@ date: 2026-08-04
 
 > **Amended 2026-08-11 (F-303, F-333, F-327). The decision stands; two statements around it
 > moved.** The SQL half of the cross-check shipped three waves early, inside TASK-006's
-> isolation harness, and it shipped **wider than this ADR specified** — five independent
+> isolation harness, and it shipped **wider than this ADR specified**: five independent
 > properties rather than the single `tenant_id` column below, because this ADR's own accepted
 > cost was measured coming true. As a result one sentence in "Negative / accepted cost" is now
 > false as written, and the residual that replaces it belongs here rather than only in a test
@@ -79,7 +79,7 @@ TASK-006 needed the cross-check before `tenantScopedTables()` existed, so it com
 database against the isolation registry instead, and **the query above was not enough**. A
 table whose owner column is called `owning_tenant`, force-RLS'd with a `USING (true)` policy,
 leaked every row to every tenant while being invisible to this predicate and reported
-protected by `db:check-policies` — measured. The shipped form asks **five** independent
+protected by `db:check-policies`; measured. The shipped form asks **five** independent
 questions: the table is `tenants`; it carries a column named `tenant_id`; row-level security
 is enabled **and** forced; a policy reads `app.tenant_id`; or **it declares a foreign key to
 `tenants(id)`**. The last is the only one that depends on neither protection nor a name, and
@@ -179,8 +179,8 @@ counts, and the schema version.
   tenant's rows to the acting tenant while the isolation suite reported 15 passed,
   `registryDrift` was empty in both directions, and `db:check-policies` called the table
   protected. What notices now is the **SQL half**, through the four arms that do not read the
-  column name; the **schema half** — `tenantScopedTables()`, still filtering on `'tenant_id'
-  in getTableColumns(t)` — is unchanged and still does not notice, which is why a table
+  column name; the **schema half** (`tenantScopedTables()`, still filtering on `'tenant_id'
+  in getTableColumns(t)`) is unchanged and still does not notice, which is why a table
   missing from it also escapes export and erasure however loudly the isolation suite
   complains.
 
@@ -189,7 +189,7 @@ counts, and the schema version.
   declares no foreign key to `tenants`, carries no policy reading `app.tenant_id`, and is not
   force-RLS'd. That is three simultaneous departures from the convention this ADR sets, and
   nothing anywhere names such a table. **A boundary stated as a residual is what stops the
-  next reader treating the enumeration as complete** — this ADR's original bullet said the
+  next reader treating the enumeration as complete**: this ADR's original bullet said the
   convention was load-bearing, and the residual is exactly how much of the load it still
   carries. It is repeated here deliberately, because a reader of this ADR is deciding whether
   the convention matters; **if the arms change, `isolation-coverage.md` is the copy that
@@ -201,14 +201,14 @@ counts, and the schema version.
 
   | Enumeration | Sees a table whose owner column is not `tenant_id` | Consumers |
   |---|---|---|
-  | the SQL half — five arms, `tenantScopedTableDrift()` | **yes**, through arms 3, 4 and 5 | the isolation suite (SC-1) |
-  | the schema half — `tenantScopedTables()`, this ADR's `Decision` | **no.** One property: `'tenant_id' in getTableColumns(t)` | **the GDPR export (AC-88), erasure and its residue check (AC-90)**, and TASK-056's table-reachability check |
+  | the SQL half: five arms, `tenantScopedTableDrift()` | **yes**, through arms 3, 4 and 5 | the isolation suite (SC-1) |
+  | the schema half: `tenantScopedTables()`, this ADR's `Decision` | **no.** One property: `'tenant_id' in getTableColumns(t)` | **the GDPR export (AC-88), erasure and its residue check (AC-90)**, and TASK-056's table-reachability check |
 
   So a table added with `owning_tenant`, or with the column named right but missing from the
   barrel, is **named loudly by the isolation suite and silently skipped by erasure**. The
   export omits a category the tenant owns, and `assertNoTenantResidue()` iterates a list the
-  table is not on and reports zero. That is F-002's shape — a completed erasure that deleted
-  less than it claimed and reported success — arriving through a different door, and the door
+  table is not on and reports zero. That is F-002's shape (a completed erasure that deleted
+  less than it claimed and reported success) arriving through a different door, and the door
   it arrives through is a compliance one.
 
   **Not reachable today**, which is why this is recorded rather than escalated: all three
@@ -217,11 +217,11 @@ counts, and the schema version.
   **The decision, so TASK-053 does not inherit it as an open question.** TASK-053 must close
   the gap on the schema side, and the cheaper of the two ways is the second:
 
-  1. widen `tenantScopedTables()` to a name-independent derivation — the Drizzle table object
+  1. widen `tenantScopedTables()` to a name-independent derivation: the Drizzle table object
      exposes its foreign keys, so "declares a foreign key to `tenants(id)`" is expressible
      there and is the same property as SQL arm 5; or
   2. **keep the one-property filter and make the existing cross-check fail on the
-     difference** — assert `tenantScopedTables()` against the five-arm SQL half rather than
+     difference**: assert `tenantScopedTables()` against the five-arm SQL half rather than
      against the single-column query in the `Decision` above. The SQL half already exists and
      is already tested, so this is a test change rather than a schema-reflection change, and
      it fails closed with the table named.

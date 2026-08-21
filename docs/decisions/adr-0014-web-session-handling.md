@@ -56,7 +56,7 @@ new JWT from `sk_rt`, set `sk_at`, and retry the original request once. Two
 consecutive failures clear both cookies and return 401, and `requireAuth()` sends the
 user to `/login`. Refresh happens in the route handler, so a burst of parallel client
 fetches can each trigger one; a per-request in-flight map collapses them. (Corrected
-2026-08-17, TASK-007: the sign-in screen is `/sign-in`, not `/login` — `web-api-client.md`,
+2026-08-17, TASK-007: the sign-in screen is `/sign-in`, not `/login`; `web-api-client.md`,
 "Session".)
 
 **Server components skip the proxy.** `serverApiClient()` reads `sk_at` from
@@ -80,9 +80,9 @@ deployment's own origin. `SameSite=Lax` already blocks cross-site form posts; th
 **The proxy forwards the browser's address, authenticated by a shared secret.** Added
 2026-08-04, found while verifying F-030. Because the browser never talks to Fly, the API
 sees Vercel's egress address for every user, so anything keyed on the client IP collapses
-into one bucket for the whole product. The proxy adds `X-Shortkit-Client-IP` — sourced
+into one bucket for the whole product. The proxy adds `X-Shortkit-Client-IP` (sourced
 from `x-vercel-forwarded-for` only, never a leftmost list entry (F-035,
-`web-api-client.md`) — and `X-Shortkit-Proxy-Auth: <BFF_PROXY_SECRET>`. The API honours
+`web-api-client.md`)) and `X-Shortkit-Proxy-Auth: <BFF_PROXY_SECRET>`. The API honours
 the first only through `resolveRateLimitPrincipal` (F-031, the single trusted-proxy
 decision site, normative in `rate-limit.md`): constant-time secret match, forwarded
 value must parse as an IP, unset secret or absent header disables the branch outright
@@ -242,7 +242,7 @@ Four more, all for the `Origin` question (F-233):
   the card whose `paths` name `apps/web/src/lib/api/client.ts`, `apps/web/src/lib/session/**`
   and `apps/web/app/api/bff/**`). All three ship: `serverApiClient`, `mapBetterAuthError`
   and `buildUpstreamUrl`, together with the proxy route, both cookies, the refresh path,
-  `useSession()` and `requireAuth()` the next bullet assigned to TASK-012 — which did not
+  `useSession()` and `requireAuth()` the next bullet assigned to TASK-012, which did not
   return under that number. The re-scoping is the card itself, not a silent override of
   this bullet; `web-api-client.md` step 5 records the same date.
 - TASK-012 owns the proxy route handler, both cookies, the refresh path, `useSession()`,

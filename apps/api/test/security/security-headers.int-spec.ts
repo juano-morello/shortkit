@@ -4,11 +4,11 @@ import { startApiServer } from '../support/api-server';
 import type { ApiServer } from '../support/api-server';
 
 /**
- * F-243 clause 2 — `docs/contracts/logging-and-headers.md` § "Security headers" and
+ * F-243 clause 2: `docs/contracts/logging-and-headers.md` § "Security headers" and
  * **invariant 4**. ADR-0022. Assigned to TASK-003 by Juano on 2026-08-10.
  *
  * Invariant 4 reads: "HSTS, `nosniff` and `DENY` are present on every API response including
- * errors." The contract then disclaims it in place — "**Not true today.** `helmet` is not
+ * errors." The contract then disclaims it in place: "**Not true today.** `helmet` is not
  * registered. F-243 clause 2 is open and escalated: this contract assigned helmet and HSTS to
  * TASK-003 with no AC, no test and no finding tracking them."
  *
@@ -25,7 +25,7 @@ import type { ApiServer } from '../support/api-server';
  * The contract puts helmet in `main.ts`: "`helmet()` with defaults, plus HSTS, registered in
  * `main.ts` before the global prefix." `Test.createTestingModule({ imports: [AppModule] })`
  * never runs `main.ts`, so an in-graph test would answer with no security headers however
- * correct the implementation is — it could not go green for the right reason, which is worse
+ * correct the implementation is: it could not go green for the right reason, which is worse
  * than one that cannot go red. `src/health/health.spec.ts` is in-graph because AC-6 is about a
  * ROUTE; this is about middleware the composition root installs, so it uses
  * `test/support/api-server.ts`, which builds the bundle and runs it on a real socket.
@@ -39,7 +39,7 @@ import type { ApiServer } from '../support/api-server';
  *
  * The four headers whose values the contract's table states normatively are asserted for
  * those exact values. `Content-Security-Policy`'s value is "helmet default", so only its
- * presence and its having a `default-src` directive are asserted — pinning helmet's own
+ * presence and its having a `default-src` directive are asserted: pinning helmet's own
  * default bytes would fire on a helmet upgrade, which is a decision rather than a defect.
  *
  * The redirect path's two documented exceptions (`Referrer-Policy: unsafe-url` on the 302,
@@ -71,7 +71,7 @@ const DATABASE_URL = 'DATABASE_URL';
  *
  * This file spawns an API child with its OWN `env` callback rather than through
  * `authServerEnv()`, so nothing else supplies this name to it. `startApiServer` spreads
- * `process.env` into the child, so an exported value reaches it — but a value that is
+ * `process.env` into the child, so an exported value reaches it, but a value that is
  * unset in this shell reaches it as unset, and the guard below is what says so in a
  * sentence rather than as a boot failure four frames down.
  *
@@ -87,7 +87,7 @@ const DATABASE_AUTH_URL = 'DATABASE_AUTH_URL';
  * THE TWO AUTH BINDINGS THE CHILD NEEDS FROM WAVE 2 (F-200, ADR-0051, ADR-0059).
  * ===========================================================================
  *
- * `main.ts` refuses to boot without either, BEFORE the database precondition — measured:
+ * `main.ts` refuses to boot without either, BEFORE the database precondition; measured:
  * eight tests in this file went from passing to failing on
  * `boot_precondition: "better_auth_secret"` the moment TASK-003 landed. That is the guard
  * working. This file spawns its own child with its own `env` callback rather than through
@@ -97,7 +97,7 @@ const DATABASE_AUTH_URL = 'DATABASE_AUTH_URL';
  * comment below has said since wave 1 that it "says what the child needs instead of
  * inheriting it by accident", and that design is exactly why this broke loudly at a named
  * boot precondition rather than quietly on an unset value. It also means `ci.yml` needs
- * neither binding — the callback never reads the ambient environment for them.
+ * neither binding: the callback never reads the ambient environment for them.
  *
  * Neither value is a credential in this context and neither is read by anything this file
  * asserts on. The child is spawned, probed for response headers, and killed.
@@ -105,7 +105,7 @@ const DATABASE_AUTH_URL = 'DATABASE_AUTH_URL';
 
 /**
  * Fifty-three characters, the same shape and the same intent as
- * `test/support/auth-fixture.ts:86` — a throwaway string for a throwaway process, clearing
+ * `test/support/auth-fixture.ts:86`: a throwaway string for a throwaway process, clearing
  * ADR-0051's 32-character floor and deliberately not better-auth's published
  * `better-auth-secret-12345678901234567890`, which is the one value ADR-0058 rejects by
  * exact match. Matched to the fixture's style rather than invented as a third convention.
@@ -124,13 +124,13 @@ const FRAME_OPTIONS = 'DENY';
 const REFERRER_POLICY = 'no-referrer';
 
 /**
- * F-280 — the framing policy a browser actually enforces.
+ * F-280: the framing policy a browser actually enforces.
  *
  * `X-Frame-Options: DENY` above is the row the implementer had to override helmet's default
  * for, and it is the row a CSP-aware browser DISCARDS: CSP Level 2 § 4 requires a user agent
  * that supports `frame-ancestors` to ignore `X-Frame-Options` entirely, and helmet's default
  * CSP carries `frame-ancestors 'self'`. So the contract's table states `DENY` and the deployed
- * bytes deliver `'self'` — same-origin framing, on the origin whose branded 404 is slated to
+ * bytes deliver `'self'`: same-origin framing, on the origin whose branded 404 is slated to
  * render tenant-controlled markup (F-006).
  *
  * `'none'` is the value that makes the two headers agree, hand-derived from the contract's own
@@ -202,7 +202,7 @@ beforeAll(() => {
   // `BETTER_AUTH_URL` IS THE `baseUrl` THE HARNESS ALREADY HANDS THIS CALLBACK, and that is
   // a deliberate choice over a literal (F-200). The loopback rule is a STRING test, so a
   // hardcoded `http://127.0.0.1:3001` would satisfy it just as well while telling a future
-  // reader that the value is arbitrary — and it is not: this same binding decides `iss`,
+  // reader that the value is arbitrary, and it is not: this same binding decides `iss`,
   // `aud` and the session cookie's `Secure` flag for the two auth suites, which is why
   // `authServerEnv(baseUrl)` passes the real origin. A child that claims an origin it does
   // not answer on is a fixture nobody should copy. The port is chosen by `startApiServer`
@@ -250,7 +250,7 @@ describe('the security headers every API response carries', () => {
   it('F-243: both probed responses really were served, so the header assertions are not vacuous', () => {
     // The precondition the rest of the file rests on. A boot that half-ran, a prefix that
     // moved, or a `/health` that 404s would leave every "the header is present" assertion
-    // failing for a reason that has nothing to do with helmet — and, worse, would let a
+    // failing for a reason that has nothing to do with helmet, and, worse, would let a
     // future "the header is absent" assertion pass against a process that answered nothing.
     expect(probes.map((probe) => [probe.path, probe.status])).toEqual([
       ['/health', 200],
@@ -258,10 +258,10 @@ describe('the security headers every API response carries', () => {
     ]);
   });
 
-  it('F-243: invariant 4 — HSTS is on every API response including errors, with no `preload`', () => {
+  it('F-243: invariant 4: HSTS is on every API response including errors, with no `preload`', () => {
     // `logging-and-headers.md` § "Security headers": `max-age=31536000; includeSubDomains`,
     // scope "every response". Asserted as an EQUALITY rather than as a presence check,
-    // because that is what excludes `preload` — which the contract refuses in its own
+    // because that is what excludes `preload`, which the contract refuses in its own
     // sentence: "submission is close to irreversible and the apex domain is unregistered".
     // A `preload` added later is a decision nobody can take back for months, and the equality
     // is what makes it show up as a failing test rather than as a shipped header.
@@ -270,7 +270,7 @@ describe('the security headers every API response carries', () => {
     }
   });
 
-  it('F-243: invariant 4 — `X-Content-Type-Options: nosniff` is on every API response including errors', () => {
+  it('F-243: invariant 4: `X-Content-Type-Options: nosniff` is on every API response including errors', () => {
     // The error response is the half that goes wrong quietly: middleware registered after the
     // global prefix, or inside a module rather than on the app, covers the routed 200 and
     // misses the filter's own response. That is why both probes are asserted rather than one.
@@ -279,7 +279,7 @@ describe('the security headers every API response carries', () => {
     }
   });
 
-  it("F-243: invariant 4 — `X-Frame-Options: DENY`, which is not helmet's default", () => {
+  it("F-243: invariant 4: `X-Frame-Options: DENY`, which is not helmet's default", () => {
     // MEASURED AGAINST THE CONTRACT, NOT AGAINST HELMET. helmet's `frameguard` default is
     // `SAMEORIGIN`; the contract's table says `DENY`. So a bare `app.use(helmet())` passes
     // every other row here and fails this one, which is the point: this is the row that
@@ -291,7 +291,7 @@ describe('the security headers every API response carries', () => {
 
   it('F-243: `Referrer-Policy: no-referrer` is on every API response', () => {
     // The contract's scope for this row is "every response except the redirect 302", and the
-    // redirect route does not exist yet — `redirect-resolution.md` owns the `unsafe-url`
+    // redirect route does not exist yet: `redirect-resolution.md` owns the `unsafe-url`
     // exception when it does. Both probes here are API responses, so both take the default.
     for (const probe of probes) {
       expect(probe.header('referrer-policy'), probe.path).toBe(REFERRER_POLICY);
@@ -301,7 +301,7 @@ describe('the security headers every API response carries', () => {
   it('F-243: a Content-Security-Policy is set on API responses', () => {
     // Presence and a `default-src` directive, not helmet's exact default bytes. The contract's
     // value for this row is literally "helmet default", so pinning the string would fire on a
-    // helmet upgrade — a decision — while telling us nothing about whether a policy is in
+    // helmet upgrade (a decision) while telling us nothing about whether a policy is in
     // force. What a defect looks like here is the header missing or empty, and that is what
     // this catches.
     const csp = probes[1].header('content-security-policy');
@@ -313,7 +313,7 @@ describe('the security headers every API response carries', () => {
   it('F-280: the CSP denies framing too, so the browser and `X-Frame-Options` agree', () => {
     // THE ROW THE IMPLEMENTER DELIBERATELY OVERRODE IS THE ROW THE BROWSER THROWS AWAY.
     // `frameguard: { action: 'deny' }` puts `X-Frame-Options: DENY` on the wire and the test
-    // above proves it — and helmet's default CSP, which `main.ts` leaves alone, carries
+    // above proves it, and helmet's default CSP, which `main.ts` leaves alone, carries
     // `frame-ancestors 'self'` on the same response. CSP Level 2 requires a user agent that
     // supports `frame-ancestors` to ignore `X-Frame-Options`, which is every browser, so the
     // effective policy is same-origin framing and the contract's table says `DENY`.
@@ -325,7 +325,7 @@ describe('the security headers every API response carries', () => {
     //
     // ASSERTED ON THE DIRECTIVE'S VALUE, not on the whole policy string: helmet's other
     // defaults are a decision and pinning them would fire on an upgrade. This one is not a
-    // default the contract accepted — the contract accepted `DENY`.
+    // default the contract accepted: the contract accepted `DENY`.
     for (const probe of probes) {
       expect(cspDirective(probe.header('content-security-policy'), 'frame-ancestors'), probe.path).toBe(
         FRAME_ANCESTORS,
@@ -337,7 +337,7 @@ describe('the security headers every API response carries', () => {
     // `logging-and-headers.md` § CORS: "Disabled. `app.enableCors()` is never called", and
     // "What the implementer must guarantee" asks for exactly this test. Nothing asserted it
     // until now, so `app.enableCors()` could be added to `main.ts` for a local frontend
-    // problem with every gate green — and ADR-0014's whole reason for routing the browser
+    // problem with every gate green, and ADR-0014's whole reason for routing the browser
     // through the BFF is that the API is never reached cross-origin.
     //
     // GREEN BY DESIGN: CORS has never been enabled. Proved by mutation in the round's report

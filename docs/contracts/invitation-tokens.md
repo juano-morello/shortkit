@@ -1,7 +1,7 @@
 # Contract: invitation capability tokens
 
 - **Boundary:** anonymous callers to tenant-scoped data. The only sanctioned way a `@Public()` route obtains tenant context.
-- **Normative form:** `apps/api/src/invitations/tokens/capability-token.ts` (format, parse, issue, digest — pure) and `apps/api/src/invitations/capability-lookup.ts` (the two entry functions). Shipped 2026-08-18 by TASK-1b-04; the design stub this line used to name no longer exists.
+- **Normative form:** `apps/api/src/invitations/tokens/capability-token.ts` (format, parse, issue, digest; pure) and `apps/api/src/invitations/capability-lookup.ts` (the two entry functions). Shipped 2026-08-18 by TASK-1b-04; the design stub this line used to name no longer exists.
 - **Produced by:** TASK-1b-04 (was TASK-020).
 - **Consumed by:** TASK-1b-08 (`POST /api/invitations/lookup`, `POST /api/invitations/accept`), TASK-1b-09 (the sign-up `hooks.before` and the invited `onUserCreated` branch), TASK-1b-13 (accept page), TASK-1b-10 (isolation attempts). Earlier task ids in the body (TASK-013/020/021/022/056) are the 1a-era names for the same work.
 - **ADRs:** ADR-0021, ADR-0003, ADR-0015, ADR-0029.
@@ -130,7 +130,7 @@ A malformed token, an unknown digest, and a digest belonging to another tenant a
 return **404 `not_found`** with the same body and no timing difference beyond the
 indexed lookup. Existence is not disclosed.
 
-**Shipped 2026-08-18 — the sequence as it runs, with one step the sketch lacks:**
+**Shipped 2026-08-18, the sequence as it runs, with one step the sketch lacks:**
 
 ```
 1. parseCapabilityToken(raw)            -> MalformedCapabilityToken => null (find) / InvitationNotFoundError (accept)
@@ -283,7 +283,7 @@ design are historical.
 **What ships.** The email link is `<WEB_APP_ORIGIN>/invitations/accept#token=<raw>`. The
 accept page (a client component) reads `location.hash`, immediately calls
 `history.replaceState` to `/invitations/accept`, and keeps the token in component state
-(and `sessionStorage` for the sign-in-then-accept round trip, cleared on accept — D-14).
+(and `sessionStorage` for the sign-in-then-accept round trip, cleared on accept; D-14).
 The API legs carry the token in a JSON body: `POST /api/invitations/lookup { token }`
 (`@Public()`, the one public route), `POST /api/invitations/accept { token }`
 (authenticated), and `POST /api/auth/sign-up/email { ..., invitationToken }`.
@@ -293,7 +293,7 @@ The four channels, re-scored for mechanism A:
 
 | Channel | Under mechanism A |
 |---|---|
-| the address bar | the fragment is visible until the page runs `replaceState` — one paint, then gone; the history entry is replaced, not pushed |
+| the address bar | the fragment is visible until the page runs `replaceState`: one paint, then gone; the history entry is replaced, not pushed |
 | browser history and sync | the replaced entry carries no fragment; a mail client that opened the link keeps whatever it keeps of the URL it launched (outside this system) |
 | the `Referer` header | fragments are never sent in `Referer`; the API legs are XHR with a body |
 | platform request logs | fragments never reach a server; the API legs carry the token in a body, which access logs do not record |

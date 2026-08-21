@@ -32,7 +32,7 @@ import type { TenantRole, WorkspaceRole } from '../roles';
  * `userId` DOES NOT: it is Better Auth's own id and is not a uuid, which is why
  * `tenant_memberships.user_id` is the one non-uuid foreign key in the schema.
  *
- * `role` is `z.enum(TENANT_ROLES)` — the unbranded array. `member` is rank 0 and grants
+ * `role` is `z.enum(TENANT_ROLES)`: the unbranded array. `member` is rank 0 and grants
  * nothing at tenant level (Amendment A-8).
  */
 export const tenantMembershipContract = z.object({
@@ -64,7 +64,7 @@ export interface TenantMembership {
  *
  * Throws a `ZodError` when `value` does not satisfy `tenantMembershipContract`, and an
  * `Error` from `asTenantRole` if the parsed role is somehow not a member of
- * `TENANT_ROLES` — which the enum already excludes, and which is checked again anyway so
+ * `TENANT_ROLES`, which the enum already excludes, and which is checked again anyway so
  * the brand keeps meaning "checked" rather than "cast".
  */
 export function parseTenantMembership(value: unknown): TenantMembership {
@@ -93,7 +93,7 @@ export function brandTenantMembership(wire: TenantMembershipWire): TenantMembers
  * `user_id`, `role workspace_role`, `created_at`). NO 1b ROUTE RETURNS IT: the caller's
  * role travels as `workspaceRole` on `workspaceContract` (TASK-1b-06) and on the invitation
  * shapes. It exists so `MembershipRepository` (TASK-1b-05) brands a row through one
- * sanctioned path — `parseWorkspaceMembership` is `asWorkspaceRole`'s first caller, the
+ * sanctioned path: `parseWorkspaceMembership` is `asWorkspaceRole`'s first caller, the
  * way `parseTenantMembership` was `asTenantRole`'s.
  *
  * `tenantId` is on the wire type because the row carries it and the repository parses the
@@ -124,7 +124,7 @@ export interface WorkspaceMembership {
 /**
  * Parses, then brands. THE ONE SANCTIONED WAY TO OBTAIN A `WorkspaceMembership`. Throws a
  * `ZodError` when `value` does not satisfy `workspaceMembershipContract`, and an `Error`
- * from `asWorkspaceRole` if the parsed role is somehow outside `WORKSPACE_ROLES` — checked
+ * from `asWorkspaceRole` if the parsed role is somehow outside `WORKSPACE_ROLES`, checked
  * again so the brand keeps meaning "checked" rather than "cast".
  */
 export function parseWorkspaceMembership(value: unknown): WorkspaceMembership {

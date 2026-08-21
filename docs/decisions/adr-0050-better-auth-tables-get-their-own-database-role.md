@@ -35,7 +35,7 @@ working session for another tenant's user, obtained without their password, with
 without a token. **The blast radius of a SQL defect in `apps/api` is account takeover, not
 credential disclosure.**
 
-The premise is unchanged from ADR-0044's — a SQL defect somewhere in `apps/api` — so the
+The premise is unchanged from ADR-0044's (a SQL defect somewhere in `apps/api`) so the
 probability is the same. What changed is the consequence, and it changed the answer.
 
 Juano reversed ADR-0044's refusal at the round-3 gate on 2026-08-13, accepting the cost the
@@ -113,7 +113,7 @@ SELECT c.relname,
 The assertion: a table is in `EXEMPT` **if and only if** `auth_dml` is true and `app_dml` is
 false, and every other table has `app_dml` true and `auth_dml` false. `has_table_privilege`
 reads the catalogue and is not privilege-filtered, so it answers for a role other than the
-connected one — the same property that made `pg_attribute` the right source in F-213.
+connected one, the same property that made `pg_attribute` the right source in F-213.
 
 **Three things about that predicate, all measured on a scratch database (round 4, F-031).**
 
@@ -149,7 +149,7 @@ two pools:
 | application | `DATABASE_URL` | `databaseTransaction` | 10 |
 | auth | `DATABASE_AUTH_URL` | `betterAuthDatabase()` (ADR-0046) | 5 |
 
-Both carry the `pool.on('error')` and `pool.on('connect')` listeners verbatim — a missing one
+Both carry the `pool.on('error')` and `pool.on('connect')` listeners verbatim: a missing one
 takes the process down on a scale-to-zero or an `idle_in_transaction_session_timeout`, which
 is what F-123 and F-137 each cost a finding to establish. `closeDatabase()` ends both.
 
@@ -176,7 +176,7 @@ constructs a Drizzle client or a `pg.Pool`.
 ### GC-B: the new declared variable
 
 `DATABASE_AUTH_URL` is a **declared binding, required unconditionally in every environment**.
-It has no enumerated value set — it is a DSN — so GC-B's obligation here is the other half:
+It has no enumerated value set (it is a DSN) so GC-B's obligation here is the other half:
 an unset value binds to nothing and **fails boot everywhere**, with no `NODE_ENV` consulted
 and no fallback to `DATABASE_URL`. A fallback is the failure mode this entire ADR exists to
 close: it would silently restore `shortkit_app` as the auth role and every gate would stay
@@ -223,7 +223,7 @@ assertAuthRoleSeparation():
 ADR-0044's error reproduced inside the ADR written to correct it.** The attack this split
 exists to close is an `INSERT`. `account` and `jwks` were not checked at all. Constructed and
 measured: `REVOKE ALL` on the five, then a hand-written `GRANT INSERT ON "session" TO
-shortkit_app` — a revoke that reasoned about the read half.
+shortkit_app`: a revoke that reasoned about the read half.
 
 ```
 has_table_privilege('shortkit_app','session','SELECT')                     -> false  (PASSES)
@@ -303,9 +303,9 @@ bypass RLS; this is a second role that can now trigger one.
 
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
-| Per-table `REVOKE INSERT, UPDATE, DELETE ON session, account FROM shortkit_app`, keeping `SELECT` and one role | No new role, no second DSN, no second pool, no compose change. Closes the takeover — writing a session row is what makes it takeover | Better Auth writes all five tables **as `shortkit_app`**, so revoking write from `shortkit_app` revokes it from Better Auth. Sign-in cannot create a session, sign-up cannot create a user | The role that must lose the write is the role that needs it. Stated because ADR-0044 left the write half unconsidered and a reader will reach for this first |
-| Keep one role; add a `BEFORE INSERT OR UPDATE` trigger on `session` and `account` rejecting statements outside Better Auth's call path | No provisioning change | A trigger cannot see a call path. Any discriminator it could read — a GUC, a session variable — is settable by the same connection the attacker already controls | Defends against a bug, not against the defect class this is about |
-| Row-level security on the five tables with a policy keyed on a new `app.auth_context` flag | Uses the mechanism already in place; no second role | Better Auth's login-by-email lookup runs before any context exists, so the flag would have to be set for the whole auth surface — a policy that is on whenever it matters is `USING (true)` with extra steps. ADR-0044 already refused that shape | A policy that is always satisfied is a lie in the catalogue, which is the thing `check-policies.mts` exists to catch |
+| Per-table `REVOKE INSERT, UPDATE, DELETE ON session, account FROM shortkit_app`, keeping `SELECT` and one role | No new role, no second DSN, no second pool, no compose change. Closes the takeover: writing a session row is what makes it takeover | Better Auth writes all five tables **as `shortkit_app`**, so revoking write from `shortkit_app` revokes it from Better Auth. Sign-in cannot create a session, sign-up cannot create a user | The role that must lose the write is the role that needs it. Stated because ADR-0044 left the write half unconsidered and a reader will reach for this first |
+| Keep one role; add a `BEFORE INSERT OR UPDATE` trigger on `session` and `account` rejecting statements outside Better Auth's call path | No provisioning change | A trigger cannot see a call path. Any discriminator it could read (a GUC, a session variable) is settable by the same connection the attacker already controls | Defends against a bug, not against the defect class this is about |
+| Row-level security on the five tables with a policy keyed on a new `app.auth_context` flag | Uses the mechanism already in place; no second role | Better Auth's login-by-email lookup runs before any context exists, so the flag would have to be set for the whole auth surface: a policy that is on whenever it matters is `USING (true)` with extra steps. ADR-0044 already refused that shape | A policy that is always satisfied is a lie in the catalogue, which is the thing `check-policies.mts` exists to catch |
 | Do nothing, accept it, deploy nothing until it is fixed | Zero cost now | The refusal is what is under review, and ADR-0030's "no deploy target" was already the argument for accepting it. It does not survive the corrected consequence | Reversed by Juano's ruling |
 
 ## Consequences
@@ -339,14 +339,14 @@ bypass RLS; this is a second role that can now trigger one.
   `DATABASE_MIGRATION_URL`.
 - **The `REVOKE`/`GRANT` pair is hand-written per table in a migration, exactly like the
   policy DDL, and forgetting it fails open.** The grant-matrix check is what catches it, and
-  that check runs in the `integration` job — not at generation time, and not in the `quality`
+  that check runs in the `integration` job, not at generation time, and not in the `quality`
   job.
 - **`shortkit_auth` can write tenant data by cascade.** Deleting a `user` row removes that
   user's `tenant_memberships` row with row security bypassed. It cannot be used to reach
   another tenant's data selectively, but it is a second role with a cascade path into
   tenant-scoped tables and no policy stands in it.
 - **The split does not protect `jwks`.** `shortkit_auth` must read the signing key, so any
-  defect in the auth path still reaches it — and F-020's default secret is what decides
+  defect in the auth path still reaches it, and F-020's default secret is what decides
   whether that row is useful. ADR-0051 is the other half of this and neither is sufficient
   alone.
 - **Two roles is a shape every future table has to be assigned to**, and the assignment is
@@ -374,7 +374,7 @@ Every artifact the split touches, and the wave it lands in:
 | `apps/api/drizzle/0001_*.sql` | `REVOKE`/`GRANT` for the five tables | TASK-002 | **1** |
 | `apps/api/scripts/check-policies.mts` | grant-matrix assertion | TASK-002 | **1** |
 | `apps/api/src/db/client.ts` | second pool, `DATABASE_AUTH_URL`, both listeners, `closeDatabase` | TASK-002 | **1** |
-| `apps/api/src/db/rls.ts` | unchanged. `assertRuntimeRoleCannotBypassRls` stays parameterless and `DATABASE_URL`-only (F-030) | — | — |
+| `apps/api/src/db/rls.ts` | unchanged. `assertRuntimeRoleCannotBypassRls` stays parameterless and `DATABASE_URL`-only (F-030) | n/a | n/a |
 | `apps/api/src/auth/boot-assertions.ts` | `assertAuthRoleSeparation()`, both directions, full privilege set | TASK-004 | 3 |
 | `apps/api/src/main.ts` | `AUTH_VERDICT_PREFIX`, third `BootPrecondition`, the retried call | TASK-004 | 3 |
 | `.github/scripts/provision-test-database.sql` | `shortkit_auth` in CI's database, and its grants | ~~wave-1 provisioning TASK~~ TASK-018 | ~~**1**~~ **0** |

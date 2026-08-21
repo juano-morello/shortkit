@@ -29,7 +29,7 @@ const REPORTED_PREFIX_LENGTH = 8;
  * THE MESSAGE CARRIES A PREFIX, NOT THE USER ID. THIS IS NOT STYLE.
  * ============================================================================
  *
- * NOT because `err_stack` leaks it — it does not, and believing so is F-027.
+ * NOT because `err_stack` leaks it: it does not, and believing so is F-027.
  * `logger.ts:159` binds `serializers.err` with `includeMessage: false`, and
  * `logger.ts:880-884` records that `err_stack` carries frames only: the
  * `${name}: ${message}` header is stripped by prefix and then by shape. The logger was
@@ -67,8 +67,8 @@ export class NoTenantMembershipError extends Error {
  *   SELECT tenant_id FROM tenant_memberships WHERE user_id = $1
  *
  * THROWS `NoTenantMembershipError` WHEN NO ROW EXISTS. Never returns `null`, never
- * returns an empty string. Token minting therefore fails and an orphaned `user` row — the
- * accepted residue of a non-atomic signup (ADR-0015, GC-E) — never receives a JWT at all.
+ * returns an empty string. Token minting therefore fails and an orphaned `user` row (the
+ * accepted residue of a non-atomic signup (ADR-0015, GC-E)) never receives a JWT at all.
  * That is the primary stop; `AuthGuard`'s claim-shape check is the backstop.
  *
  * The result is lower-cased so it is the canonical form `assertUuid` returns and a later
@@ -85,7 +85,7 @@ export async function tenantIdForUser(userId: string): Promise<string> {
 
   // `UNIQUE (user_id)` means a second row is impossible at the database. If one is ever
   // returned the constraint is gone, and choosing one of two tenants for a token claim
-  // is the worst available answer — so this throws rather than picking.
+  // is the worst available answer, so this throws rather than picking.
   if (rows.length > 1) {
     throw new Error(
       `tenant_memberships returned ${String(rows.length)} rows for one user id. ` +

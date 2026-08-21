@@ -5,9 +5,9 @@ import { ESLint } from 'eslint';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * AC-116, THE LINT HALF — F-268, F-278.
+ * AC-116, THE LINT HALF: F-268, F-278.
  *
- * AC-116: "… no module constructs `Logger` from `@nestjs/common` or any other logger — and
+ * AC-116: "… no module constructs `Logger` from `@nestjs/common` or any other logger, and
  * A LINT RULE FAILS THE BUILD IF ONE DOES."
  *
  * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
@@ -21,11 +21,11 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * why AC-116 names the rule at all, and it is what the STORY's Amendment A-9 says in as
  * many words.
  *
- * The TASK card and A-9 both describe the rule as absent — "F-268's rule bans importing
+ * The TASK card and A-9 both describe the rule as absent: "F-268's rule bans importing
  * `pino` and says nothing about Nest's `Logger`". MEASURED AT HEAD, THAT HAS MOVED: the
  * second config object in `eslint.config.mjs` does restrict `Logger` from `@nestjs/common`,
  * and it IGNORES `apps/api/src/db/client.ts` and `apps/api/src/tenancy/tenant-context.ts`
- * by name — ADR-0028's "named, bounded exemption". So the rule exists and the two modules
+ * by name: ADR-0028's "named, bounded exemption". So the rule exists and the two modules
  * this TASK is fixing are the two the rule does not apply to. Measured with this suite's
  * own harness on 2026-08-11: the violating fixture reports one error at
  * `apps/api/src/links/link-repository.ts` and ZERO at either exempted path.
@@ -39,10 +39,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *      `importNames` lists `Logger` alone, so `new ConsoleLogger('x').warn(…)` writes the
  *      same unstructured ANSI line past the same policy and lints clean at every path.
  *      AC-116's words are "`Logger` from `@nestjs/common` OR ANY OTHER LOGGER", and this is
- *      the nearest other logger there is — one token from the one that is banned.
+ *      the nearest other logger there is: one token from the one that is banned.
  *
- * The case AC-116 states most directly — a module nobody has written yet importing
- * `Logger` — already passes at HEAD, so it is not a test of its own. It is the POSITIVE
+ * The case AC-116 states most directly (a module nobody has written yet importing
+ * `Logger`) already passes at HEAD, so it is not a test of its own. It is the POSITIVE
  * CONTROL inside case 3: the same fixture path must report the `Logger` import, or the
  * `ConsoleLogger` result says nothing about the rule and everything about the path.
  *
@@ -50,24 +50,24 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * HOW A LINT RULE IS TESTED HERE, AND WHY THIS WAY
  * ============================================================================
  *
- * Through ESLint's own Node API — `lintText(text, { filePath })` — against the repository's
+ * Through ESLint's own Node API (`lintText(text, { filePath })`) against the repository's
  * real `eslint.config.mjs`, resolved by ESLint from `cwd`. Three reasons, in order:
  *
  *   - IT IS THE SHIPPED CONFIG. A fixture config asserting that some rule works would test
  *     `typescript-eslint`, whose maintainers already do. What AC-116 asks is whether THIS
  *     repository's config fails on THIS repository's paths, and `files`/`ignores` matching
- *     is the entire question — case 1 and case 2 are nothing but an `ignores` entry.
+ *     is the entire question: case 1 and case 2 are nothing but an `ignores` entry.
  *   - `filePath` IS THE INPUT. Every red case here is about which path the rule applies to,
  *     and `lintText` is the only way to hold the source text fixed and vary the path. Two
  *     fixtures across three paths is six lint runs and no combinatorial fixture tree.
  *   - NO FIXTURE FILE ON DISK. A violating `.ts` file under `apps/api/src` would be linted
- *     by `pnpm lint`, type-checked by `pnpm typecheck`, and — worse — enumerated by
+ *     by `pnpm lint`, type-checked by `pnpm typecheck`, and, worse, enumerated by
  *     `logging-opt-out.spec.ts`, which walks that directory. A file written in `beforeAll`
  *     and removed in `afterAll` is the same hazard with a race on top.
  *
  * WHAT THAT DOES AND DOES NOT PROVE. `errorCount > 0` is exactly the condition that makes
  * `eslint .` exit non-zero, which is what "fails the build" means; ESLint's CLI exits 1 when
- * any message has severity 2. It does not prove that CI runs `pnpm lint` — that is AC-5's,
+ * any message has severity 2. It does not prove that CI runs `pnpm lint`: that is AC-5's,
  * and `ci.yml`'s `quality` job is where it is verified.
  *
  * The rule ID is deliberately NOT asserted. AC-116 requires the build to fail, not that it
@@ -105,7 +105,7 @@ const NEST_CONSOLE_LOGGER_FIXTURE = [
 
 /**
  * THE CONTROL, and every case below runs it at its own path. Without it, an `errorCount` of
- * 1 proves only that SOMETHING at that path is a lint error — an unused import, a formatting
+ * 1 proves only that SOMETHING at that path is a lint error: an unused import, a formatting
  * rule, a config object that matched by accident. With it, the difference between the two
  * runs is the logger import and nothing else.
  */

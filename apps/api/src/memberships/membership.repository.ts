@@ -8,7 +8,7 @@
  *
  * The workspace-level membership rows: one per user per workspace, carrying the caller's
  * `WorkspaceRole` (`db/schema/memberships.ts`, TASK-1b-03). Written the way
- * `WorkspaceRepository` is written, and for the same reasons — that file's docblock is the
+ * `WorkspaceRepository` is written, and for the same reasons: that file's docblock is the
  * fuller statement; the two rules that matter here:
  *
  * IT REACHES THE DATABASE THROUGH `tenantDb()` AND NOTHING ELSE. The ambient handle of the
@@ -26,8 +26,8 @@
  * `WorkspaceRole` and never as a bare string; `roleFor` brands through `asWorkspaceRole`,
  * the second of that function's two sanctioned callers (`packages/contracts/src/roles.ts`).
  *
- * WHAT IS NOT HERE. No update path — 1b has no route that changes a workspace role. No
- * `ON CONFLICT` write — the accept path (D-12, `INSERT ... ON CONFLICT (workspace_id,
+ * WHAT IS NOT HERE. No update path: 1b has no route that changes a workspace role. No
+ * `ON CONFLICT` write: the accept path (D-12, `INSERT ... ON CONFLICT (workspace_id,
  * user_id) DO NOTHING`) belongs to `acceptInvitationByCapabilityToken` (TASK-1b-04), which
  * runs outside the Nest graph and issues its own statement. `create` is the plain insert
  * `POST /api/workspaces` uses for the creator's `workspace_admin` row (D-10, TASK-1b-06); a
@@ -78,7 +78,7 @@ function toMembership(row: MembershipRow): WorkspaceMembership {
 @Injectable()
 export class MembershipRepository {
   /**
-   * The caller's role in one workspace, or `null` for no membership — which is also the
+   * The caller's role in one workspace, or `null` for no membership, which is also the
    * answer for another tenant's workspace (invisible under RLS and to the predicate alike)
    * and for a non-uuid. The authorizer turns `null` into the contract's 404.
    */

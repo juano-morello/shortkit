@@ -415,7 +415,7 @@ comes out has three keys at most, whatever went in.
 The filter applies `narrowEnvelope` **once, to the body it is about to write**, so branch
 1's `toEnvelope()` output passes through it along with branches 2 to 4. When `details` was
 present and the returned envelope has none, the filter logs at `warn` with the `code`, and
-**never the dropped value** — that value is the one suspected of carrying another tenant's
+**never the dropped value**: that value is the one suspected of carrying another tenant's
 data, and a log is not a safe place for it (GC-9).
 
 A code that needs a `details` shape amends this contract and `narrowEnvelope` in the same

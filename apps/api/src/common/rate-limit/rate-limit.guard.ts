@@ -21,7 +21,7 @@
  * reaches `TenantTransactionInterceptor` (which exempts `@Public()` anyway) and never reaches
  * the handler that would open `withTenantTransaction(<prefix>)` from the token.
  *
- * WHICH ROUTES. A route carrying `PUBLIC_ROUTE_METADATA` (handler first, then class — the same
+ * WHICH ROUTES. A route carrying `PUBLIC_ROUTE_METADATA` (handler first, then class; the same
  * `getAllAndOverride` read `AuthGuard` performs, presence-only) whose request path is under
  * the `/api` prefix. Every method, `GET` included: a public `GET` opens a tenant transaction
  * as a `POST` does (`rate-limit.md`, "Scope"). The path test is what leaves `GET /health`
@@ -29,31 +29,31 @@
  * (`main.ts` excludes it, ADR-0006), as is the redirect controller AC-86 keeps unlimited at any
  * rate. The exemption is by route, never by the justification text.
  *
- * WHICH KEY. `resolveRateLimitPrincipal(req.headers, process.env)` — the one site that makes
+ * WHICH KEY. `resolveRateLimitPrincipal(req.headers, process.env)`: the one site that makes
  * the trusted-proxy decision (F-031); no inlined header read, and `process.env` read per
  * request so the boot assertion and this read see one environment. A `null` principal is a
  * real state: THE BUCKET DOES NOT RUN AND THE REQUEST PROCEEDS. It is never keyed on a
  * sentinel, `''` or the peer address, because a shared sentinel bucket lets one caller exhaust
  * an allowance every other caller falls into (ADR-0040). The counter
  * `trusted_client_ip_unresolved_total` is warned once per minute, and ONLY where a header was
- * declared and the read still failed — silent where nothing is declared, which is compose, CI
+ * declared and the read still failed: silent where nothing is declared, which is compose, CI
  * and local dev today (`trusted-client-address.md`, "Signal"). Same policy, same wording as
  * `authRateLimit`; that file exports no shared helper, so the helper is replicated here with
  * its own once-per-minute state.
  *
  * THE AUTHENTICATED BRANCH: THE TENANT-KEYED WRITE BUCKET (debt sweep D1, 2026-08-19;
- * previously TASK-051's documented no-op, D-08). The contract's Scope table's first row —
- * "authenticated routes under `/api` | `tenantId` | `POST`, `PATCH`, `PUT`, `DELETE` |
- * 120 / 60 s" — now runs here, process-local through the same port. Which methods: anything
+ * previously TASK-051's documented no-op, D-08). The contract's Scope table's first row
+ * ("authenticated routes under `/api` | `tenantId` | `POST`, `PATCH`, `PUT`, `DELETE` |
+ * 120 / 60 s") now runs here, process-local through the same port. Which methods: anything
  * that is not `GET` or `HEAD`, ADR-0038's rule, which is the contract's four-method list
- * closed against unexpected methods — a method the list does not name must fail toward being
+ * closed against unexpected methods: a method the list does not name must fail toward being
  * limited, not toward being free. Authenticated `GET`s stay unlimited, deliberately
  * (`rate-limit.md`, "Scope"). Which key: the `RequestContext` `AuthGuard` wrote to the
- * request — a claim from the verified token, never a client-chosen value — which is why the
+ * request (a claim from the verified token, never a client-chosen value), which is why the
  * guard is registered AFTER `AuthGuard` (`rate-limit.md`, "What the implementer must
  * guarantee"; `app.module.spec.ts` pins the order). On a `@Public()` route `AuthGuard`
  * returns at its step 1 without touching the request and the branch below charges the IP
- * bucket INSTEAD — the two branches are exclusive, so no request is charged twice.
+ * bucket INSTEAD: the two branches are exclusive, so no request is charged twice.
  *
  * This bucket is also what bounds invitation mail volume (finding 1b-W3-07): a
  * `workspace_admin` scripting `POST /api/invitations` was limited by nothing but the mail
@@ -102,14 +102,14 @@ export const RATE_LIMITED_MESSAGE = 'Too many requests from this address. Try ag
 /**
  * The tenant bucket's 429 body message. Fixed, like its sibling, and phrased for the caller
  * it refuses: an authenticated operator (or their script) writing faster than 120 changes a
- * minute — not a stranger behind a NAT, so it does not mention an address.
+ * minute, not a stranger behind a NAT, so it does not mention an address.
  */
 export const TENANT_WRITE_RATE_LIMITED_MESSAGE =
   'Too many changes in a short time. Try again shortly.';
 
 /**
- * The global prefix `main.ts` sets, as a path segment. Routes outside it — `GET /health`, the
- * redirect controller — are outside this guard entirely (`rate-limit.md`, "Scope").
+ * The global prefix `main.ts` sets, as a path segment. Routes outside it (`GET /health`, the
+ * redirect controller) are outside this guard entirely (`rate-limit.md`, "Scope").
  */
 const API_PREFIX = '/api';
 
@@ -127,7 +127,7 @@ interface RateLimitedRequest {
 }
 
 /**
- * `/api` itself or anything below it, and nothing that merely starts with those letters —
+ * `/api` itself or anything below it, and nothing that merely starts with those letters:
  * COMPARED CASE-INSENSITIVELY, BECAUSE THAT IS HOW EXPRESS ROUTES. Express 5 has
  * `case sensitive routing` off by default (Nest does not turn it on), so `GET /API/x` and
  * `/Api/x` reach the handler registered at `/api/x`, while `req.path` keeps the client's
@@ -146,7 +146,7 @@ export function isUnderApiPrefix(path: string): boolean {
 
 /**
  * ADR-0038: anything that is not `GET` or `HEAD` is mutating. A negation rather than the
- * contract's four-method allowlist because the two failure directions are not symmetric — a
+ * contract's four-method allowlist because the two failure directions are not symmetric: a
  * method the predicate does not recognise must land in the limited branch, not escape it.
  * Uppercased first for the reason the ADR measured on the Fetch spec: `PATCH` is absent from
  * its normalise list, so a lowercase spelling can arrive as sent.
@@ -174,7 +174,7 @@ export class RateLimitGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<RateLimitedRequest>();
 
     if (!isUnderApiPrefix(request.path)) {
-      // Routes registered outside the prefix — `GET /health`, the redirect controller — are
+      // Routes registered outside the prefix (`GET /health`, the redirect controller) are
       // outside this guard entirely, on both branches (`rate-limit.md`, "Scope", AC-86).
       return true;
     }

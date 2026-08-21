@@ -16,7 +16,7 @@
  * pino instance and its field allowlist (ADR-0028, GC-9). This file's whole purpose is the
  * bypass: the recipient address and a URL carrying a single-use invitation token are what a
  * developer opted in to read out of their laptop's container log, and neither may travel
- * through the logger — `to` and the URL are not in `LOGGABLE_FIELDS` and are never to be
+ * through the logger: `to` and the URL are not in `LOGGABLE_FIELDS` and are never to be
  * added (`logging-and-headers.md`, the never-allowlist), and a `msg` carrying them would be
  * a log line carrying a token, which GC-K forbids. So the message goes to stdout as plain
  * text, on its own channel, through `console.log`, and the disable comment is scoped to that
@@ -26,7 +26,7 @@
  * destination in every deployment that has one; a real deployment that forgot the variable
  * would otherwise print raw tokens into its platform log store. Absence binds
  * `NoopMailSender`; a stack that wants this output declares it (ADR-0017, "Bind
- * `ConsoleMailSender` on absence" — rejected).
+ * `ConsoleMailSender` on absence"; rejected).
  *
  * THE SHAPE, fixed so the compose e2e and a developer's `grep` can rely on it. One
  * `console.log` per message, so the block is one write and lines from concurrent pino

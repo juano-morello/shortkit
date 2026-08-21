@@ -10,7 +10,7 @@
  *   the states and their codes), docs/contracts/web-api-client.md (`apiClient`, `ApiError`),
  *   docs/contracts/error-envelope.md (copy keyed by `code`).
  * ADR: adr-0021 (the link is the capability; D-01: not bound to the invited address),
- *   adr-0015 (tenant conflict copy), adr-0061 (signup does not sign in — the invited signup
+ *   adr-0015 (tenant conflict copy), adr-0061 (signup does not sign in; the invited signup
  *   lands on sign-in with `?created=1` and comes back here), adr-0029 (no caller value in an
  *   error string).
  * Consumes: TASK-1b-12's builders (`lookupInvitationRequest`, `acceptInvitationRequest`),
@@ -25,8 +25,8 @@
  *    `sessionStorage`; neither exists on the server, and the token MUST NOT reach one (D-03,
  *    GC-K). No `requireAuth`: a stranger with no account is the main visitor.
  *
- * 2. THE TOKEN, ON MOUNT. `invitationTokenFromHash(location.hash)` — the fragment is what
- *    the email link carries — else `readStoredInvitationToken()` — what a previous visit in
+ * 2. THE TOKEN, ON MOUNT. `invitationTokenFromHash(location.hash)` (the fragment is what
+ *    the email link carries) else `readStoredInvitationToken()`, what a previous visit in
  *    this tab left for the sign-in round-trip. A fragment token is stored
  *    (`storeInvitationToken`) and the fragment is stripped from the address bar with
  *    `history.replaceState(null, '', location.pathname)` before anything else happens, so it
@@ -45,18 +45,18 @@
  * 4. THE TOKEN, AT REST. `sessionStorage` (per tab, gone with the tab) is what survives the
  *    sign-in round-trip: an invitee with an EXISTING account follows "Sign in" with
  *    `returnTo=/invitations/accept`, and this page re-reads the token on the way back
- *    (D-04, D-14). It is CLEARED on a terminal token outcome — accept succeeded, the
+ *    (D-04, D-14). It is CLEARED on a terminal token outcome: accept succeeded, the
  *    invited signup succeeded (the API's hook accepted on user creation, D-18: the token is
- *    spent), or the API said not_found / expired / revoked / already_accepted — so a dead
+ *    spent), or the API said not_found / expired / revoked / already_accepted, so a dead
  *    token does not outlive its usefulness in the tab. It is KEPT on tenant_conflict (the
  *    token is still valid; the person may sign in as another account and re-open the link),
  *    on 429 and on a transport failure (retry), and on 401 (the sign-in round-trip needs it).
  *
- * 5. WHO IS SIGNED IN. `useSession()` — the non-sensitive `{ user, status }` projection from
+ * 5. WHO IS SIGNED IN. `useSession()`: the non-sensitive `{ user, status }` projection from
  *    `GET /api/bff/session`; the first consumer of that hook. `unauthenticated` → the
  *    signup form with the token attached and `successPath = SIGN_IN_AFTER_INVITED_SIGNUP_URL`
  *    (`/sign-in?created=1`, no `returnTo`: see 6), plus "Already have an account? Sign in"
- *    to `/sign-in?returnTo=/invitations/accept` — THAT path is for an existing member, who
+ *    to `/sign-in?returnTo=/invitations/accept`: THAT path is for an existing member, who
  *    does come back through this page to press Accept. `authenticated` → an "Accept
  *    invitation" button. The link is the capability (D-01): no address is compared here or
  *    on the API; the invited address is shown as context. The session projection is DISPLAY
@@ -163,7 +163,7 @@ type Phase =
 
 /**
  * A code that says the token will never work again (or never did): the stored copy is
- * cleared. `tenant_conflict` is deliberately absent — the token is still live for another
+ * cleared. `tenant_conflict` is deliberately absent: the token is still live for another
  * account (design point 4).
  */
 function isDeadTokenFailure(failure: InvitationFailure): boolean {
@@ -193,7 +193,7 @@ function hashNamesToken(hash: string): boolean {
   return value !== null && value !== '';
 }
 
-/** "in 6 days" / "in 3 hours" / "in less than an hour" / "very soon" — the relative half of the expiry line. */
+/** "in 6 days" / "in 3 hours" / "in less than an hour" / "very soon": the relative half of the expiry line. */
 export function relativeExpiry(expiresAt: string, now: number): string {
   const remaining = Date.parse(expiresAt) - now;
 
@@ -249,7 +249,7 @@ export function AcceptInvitation(): ReactElement {
   // stored token, and lands in the same state.)
   //
   // `set-state-in-effect` is off for this one effect: it is a one-shot read of client-only
-  // state — the fragment, `history`, `sessionStorage` (design point 2) — and setState is how
+  // state, the fragment, `history`, `sessionStorage` (design point 2), and setState is how
   // that one-time answer enters React. There is no render-time source for any of it: the
   // fragment must be read AND ERASED after mount, on the client, exactly once.
   /* eslint-disable react-hooks/set-state-in-effect -- one-shot client-only init from location.hash/sessionStorage; no render-time source exists */

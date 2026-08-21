@@ -1,5 +1,5 @@
 /**
- * STORY-001 — AC-8. TASK-001.
+ * STORY-001, AC-8. TASK-001.
  *
  * ADR: adr-0005-contract-distribution.md
  *
@@ -15,7 +15,7 @@
  *     export * from './members';  // TASK-001
  *
  * and until this file existed they were asserted by NOTHING. `auth.spec.ts` imports
- * `./index` — the auth module's own index, not the package's — and `members.spec.ts`
+ * `./index` (the auth module's own index, not the package's), and `members.spec.ts`
  * does the same, so DELETING EITHER BARREL LINE LEFT THE WHOLE SUITE GREEN. The package's
  * one actual public surface was the one deliverable with no coverage.
  *
@@ -24,7 +24,7 @@
  * ============================================================================
  *
  * Both barrel lines are already present, so this has no failing history. That is what it
- * is for: it pins something that works today and was held in place by nothing. Measured —
+ * is for: it pins something that works today and was held in place by nothing. Measured:
  * commenting out `export * from './auth'` fails this test with
  * `"auth: signUpRequestContract": false`, and commenting out `export * from './members'`
  * fails it with `"members: parseTenantMembership": false`.
@@ -40,7 +40,9 @@ import { describe, expect, it } from 'vitest';
 import { signUpRequestContract } from './auth';
 import * as entryPoint from './index';
 import { createInvitationRequestContract } from './invitations';
+import { isLinkActive, linkContract } from './links';
 import { parseTenantMembership, parseWorkspaceMembership } from './members';
+import { validateSlug } from './slug';
 import { workspaceContract } from './workspaces';
 
 describe('package entry point', () => {
@@ -74,6 +76,23 @@ describe('package entry point', () => {
     }).toEqual({
       'invitations: createInvitationRequestContract': true,
       'members: parseWorkspaceMembership': true,
+    });
+  });
+
+  it('AC-2-4/AC-2-27 (ADR-0005, TASK-2-01): the link contracts and the implemented slug rules are reachable through src/index.ts', () => {
+    // The line TASK-2-01 uncommented (`export * from './links'`), plus the two `slug.ts`
+    // functions that stopped throwing `not implemented` on this card. `isLinkActive` is
+    // the identity that matters most here: ADR-0009 requires the API and the redirect
+    // path to share ONE function, and a barrel that handed them different objects would
+    // satisfy presence while letting the two diverge (F-099's whole point).
+    expect({
+      'links: linkContract': entryPoint.linkContract === linkContract,
+      'links: isLinkActive': entryPoint.isLinkActive === isLinkActive,
+      'slug: validateSlug': entryPoint.validateSlug === validateSlug,
+    }).toEqual({
+      'links: linkContract': true,
+      'links: isLinkActive': true,
+      'slug: validateSlug': true,
     });
   });
 });

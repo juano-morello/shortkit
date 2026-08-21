@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import * as authSchema from './schema/auth';
 
 /**
- * STORY-001 — TASK-002. The drift pin ADR-0043 requires.
+ * STORY-001: TASK-002. The drift pin ADR-0043 requires.
  *
  * Contract: `docs/contracts/auth-schema.md` ("What the implementer must guarantee", 2).
  * ADR: adr-0043-better-auth-schema-is-hand-written-and-pinned.md, adr-0013.
@@ -19,7 +19,7 @@ import * as authSchema from './schema/auth';
  * `db/schema/auth-schema.spec.ts` would be the obvious home. `drizzle.config.ts:16` globs
  * `./src/db/schema/*.ts` and drizzle-kit `require()`s every match through its CJS
  * transformer, so ANY `*.spec.ts` in that directory fails `pnpm db:generate` with
- * "Vitest cannot be imported in a CommonJS module using require()" — measured with a
+ * "Vitest cannot be imported in a CommonJS module using require()": measured with a
  * throwaway probe spec, drizzle-kit 0.31.10. `pnpm db:migrate` is unaffected: it reads the
  * config but never evaluates the schema glob (also measured). So the one command this
  * breaks is the one that generates the migration TASK-002 exists to write.
@@ -40,7 +40,7 @@ import * as authSchema from './schema/auth';
  * Unit tier: `getSchema(options)` takes a plain options object, opens no connection and
  * constructs no `betterAuth` instance. No database, no network.
  *
- * `plugins` IS THE ONLY OPTION THAT CHANGES THE ANSWER — measured, ADR-0043: `getSchema({})`
+ * `plugins` IS THE ONLY OPTION THAT CHANGES THE ANSWER: measured, ADR-0043: `getSchema({})`
  * and `getSchema({ emailAndPassword: { enabled: true } })` return identical table and field
  * sets, and `[jwt(), bearer()]` adds exactly one table, `jwks`. TASK-003 owes the other half
  * of the pin, `getSchema(auth.options)` against this same literal; between wave 1 and wave 2
@@ -60,14 +60,14 @@ import * as authSchema from './schema/auth';
 const betterAuthTables = getSchema({ plugins: [jwt(), bearer()] });
 
 /**
- * Every Drizzle table `auth.ts` exports, keyed by its SQL name — the comparison ADR-0043
+ * Every Drizzle table `auth.ts` exports, keyed by its SQL name: the comparison ADR-0043
  * states ("`getSchema()` key, against the Drizzle table's SQL name"). Derived from the
  * module's exports rather than from `betterAuthSchema`, so a sixth table declared here and
  * left out of the model map is still compared.
  *
  * NO `(exported): exported is PgTable` ANNOTATION ON THE FILTER, DELIBERATELY. `is()` is
  * declared `value is InstanceType<T>` and TypeScript 5.5+ infers the predicate from it, so
- * the annotation is redundant; worse, it does not compile — `PgTable<TableConfig>` is not
+ * the annotation is redundant; worse, it does not compile: `PgTable<TableConfig>` is not
  * assignable to the union of this module's exports, each of which is a
  * `PgTableWithColumns<{ name: "user" }>` with a literal `name`, and a type predicate's type
  * must be assignable to its parameter's type (TS2677). The runtime filter is the same
@@ -87,7 +87,7 @@ function propertyNamesOf(table: PgTable): string[] {
 }
 
 /**
- * `undefined` when the table declares no such property — the case the three assertions
+ * `undefined` when the table declares no such property: the case the three assertions
  * below turn into a mismatch against a `getSchema()` field, rather than into a crash.
  *
  * Typed as `PgColumn` rather than cast to a bag of `unknown`: `notNull`, `isUnique` and
@@ -223,7 +223,7 @@ describe('apps/api/src/db/schema/auth.ts', () => {
     // Not covered by the five assertions above, which compare tables to `getSchema()` and
     // never read this map. A typo in a KEY here surfaces as `BetterAuthError: The model
     // "<model>" was not found in the schema object` on whichever request path first touches
-    // that model — a runtime failure on a credential path.
+    // that model: a runtime failure on a credential path.
     const mapped = Object.fromEntries(
       Object.entries(authSchema.betterAuthSchema).map(([model, table]) => [
         model,

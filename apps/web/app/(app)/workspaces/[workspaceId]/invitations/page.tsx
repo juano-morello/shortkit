@@ -1,6 +1,6 @@
 /**
  * TASK-1b-14 (STORY-1b-05, AC-1b-29). The per-workspace invitations screen at
- * `/workspaces/[workspaceId]/invitations` — where a `workspace_admin` invites a teammate
+ * `/workspaces/[workspaceId]/invitations`: where a `workspace_admin` invites a teammate
  * to THIS workspace, sees who was invited and in what state, and revokes a pending one.
  * The only place 1b shows membership at all (D-14; member management is out of scope).
  *
@@ -9,7 +9,7 @@
  *   and `POST /api/invitations` and `DELETE /api/invitations/:id` `workspace_admin`),
  *   docs/contracts/workspaces.md (`GET /api/workspaces/:workspaceId`, TASK-1b-06),
  *   docs/contracts/invitation-tokens.md (states), docs/contracts/web-api-client.md
- *   (`serverApiClient` — the server leg, direct to the API with the `sk_at` cookie).
+ *   (`serverApiClient`, the server leg, direct to the API with the `sk_at` cookie).
  * ADR: adr-0014 (server components skip the proxy; the browser goes through the BFF).
  * Consumes: TASK-1b-12's `getWorkspaceRequest`, `listInvitationsRequest`,
  *   `INVITATIONS_ROUTE`; `requireAuth`, `serverApiClient`, `refresh-bounce.ts`.
@@ -22,7 +22,7 @@
  *    this page does: a visitor with no session is redirected to `/sign-in` before any
  *    workspace data is fetched. Never render-then-hide (the workspaces page's ruling 1).
  *
- * 2. THE WORKSPACE, THEN ITS INVITATIONS, ON THE SERVER — `serverApiClient(getWorkspaceRequest)`
+ * 2. THE WORKSPACE, THEN ITS INVITATIONS, ON THE SERVER: `serverApiClient(getWorkspaceRequest)`
  *    then `serverApiClient(listInvitationsRequest)`, sequentially: a workspace the caller
  *    cannot read ends the page before the list is asked for, and the order is assertable.
  *    The route param is checked against `idContract` first; a value that is not a uuid is
@@ -32,7 +32,7 @@
  *    (no membership, another tenant's id, unknown id) on either fetch and
  *    `insufficient_workspace_role` / `insufficient_tenant_role` (a `member` or `viewer`: the
  *    workspace fetch succeeds, the list is 403) both `notFound()`. A member sees exactly
- *    what a non-member sees — this page does not disclose that a workspace exists to
+ *    what a non-member sees: this page does not disclose that a workspace exists to
  *    someone it will not let administer it, matching the API's own 404-before-403 spirit
  *    for reads. Nothing of the workspace (its name) reaches the not-found output: it is
  *    rendered by `app/not-found.tsx`, which knows nothing of this page.

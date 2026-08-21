@@ -155,14 +155,14 @@ alike.
 **`nullif` and not an `AND` guard.** `current_setting(...) <> '' AND tenant_id = ...::uuid`
 was installed verbatim and re-measured on a warm session: it still raises. PostgreSQL does
 not guarantee left-to-right evaluation of `AND` operands in a policy predicate. The index on
-`tenant_id` is preserved under `nullif` — verified, `Bitmap Index Scan on
+`tenant_id` is preserved under `nullif`: verified, `Bitmap Index Scan on
 <t>_tenant_id_idx`.
 
 **Widened 2026-08-13 (F-021, F-022). ~~No policy expression may apply a cast directly to
 `current_setting(...)`.~~ EVERY reference to a context flag in a policy expression is wrapped
 in `nullif(..., '')`, cast or not.** The cast is not what makes `''` dangerous; the comparison
 is. A raw text comparison against `''` matched a `"user"` row whose `id` is the empty string
-and returned another tenant's membership row — measured, F-021 — so the two text-comparison
+and returned another tenant's membership row (measured, F-021), so the two text-comparison
 policies above take the wrapper too, even though `''` matched nothing in them.
 
 `pnpm db:check-policies` asserts it over `pg_policies.qual` and `with_check` for every table
@@ -206,9 +206,23 @@ ADR-0049.
 runs over every row of `pg_policies` in schema `public`, not over a list of repaired names, so
 a policy nobody thought of fails it rather than being skipped by it.
 
-`<t>_redirect_read` has no applied instance: `domains` and `links` do not exist yet, so the
+~~`<t>_redirect_read` has no applied instance: `domains` and `links` do not exist yet, so the
 change is to `redirectReadPolicy()` in `apps/api/src/db/rls.ts` and `0001` carries no
-statement for it.
+statement for it.~~
+
+*Amended 2026-08-19 (TASK-2-02).* **Both instances are applied.** Migration `0005` creates
+`domains` and `links` and hand-appends `redirectReadPolicy('domains')` and
+`redirectReadPolicy('links')` beside each table's `tenantScopedPolicies()` block, in the same
+migration and the same commit (GC-A as amended for item 2: a policy appended later is a
+second F-239 window). The struck sentence stays true of `0001`, which still carries no
+statement for the policy: the ADR-0049 repair was to the builder alone and both applied
+instances inherited the wrapped form, so `db:check-policies` now counts the wrappers over two
+real `pg_policies` rows rather than over none.
+
+**Nothing sets `app.redirect_context` yet.** `withRedirectRead` is TASK-2-06's, so until it
+lands the flag is never set, `nullif(current_setting(...), '')` is NULL on every backend, and
+both policies admit nothing, which the isolation suite's `domains` and `links` batteries
+prove incidentally on every run.
 
 ```sql
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
@@ -273,9 +287,9 @@ existing table.
 | `memberships` | yes | no | ~~016~~ 1b-03 (invitations; note below) |
 | `invitations` | yes | no | ~~020~~ 1b-03 (invitations; note below) |
 | `invitation_workspaces` | yes | no | ~~020~~ 1b-03 (invitations; note below) |
-| `domains` | yes | **yes** | 023, extended 038 |
-| `links` | yes | **yes** | 023, extended 027 |
-| `click_events` | yes | no | 033 |
+| `domains` | yes | **yes** | ~~023~~ 2-02 (links/redirect; note below), extended 038 |
+| `links` | yes | **yes** | ~~023~~ 2-02 (links/redirect; note below) |
+| `click_events` | yes | no | ~~033~~ 2-02 (links/redirect; note below) |
 | `audit_entries` | yes | no | 048 |
 | `user`, `session`, `account`, `verification` | **no** (no `tenant_id`, no RLS) | n/a | 009 |
 
@@ -288,14 +302,23 @@ against the 2026-08-03 plan, whose cards were retired unshipped. The struck ids 
 plan's; the ids beside them are the cards that shipped each table: `tenant_memberships` in
 identity-membership TASK-002 (migration `0001`), `workspaces` in TASK-011 (`0002`), and
 `memberships`, `invitations` and `invitation_workspaces` together in invitations TASK-1b-03
-(`0003`, `tenantScopedPolicies()` for all three, ADR-0062). The four rows below them —
-`domains`, `links`, `click_events`, `audit_entries` — are not built and keep the old ids
+(`0003`, `tenantScopedPolicies()` for all three, ADR-0062). The four rows below them
+(`domains`, `links`, `click_events`, `audit_entries`) are not built and keep the old ids
 until their initiatives open.
+
+*Amended 2026-08-19 (TASK-2-02, links and the redirect hot path).* Three of those four are
+now built. `domains`, `links` and `click_events` shipped together in migration `0005` under
+one card, each with `tenantScopedPolicies()` hand-appended and a
+`registerTenantScopedSurfaces()` entry in the same commit (GC-A); `domains` and `links`
+additionally carry `redirectReadPolicy()`, the first applied instances of the redirect
+escape. The seeded system default domain, one `domains` row owned by a seeded platform
+tenant, written by `scripts/seed.mts` and never by the migration (F-236), is ADR-0063's.
+`audit_entries` is still unbuilt and keeps `048`.
 
 ## Invariants a caller may rely on
 
 1. Any `SELECT`, `INSERT`, `UPDATE` or `DELETE` on a table above, issued with no
-   context flag set, affects zero rows — **and returns rather than raising, on a reused
+   context flag set, affects zero rows, **and returns rather than raising, on a reused
    pooled connection as well as a fresh one.** Amended 2026-08-13 (ADR-0049). This invariant
    was false for every backend that had served one tenant transaction, which is every backend
    within seconds of taking traffic; it holds under the `nullif` form above and not under the

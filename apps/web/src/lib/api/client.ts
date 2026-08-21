@@ -16,12 +16,12 @@
  * `invalidParamValueMessage` names the condition F-312 gave it.
  *
  * Amended 2026-08-17 (TASK-007, identity-membership wave 4): `serverApiClient`,
- * `mapBetterAuthError` and `buildUpstreamUrl` are MATERIALISED — the three F-291 deferrals
+ * `mapBetterAuthError` and `buildUpstreamUrl` are MATERIALISED: the three F-291 deferrals
  * are done, their consumers (the BFF proxy route and the auth surface) now exist. The 422
  * code question (F-289) is decided in `mapBetterAuthError`'s docblock.
  *
  * Amended 2026-08-18 (TASK-1b-12, invitations wave 2; D-16, D-18): `apiClient` and
- * `serverApiClient` normalise a 429 into `ApiError.retryAfterSeconds` (W5-01 closed —
+ * `serverApiClient` normalise a 429 into `ApiError.retryAfterSeconds` (W5-01 closed;
  * `interpretResponse` reads `Retry-After`, then the body field), and `BETTER_AUTH_CODE_MAP`
  * gains the five invitation codes the signup hooks answer with. The token-in-params example
  * above is retired: the token travels in a BODY (GC-K).
@@ -38,13 +38,13 @@ export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
  * ============================================================================
  *
  * `path` is a ROUTE TEMPLATE and a string literal in the source. Caller-supplied values
- * go in `params` and reach the URL and the wire. They reach NO ERROR THIS MODULE RAISES —
+ * go in `params` and reach the URL and the wire. They reach NO ERROR THIS MODULE RAISES:
  * not a message, not an own enumerable property, not `cause`, not the message of a
  * validation failure that rejects them.
  *
  * Corrected 2026-08-11 (F-310). This said "the URL, the wire, and NOTHING ELSE" and that
  * was measurably false: under Node's fetch the platform rejection handed to `{ cause }`
- * carries the RESOLVED URL in its own message, and util.inspect prints it — which is what
+ * carries the RESOLVED URL in its own message, and util.inspect prints it, which is what
  * console.error(err) calls and what pino's err serialiser walks. The check that cleared
  * the old claim (the spread, Object.keys, JSON.stringify) cannot see `cause`, because
  * `cause` is non-enumerable. See "cause is a channel, and it is closed" in the contract.
@@ -52,9 +52,9 @@ export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
  *   apiClient({ method: 'PATCH', path: '/workspaces/:id',
  *               params: { id }, body, contract: workspaceContract })
  *
- * NEVER `path: `/workspaces/${id}``. And the invitation capability token —
- * <tenantId>.<43-char base64url secret>, a bearer credential whose own contract says it
- * is "never stored, never logged, and never returned by any read" — is NOT a `params`
+ * NEVER `path: `/workspaces/${id}``. And the invitation capability token
+ * (<tenantId>.<43-char base64url secret>, a bearer credential whose own contract says it
+ * is "never stored, never logged, and never returned by any read") is NOT a `params`
  * value either (item 1b, D-03/GC-K): the routes that take it are `POST /invitations/lookup`
  * and `POST /invitations/accept` with `{ token }` in the BODY, so it reaches no URL at all.
  * (An earlier revision of this docblock showed `GET /invitations/:token` with the token in
@@ -68,7 +68,7 @@ export interface ApiRequest<TRes, TBody = unknown> {
   path: string;
   /**
    * Exactly one entry per placeholder in `path`. No extras, no omissions, and no template
-   * that repeats a placeholder name — there is no key that could fill it twice, and
+   * that repeats a placeholder name: there is no key that could fill it twice, and
    * `/members/:id/workspace/:id` is the typo the real endpoint invites (F-306, F-313).
    */
   params?: Record<string, string | number>;
@@ -82,7 +82,7 @@ export interface ApiRequest<TRes, TBody = unknown> {
 /**
  * A literal segment, or a `:name` placeholder. Nothing else.
  *
- * This is a backstop, not the guarantee — the RULE is what forbids interpolation. It does
+ * This is a backstop, not the guarantee: the RULE is what forbids interpolation. It does
  * reject the invitation token deterministically, on the `.` separator, which is not in
  * the literal-segment alphabet and cannot be. It also rejects `..`, `%2e%2e`, `?`, `#`,
  * `\`, `:` inside a literal, and the empty segment, which is the browser-leg mirror of
@@ -202,7 +202,7 @@ export class ContractViolationError extends Error {
  *
  * IT TAKES NO ErrorOptions (F-310). Under Node's fetch the rejection this class used to
  * be handed carries the RESOLVED URL in its own message, so chaining it put the
- * credential back into anything that calls util.inspect — console.error(err), pino's err
+ * credential back into anything that calls util.inspect: console.error(err), pino's err
  * serialiser. The platform detail is gone with it, deliberately: a browser reports DNS,
  * TLS, CORS and offline all as TypeError('Failed to fetch') anyway, and the leg where the
  * detail was worth having is the leg that leaked.
@@ -226,7 +226,7 @@ export class NetworkError extends Error {
  * NetworkError must not re-issue a request the caller deliberately cancelled.
  *
  * THE ONLY CLASS IN THIS MODULE THAT CARRIES A `cause`, and its `cause` is
- * `signal.reason` — read off `req.signal`, NEVER taken from the caught rejection.
+ * `signal.reason`, read off `req.signal`, NEVER taken from the caught rejection.
  * Amended 2026-08-11 (F-310): it used to be "the platform rejection or signal.reason",
  * and the platform-rejection half is the leak. An abort racing a genuine transport
  * failure hands the catch a platform rejection, and under Node that one carries the
@@ -312,8 +312,8 @@ function appendQuery(url: string, query: ApiRequest<unknown>['query']): string {
  *   3. encodeURIComponent(String(value)) is '' or '.' or '..' -> invalidParamValueMessage
  *      ('..' survives encodeURIComponent because dot is unreserved; the browser then
  *      normalises it away and escapes the prefix. THIS is the check that stops F-285.)
- *      A value encodeURIComponent cannot encode at all — a lone surrogate, which throws
- *      URIError — rejects with the same message rather than leaving by a fifth exit
+ *      A value encodeURIComponent cannot encode at all (a lone surrogate, which throws
+ *      URIError) rejects with the same message rather than leaving by a fifth exit
  *      (F-312). The URIError is NOT chained onto it: the value that threw is
  *      caller-supplied and ADR-0029 keeps those off the error.
  *   4. substitute the ENCODED values into the template
@@ -419,8 +419,8 @@ function requestInit<TRes>(req: ApiRequest<TRes>): RequestInit {
 
 /**
  * Response handling steps 2 and 5. A body the shared envelope contract accepts becomes an
- * `ApiError` carrying the API's own `code`, `status` and `details`; anything else — Better
- * Auth's native shape, an HTML page from an interposed proxy, an empty body — becomes an
+ * `ApiError` carrying the API's own `code`, `status` and `details`; anything else (Better
+ * Auth's native shape, an HTML page from an interposed proxy, an empty body) becomes an
  * `ApiError` with `internal_error` and the original status.
  *
  * Neither is a `ContractViolationError`. AC-15 reserves that for a response the caller was
@@ -515,7 +515,7 @@ export async function apiClient<TRes>(req: ApiRequest<TRes>): Promise<TRes> {
   } catch {
     // Step 7 before step 6: a cancellation the caller asked for is not a failure, and the
     // tie goes to the signal. `cause` is read off the SIGNAL, never off the rejection
-    // (F-310) — on this exact race the rejection is the platform's URL-bearing one.
+    // (F-310): on this exact race the rejection is the platform's URL-bearing one.
     if (req.signal?.aborted === true) {
       throw new RequestAbortedError(req.method, req.path, { cause: req.signal.reason });
     }
@@ -585,7 +585,7 @@ function interpretResponse<TRes>(
  * MATERIALISED by TASK-007 (was DEFERRED under the F-291 ruling until wave 4).
  *
  * Server components. Reads `sk_at` via next/headers `cookies()` and calls the API DIRECTLY
- * at `API_BASE_URL` with `Authorization: Bearer <sk_at>` — one hop, not two, because a
+ * at `API_BASE_URL` with `Authorization: Bearer <sk_at>`: one hop, not two, because a
  * server component is already inside the Vercel function and does not need the proxy
  * (web-api-client.md topology). The response is handled by the SAME ordered steps as
  * `apiClient` (`interpretResponse`), so AC-15's four-way split holds identically.
@@ -699,7 +699,7 @@ function serverApiBaseUrl(): string {
  * its errors: every body is `{ message, code }` and NOT `ErrorEnvelope`. The eight probed
  * shapes are in auth-tokens.md ("Error bodies, verbatim from 1.6.26"), and a 429 from the
  * email rate limiter carries the seconds in a `retryAfterSeconds` BODY field with no
- * `code: "rate_limited"` (F-027) — an unmapped 429 renders as the generic error and the
+ * `code: "rate_limited"` (F-027): an unmapped 429 renders as the generic error and the
  * sign-in screen shows the wrong thing.
  *
  * ----------------------------------------------------------------------------
@@ -711,7 +711,7 @@ function serverApiBaseUrl(): string {
  * Why an existing code and not a new one: `ERROR_CODES` is append-only and a code's status
  * is then permanent (errors.ts), no `/api` route would emit a new code (the registry has
  * never held a web-only code), and a code that means "this email already has an account" is
- * an account-enumeration disclosure that must justify itself — which, since ADR-0061 made a
+ * an account-enumeration disclosure that must justify itself, which, since ADR-0061 made a
  * duplicate signup answer 200 exactly like a fresh one, has NO caller on the primary path
  * to justify. The 422 is now a legacy/sign-in-adjacent shape only. `validation_failed`
  * reads slightly wrong (the request was well-formed; the conflict is with stored state),
@@ -740,8 +740,8 @@ export function mapBetterAuthError(status: number, body: unknown, retryAfterHead
   const mapped = native.code === undefined ? undefined : BETTER_AUTH_CODE_MAP[native.code];
 
   if (mapped === undefined) {
-    // An unrecognised shape — an HTML page from an interposed proxy, an empty body, a code
-    // this table does not name — is internal_error at the original status (step 5).
+    // An unrecognised shape (an HTML page from an interposed proxy, an empty body, a code
+    // this table does not name) is internal_error at the original status (step 5).
     return new ApiError({ code: 'internal_error', status, message: UNEXPECTED_RESPONSE_MESSAGE });
   }
 
@@ -847,8 +847,8 @@ function retryAfterFromHeader(header: string | null | undefined): number | undef
  *
  * Next.js DECODES route params, so `%2e%2e%2f` arrives as `../` and escapes the /api
  * prefix. And a path beginning `//evil.example/` resolves PROTOCOL-RELATIVE under
- * new URL(), which would attach `Authorization: Bearer <sk_at>` — a live tenant
- * credential — to an attacker-chosen origin, from a same-origin request the victim's
+ * new URL(), which would attach `Authorization: Bearer <sk_at>` (a live tenant
+ * credential) to an attacker-chosen origin, from a same-origin request the victim's
  * browser makes.
  *
  *   1. reject any decoded segment that is '', '.', '..', or contains / \ :
@@ -871,7 +871,7 @@ export function buildUpstreamUrl(
     return null;
   }
 
-  // 1. Reject any unsafe segment AFTER Next.js has decoded it — the form traversal arrives in.
+  // 1. Reject any unsafe segment AFTER Next.js has decoded it: the form traversal arrives in.
   for (const segment of segments) {
     if (segment === '' || segment === '.' || segment === '..') {
       return null;
@@ -928,7 +928,7 @@ export const RETURNED_RESPONSE_HEADERS = ['content-type', 'retry-after', 'x-requ
  * F-287. Written on EVERY response the proxy returns, whatever the upstream said.
  *
  * Without it an API response carrying `no-store` for tenant data reached the browser with
- * no cache directive at all and the decision fell to browser heuristics on a 200 GET —
+ * no cache directive at all and the decision fell to browser heuristics on a 200 GET:
  * another tenant's links, members or domains readable out of the HTTP cache by anyone
  * with later access to the browser profile. Allowlisting upstream's header instead would
  * make that depend on every present and future /api route setting one header, enforced by
@@ -982,7 +982,7 @@ export const NON_MUTATING_METHODS = ['GET', 'HEAD'] as const;
  * The mutating methods THIS DESIGN USES. Ruled 2026-08-11 (ADR-0038, F-305):
  * DESCRIPTIVE, NOT THE DEFINITION. isMutatingMethod does not read it. Adding a method
  * here changes no behaviour and leaving one out changes no behaviour, which is the whole
- * point — the four-item allowlist used to BE the predicate, and a method missing from it
+ * point: the four-item allowlist used to BE the predicate, and a method missing from it
  * lost its Origin and got F-233's 403 in production with every test green.
  *
  * PUT is listed and `ApiRequest.method` does not offer it: no PUT /api/* endpoint exists
@@ -1004,7 +1004,7 @@ export const MUTATING_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'] as const;
  * IT UPPERCASES ITS OWN INPUT, and that is not defensive padding:
  * `new Request(u, { method: 'post' }).method` normalises to 'POST', but
  * `new Request(u, { method: 'patch' }).method` STAYS 'patch', because PATCH is absent
- * from the Fetch spec's normalise list — and PATCH is one of the four methods
+ * from the Fetch spec's normalise list, and PATCH is one of the four methods
  * `ApiRequest.method` allows. Normalising HERE and not at the call site is the point: a
  * docblock telling TASK-012 to uppercase first is a rule enforced by nobody (F-288).
  * The proxy passes `request.method` straight in.
@@ -1018,11 +1018,11 @@ export function isMutatingMethod(method: string): boolean {
  * F-035. The client address the proxy forwards, and where it comes from.
  * ============================================================================
  *
- * The proxy adds, on every upstream request WHEN `BFF_PROXY_SECRET` IS SET — and neither
+ * The proxy adds, on every upstream request WHEN `BFF_PROXY_SECRET` IS SET, and neither
  * header when it is unset, which is the local compose stack's state (TASK-009):
  *   BFF_CLIENT_IP_HEADER:  the browser's address, read from VERCEL_CLIENT_IP_HEADER
  *   BFF_PROXY_AUTH_HEADER: process.env.BFF_PROXY_SECRET (server-only, optional; the
- *                          API-side match is TASK-004's; NEVER logged — see
+ *                          API-side match is TASK-004's; NEVER logged; see
  *                          logging-and-headers.md F-032 for the API-side mirror)
  *
  * VERCEL_CLIENT_IP_HEADER is read WHOLE. Vercel sets it to the connecting client's
@@ -1030,7 +1030,7 @@ export function isMutatingMethod(method: string): boolean {
  * client cannot spoof it, and unlike x-forwarded-for it is not rewritten by a proxy
  * stacked on top of Vercel.
  *
- * NEVER x-forwarded-for.split(',')[0] — the leftmost entry of a multi-valued list is
+ * NEVER x-forwarded-for.split(',')[0]: the leftmost entry of a multi-valued list is
  * the construct F-009 forbids, moved one hop upstream. If the header is absent (local
  * next dev), OMIT BFF_CLIENT_IP_HEADER entirely; the API then falls back to the header
  * TRUSTED_CLIENT_IP_HEADER declares, or to no principal where none is declared (F-320,

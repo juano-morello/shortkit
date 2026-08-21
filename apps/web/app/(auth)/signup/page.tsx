@@ -4,7 +4,7 @@
  * A server component that renders the heading, the client form and the way to sign-in.
  * On success the form navigates to `/sign-in?created=1` (ADR-0061: signup does not
  * auto-sign-in, so there is no session to land on the workspace list with; the sign-in
- * screen shows the confirmation instead — Juano's ruling, TASK-008 card).
+ * screen shows the confirmation instead; Juano's ruling, TASK-008 card).
  *
  * TASK-013's "create your first workspace" path returns here, and TASK-017's compose check
  * drives this route; the path is fixed in `src/components/auth/routes.ts`.

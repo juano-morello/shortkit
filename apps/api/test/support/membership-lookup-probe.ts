@@ -1,5 +1,5 @@
 /**
- * THE TOKEN-MINT ESCAPE'S READ, AS ONE MECHANISM — used by the control that asserts the
+ * THE TOKEN-MINT ESCAPE'S READ, AS ONE MECHANISM: used by the control that asserts the
  * real policy and by the negative control that proves the assertion discriminates.
  *
  * Contract: `docs/contracts/tenant-membership-lookup.md` ("Isolation controls this
@@ -16,8 +16,8 @@
  *
  *   USING (nullif(current_setting('app.membership_lookup_user', true), '') IS NOT NULL)
  *
- * — a policy that hands every membership row of every tenant to anyone who sets the flag
- * — `test/auth/tenant-memberships.int-spec.ts` reported **6 passed, exit 0**.
+ * (a policy that hands every membership row of every tenant to anyone who sets the flag)
+ * `test/auth/tenant-memberships.int-spec.ts` reported **6 passed, exit 0**.
  *
  * So the read and the expectation both live here, and
  * `cross-tenant-isolation.int-spec.ts`'s F-133 control runs THESE FUNCTIONS over canary
@@ -45,8 +45,8 @@ export interface LookupProbe {
 }
 
 /**
- * The table name is substituted into SQL rather than bound — no parameter can carry an
- * identifier — so it is checked against the same shape `src/db/rls.ts` accepts. Every
+ * The table name is substituted into SQL rather than bound (no parameter can carry an
+ * identifier) so it is checked against the same shape `src/db/rls.ts` accepts. Every
  * caller passes a literal from this repository, so this only ever fires on a typo.
  */
 const SAFE_TABLE_NAME = /^[a-z_][a-z0-9_]*$/;
@@ -60,7 +60,7 @@ function assertTableName(table: string): string {
 }
 
 /**
- * Leaves every declared flag at its reset value, `''`, on this connection — the state
+ * Leaves every declared flag at its reset value, `''`, on this connection: the state
  * `pg.Pool` hands to the next checkout and the one ADR-0049 exists for (F-003, F-004).
  *
  * Both controls below run on a connection warmed this way and that is the point: the two
@@ -93,7 +93,7 @@ export async function warmMembershipLookupFlags(
  * assert against; the ordering is not part of what the policy decides.
  *
  * The `finally` issues `COMMIT`, which PostgreSQL turns into a rollback if the SELECT
- * aborted the transaction — so a raise (a `22P02` here is F-003 and not a denial) reaches
+ * aborted the transaction, so a raise (a `22P02` here is F-003 and not a denial) reaches
  * the caller as its own error instead of as a `25P02` on the next statement.
  */
 export async function readMembershipsUnderLookupFlag(
@@ -123,7 +123,7 @@ export async function readMembershipsUnderLookupFlag(
 /**
  * Control 3's statement: the same read with NO flag set at all. Row-level security denies
  * a read by returning zero rows and never by raising (isolation-coverage.md, corrected
- * statement 2), so a raise is reported rather than thrown — `{ raised }` is a defect and
+ * statement 2), so a raise is reported rather than thrown: `{ raised }` is a defect and
  * `{ rows: 0 }` is the denial.
  */
 export async function countMembershipsWithNoLookupFlag(
@@ -147,8 +147,8 @@ export async function countMembershipsWithNoLookupFlag(
  * predicate and asserts it does not. An expectation that cannot be shown to fail is not a
  * control.
  *
- * Both conjuncts of the contract's control 2 — "returns exactly A's row AND NOT tenant
- * B's" — are one `toEqual` over the whole result set, so a policy admitting an extra row
+ * Both conjuncts of the contract's control 2 ("returns exactly A's row AND NOT tenant
+ * B's") are one `toEqual` over the whole result set, so a policy admitting an extra row
  * fails it. Which is only true of a table that HOLDS an extra row: the fixture seeding one
  * membership was the other half of F-133.
  */

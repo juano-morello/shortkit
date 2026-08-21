@@ -64,7 +64,7 @@ describe('the static session routes shadow the catch-all', () => {
   });
 });
 
-describe('GET /api/bff/session — the projection', () => {
+describe('GET /api/bff/session: the projection', () => {
   it('returns { user, status: authenticated } from a live sk_at, no token in the body, no-store', async () => {
     cookiesAre({ sk_at: LIVE_JWT, sk_rt: 'sess' });
 
@@ -120,7 +120,7 @@ describe('GET /api/bff/session — the projection', () => {
   });
 });
 
-describe('safeReturnTo — the open-redirect guard', () => {
+describe('safeReturnTo: the open-redirect guard', () => {
   it('accepts a same-origin relative path with query and hash', () => {
     expect(safeReturnTo('/workspaces/w1?tab=links#top')).toBe('/workspaces/w1?tab=links#top');
   });
@@ -142,7 +142,7 @@ describe('safeReturnTo — the open-redirect guard', () => {
 
   /**
    * Security review round 1, BLOCKER. A raw-prefix check alone passes `/..//evil.test`,
-   * whose RESOLVED pathname is `//evil.test` — a network-path reference on re-parse. Every
+   * whose RESOLVED pathname is `//evil.test`: a network-path reference on re-parse. Every
    * case here must yield a final Location on the request origin.
    */
   it.each([
@@ -172,7 +172,7 @@ describe('safeReturnTo — the open-redirect guard', () => {
   });
 });
 
-describe('GET /api/bff/session/refresh — refresh and bounce', () => {
+describe('GET /api/bff/session/refresh: refresh and bounce', () => {
   it('refreshes sk_at from sk_rt and 303s back to the same-origin returnTo', async () => {
     cookiesAre({ sk_rt: 'sess' });
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(

@@ -9,7 +9,7 @@ import {
 } from './resolve-rate-limit-principal';
 
 /**
- * STORY-001 — no AC states this; `docs/contracts/rate-limit.md` does. TASK-004, wave 3.
+ * STORY-001: no AC states this; `docs/contracts/rate-limit.md` does. TASK-004, wave 3.
  *
  * Contract: `docs/contracts/rate-limit.md` ("Which address the client IP means, under the
  * BFF", F-031, F-033, F-320), `docs/contracts/trusted-client-address.md` ("The two callers").
@@ -21,8 +21,8 @@ import {
  *
  * `resolveRateLimitPrincipal` returns `X-Shortkit-Client-IP` only when all four of F-033's
  * rules hold, otherwise falls through to `readTrustedClientAddress`, otherwise `null`. Rules 1
- * and 2 close the naive implementation's bypass — `header === process.env.BFF_PROXY_SECRET`
- * is `undefined === undefined` for a direct anonymous request with the variable unset — and
+ * and 2 close the naive implementation's bypass (`header === process.env.BFF_PROXY_SECRET`
+ * is `undefined === undefined` for a direct anonymous request with the variable unset), and
  * that is the case pinned first below, because it is the one a refactor reintroduces.
  *
  * `null` IS A REAL RETURN AND NOT A DEFECT. Under ADR-0040 no address is established where
@@ -39,7 +39,7 @@ const DECLARED_ENV = { TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip' };
 
 /**
  * A request the BFF forwarded, exactly as `web-api-client.md` says it sets the two headers.
- * `null` for `proxyAuth` means the auth header is ABSENT — `undefined` would select the
+ * `null` for `proxyAuth` means the auth header is ABSENT: `undefined` would select the
  * default parameter and quietly turn "no header" into "the right secret".
  */
 function forwarded(clientIp: string, proxyAuth: string | string[] | null = SECRET) {
@@ -142,7 +142,7 @@ describe('resolveRateLimitPrincipal', () => {
   it('trusted-client-address.md invariant 2: X-Forwarded-For and Forwarded are read at no position, for no purpose', () => {
     // With the BFF secret set, with a header declared, and with neither: a request whose only
     // address is in a forwarding header resolves to nothing. `null`, and NEVER the peer
-    // address or a sentinel — the bucket that receives `null` does not run.
+    // address or a sentinel: the bucket that receives `null` does not run.
     const xff = { 'x-forwarded-for': '203.0.113.7, 198.51.100.9', forwarded: 'for=203.0.113.7' };
 
     expect([
@@ -195,7 +195,7 @@ describe('resolveRateLimitPrincipal', () => {
     }).toEqual({ count: 2, namesTheCounter: true, leaksASecret: false });
   });
 
-  it('F-033: an absent proxy-auth header is silent — a direct request is not a mismatch', () => {
+  it('F-033: an absent proxy-auth header is silent: a direct request is not a mismatch', () => {
     resolveRateLimitPrincipal({}, BFF_ENV);
     resolveRateLimitPrincipal({ 'x-test-client-ip': '198.51.100.9' }, BFF_AND_DECLARED_ENV);
     resolveRateLimitPrincipal(forwarded('203.0.113.7', null), BFF_ENV);

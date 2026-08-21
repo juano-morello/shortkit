@@ -67,7 +67,7 @@ export declare function Public(justification: string): MethodDecorator & ClassDe
 > `WorkspaceAuthorizationInterceptor` (`workspace-authorization.md`, "The two enforcement
 > forms") on a route carrying `@RequireWorkspaceRole` / `@RequireTenantRole`, after the lookup
 > passes; on any other route they stay unset. `WorkspaceGuard` (TASK-017) never existed as a
-> guard — see that contract for why the enforcement point is an interceptor.
+> guard. See that contract for why the enforcement point is an interceptor.
 
 ## SQL issued by `withTenantTransaction`
 
@@ -194,7 +194,7 @@ prints the justification.
 ### Authorization moves into the handler, and does not disappear
 
 Added 2026-08-04 (F-020). Skipping the interceptor means ~~**there is no ambient tenant
-context when guards run**~~ **Form A cannot be used on the route** — amended 2026-08-18
+context when guards run**~~ **Form A cannot be used on the route**, amended 2026-08-18
 (TASK-1b-05, D-05): there is never an ambient tenant context when guards run, on any route,
 which is exactly why the enforcement point is `WorkspaceAuthorizationInterceptor`, the third
 `APP_INTERCEPTOR`, running inside the transaction the second one opens; what a
@@ -217,7 +217,7 @@ Three rules, all normative:
    degrades to an unchecked pass. A 500 on a misconfigured route is correct; a silent
    pass on the erasure route is not. *Shipped 2026-08-18 as `WorkspaceAuthorizationInterceptor`:
    the repositories it reads are `tenantDb()`-only, so the throw precedes any statement; and
-   rule 1's combination — either decorator beside `@NoTenantTransaction()` or `@Public()` —
+   rule 1's combination, either decorator beside `@NoTenantTransaction()` or `@Public()`,
    is an `AuthorizationMisconfiguredError` (500) at the first request, until TASK-056's
    static assertion exists.*
 
@@ -318,8 +318,8 @@ already forbids that, and this section is the reason it matters more than it loo
 
 - `apps/api/src/db/client.ts` is the only file constructing the Drizzle client. ~~and it
   does not export it.~~ **Amended 2026-08-12 (ADR-0046).** It exports exactly one client,
-  `betterAuthDatabase()`, typed over `betterAuthSchema` — the five RLS-exempt Better Auth
-  tables and no others — to exactly one caller, `apps/api/src/auth/auth.config.ts`. Better
+  `betterAuthDatabase()`, typed over `betterAuthSchema` (the five RLS-exempt Better Auth
+  tables and no others) to exactly one caller, `apps/api/src/auth/auth.config.ts`. Better
   Auth's adapter issues one statement at a time from a handler mounted outside the Nest
   graph and has no callback boundary a transaction can be handed to. A statement issued on
   that client runs outside any transaction and therefore with no context flag, so on every
@@ -378,7 +378,7 @@ already forbids that, and this section is the reason it matters more than it loo
   before the process serves traffic. Anything else needs an ADR superseding ADR-0002.
 
   The fifth arrived through that door and paid the toll: ADR-0045 amends ADR-0002, and
-  `withMembershipLookup` is the third exclusion. The rule worked as written — the price was
+  `withMembershipLookup` is the third exclusion. The rule worked as written: the price was
   named in advance and an ADR was what it cost.
 
   **TASK-056 asserts it.** Over `apps/api/src/**/*.ts`, excluding `*.spec.ts` and
@@ -390,6 +390,13 @@ already forbids that, and this section is the reason it matters more than it loo
   diff against is a list of file names. Timing matches clause A1's. `redirect-read.ts`
   (TASK-029) and `privileged-eraser.ts` (TASK-054) both land before TASK-056's wave, so
   set equality holds when the suite first runs and is not assertable earlier.
+
+  **`redirect-read.ts` has landed (TASK-2-06, 2026-08-19).** Its row above is no longer a
+  reservation: `withRedirectRead` exists at the path the table names, opens the transaction
+  `READ ONLY`, sets `app.redirect_context` and issues the two permitted statements. Half of
+  the timing note is therefore spent; `privileged-eraser.ts` is the half still outstanding,
+  and it is what still stops clause A1's exactly-one direction and this set equality from
+  being assertable today.
 
   **Corrected 2026-08-14 (F-122). "Those four paths" was written when the table had four
   rows, was not touched when F-126 made it five or when ADR-0045 made it a fifth consumer,
@@ -475,7 +482,7 @@ way.** Measured inside a `withMembershipLookup` transaction with only the lookup
 `session` returned 2 rows including the token, `account` 2 rows including the password hash,
 `user` 2 rows including both email addresses, and `tenants` 0.
 
-What bounds two of the three is **`SET TRANSACTION READ ONLY`, not policy** — verified, a
+What bounds two of the three is **`SET TRANSACTION READ ONLY`, not policy**: verified, a
 write to `account` inside a lookup transaction fails with `cannot execute UPDATE in a
 read-only transaction`. `privilegedTenantEraser` is the one with no such bound, so its row's
 "`DELETE` only, scoped to one `tenant_id` by policy" will be false for the three auth tables
@@ -487,8 +494,8 @@ across all its waves, the column above understates every row.
 
 A **fourth** is a build failure: `isolation-coverage.md` asserts the exclusion list length
 is 3, and the grep test asserts each context-flag string appears in exactly one
-non-test source file. The flag table in clause A1 now carries three names —
-`app.tenant_id`, `app.redirect_context`, `app.privileged_erase` — plus
+non-test source file. The flag table in clause A1 now carries three names
+(`app.tenant_id`, `app.redirect_context`, `app.privileged_erase`) plus
 `app.membership_lookup_user`, whose one permitted setter is
 `apps/api/src/auth/membership-lookup.ts` and which may also appear in
 `apps/api/src/db/rls.ts`.

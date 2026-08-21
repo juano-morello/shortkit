@@ -1,17 +1,17 @@
 # Round-3 housekeeping (narrowed in round 4, F-173). Proving a fix in
 # apps/web/scripts/assert-no-inlined-secrets.mjs sometimes needs a real Next.js build with a
-# temporary component or route reading an env var — always deleted immediately after each
+# temporary component or route reading an env var, always deleted immediately after each
 # proof, but this backstops that manual cleanup in case a step is interrupted mid-round, so a
 # probe file can never be swept into a commit by an unrelated `git add`.
 #
 # F-173: the original `app/probe-*` pattern would have silently swallowed a future real
 # liveness/uptime route named `apps/web/app/probe-*`, which would 404 in production with no
-# diff to look at — and any ignore pattern here also blinds `git status --porcelain` to that
+# diff to look at, and any ignore pattern here also blinds `git status --porcelain` to that
 # file class, which is why the orchestrator's cleanliness evidence now uses
 # `git status --porcelain --ignored`. `tk004-scratch-probe-*` is namespaced to this TASK's id
 # specifically so no plausible product route or component name ever collides with it.
 _tk004-scratch-probe-*
-# Route-handler probes can't use a leading underscore — Next.js treats a leading-underscore
+# Route-handler probes can't use a leading underscore: Next.js treats a leading-underscore
 # folder as a private, non-routed folder, which would make the probe route unreachable and
 # defeat the point of proving it. Same namespaced prefix, without the underscore.
 app/tk004-scratch-probe-*

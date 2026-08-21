@@ -11,8 +11,8 @@
  * THE SAME ALGORITHM AS `LocalAuthRateLimiter`, DELIBERATELY NOT THAT CLASS.
  * ============================================================================
  *
- * The auth surface's limiter (`auth/auth-rate-limit.ts`) is typed over its own bucket table —
- * `signInPerIp`, `signUpPerIp`, `otherPerIp` — and those buckets are the auth surface's
+ * The auth surface's limiter (`auth/auth-rate-limit.ts`) is typed over its own bucket table
+ * (`signInPerIp`, `signUpPerIp`, `otherPerIp`), and those buckets are the auth surface's
  * (`rate-limit.md`, "Ownership and injection order"). This class holds the `@Public()` IP
  * map the contract lists under "Behaviour when Redis is unavailable" as `LocalRateLimiter`,
  * a sibling with its own key space (F-034). The algorithm is copied rather than shared
@@ -26,7 +26,7 @@
  *   - `tenants`, the tenant-keyed write bucket (debt sweep D1), a PLAIN LRU capped at
  *     `LOCAL_LIMITER_MAX_TENANTS`, swept on the same cadence. Its keys are produced only by
  *     authenticated callers, so F-028's churn defences (eviction that skips at-or-over-limit
- *     entries, the forced-eviction counter) are deliberately absent there — the contract
+ *     entries, the forced-eviction counter) are deliberately absent there: the contract
  *     states the rule ("`checkTenant` keeps its plain LRU ... its keys require
  *     authentication, so F-028's extra rules are unnecessary there"). Keeping the maps
  *     separate is what stops anonymous address churn evicting a tenant's write bucket.
@@ -49,8 +49,8 @@
  * warn line carries `msg` and nothing else. The counter is carried in `msg` because there is
  * no metrics pipeline to increment yet.
  *
- * The sweep timer is `unref()`ed so an idle process — or a unit suite that compiled
- * `AppModule` — is not held open by it, and `onModuleDestroy` clears it when Nest closes the
+ * The sweep timer is `unref()`ed so an idle process (or a unit suite that compiled
+ * `AppModule`) is not held open by it, and `onModuleDestroy` clears it when Nest closes the
  * container. There is no constructor argument, deliberately: Nest instantiates this class for
  * the token, and a clock parameter would be read as an injection.
  */
@@ -204,8 +204,8 @@ export class LocalRateLimiter implements RateLimitPort, OnModuleDestroy {
 }
 
 /**
- * Removes one entry from the full map: the least recently used entry under its limit, or —
- * when every entry is at or over the limit — the least recently used entry outright, with the
+ * Removes one entry from the full map: the least recently used entry under its limit, or
+ * (when every entry is at or over the limit) the least recently used entry outright, with the
  * forced eviction counted and warned. No key is on the line: it is a client IP.
  */
 function evictOne(entries: Map<string, Entry>): void {

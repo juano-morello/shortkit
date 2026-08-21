@@ -1,5 +1,5 @@
 /**
- * TASK-1b-05 — MembershipRepository and TenantMembershipRepository, the parts decidable
+ * TASK-1b-05: MembershipRepository and TenantMembershipRepository, the parts decidable
  * without a database. The same three things `workspace.repository.spec.ts` asserts, for the
  * same reasons: the ADR-0020 marker; `TenantContextMissingError` outside a context through
  * the REAL accessor; and every compiled statement owner-qualified, asserted over the SQL a

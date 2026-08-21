@@ -13,7 +13,7 @@
  * A trusted-header model is worth exactly as much as the hop that strips the header. ADR-0030
  * deleted the platform that set and stripped `Fly-Client-IP`, so the header is now DECLARED
  * by the deployment (`TRUSTED_CLIENT_IP_HEADER`) rather than named in source, and where no
- * address is established the result is `null` — no principal, never a client-supplied one.
+ * address is established the result is `null`: no principal, never a client-supplied one.
  * `X-Forwarded-For` and `Forwarded` are read at NO position, for NO purpose: both are defined
  * to be appended to rather than replaced, so no hop can strip-and-set them, and reading
  * either reintroduces F-009 through the front door.
@@ -43,7 +43,7 @@ export const FORBIDDEN_TRUSTED_HEADERS: readonly string[] = ['x-forwarded-for', 
  * The counter every IP-keyed bucket increments on a `null` principal. There is no metrics
  * pipeline in this repository yet, so it is carried in the `msg` of the once-per-minute warn
  * line rather than as a field, and only where a header was declared and the read still
- * failed — an environment that declares nothing is in a stated condition, and one warn per
+ * failed: an environment that declares nothing is in a stated condition, and one warn per
  * request in `docker compose up` trains a developer to ignore the channel.
  */
 export const TRUSTED_CLIENT_IP_UNRESOLVED_COUNTER = 'trusted_client_ip_unresolved_total';
@@ -86,14 +86,14 @@ export function isAcceptableTrustedHeaderName(name: string): boolean {
  * "The read, rule by rule"):
  *
  *   1. `TRUSTED_CLIENT_IP_HEADER` is set and non-empty. Unset or empty disables the read
- *      UNCONDITIONALLY — no header is looked up at all, so a request carrying a plausible
+ *      UNCONDITIONALLY: no header is looked up at all, so a request carrying a plausible
  *      header under an undeclared name is a client choosing its own principal and gets
  *      nothing.
  *   2. The declared name matches the pattern and is not forbidden. Under
  *      `CLIENT_TRUST_BOUNDARY=proxy` this cannot fail, because boot already refused it;
  *      anywhere else it can, and it returns `null` rather than throwing.
- *   3. The header is present, a SINGLE string, and non-empty after `trim()`. An array — what
- *      Node presents for a repeated header — is `null`, and so is a value containing a comma.
+ *   3. The header is present, a SINGLE string, and non-empty after `trim()`. An array (what
+ *      Node presents for a repeated header) is `null`, and so is a value containing a comma.
  *      NO LIST IS EVER PARSED, AT EITHER END: a repeated or comma-joined header means
  *      something upstream appended instead of replacing, which is the condition rule 2 exists
  *      to prevent, and it returns nothing rather than a guess.

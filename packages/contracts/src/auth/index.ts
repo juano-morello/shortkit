@@ -38,24 +38,24 @@ export const PASSWORD_MAX_LENGTH = 128;
 /**
  * Added 2026-08-19 (debt sweep, ledger 1b-W1-09): the signup name gains a ceiling. The
  * field had a floor (`min(1)`) and no ceiling; 200 characters is generous for a person's
- * name and stops a 32 KB one riding the auth body cap into `user.name` — and from there,
+ * name and stops a 32 KB one riding the auth body cap into `user.name`, and from there,
  * verbatim, into `tenants.name` (`on-user-created.ts`, F-198). Same shape as the password
  * bounds: a constant here, asserted through the parse in `auth.spec.ts`.
  */
 export const SIGNUP_NAME_MAX_LENGTH = 200;
 
 /**
- * `name` is REQUIRED. `better-auth@1.6.26` answers 400 to a sign-up body without it —
+ * `name` is REQUIRED. `better-auth@1.6.26` answers 400 to a sign-up body without it:
  * measured, and recorded at `apps/api/test/support/auth-fixture.ts:56-60`.
  *
  * Added 2026-08-19 (debt sweep, ledger 1b-W1-09): control characters are refused, with the
  * rule and fixed message `../workspaces` exports for every name field. THIS FIELD IS ALSO
- * THE TENANT NAME — `on-user-created.ts` copies `user.name` verbatim into `tenants.name`
- * (F-198, Juano's ruling) — so the refusal covers the ledger's "workspace and TENANT
+ * THE TENANT NAME: `on-user-created.ts` copies `user.name` verbatim into `tenants.name`
+ * (F-198, Juano's ruling), so the refusal covers the ledger's "workspace and TENANT
  * names" both. Honest limit of the change: Better Auth is the wire enforcer for this
  * endpoint and validates neither bound (no Nest pipe parses this schema, see the file
  * header), so a direct HTTP signup can still plant a control character or a long name;
- * this contract refuses it everywhere the repository parses — the web form
+ * this contract refuses it everywhere the repository parses: the web form
  * (`credential-form.tsx`) before submit, and any future server-side reader. No trim, on
  * purpose: Better Auth stores the field as sent, and a contract that trims would state a
  * shape the wire does not have.
@@ -164,8 +164,8 @@ export type ShortkitJwtClaims = z.infer<typeof shortkitJwtClaimsContract>;
  * `auth.config.ts` writes `` expirationTime: `${String(ACCESS_TOKEN_LIFETIME_SECONDS)}s` ``.
  * Corrected 2026-08-16 (F-168, Juano's ruling): this docblock instructed the BARE NUMBER,
  * which is a defect. `dist/plugins/jwt/utils.mjs:15-19` returns a numeric `expirationTime`
- * as the `exp` claim UNCHANGED, so `expirationTime: 300` sets `exp` to epoch second 300 —
- * 1970-01-01T00:05:00Z — and every token is rejected the instant it is issued. Only a
+ * as the `exp` claim UNCHANGED, so `expirationTime: 300` sets `exp` to epoch second 300
+ * (1970-01-01T00:05:00Z), and every token is rejected the instant it is issued. Only a
  * string goes through `iat + sec(expirationTime)`, and `sec('300s')` is 300. Measured
  * twice: at the source, and on a real token minted with this exact configuration.
  *

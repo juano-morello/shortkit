@@ -1,22 +1,37 @@
-# The Postgres `pnpm test:integration` runs against locally.
+# The Postgres and the Redis `pnpm test:integration` runs against locally.
 #
-# Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
-# ADR: adr-0001-test-framework.md, adr-0003-rls-policy-template-and-roles.md
-# Produced by: TASK-005 (F-038)
+# Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars),
+#           docs/contracts/redirect-cache.md (the namespace every key begins with)
+# ADR: adr-0001-test-framework.md, adr-0003-rls-policy-template-and-roles.md,
+#      adr-0012-redis-client-and-rate-limit-degradation.md
+# Produced by: TASK-005 (F-038). The `redis` service added by TASK-2-04 (D-2-16).
 #
 #   docker compose -f docker-compose.test.yml up -d --wait
 #   export DATABASE_URL='postgres://shortkit_app:app@127.0.0.1:55433/shortkit_test'
 #   export DATABASE_MIGRATION_URL='postgres://shortkit_migrator:migrator@127.0.0.1:55433/shortkit_test'
 #   export DATABASE_AUTH_URL='postgres://shortkit_auth:auth@127.0.0.1:55433/shortkit_test'
+#   export REDIS_URL='redis://:redis-fixture@127.0.0.1:56380'
+#   export REDIS_KEY_NAMESPACE=test
 #   pnpm test:integration
 #   docker compose -f docker-compose.test.yml down -v
 #
+# REDIS_KEY_NAMESPACE is required whenever REDIS_URL is set: the process refuses to
+# boot rather than defaulting to a namespace that might collide (redirect-cache.md).
+# `test` here, `ci-<run_id>` in CI so two concurrent jobs cannot collide either, `dev`
+# in docker-compose.yml. A suite run against a clone that never started this stack
+# must SAY that Redis is unreachable rather than hang: `enableOfflineQueue: false` and
+# a 50 ms command timeout are what make that true (ADR-0012).
+#
 # The CI equivalent is a `services:` container in the `integration` job and belongs
-# to TASK-002 (F-039), not here.
+# to TASK-002 (F-039), not here. Redis included, with one difference recorded there:
+# GitHub's `services:` has no `command:`, so the CI container cannot be given
+# `--requirepass` and its DSN carries no password.
 #
 # 55433 rather than 5432 so a Postgres already running on the developer's machine
 # is neither shadowed nor connected to by accident: a test suite that silently
-# reaches a real database drops and recreates `tenants`.
+# reaches a real database drops and recreates `tenants`. 56380 rather than 6379 for
+# the same reason and with a sharper edge: a suite pointed at a developer's own Redis
+# would write and delete keys under a namespace that machine did not choose.
 #
 # The credentials below are fixtures. They exist in a file that only ever points at
 # a throwaway container, and the suite refuses to run against a role that could
@@ -30,11 +45,11 @@
 # someone reaches for under time pressure. Half of it is meant to be copied and
 # half of it must not be.
 #
-# Reusable — this is rls-policy-template.md's "Roles" section, applied:
+# Reusable. This is rls-policy-template.md's "Roles" section, applied:
 #   - all three roles NOBYPASSRLS, all three with attribute defaults otherwise;
 #   - shortkit_app owns nothing and receives DML only through
 #     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator; shortkit_auth owns
-#     nothing and receives no default privilege at all — its DML is hand-written
+#     nothing and receives no default privilege at all: its DML is hand-written
 #     per table (ADR-0050);
 #   - USAGE on schema public and nothing more.
 #
@@ -73,8 +88,8 @@ services:
     healthcheck:
       # Executes a statement AS shortkit_app, over TCP, against shortkit_test
       # (F-127). All three halves are load-bearing, and `pg_isready` has none of
-      # them: it does not authenticate — its -U and -d only affect what the server
-      # logs — and with no -h it uses the unix socket. The postgres entrypoint runs
+      # them: it does not authenticate (its -U and -d only affect what the server
+      # logs), and with no -h it uses the unix socket. The postgres entrypoint runs
       # initdb, starts a TEMPORARY socket-only server, runs the init script, stops
       # it, then starts the real one. A `pg_isready` probe landing in that window
       # returns 0 and marks the container healthy, so `up -d --wait` returns and the
@@ -111,6 +126,35 @@ services:
       retries: 30
       start_period: 10s
 
+  # The cache the integration suite exercises (ADR-0012, docs/contracts/redirect-cache.md).
+  # Same shape as docker-compose.yml's, on its own port, and the fixture password is a
+  # fixture in the same sense as the three role passwords above: committed, printed by
+  # `docker compose config`, bound to 127.0.0.1, and pointed at a container that is
+  # destroyed with `down`. TEST-ONLY, like everything in this file (F-131).
+  #
+  # No tmpfs and no volume, unlike `postgres` above: Redis holds its dataset in memory,
+  # the image's default RDB snapshots land in the container's writable layer, and `down`
+  # takes both. Nothing here is worth keeping between runs.
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--requirepass', 'redis-fixture']
+    ports:
+      - '127.0.0.1:56380:6379'
+    healthcheck:
+      # Reads PONG off stdout rather than trusting the exit code: redis-cli exits 0 on a
+      # server ERROR reply, so an unauthenticated probe against a `--requirepass` server
+      # gets `NOAUTH Authentication required.` and would still report healthy. With the
+      # grep, this container is healthy only when the password in this file is the password
+      # the server has: the property ADR-0036 gives the Postgres probe over in the dev
+      # stack, and the one the probe above deliberately does NOT have.
+      test:
+        - 'CMD-SHELL'
+        - 'redis-cli --no-auth-warning -a redis-fixture ping | grep -q PONG'
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
 configs:
   # Inline rather than a mounted file: F-038 assigns TASK-005 `docker-compose.test.yml`
   # and nothing beside it, and the roles are only meaningful together with the
@@ -136,7 +180,7 @@ configs:
       \connect shortkit_test
 
       -- A default privilege for shortkit_auth would grant it DML on every table
-      -- the migrator creates, including every tenant-scoped one — the split cannot
+      -- the migrator creates, including every tenant-scoped one. The split cannot
       -- be expressed as a default privilege in either direction
       -- (rls-policy-template.md "Roles", ADR-0050). shortkit_auth's DML on the five
       -- Better Auth tables is hand-written per table in migration 0001 (TASK-002).

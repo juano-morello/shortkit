@@ -8,7 +8,7 @@ import { renderMail } from './templates/render-mail';
 import { renderWorkspaceInvitation, roleLabel } from './templates/workspace-invitation';
 
 /**
- * STORY-1b-01 — the rendered invitation (AC-1b-3's `data` shape). TASK-1b-02.
+ * STORY-1b-01: the rendered invitation (AC-1b-3's `data` shape). TASK-1b-02.
  *
  * Contract: `docs/contracts/mail-sender.md` (invariants 4 and 5; "Bodies are human-facing
  * prose and get a `stop-slop` pass"). ADR-0017, GC-K (the URL is in the body on purpose,

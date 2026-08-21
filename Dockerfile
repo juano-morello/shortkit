@@ -83,8 +83,8 @@ ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
 ENV NODE_ENV=production
 
 # Production dependencies only. That is what keeps `drizzle-kit` and the esbuild advisory
-# accepted in `docs/security/known-advisories.md` out of this image — the row's assessment
-# says so in as many words — and it is why migrations cannot run inside it (F-119).
+# accepted in `docs/security/known-advisories.md` out of this image (the row's assessment
+# says so in as many words), and it is why migrations cannot run inside it (F-119).
 #
 # So something outside this stage has to apply them, and it is the `migrator` stage above:
 # `docker-compose.yml` runs `migrate` and `seed` as one-shot services before `api` starts

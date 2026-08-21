@@ -1,5 +1,5 @@
 /**
- * TASK-1b-08 — `parseOrThrow`, lifted from `workspaces.controller.ts`.
+ * TASK-1b-08: `parseOrThrow`, lifted from `workspaces.controller.ts`.
  *
  * Contract: docs/contracts/error-envelope.md (branch 2: `validation_failed`, the message
  * constant, `details.fieldErrors`).

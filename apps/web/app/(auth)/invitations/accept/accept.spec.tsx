@@ -5,7 +5,7 @@
  * placed in `location.hash` the way the email link puts it there.
  *
  * The invariant this spec keeps (GC-K, D-03): the raw token appears in `location.hash` on
- * first paint and in exactly three request BODIES (lookup, accept, signup) — never in the
+ * first paint and in exactly three request BODIES (lookup, accept, signup): never in the
  * document URL after load, never in a fetch URL, never in an `href`, never in rendered text.
  *
  * Journeys (ruled 2026-08-18): a NEW address signs up here with the token; the API's hook
@@ -121,7 +121,7 @@ function arriveWithFragment(token: string = A_TOKEN): void {
   window.history.replaceState(null, '', `${INVITATION_ACCEPT_ROUTE}#token=${token}`);
 }
 
-/** The GC-K sweep: the token is in no URL, no href, no rendered text — only in the bodies named. */
+/** The GC-K sweep: the token is in no URL, no href, no rendered text: only in the bodies named. */
 function expectTokenNowhereButBodies(): void {
   expect(window.location.href).not.toContain(A_SECRET_HALF);
   expect(window.location.hash).toBe('');

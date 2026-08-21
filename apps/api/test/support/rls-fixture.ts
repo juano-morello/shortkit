@@ -8,7 +8,7 @@
  * Two decisions worth knowing before you change anything here.
  *
  * 1. The protected table's policies come from the production template,
- *    `tenantScopedPolicies()` in `src/db/rls.ts` — not from SQL written in this
+ *    `tenantScopedPolicies()` in `src/db/rls.ts`, not from SQL written in this
  *    file. If the fixture wrote its own policies it would be testing its own SQL:
  *    AC-10 in particular would then exercise no production code at all and would
  *    pass on an empty implementation.
@@ -17,7 +17,7 @@
  *    never depends on the `WITH CHECK` clause that AC-9 is asserting. A broken
  *    template fails a test, not the setup.
  *
- * ⚠ THE EDITS IN THIS FILE ARE sdlc-test-architect'S — `apps/api/test/support/**` is in
+ * ⚠ THE EDITS IN THIS FILE ARE sdlc-test-architect'S: `apps/api/test/support/**` is in
  * no TASK's paths and belongs to it under routing rule 0. What TASK-005 owes is the
  * artifacts the edits depend on, and nothing inside this file (F-077, F-100):
  *   - `docker-compose.test.yml`, which stands up a database already holding the
@@ -37,14 +37,14 @@
  * isolation on a table the fixture deliberately left unprotected.
  *
  * `tenants` now comes from `apps/api/drizzle/0000_*.sql` by way of `db:migrate`, with
- * the bespoke four-policy set that migration hand-appends — so this file writes NO
+ * the bespoke four-policy set that migration hand-appends, so this file writes NO
  * policy SQL for it, the same rule note 1 above states for the tenant-scoped table.
  * The fixture only seeds and erases rows, and it does both through the policies:
  *
  *   - seeding sets `app.tenant_id` to the row's own id, because `tenants_self_insert`
  *     admits exactly the tenant whose context the insert runs in (ADR-0021);
  *   - erasing sets `app.privileged_erase`, because `tenants_privileged_erase` is the
- *     only DELETE path the table has (F-005) — even for the owning role, since the
+ *     only DELETE path the table has (F-005), even for the owning role, since the
  *     migration also applies FORCE ROW LEVEL SECURITY.
  *
  * TWO CONSEQUENCES WORTH KNOWING.
@@ -57,7 +57,7 @@
  *
  * And schema `public` is no longer left holding an unprotected `tenants` after a run,
  * which is the state ci.yml's "ORDER IS LOAD-BEARING" note describes. That order is
- * still right — `db:check-policies` should run against the migrated database — but the
+ * still right (`db:check-policies` should run against the migrated database), but the
  * damage it was ordered around is gone.
  */
 import { TENANT_ID_COLUMN_SQL, tenantScopedPolicies } from '../../src/db/rls';
@@ -111,7 +111,7 @@ function dsn(variable: 'DATABASE_URL' | 'DATABASE_MIGRATION_URL'): string {
       `${variable} is not set. The integration suite needs a live Postgres: ` +
         'start it with `docker compose -f docker-compose.test.yml up -d` and export ' +
         'DATABASE_URL (shortkit_app), DATABASE_MIGRATION_URL (shortkit_migrator) and ' +
-        "DATABASE_AUTH_URL (shortkit_auth) — see that file's header for the exact " +
+        "DATABASE_AUTH_URL (shortkit_auth). See that file's header for the exact " +
         'export lines.',
     );
   }
@@ -134,7 +134,7 @@ export function migrationDsn(): string {
  * `BYPASSRLS` role is exempt from every policy, so a correct implementation and a
  * missing one look identical. ADR-0003 forbids both for `shortkit_app`.
  *
- * This is a fixture guard rather than a test — it protects the tests' premise. The
+ * This is a fixture guard rather than a test: it protects the tests' premise. The
  * production equivalent is `assertRuntimeRoleCannotBypassRls()`, a boot check that
  * TASK-005 owns and TASK-056 covers.
  */
@@ -171,14 +171,14 @@ const FIXTURE_TENANT_IDS = [TENANT_A, TENANT_B, TENANT_C_NEVER_SEEDED] as const;
 /**
  * `tenants_privileged_erase` is the only DELETE path on `tenants` (F-005), and FORCE
  * ROW LEVEL SECURITY subjects the owning role to it as well, so this is how the
- * fixture — running as `shortkit_migrator` — takes its own rows out again. The cascade
+ * fixture (running as `shortkit_migrator`) takes its own rows out again. The cascade
  * on `tenant_id` takes the tenant-scoped rows with them.
  *
  * ⚠ BOTH FLAGS, AND THE SECOND ONE IS NOT DECORATION. `app.tenant_id` is set here as
  * well as `app.privileged_erase`, because a `DELETE ... WHERE id = ...` REFERENCES A
  * COLUMN, and PostgreSQL applies the SELECT policies to any UPDATE or DELETE that does.
  * `tenants_privileged_erase` is `FOR DELETE` and, as rls-policy-template.md puts it,
- * "grants no read" — so with `app.tenant_id` unset the statement can see no row to
+ * "grants no read", so with `app.tenant_id` unset the statement can see no row to
  * delete and reports `DELETE 0` with no error at all. Measured, not reasoned:
  *
  *   DELETE ... WHERE tenant_id = A, app.privileged_erase only  -> DELETE 0
@@ -187,7 +187,7 @@ const FIXTURE_TENANT_IDS = [TENANT_A, TENANT_B, TENANT_C_NEVER_SEEDED] as const;
  *
  * Filed by TASK-006 against ADR-0019 and TASK-054: the eraser written the obvious way
  * erases nothing and reports success. Nothing in this fixture depends on which repair
- * is chosen — it sets both flags, which is the form that works with a WHERE clause.
+ * is chosen: it sets both flags, which is the form that works with a WHERE clause.
  */
 const eraseFixtureTenants = FIXTURE_TENANT_IDS.map(
   (id) =>
@@ -198,7 +198,7 @@ const eraseFixtureTenants = FIXTURE_TENANT_IDS.map(
 
 /**
  * `tenants_self_insert` admits exactly the tenant whose context the insert runs in, so
- * each row is written under its own id (ADR-0021). Two rows, two contexts — a single
+ * each row is written under its own id (ADR-0021). Two rows, two contexts: a single
  * INSERT ... VALUES with both would be refused, which is the policy working.
  */
 const seedFixtureTenants = [
@@ -217,7 +217,7 @@ let cachedAppRole: string | null = null;
 /**
  * The role `DATABASE_URL` connects as, read once. Memoised because the fixture is
  * rebuilt per test and per cross-tenant attempt, and every `psql` here is a process
- * spawn — or, with no client on PATH, a `docker run`.
+ * spawn, or, with no client on PATH, a `docker run`.
  */
 export function appRoleName(): string {
   if (cachedAppRole !== null) {
@@ -250,7 +250,7 @@ let tenantsChecked = false;
  * The fixture's premise since TASK-006: `tenants` is the MIGRATED table, carrying the
  * four policies `apps/api/drizzle/0000_*.sql` hand-appends. Seeding below sets
  * `app.tenant_id` and erasing sets `app.privileged_erase` because those policies are
- * what admit the statements — against an unmigrated or unprotected `tenants` both
+ * what admit the statements: against an unmigrated or unprotected `tenants` both
  * would still succeed, and every isolation assertion about `tenants` would pass
  * without proving anything.
  *
@@ -261,8 +261,8 @@ let tenantsChecked = false;
  * `.github/scripts/provision-test-database.sql` carries three `DO` blocks the Compose
  * file's inline `configs:` block does not. Two of them assert `rolbypassrls OR rolsuper`
  * over both roles, and `assertAppRoleCannotBypassRls()` above already recovers the
- * app-role half locally. The third — `pg_get_userbyid(datdba)`, migrator ownership of
- * `shortkit_test` — had NO local equivalent at all, and F-191 routed that gap here.
+ * app-role half locally. The third (`pg_get_userbyid(datdba)`, migrator ownership of
+ * `shortkit_test`) had NO local equivalent at all, and F-191 routed that gap here.
  *
  * This is that equivalent. The invariant is load-bearing for the two
  * `ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator` statements: they grant nothing
@@ -273,7 +273,7 @@ let tenantsChecked = false;
  * failure. Checked as part of this query rather than as its own, because every `psql`
  * here is a process spawn.
  *
- * It does not make the two provisioning files one artifact — they still have to change
+ * It does not make the two provisioning files one artifact: they still have to change
  * together, and each says so in its header. It makes the local side FAIL THE SAME WAY
  * when they diverge.
  */
@@ -331,8 +331,8 @@ export function assertTenantsIsMigrated(): void {
 }
 
 /**
- * Rebuilds the two-tenant fixture. Called per test — and by TASK-006's harness before
- * each cross-tenant attempt — so that a write which should have been refused, or a
+ * Rebuilds the two-tenant fixture. Called per test (and by TASK-006's harness before
+ * each cross-tenant attempt), so that a write which should have been refused, or a
  * transaction that should have rolled back, cannot carry into the next assertion.
  *
  * `tenants` is not dropped: it is the migrated table, and the two fixture rows are
@@ -366,7 +366,7 @@ export function createRlsFixture(): void {
 }
 
 /**
- * Takes the fixture back out. `tenants` survives — it is migrated, not fixture-owned —
+ * Takes the fixture back out. `tenants` survives (it is migrated, not fixture-owned)
  * so `db:check-policies` run after the suite still sees the protected table.
  */
 export function dropRlsFixture(): void {

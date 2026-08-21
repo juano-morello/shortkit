@@ -1,5 +1,5 @@
 /**
- * STORY-1b-01 — AC-1b-1, AC-1b-2 (the contract half); STORY-1b-05 — AC-1b-23, AC-1b-28
+ * STORY-1b-01: AC-1b-1, AC-1b-2 (the contract half); STORY-1b-05: AC-1b-23, AC-1b-28
  * (the shapes). TASK-1b-01.
  *
  * Contract: docs/contracts/workspace-authorization.md (wire rule), invitation-tokens.md

@@ -18,7 +18,7 @@ import {
 } from './mail-transport';
 
 /**
- * STORY-1b-01 — AC-1b-6. TASK-1b-02, wave 1.
+ * STORY-1b-01: AC-1b-6. TASK-1b-02, wave 1.
  *
  * Contract: `docs/contracts/mail-sender.md` ("The mail transport", "The boot assertion",
  * "Error strings", "What the implementer must guarantee"). ADR-0017 (F-386), ADR-0040 (the
@@ -27,8 +27,8 @@ import {
  * THE PREDICATE IS TESTED HERE; THE BOOT IS TESTED IN `test/mail/mail-transport-boot.int-spec.ts`.
  * The same split `boot-assertions.spec.ts` records for the auth bindings, for the same
  * reason: a predicate that reads an env record and returns does not need a child process,
- * and the one thing that does — that `main.ts` calls it, unconditionally, before it listens
- * — is a text scan at the bottom of this file, in the idiom `boot-assertions.spec.ts` and
+ * and the one thing that does (that `main.ts` calls it, unconditionally, before it listens)
+ * is a text scan at the bottom of this file, in the idiom `boot-assertions.spec.ts` and
  * `context-flag-owners.spec.ts` already use (importing `main.ts` boots the API).
  *
  * The scans at the end are the ones GC-B asks for: `MAIL_TRANSPORT` is read in exactly one
@@ -38,7 +38,7 @@ import {
 type Outcome = { readonly returned: unknown } | { readonly refusedWith: string; readonly binding: unknown };
 
 /**
- * A refusal is reported by its class and its `binding`, and by the exact message — the
+ * A refusal is reported by its class and its `binding`, and by the exact message: the
  * messages here are the contract's own five constants, exact by contract, so unlike the
  * auth bindings' prose they ARE part of the assertion. Anything that is not a
  * `MailBindingError` stringifies and fails the comparison loudly.
@@ -65,7 +65,7 @@ describe('resolveMailTransport', () => {
   });
 
   it.each([['Resend'], ['RESEND'], [' resend'], ['resend '], ['prod'], ['production'], ['true'], ['1'], ['noop'], ['smtp']])(
-    'mail-sender.md check 1: %j refuses rather than falling back to none — exact match, no trimming, no case folding',
+    'mail-sender.md check 1: %j refuses rather than falling back to none; exact match, no trimming, no case folding',
     (value) => {
       expect(outcomeOf(() => resolveMailTransport({ MAIL_TRANSPORT: value }))).toEqual(
         refused(MAIL_TRANSPORT_INVALID_MESSAGE),
@@ -124,7 +124,7 @@ describe('assertMailTransportConfigured', () => {
     ).toEqual([{ returned: undefined }, { returned: undefined }, { returned: undefined }, { returned: undefined }]);
   });
 
-  it('AC-1b-6: none — explicit or by absence — writes exactly one warn line carrying boot_precondition and no other field', () => {
+  it('AC-1b-6: none (explicit or by absence) writes exactly one warn line carrying boot_precondition and no other field', () => {
     const warn = vi.mocked(logger.warn);
 
     assertMailTransportConfigured({});
@@ -179,7 +179,7 @@ describe('readResendBinding', () => {
  * Comments and string literals stripped, so a docblock saying "never reads NODE_ENV" and
  * the contract's own refusal text ("It is not NODE_ENV and it is not a boolean", carried
  * verbatim as a constant) do not satisfy or fail the scan. What is left is code, and a read
- * is `process.env.X`, `env.X`, `env['X']` or a destructuring — the bare token is what is
+ * is `process.env.X`, `env.X`, `env['X']` or a destructuring: the bare token is what is
  * scanned for. The same stripper `boot-assertions.spec.ts` uses.
  */
 function codeOnly(source: string): string {
@@ -206,11 +206,11 @@ function shippedSources(): ReadonlyArray<{ readonly path: string; readonly code:
 describe('who reads the mail variables (GC-B, mail-sender.md "What the implementer must guarantee")', () => {
   it('MAIL_TRANSPORT is named in code by exactly mail/mail-transport.ts', () => {
     // The two functions the contract names both live there, and `resolveMailTransport` is
-    // the one read; every other module — the resend guard, the module factory, `main.ts` —
+    // the one read; every other module (the resend guard, the module factory, `main.ts`)
     // reaches the value through a call whose identifier does not contain the token.
     // A SUBSTRING match on purpose: `MAIL_TRANSPORT_ENV`, `MAIL_TRANSPORTS` and the message
     // constants all carry the token, and any of them imported into a second file is that
-    // file taking an interest in the variable — which is what this test is for.
+    // file taking an interest in the variable, which is what this test is for.
     const naming = shippedSources()
       .filter(({ code }) => code.includes('MAIL_TRANSPORT'))
       .map(({ path }) => path)
@@ -238,7 +238,7 @@ describe('who reads the mail variables (GC-B, mail-sender.md "What the implement
 
 describe('the call site in main.ts', () => {
   /**
-   * A TEXT SCAN, AND THE LOAD-BEARING TEST IN THIS FILE — for the reason
+   * A TEXT SCAN, AND THE LOAD-BEARING TEST IN THIS FILE, for the reason
    * `boot-assertions.spec.ts` gives: nothing above executes the boot path, and a perfect
    * predicate nobody calls is the shape F-116 found. It reads `main.ts` rather than
    * importing it because importing it runs `bootstrap()`.
@@ -256,7 +256,7 @@ describe('the call site in main.ts', () => {
     });
   });
 
-  it('mail-sender.md: the call is unconditional — not wrapped in an `if` on the same line', () => {
+  it('mail-sender.md: the call is unconditional, not wrapped in an `if` on the same line', () => {
     // The gating is inside the function. A caller that guards it on any variable would
     // reintroduce a way to skip check 1 in some environment.
     const line = code.split('\n').find((candidate) => candidate.includes('assertMailTransportConfigured('));

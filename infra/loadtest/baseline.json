@@ -1,0 +1,26 @@
+{
+  "measuredAt": "2026-08-19T21:18:07.759Z",
+  "machine": "juano, 13th Gen Intel(R) Core(TM) i9-13950HX, 32 logical CPUs, 30 GiB RAM, linux 7.0.0-29-generic",
+  "emissionMode": "deferred-batch",
+
+  "build": {
+    "commit": "3f24c9c0cc4a7178cef68288d6303b2f8232cd7b",
+    "workingTreeDigest": "c58cfc147dc7e0d8",
+    "evidence": "The dirty tree was TASK-2-09's click emission, which landed minutes later as 0a91ca959d138ae6f4c8e5e9e961d5e103db4400. Measuring without it would have recorded a number the shipped redirect cannot meet. Rebuilding the image from the committed tree reproduced the runtime stage's `COPY --from=build /repo/apps/api/dist` from cache, so the artifact under load is byte-identical to the one that commit builds; across every path the Dockerfile copies, the two trees differ by one character inside apps/api/src/clicks/click-event-buffer.spec.ts, which no bundle imports."
+  },
+
+  "rate": 500,
+  "environment": "local-compose",
+  "achievedRate": 500.017,
+  "p50": 0.327,
+  "p95": 1.847,
+  "p99": 2.85,
+  "targetP99": 6,
+  "targetP99Basis": "ceil(measured p99 2.850 ms x 2) = 6. Measured at 500 RPS for 60 s against the local docker compose stack on the machine above, NOT against a deployed instance with a managed cache: ADR-0030 chose no deploy target, so ADR-0018's layer 2 has nothing to run against. The server-side number includes the cache round trip, so a managed cache moves it materially. The ADR that supersedes ADR-0030 re-derives this from a layer-2 run before it is quoted as a promise. It is <= 25, so AC-62 holds either way. See docs/performance/redirect-baseline.md.",
+
+  "ciRate": 100,
+  "ciRunner": "ubuntu-latest",
+  "ciMeasuredP99": null,
+  "ciP99BudgetMs": 19,
+  "ciP99BudgetBasis": "PROVISIONAL. ciMeasuredP99 is null because the performance job has never run: no measurement from ubuntu-latest exists. Derived as ceil(worst of three local 100 RPS runs, 3.754 ms, x 5) = 19, where the x5 stands for a slower shared four-vCPU runner and is the only unmeasured figure in this baseline. THE FIRST GREEN performance JOB IS THE CALIBRATION: set ciMeasuredP99 to the median serverP99 it prints, set ciP99BudgetMs to ceil(worst of its three runs x 2), and record the run in docs/performance/redirect-baseline.md. A tripwire, never a latency commitment."
+}

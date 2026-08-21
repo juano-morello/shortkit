@@ -25,7 +25,7 @@ maxPasswordLength: options.emailAndPassword?.maxPasswordLength || 128
 Both are enforced server-side on `/sign-up/email`, `/change-password`, `/reset-password`
 and `/update-user`, before hashing, and each returns a 400 carrying
 `PASSWORD_TOO_SHORT` or `PASSWORD_TOO_LONG` (`api/routes/sign-up.mjs:152-161`). Those are
-Better Auth's own error codes, not `ErrorEnvelope` — the mount sits outside the Nest graph,
+Better Auth's own error codes, not `ErrorEnvelope`: the mount sits outside the Nest graph,
 so nothing in `apps/api` maps them, and TASK-008 maps them at the web client boundary.
 
 So the real question is not whether there is a policy but whether the repository states the
@@ -105,7 +105,7 @@ for an unset value to bind to.
   (ADR-0030), not because the floor is adequate.
 - Two enforcement points that must agree: a zod `.min()` in the contract and Better Auth's
   own check. They are fed from one constant, so they cannot disagree about the number, but
-  they disagree about the error shape — the contract produces a `validation_failed`
+  they disagree about the error shape: the contract produces a `validation_failed`
   `ErrorEnvelope` with `fieldErrors`, and Better Auth produces
   `{ code: 'PASSWORD_TOO_SHORT' }`. A user who defeats the client check sees a different
   error body than one who does not, and TASK-008 is what makes the second one legible.
@@ -121,7 +121,7 @@ for an unset value to bind to.
 
 - The first real deployment with accounts that are not developers'. ADR-0030 says there is
   none today.
-- The `haveibeenpwned` plugin, or any breached-password check, becoming affordable — which
+- The `haveibeenpwned` plugin, or any breached-password check, becoming affordable, which
   means an initiative that already accepts outbound network I/O on a credential path and can
   decide what happens when it fails.
 

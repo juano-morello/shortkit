@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LINGER_MAX_BYTES, authBodyCap } from './auth-body-cap';
 
 /**
- * STORY-001 — AC-7's mechanism, one layer under the wire. TASK-004, wave 3.
+ * STORY-001: AC-7's mechanism, one layer under the wire. TASK-004, wave 3.
  *
  * Contract: `docs/contracts/rate-limit.md` ("A body cap, `authBodyCap`, sits ahead of the
  * Express limiter at 32 KiB", invariant 8). ADR-0013 ("`authBodyCap` does not parse").
@@ -18,11 +18,11 @@ import { LINGER_MAX_BYTES, authBodyCap } from './auth-body-cap';
  * is asserted HERE is the middleware's own three behaviours, on a bare Express app with a
  * probe handler behind it, because two of them are invisible from outside:
  *
- *   1. `Content-Length` over the cap answers 413 and the handler behind never runs — after
+ *   1. `Content-Length` over the cap answers 413 and the handler behind never runs, after
  *      draining a moderate overflow so the status survives, and at once above
  *      `LINGER_MAX_BYTES`;
  *   2. a body that is not over the cap reaches the handler INTACT, with the stream neither
- *      consumed nor switched to flowing mode — which is the whole reason `bodyParser: false`
+ *      consumed nor switched to flowing mode, which is the whole reason `bodyParser: false`
  *      exists and the property Better Auth's `toNodeHandler` depends on;
  *   3. a chunked body with no `Content-Length` is counted as it passes and the socket is
  *      destroyed once the cap is crossed, with no response body.
@@ -33,7 +33,7 @@ import { LINGER_MAX_BYTES, authBodyCap } from './auth-body-cap';
  *
  * A middleware that read the body to count it and then called `next()` would answer 200
  * here and hand Better Auth an ended stream, and `better-call`'s `getRequest` would then
- * build a `Request` with no body — the symptom ADR-0013 warns is `undefined` rather than an
+ * build a `Request` with no body: the symptom ADR-0013 warns is `undefined` rather than an
  * error. So the probe reports the bytes it received AND whether the stream was already
  * flowing or listened to when it got there, and both are in the assertion.
  */
@@ -197,7 +197,7 @@ describe('authBodyCap', () => {
 
   it('passes a body of exactly the cap through intact, without consuming or flowing the stream', async () => {
     // `>` and not `>=`: AC-7 says "greater than 32768", so the boundary is admitted. And the
-    // handler must see a stream nobody has touched — `readableFlowing === null` is Node's
+    // handler must see a stream nobody has touched: `readableFlowing === null` is Node's
     // "no mechanism for consuming has been attached", and zero `data` listeners is the same
     // statement from the other side.
     observed = undefined;

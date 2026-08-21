@@ -1,5 +1,5 @@
 /**
- * TASK-1b-04 — InvitationRepository, the parts decidable without a database.
+ * TASK-1b-04: InvitationRepository, the parts decidable without a database.
  *
  * Contract: docs/contracts/invitation-tokens.md, tenant-context.md invariant 4,
  * isolation-coverage.md ("qualification is derived from the statement"). The same three
@@ -8,8 +8,8 @@
  *   1. the class carries `TENANT_SCOPED_REPOSITORY_METADATA`;
  *   2. every method throws `TenantContextMissingError` outside a tenant context (the real
  *      accessor, not a stub);
- *   3. every statement it compiles is owner-qualified — `tenant_id` in every WHERE, set on
- *      every INSERT — asserted over the SQL a real drizzle instance hands the driver;
+ *   3. every statement it compiles is owner-qualified (`tenant_id` in every WHERE, set on
+ *      every INSERT) asserted over the SQL a real drizzle instance hands the driver;
  *
  * plus this class's own promises: no statement ever projects `token_digest`; no returned
  * row carries a digest; a malformed id reaches no statement; revoke's state rules.

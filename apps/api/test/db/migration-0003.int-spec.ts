@@ -1,5 +1,5 @@
 /**
- * STORY-1b-06 — AC-1b-30's substrate: the three tables migration 0003 creates are
+ * STORY-1b-06, AC-1b-30's substrate: the three tables migration 0003 creates are
  * protected the way the template says, and the migration file holds the builder's output.
  *
  * Produced by: TASK-1b-03.
@@ -7,7 +7,7 @@
  *           workspace-authorization.md; ADR-0062.
  *
  * Integration only, by ADR-0001: row-level security cannot be faked, and every catalogue
- * assertion here reads the MIGRATED tables — `memberships`, `invitations`,
+ * assertion here reads the MIGRATED tables: `memberships`, `invitations`,
  * `invitation_workspaces`, created by `apps/api/drizzle/0003_*.sql` with the three
  * hand-appended `tenantScopedPolicies()` blocks. `pnpm db:check-policies` asserts the same
  * protection over EVERY table in the schema; this file asserts it for the three this TASK
@@ -145,7 +145,7 @@ describe('migration 0003: the three 1b tables and their policy blocks (AC-1b-30,
     );
     expect(migration).not.toMatch(/CREATE POLICY workspaces_/);
     expect(migration).not.toMatch(/ALTER TABLE workspaces (ENABLE|FORCE)/);
-    // And the constraint precedes both composite foreign keys that reference it — the
+    // And the constraint precedes both composite foreign keys that reference it: the
     // hand reordering the migration file explains. PostgreSQL refuses a FOREIGN KEY whose
     // referenced columns are not yet unique, so the generator's order would not apply.
     const unique = migration.indexOf('"workspaces_id_tenant_unique"');
@@ -320,7 +320,7 @@ describe('ADR-0062: the composite foreign key refuses a grant naming another ten
   });
 
   // Tenants A and B re-seeded (cascading every workspace and membership away), then one
-  // workspace per tenant and one "user" row — through the migrator, because shortkit_app
+  // workspace per tenant and one "user" row, through the migrator, because shortkit_app
   // holds no privilege on "user" (ADR-0050) and the workspace inserts have to satisfy each
   // tenant's own WITH CHECK.
   beforeEach(() => {
@@ -385,8 +385,8 @@ describe('ADR-0062: the composite foreign key refuses a grant naming another ten
   });
 
   it('a membership carrying tenant A\'s tenant_id and tenant B\'s workspace_id is refused by the composite foreign key, not by a policy', async () => {
-    // The row satisfies `memberships_tenant_isolation`'s WITH CHECK — its tenant_id IS
-    // the context's — so a plain FK to workspaces(id) would have admitted it: the
+    // The row satisfies `memberships_tenant_isolation`'s WITH CHECK (its tenant_id IS
+    // the context's) so a plain FK to workspaces(id) would have admitted it: the
     // referential check bypasses row security and finds B's workspace. The composite key
     // looks for (B's workspace, A's tenant) in workspaces and finds nothing. 23503, and the
     // constraint is named.

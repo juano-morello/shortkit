@@ -10,7 +10,7 @@ accepted_at: 2026-08-11
 
 ## Context
 
-AC-116 reads "no module constructs `Logger` from `@nestjs/common` **or any other logger** — and
+AC-116 reads "no module constructs `Logger` from `@nestjs/common` **or any other logger**, and
 a lint rule fails the build if one does". TASK-060 shipped that as a per-package name
 enumeration: `Logger` and `ConsoleLogger` from `@nestjs/common`, value imports of `pino`,
 `console.*`, and dynamic `import()`/`require()` of the first two in the enumeration spec. All
@@ -41,7 +41,7 @@ repository. The clause is met today. This is a decision about the durable form.
 What makes it worth a decision rather than a patch is that the rule's own comment already makes
 the argument one level up. It justifies adding `ConsoleLogger` on the grounds that "listing
 `Logger` alone is the enumeration weakness ADR-0028 rejected for the redact list, one package
-export over" — and then leaves the identical weakness one package subpath over, and one package
+export over", and then leaves the identical weakness one package subpath over, and one package
 over. ADR-0028 spent a migration replacing a 25-path denylist with an allowlist for exactly this
 reason. Answering "why did the list stop where it stopped" with "those are the ones we thought
 of" is what that migration was about.

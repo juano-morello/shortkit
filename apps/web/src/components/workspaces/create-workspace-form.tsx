@@ -35,7 +35,7 @@ export interface CreateWorkspaceFormProps {
   /** Called once per created workspace, after the API answered 201 with a body the contract accepts. */
   onCreated: (workspace: Workspace) => void | Promise<void>;
   /**
-   * Called for the failures this form cannot render itself — today only `unauthenticated`,
+   * Called for the failures this form cannot render itself: today only `unauthenticated`,
    * which the list turns into a navigation. Everything else is shown here.
    */
   onFailure: (failure: WorkspaceFailure) => void;

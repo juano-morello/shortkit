@@ -20,8 +20,8 @@
  *
  * TASK-004's three assertions are at the bottom of this file. None of them imports
  * `auth.config.ts` either; `assertAuthRoleSeparation` reaches both pools through
- * `db/client.ts` — `databaseTransaction` for the application role and
- * `withAuthRoleIntrospection` for the auth role — and never names the adapter handle.
+ * `db/client.ts` (`databaseTransaction` for the application role and
+ * `withAuthRoleIntrospection` for the auth role), and never names the adapter handle.
  *
  * NONE OF THESE READS `NODE_ENV`. That is GC-B, and it is the rule better-auth's own
  * `validateSecret` and its cookie-secure fallback both break inside `node_modules`, where
@@ -79,7 +79,7 @@ export const SESSION_LIFETIME_SECONDS = 604_800;
  * whichever path fired. THE ASSERTIONS FIRE FIRST, since wave 3 (F-210): `main.ts` reaches
  * `auth.config.ts` through a dynamic import inside `bootstrap()`, after
  * `assertBootPreconditions()`, so a module-scope accessor never gets the chance to throw
- * outside `bootstrap().catch` — a static import would have made it win the race and turned
+ * outside `bootstrap().catch`: a static import would have made it win the race and turned
  * the labelled refusal into a raw stack (ADR-0058).
  *
  * NEVER CARRIES A VALUE, A PREFIX OF ONE, OR A LENGTH. It names the rule that was broken.
@@ -122,7 +122,7 @@ export class AuthBindingError extends Error {
  */
 const SECRET_UNSET =
   'BETTER_AUTH_SECRET is not set. It signs every JWT this API mints, and better-auth ' +
-  'falls back to a constant published on npm when it is absent — one jwks row plus that ' +
+  'falls back to a constant published on npm when it is absent: one jwks row plus that ' +
   'constant forges any tid claim in the product. Generate at least ' +
   `${String(BETTER_AUTH_SECRET_MIN_LENGTH)} characters and export it. ` +
   'See .env.example at the repository root, which carries the generation command, and ' +
@@ -207,7 +207,7 @@ const LOOPBACK_IPV6 = '[::1]';
 /**
  * The two wildcard metacharacters `trusted-origins.mjs:18` enters wildcard mode on. BOTH:
  * `?` matches a single character, so `https://app.example.co?` trusts
- * `https://app.example.com` — measured.
+ * `https://app.example.com`. Measured.
  */
 const WILDCARD_METACHARACTERS = /[*?]/;
 
@@ -232,7 +232,7 @@ export function betterAuthSecret(): string {
 /**
  * The declared BETTER_AUTH_URL binding: the origin this API issues and verifies tokens for.
  *
- * Returns `new URL(value).origin`, so a trailing slash is normalised rather than refused —
+ * Returns `new URL(value).origin`, so a trailing slash is normalised rather than refused:
  * `iss`, `aud` and every trusted-origin comparison are string equalities against this
  * value, and an unnormalised `http://localhost:3001/` would make the API's own origin fail
  * its own origin check.
@@ -286,7 +286,7 @@ export function assertWebAppOriginsConfigured(env: NodeJS.ProcessEnv): void {
  * THROWS on unset, on empty, under the floor, and on the published constant. Never returns
  * `undefined` and never returns `''`: `options.secret` is the FIRST OPERAND OF A `||` CHAIN,
  * not an override (`create-context.mjs:70`), so a falsy return falls straight through to
- * `env.BETTER_AUTH_SECRET`, then `env.AUTH_SECRET`, then the published constant — which is
+ * `env.BETTER_AUTH_SECRET`, then `env.AUTH_SECRET`, then the published constant, which is
  * the symmetric key for `jwks.privateKey`.
  */
 function acceptedSecret(value: string | undefined): string {
@@ -346,10 +346,10 @@ function acceptedOrigins(value: string | undefined): readonly string[] {
 /**
  * One entry of `WEB_APP_ORIGINS`.
  *
- * A wildcard entry cannot be parsed as a URL — `matchesOriginPattern`
+ * A wildcard entry cannot be parsed as a URL: `matchesOriginPattern`
  * (`trusted-origins.mjs:18-23`) treats a pattern carrying a metacharacter and no `://` as a
  * wildcard over the HOST, so a bare `*` trusts every origin on the internet with no error
- * anywhere — and is returned verbatim once it clears the shape check and both host rules.
+ * anywhere, and is returned verbatim once it clears the shape check and both host rules.
  * Everything else is an ordinary origin and is normalised the way `BETTER_AUTH_URL` is.
  *
  * ============================================================================
@@ -359,8 +359,8 @@ function acceptedOrigins(value: string | undefined): readonly string[] {
  * It used to check the host labels and nothing else, so every refusal the plain branch
  * applies was skipped for any entry containing a metacharacter. The cost is not symmetry:
  * `matchesOriginPattern` evaluates the pattern against `getOrigin(url)`, WHICH NEVER
- * CARRIES A TRAILING SLASH, so `https://shortkit-*.vercel.app/` — the documented preview
- * form as an address bar writes it — booted green and then matched nothing, and every
+ * CARRIES A TRAILING SLASH, so `https://shortkit-*.vercel.app/` (the documented preview
+ * form as an address bar writes it) booted green and then matched nothing, and every
  * preview `POST /api/auth/*` answered `403 INVALID_ORIGIN` with the assertion whose job is
  * to catch bad entries having said nothing. The cheapest remedy from that symptom is a
  * broader wildcard, which is the value this whole predicate exists to refuse.
@@ -425,7 +425,7 @@ function assertWildcardHostIsBounded(entry: string): void {
     throw new AuthBindingError(
       'web_app_origins',
       `WEB_APP_ORIGINS entry ${JSON.stringify(entry)} has a host label that is entirely ` +
-        'wildcard, so it trusts every host at that position — https://*.vercel.app trusts ' +
+        'wildcard, so it trusts every host at that position: https://*.vercel.app trusts ' +
         'every application on the platform. Put the wildcard inside a label, as in ' +
         'https://shortkit-*.vercel.app. See ADR-0059.',
     );
@@ -453,14 +453,14 @@ function assertWildcardHostIsBounded(entry: string): void {
  *
  * The structural check is case-INSENSITIVE and the case check is its own. One combined
  * rule refused `https://Shortkit-*.vercel.app` with a message listing a scheme, a host, a
- * port and the absence of a path — every one of which that entry satisfies — while saying
+ * port and the absence of a path (every one of which that entry satisfies) while saying
  * nothing about the only clause it broke. An operator reads four satisfied rules and
  * concludes the assertion is broken, and the cheapest way past an assertion you believe is
  * broken is a wildcard broad enough to stop failing, which is the pressure F-181 and F-203
  * both exist to keep off this value.
  *
  * Lower case is required rather than normalised, because `matchesOriginPattern` compares
- * the pattern against `getOrigin(url)`, which is lower-cased — an upper-case pattern is an
+ * the pattern against `getOrigin(url)`, which is lower-cased: an upper-case pattern is an
  * entry that can never match, which is the failure this whole check exists to turn into a
  * refusal. Silently rewriting an operator's entry is the other option and is worse: the
  * value in force would not be the value they wrote.
@@ -471,7 +471,7 @@ function assertWildcardOriginShape(entry: string): void {
       'web_app_origins',
       `WEB_APP_ORIGINS entry ${JSON.stringify(entry)} is not an absolute origin with a ` +
         'wildcard inside its host. Write an http:// or https:// scheme, a host, and at ' +
-        'most a numeric port — no path, query, fragment or trailing slash, because ' +
+        'most a numeric port: no path, query, fragment or trailing slash, because ' +
         'better-auth matches the pattern against an origin that never carries one, so such ' +
         'an entry boots green and then matches nothing. As in ' +
         'https://shortkit-*.vercel.app. See ADR-0059.',
@@ -501,7 +501,7 @@ function isEntirelyWildcard(label: string): boolean {
  * The host part of a wildcard entry, which no URL parser will take.
  *
  * Only ever called after `assertWildcardOriginShape`, so the scheme is present and there is
- * no path to cut at — everything after `://` and before an optional `:port` is the host.
+ * no path to cut at: everything after `://` and before an optional `:port` is the host.
  */
 function wildcardHost(entry: string): string {
   const afterScheme = entry.slice(entry.indexOf('://') + '://'.length);
@@ -525,7 +525,7 @@ function isLoopbackHost(hostname: string): boolean {
  *
  * `Dockerfile:83` is `ENV NODE_ENV=production` in the image `docker compose` runs, and the
  * compose `api` service declares no header and no secret. A `NODE_ENV` gate on either
- * assertion refuses to boot `api` on a developer's laptop the day it lands — which is the
+ * assertion refuses to boot `api` on a developer's laptop the day it lands, which is the
  * single most repeated trap in this repository's history, ruled on twice (F-380, F-385).
  *
  * So each keys on its own declared variable, and each has the same two-part shape:
@@ -540,7 +540,7 @@ function isLoopbackHost(hostname: string): boolean {
  * WHAT NEITHER CAN CHECK, stated once for both: that a declared header is actually stripped
  * by the hop in front, or that the secret matches the BFF's copy. And an operator who
  * declares NEITHER variable in a real deployment boots cleanly with no IP-keyed limit and no
- * complaint — `trusted_client_ip_unresolved_total` and `bff_proxy_auth_mismatch_total` are
+ * complaint: `trusted_client_ip_unresolved_total` and `bff_proxy_auth_mismatch_total` are
  * what make that state observable rather than silent, and ADR-0040 records the counter as
  * the price of not letting a build flag decide a trust question.
  *
@@ -551,7 +551,7 @@ function isLoopbackHost(hostname: string): boolean {
 /**
  * `CLIENT_TRUST_BOUNDARY = proxy | direct`, unset read as `direct`. Under `proxy`,
  * `TRUSTED_CLIENT_IP_HEADER` must be set, a lowercase header name, and not `x-forwarded-for`
- * or `forwarded` — the two are defined to be appended to rather than replaced, so no hop can
+ * or `forwarded`: the two are defined to be appended to rather than replaced, so no hop can
  * strip-and-set them, and declaring either reintroduces F-009 through the front door.
  *
  * The boundary governs whether FORGETTING the header is an error. It never governs what is
@@ -599,7 +599,7 @@ export function assertTrustedClientIpHeaderConfigured(env: NodeJS.ProcessEnv): v
  * terminates connections and strips a header; this one says our own frontend forwards an
  * address it authenticates with a shared secret. An API reachable at its own origin behind a
  * Vercel BFF is `direct` there and `bff` here, and it is the deployment where the secret is
- * the ONLY source of a rate-limit principal — gating on `proxy` would fall silent exactly
+ * the ONLY source of a rate-limit principal: gating on `proxy` would fall silent exactly
  * there (ADR-0040, "The sibling assertion declares its own boundary").
  *
  * The boundary does not affect the read: `resolveRateLimitPrincipal`'s rule 1 already
@@ -650,7 +650,7 @@ function declaredBoundary<T extends ClientTrustBoundary | BffTrustBoundary>(
  *
  * ADR-0050 splits Better Auth's five tables onto `shortkit_auth` and revokes `shortkit_app`
  * on all five, because a SQL defect anywhere in `apps/api` running as `shortkit_app` could
- * otherwise `INSERT` a session row with a chosen token for another tenant's user — measured,
+ * otherwise `INSERT` a session row with a chosen token for another tenant's user: measured,
  * account takeover rather than disclosure. This proves the negative that split rests on,
  * both ways, at boot, and refuses to serve when it does not hold.
  *
@@ -664,9 +664,9 @@ function declaredBoundary<T extends ClientTrustBoundary | BffTrustBoundary>(
  *      table-level call `false` while `SELECT email` returns the row. Its list is the THREE
  *      column-grantable privileges and no more: `DELETE` raises `unrecognized privilege type`
  *      rather than returning false.
- *   3. THE WHOLE EXEMPT LIST, BOTH DIRECTIONS. All five as `shortkit_app` — `account` holds
+ *   3. THE WHOLE EXEMPT LIST, BOTH DIRECTIONS. All five as `shortkit_app` (`account` holds
  *      the password hashes and `jwks` the signing key, and both were unchecked in the first
- *      draft — and every OTHER table in `public` as `shortkit_auth`. The tenant-scoped set is
+ *      draft), and every OTHER table in `public` as `shortkit_auth`. The tenant-scoped set is
  *      derived from the catalogue as "everything in `public` that is not one of the five",
  *      the way `scripts/check-policies.mts`'s grant matrix derives it, so a table added later
  *      is covered without anyone editing a list here.
@@ -674,7 +674,7 @@ function declaredBoundary<T extends ClientTrustBoundary | BffTrustBoundary>(
  *      `has_table_privilege` on an absent table raises `42P01`, which `main.ts` cannot tell
  *      from a driver error; a table that does not exist contributes no row here instead. The
  *      exempt direction then additionally requires all five to be PRESENT and reports
- *      "migrations have not run" when they are not — a different verdict from "privileges
+ *      "migrations have not run" when they are not: a different verdict from "privileges
  *      are wrong", because the two call for opposite responses (F-245's rule one level down).
  *
  * Plus the auth role's three attributes, read in the same round trip as its direction:
@@ -761,7 +761,7 @@ export async function assertAuthRoleSeparation(): Promise<void> {
     );
   }
 
-  // Direction one: as the application role, none of the five is reachable — and all five
+  // Direction one: as the application role, none of the five is reachable, and all five
   // exist. Its attributes were already asserted by `assertRuntimeRoleCannotBypassRls`.
   const application = await databaseTransaction(async (tx) => privilegeAudit(tx, 'in'));
 
@@ -789,8 +789,8 @@ export async function assertAuthRoleSeparation(): Promise<void> {
 }
 
 /**
- * ONE catalogue query for one direction: `current_user`'s three role attributes — the same
- * three `db/rls.ts` reads, so the auth role is held to the application role's posture — and
+ * ONE catalogue query for one direction: `current_user`'s three role attributes: the same
+ * three `db/rls.ts` reads, so the auth role is held to the application role's posture, and
  * every table in `public` whose name is `in` (or `not in`) the five, with whether the role
  * holds ANY privilege on it: table-level over the whole set, OR column-level over the three
  * column-grantable ones.

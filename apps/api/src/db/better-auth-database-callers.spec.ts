@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * STORY-001 — TASK-003, wave 2. No AC states this; ADR-0056 does, and F-108 pulled it here.
+ * STORY-001: TASK-003, wave 2. No AC states this; ADR-0056 does, and F-108 pulled it here.
  *
  * Contract: `docs/contracts/auth-config-surface.md` invariant 11 (four scans and their
  * directions; the fifth is F-207's and is not in the contract yet). ADR-0056, which amends
@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
  * any transaction, with no context flag. Measured as that role against the migrated schema,
  * `relrowsecurity` is FALSE on all five Better Auth tables, so the holder reads plaintext
  * `session.token` and the `account` password hashes, INSERTS a session row for any user id
- * with an attacker-chosen token, rewrites any password hash, and reads `jwks.private_key` —
+ * with an attacker-chosen token, rewrites any password hash, and reads `jwks.private_key`,
  * with `process.env.BETTER_AUTH_SECRET` in the same process to decrypt it with. A security
  * auditor did the read half from a bare script. That is account takeover, not disclosure.
  *
@@ -49,7 +49,7 @@ import { describe, expect, it } from 'vitest';
  *
  * **Scan 5 closes the second route, which is the EXISTING pool rather than a new one.** The
  * exported `auth` carries the adapter built on `betterAuthDatabase()`, so a module that
- * imports it holds the role with none of scans 1-4's spellings in its own text — measured,
+ * imports it holds the role with none of scans 1-4's spellings in its own text: measured,
  * with all four green. Do not read five greps as five times the coverage.
  *
  * ============================================================================
@@ -59,8 +59,8 @@ import { describe, expect, it } from 'vitest';
  * ADR-0056's list, and one this spec adds:
  *
  *   - **a runtime-built string, and it defeats FOUR of the five, not two.** ADR-0056 lists
- *     it against the env key alone — `process.env['DATABASE_' + 'AUTH_URL']`, beating 2 and
- *     3 — but scans 4 and 5 match a QUOTED LITERAL in the same way, so
+ *     it against the env key alone (`process.env['DATABASE_' + 'AUTH_URL']`, beating 2 and
+ *     3), but scans 4 and 5 match a QUOTED LITERAL in the same way, so
  *     `await import('./auth' + '.config')` and `require(DRIVER)` beat those two for exactly
  *     the same reason (F-217). A gap list complete for one scan reads as complete for all,
  *     which is why this bullet now names all four;
@@ -70,7 +70,7 @@ import { describe, expect, it } from 'vitest';
  *   - anything at all outside `apps/api/src` (ADR-0042's boundary; `test/**` and
  *     `scripts/**` are where the auditor's original bare script lived);
  *   - **a side-effect import, `import './auth.config';`, which scan 5 does not match.**
- *     Measured. It is not a bypass — it binds no name, so it reaches no adapter — but it is
+ *     Measured. It is not a bypass (it binds no name, so it reaches no adapter), but it is
  *     the one spelling of an import this pattern misses, and a later reader should know that
  *     rather than rediscover it.
  *
@@ -86,7 +86,7 @@ import { describe, expect, it } from 'vitest';
  * `auth/boot-assertions.ts` are pre-authorised for wave 3, where TASK-004 puts
  * `AUTH_VERDICT_PREFIX = 'DATABASE_AUTH_URL connect'` in the first and a refusal message
  * naming the variable in the second. Neither contains the string today, so an equality would
- * be RED ON THE DAY THIS LANDS — and the cheapest way to green a red equality is to trim the
+ * be RED ON THE DAY THIS LANDS, and the cheapest way to green a red equality is to trim the
  * permitted set, which deletes the pre-authorisation and brings the collision back in wave 3
  * with nobody remembering why the entries were there. Subset costs only the removal
  * direction, which cannot reach the auth role and which scan 3's equality catches anyway.
@@ -103,7 +103,7 @@ import { describe, expect, it } from 'vitest';
  * ============================================================================
  *
  * Text and not an AST walk: the idiom is `db/context-flag-owners.spec.ts`'s, an AST rewrite
- * of it has been ruled against twice, and the reasoning carries — a commented-out call is one
+ * of it has been ruled against twice, and the reasoning carries: a commented-out call is one
  * uncomment away from being real, and the permitted files carry the identifier in their own
  * header comments and match harmlessly because they are the permitted ones.
  *
@@ -165,7 +165,7 @@ const DATABASE_AUTH_URL_USED =
   /process\s*\.\s*env\s*(?:\.\s*DATABASE_AUTH_URL\b|\[\s*(['"`])DATABASE_AUTH_URL\1\s*\])/;
 
 /**
- * Scan 4. THE MODULE SPECIFIER, in an import, a `require` or a dynamic `import` position —
+ * Scan 4. THE MODULE SPECIFIER, in an import, a `require` or a dynamic `import` position,
  * never a bare quoted `'pg'`, which is `auth.config.ts`'s own MANDATED `provider: 'pg'`
  * (F-191). `import type` is matched too: it also carries the specifier, and the scan bounds
  * the file set rather than the runtime edge.
@@ -177,7 +177,7 @@ const POSTGRES_DRIVER_IMPORT =
  * Scan 5. THE COMPOSED INSTANCE IS A SECOND HANDLE ON THE SAME ROLE (F-207).
  *
  * `(await auth.$context).adapter` reads plaintext `session.token`, the `account` password
- * hashes and `jwks.private_key`, and writes a session row for any user id — measured by the
+ * hashes and `jwks.private_key`, and writes a session row for any user id: measured by the
  * wave-2 security pass **with all four scans above green**. A module that imports `auth`
  * reaches every one of those without any of scans 1-4's spellings appearing in its own text,
  * because the pool was constructed in `auth.config.ts` and handed over as an object.
@@ -211,7 +211,7 @@ describe('who may reach the shortkit_auth role', () => {
   it('ADR-0056 scan 2 (subset): every file naming DATABASE_AUTH_URL is on the permitted list', () => {
     // Subset, and the direction it keeps is the one carrying the security claim: every
     // ADDITION still fails. `main.ts` and `auth/boot-assertions.ts` are here before they
-    // contain the string, because TASK-004 puts it in both in wave 3 — THEY MAY NAME THE
+    // contain the string, because TASK-004 puts it in both in wave 3: THEY MAY NAME THE
     // VARIABLE AND MUST NOT CONNECT WITH IT, and scan 3 is what enforces the second half.
     const permitted = new Set([BOOT_ASSERTIONS, CLIENT, MAIN]);
 
@@ -225,7 +225,7 @@ describe('who may reach the shortkit_auth role', () => {
     // THE LOAD-BEARING ONE. IF ANY OF THE FOUR IS EVER DROPPED, IT IS NOT THIS.
     // ============================================================================
     //
-    // The identifier is not the capability. Reaching the role needs no identifier at all —
+    // The identifier is not the capability. Reaching the role needs no identifier at all:
     // the DSN is in the process environment, so one `new pg.Pool({ connectionString:
     // process.env.DATABASE_AUTH_URL })` anywhere under `apps/api/src` holds `shortkit_auth`
     // and scan 1 passes. One measured fact bounds the evasion surface: `docker-compose.yml`
@@ -253,18 +253,18 @@ describe('who may reach the shortkit_auth role', () => {
     // ============================================================================
     //
     // `main.ts` mounts the instance in wave 3 through
-    // `const { auth } = await import('./auth/auth.config')` — which its own F-210 docblock
+    // `const { auth } = await import('./auth/auth.config')`, which its own F-210 docblock
     // already spells out and which must stay a DYNAMIC import inside `bootstrap()`, or the
     // accessors throw during module evaluation and no boot assertion runs. It is permitted
     // before it imports anything, so an equality would be red the day this lands, and
-    // F-186's trap is that the cheapest green is to trim the permitted set — which deletes
+    // F-186's trap is that the cheapest green is to trim the permitted set, which deletes
     // the bound.
     //
     // ⚠ `auth.module.ts` IS NOT PERMITTED, AND ITS ABSENCE IS THE POINT (F-212). It was in
     // this set for one round, on the guess that TASK-005's guard would live there. THE CODE
     // FORBIDS IT: `auth/auth.module.ts:21-24` says "IT DELIBERATELY IMPORTS NOTHING FROM
     // `auth.config.ts`", because that module evaluates `betterAuth({ secret:
-    // betterAuthSecret(), baseURL: betterAuthUrl(), … })` at module scope — so importing it
+    // betterAuthSecret(), baseURL: betterAuthUrl(), … })` at module scope, so importing it
     // from a Nest module makes EVERY `AppModule` compile require the auth bindings,
     // including the unit tier's, which has none. A permitted set that admits what the file
     // it names refuses is worse than one that admits too little: a wave-3 implementer reads
@@ -274,8 +274,8 @@ describe('who may reach the shortkit_auth role', () => {
     // ⚠ THIS MATCHES EXACTLY ONE FILE ON THE TREE TODAY AND THAT MATCH IS A COMMENT.
     // Verified: `main.ts:138` is prose quoting the import TASK-004 must write, and NO FILE
     // UNDER `apps/api/src` IMPORTS `auth.config.ts` at all. So this scan bounds a capability
-    // nobody has taken yet, and a reword of that one comment would leave it matching nothing
-    // — which a `filter(...).toEqual([])` passes over silently. That is why its positive
+    // nobody has taken yet, and a reword of that one comment would leave it matching nothing,
+    // which a `filter(...).toEqual([])` passes over silently. That is why its positive
     // control below is planted text and not a file on the tree: the control proves the
     // PATTERN works, and cannot be defeated by editing prose.
     const permitted = new Set([MAIN]);
@@ -289,12 +289,12 @@ describe('who may reach the shortkit_auth role', () => {
     // ============================================================================
     //
     // Scan 5 is the only one of the five whose permitted set is satisfied by the tree
-    // trivially — nothing imports `auth.config.ts` yet — so `toEqual([])` above proves
+    // trivially (nothing imports `auth.config.ts` yet) so `toEqual([])` above proves
     // nothing about the regex. Measured here instead, against spellings hand-written to
     // defeat it. The must-not list is the half that matters as much: SEVEN FILES in the scan
-    // set name `auth.config` in prose today — counted, not estimated: `main.ts`,
+    // set name `auth.config` in prose today: counted, not estimated: `main.ts`,
     // `auth/{auth.config,auth.module,boot-assertions,on-user-created,revocation-store}.ts`
-    // and `db/schema/auth.ts` — including `boot-assertions.ts`'s "THIS FILE MUST NOT IMPORT
+    // and `db/schema/auth.ts`, including `boot-assertions.ts`'s "THIS FILE MUST NOT IMPORT
     // `auth.config.ts`" banner. A pattern that matched those would put the whole scan
     // permanently red and get it deleted.
     const matches = [

@@ -6,11 +6,11 @@ import ts from 'typescript';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * AC-116, THE ENUMERATION — F-247, F-268, F-278.
+ * AC-116, THE ENUMERATION: F-247, F-268, F-278.
  *
  * AC-116: "Given the API source tree, when every module that emits a log line is
  * enumerated, then each one emits through the pino instance registered at the composition
- * root — no module constructs `Logger` from `@nestjs/common` or any other logger."
+ * root: no module constructs `Logger` from `@nestjs/common` or any other logger."
  *
  * Contract: `docs/contracts/logging-and-headers.md`, "Consumed by: every API TASK.
  * Nothing may opt out, with two named exceptions". ADR-0028. Enforces GC-9.
@@ -21,7 +21,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *
  * The AC says "every module that emits a log line is ENUMERATED", and a test that named
  * `tenant-context.ts` and `client.ts` would go green on the day this TASK lands and stay
- * green when a fourth module copies the bypass — which is the exact failure mode
+ * green when a fourth module copies the bypass, which is the exact failure mode
  * `logging-and-headers.md`'s "two named exceptions measured 2026-08-10" already has. The
  * contract's own exemption list is a list, and this file exists because a list is what
  * needed the AC.
@@ -38,7 +38,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * inside a comment or a string is not an import. `writing-good-tests.md` warns against
  * tests that grep source text; the answer here is not to assert on the text but to derive a
  * structural property of the module graph, and to prove on every run that the derivation
- * can tell a violating module from a clean one — see the controls in `beforeAll`.
+ * can tell a violating module from a clean one; see the controls in `beforeAll`.
  *
  * ============================================================================
  * WHAT THE TWO ASSERTIONS MEAN, AND WHERE THE BOUND IS
@@ -80,11 +80,11 @@ const COMPOSITION_ROOT = 'apps/api/src/observability/logger.ts';
 /**
  * THE SECOND, ADDED 2026-08-18 (item 1b, TASK-1b-02), AND IT IS NOT A LOGGER. `ConsoleMailSender`
  * is the `MAIL_TRANSPORT=console` delivery channel (`docs/contracts/mail-sender.md`): it
- * writes a rendered mail body — recipient address, invitation URL, token — to stdout with
+ * writes a rendered mail body (recipient address, invitation URL, token) to stdout with
  * `console.log` because that content may NEVER go through the logger (`to` and the URL are
  * on the never-allowlist, GC-K), and stdout is where an operator who declared `console`
  * asked to read it. It is a mail transport that happens to share a descriptor with the log,
- * not a log line, and it is bound only by explicit declaration — absence binds a sender that
+ * not a log line, and it is bound only by explicit declaration: absence binds a sender that
  * writes nothing anywhere. The eslint `no-console` carve-out is one `disable-next-line` on
  * that statement, and `mail/senders.spec.ts` asserts the exact bytes it writes. A THIRD
  * entry here is a finding, not a precedent; this one is named in
@@ -100,7 +100,7 @@ const SHARED_LOGGER_MODULE = /(^|\/)observability\/logger$/;
 /**
  * How a SIBLING spells it. `request-log.interceptor.ts` (TASK-016) lives beside `logger.ts`
  * and imports `./logger`; the pattern above requires the `observability/` segment and would
- * have read that emitter as one with no logger at all — the wrong verdict for the right
+ * have read that emitter as one with no logger at all: the wrong verdict for the right
  * import. Accepted only from a module whose own path is under the observability directory,
  * so `./logger` in any other directory stays what it is: some other module.
  */
@@ -140,7 +140,7 @@ beforeAll(() => {
 
   // ==========================================================================
   // THE CONTROLS. Both assertions below are `toEqual([])`, which is satisfied by an
-  // analysis that finds nothing — a walk that returned no files, a detector that never
+  // analysis that finds nothing: a walk that returned no files, a detector that never
   // fires. That is the shape in which a suite reports `pass` over a source tree it never
   // read, and this repository has measured it once already (`test/isolation/coverage.ts`,
   // "AND WHAT PROVES THE HARNESS WOULD NOTICE"). So the analyser is run, on every run,
@@ -318,7 +318,7 @@ function analyse(path: string, text: string): AnalysedModule {
 }
 
 describe('every module in the API source tree that can reach a logger', () => {
-  it('AC-116 (F-278): no module obtains a logger of its own — the registered instance is the only one in the tree', () => {
+  it('AC-116 (F-278): no module obtains a logger of its own: the registered instance is the only one in the tree', () => {
     // The class F-278 established, asserted over the DERIVED set rather than over the two
     // paths `logging-and-headers.md` currently names as exceptions. `toEqual([])` so the
     // failure names each module and says how it got its logger.
@@ -334,7 +334,7 @@ describe('every module in the API source tree that can reach a logger', () => {
   it('AC-116 (F-247, F-278): every module that emits a log line imports the shared logger', () => {
     // The other half, and it is not implied by the first: a module could stop importing
     // Nest's `Logger` and still emit through something else it was handed. This is the
-    // clause the AC states — enumerate the emitters, and require each to have the
+    // clause the AC states: enumerate the emitters, and require each to have the
     // composition root's instance and nothing else.
     const emitters = modules.filter(
       (module) => !EXEMPT.has(module.path) && module.emissions.length > 0,

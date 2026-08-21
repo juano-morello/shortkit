@@ -11,48 +11,48 @@
  * PRIVILEGES statement written once. Row-level security is the opposite: two ALTER TABLE
  * lines per table, hand-appended to a migration Drizzle Kit generated without them. So a
  * TASK that adds a table, appends its CREATE POLICY block and forgets ENABLE or FORCE
- * ships a table every authenticated tenant can read and write — with every gate green,
+ * ships a table every authenticated tenant can read and write, with every gate green,
  * because the grants exist so the feature's own queries work, its tests pass, and neither
  * typecheck nor lint reads SQL. This script is the only thing that looks.
  *
  * MINIMUM VIABLE FORM, DELIBERATELY. It asserts from `pg_class` that every table in
  * schema `public` has both `relrowsecurity` and `relforcerowsecurity`, against an
  * explicit exception list. It does NOT yet assert the policy SET itself against
- * `pg_policies` — that the approved policies are the only ones present, with the
- * approved bodies — which is what rls-policy-template.md's "What the implementer must
+ * `pg_policies` (that the approved policies are the only ones present, with the
+ * approved bodies), which is what rls-policy-template.md's "What the implementer must
  * guarantee" describes: that needs `tenantScopedTables()`, which is ADR-0019's and
- * TASK-053's and does not exist yet. Landing the weaker check now is the point — the
+ * TASK-053's and does not exist yet. Landing the weaker check now is the point: the
  * TASK this was written to catch adds `links` three waves before TASK-053 runs.
  *
  * THREE MORE ASSERTIONS SINCE 2026-08-14, and each answers a measured attack rather
  * than a shape someone imagined (ADR-0044, ADR-0049, ADR-0050):
  *
- *   the exemption list is closed at five  — its LENGTH is the whole security argument
- *   every flag reference is wrapped       — over EVERY row of pg_policies, not a list
- *   the grant matrix, in BOTH directions  — app closed on the five, auth closed on the rest
+ *   the exemption list is closed at five: its LENGTH is the whole security argument
+ *   every flag reference is wrapped: over EVERY row of pg_policies, not a list
+ *   the grant matrix, in BOTH directions: app closed on the five, auth closed on the rest
  *
  * Run it after `db:migrate`, against a database the migrations have been applied to.
  * CI's integration job runs it (TASK-002).
  *
  * Node runs this by stripping the types (`.mts`, no build step), so nothing here may use
- * syntax that needs emit — no enums, no namespaces, no decorators, no parameter properties.
+ * syntax that needs emit: no enums, no namespaces, no decorators, no parameter properties.
  */
 import pg from 'pg';
 
 /**
  * Tables that legitimately carry no row-level security. Every entry needs a reason, and
- * the reason has to be a decision recorded somewhere, not a shrug — an exception list is
+ * the reason has to be a decision recorded somewhere, not a shrug: an exception list is
  * the obvious place to hide the failure this script exists to catch.
  *
  * A `Map` rather than an object literal (F-146): an object literal's lookup resolves
  * through `Object.prototype`, so `EXEMPT['constructor']` returns the native `Object`
- * function — not `undefined` — and a table named `constructor`, `toString`, `valueOf`,
+ * function (not `undefined`), and a table named `constructor`, `toString`, `valueOf`,
  * `hasOwnProperty` or `__proto__` (all legal lowercase Postgres identifiers) would read as
  * exempt and pass unchecked. `Map#get` carries no such inheritance.
  *
  * Naming a table here is not enough to exempt it (F-147): `main()` below cross-checks
  * every entry against the system catalogue before honouring it. An entry for a table
- * that carries a `tenant_id` column fails the check instead of skipping it — the name is
+ * that carries a `tenant_id` column fails the check instead of skipping it: the name is
  * a claim, not a fact, and the reason recorded next to each entry is exactly that claim:
  * "no tenant_id".
  *
@@ -68,7 +68,7 @@ const EXEMPT: ReadonlyMap<string, string> = new Map([
   //
   // FIVE ENTRIES, AND ALL FIVE EXIST FROM MIGRATION 0001 (TASK-002). Corrected
   // 2026-08-14 (F-001): this comment read "None of the four exist yet (TASK-009)" while
-  // the Map below it already held five — `jwks` was added by F-232 on 2026-08-07 and the
+  // the Map below it already held five: `jwks` was added by F-232 on 2026-08-07 and the
   // count was never moved with it. TASK-009 also left this initiative in the 2026-08-09
   // re-scope; the tables land in TASK-002. An implementer who read this docblock instead
   // of counting the Map would have added a sixth entry for the jwt plugin's table, which
@@ -85,7 +85,7 @@ const EXEMPT: ReadonlyMap<string, string> = new Map([
   // ground as the four above and the same cross-check verifies the same claim.
   //
   // Recorded here rather than discovered when TASK-009 migrates. RLS is not the control
-  // that protects this table's contents — key material is protected by not granting the
+  // that protects this table's contents: key material is protected by not granting the
   // runtime role access to it at all, which is a TASK-009 decision this list does not
   // make and must not be read as having made.
   ['jwks', 'Better Auth jwt plugin. Instance signing keys, no tenant_id (ADR-0013, F-232)'],
@@ -129,7 +129,7 @@ const POLICIES = `
  * around row-level security.
  *
  * `has_table_privilege` reads the catalogue and is NOT privilege-filtered, so it answers
- * for a role other than the connected one — the same property that made `pg_attribute`
+ * for a role other than the connected one: the same property that made `pg_attribute`
  * the right source in F-213. This script connects as `shortkit_app`.
  *
  * THREE THINGS ABOUT THIS PREDICATE, ALL MEASURED (F-031):
@@ -140,7 +140,7 @@ const POLICIES = `
  *      positive directions read stricter than they are and are availability, not security.
  *   2. `has_table_privilege` ALONE DOES NOT SEE A COLUMN-LEVEL GRANT. With
  *      `GRANT SELECT (email) ON "user" TO shortkit_app` the table-level call returns
- *      false while the read succeeds. That is why the column-level call is OR'd in — one
+ *      false while the read succeeds. That is why the column-level call is OR'd in: one
  *      extra term, closing a grant a reviewer can write by hand.
  *   3. `has_any_column_privilege` REJECTS `DELETE` with `unrecognized privilege type`,
  *      because DELETE is not column-grantable. Its list is the three that are. Do not
@@ -175,8 +175,8 @@ interface GrantRow {
  *   CREATE VIEW auth_peek AS SELECT id, user_id, token FROM "session";
  *   GRANT SELECT ON auth_peek TO shortkit_app;
  *
- * shortkit_app then read `sess-b | probe-user-b | REAL-TOKEN-B` — the plaintext session
- * credential migration 0001 revoked it from — and this script printed OK. A view is
+ * shortkit_app then read `sess-b | probe-user-b | REAL-TOKEN-B` (the plaintext session
+ * credential migration 0001 revoked it from), and this script printed OK. A view is
  * `relkind 'v'` and a materialised view `'m'`, so `relkind in ('r','p')` excluded the
  * bypass from the grant matrix, from the RLS check and from the behavioural control at
  * the same time. THE ENTIRE ROLE SPLIT IS BYPASSABLE BY A RELATION KIND NONE OF ITS
@@ -184,7 +184,7 @@ interface GrantRow {
  *
  * Why it works: a view is NOT `security_invoker` by default, so it executes with its
  * OWNER's privileges. The owner is shortkit_migrator, which holds everything. The REVOKE
- * is not merely unchecked — it is bypassed.
+ * is not merely unchecked: it is bypassed.
  *
  * THE RULE, AND EACH HALF WAS MEASURED RATHER THAN REASONED:
  *
@@ -202,7 +202,7 @@ interface GrantRow {
  * There is nothing to assert about one except that a runtime role cannot reach it.
  *
  * BOTH ROLES, NOT JUST shortkit_app. A view over `tenant_memberships` granted to
- * shortkit_auth is the same bypass in the other direction — the one ADR-0050 added the
+ * shortkit_auth is the same bypass in the other direction: the one ADR-0050 added the
  * second matrix direction for.
  *
  * THE TRUTHY SPELLINGS ARE AN ENUMERATION BECAUSE POSTGRES STORES reloptions VERBATIM.
@@ -256,7 +256,7 @@ function derivedRelationBypass(row: DerivedRelationRow): string | undefined {
 
   if (row.relkind === 'm') {
     return (
-      `${row.relation_name} — materialised view reachable by ${reachedBy.join(' and ')}. ` +
+      `${row.relation_name}: materialised view reachable by ${reachedBy.join(' and ')}. ` +
       'Its rows are computed by its owner and stored, so no policy is evaluated when a ' +
       'runtime role reads it and there is no security_invoker option to make one apply.'
     );
@@ -264,7 +264,7 @@ function derivedRelationBypass(row: DerivedRelationRow): string | undefined {
 
   return row.security_invoker
     ? undefined
-    : `${row.relation_name} — view reachable by ${reachedBy.join(' and ')} and not ` +
+    : `${row.relation_name}: view reachable by ${reachedBy.join(' and ')} and not ` +
         'security_invoker, so it executes with its OWNER\'s privileges and bypasses both ' +
         'the REVOKE and row-level security.';
 }
@@ -296,7 +296,7 @@ function occurrences(expression: string, pattern: RegExp): number {
  *
  * A SYNTACTIC CONTROL OVER A RENDERED EXPRESSION IS STILL A PROXY, and this is what it
  * does not see: it cannot tell that the wrapper is compared against the right column, and
- * it cannot see a flag reached by any route other than `current_setting` — a function
+ * it cannot see a flag reached by any route other than `current_setting`: a function
  * wrapper, a view, a stable helper. `test/tenancy/warm-connection-no-context.int-spec.ts`
  * is the behavioural control that covers those; this one is what runs on every migration.
  */
@@ -317,7 +317,7 @@ function unwrappedReferences(row: PolicyRow): string[] {
     if (referenced !== wrapped) {
       failures.push(
         `${row.table_name}.${row.policy_name} ${clause}: ${String(referenced)} flag ` +
-          `reference(s), ${String(wrapped)} inside nullif(..., '') — ${expression}`,
+          `reference(s), ${String(wrapped)} inside nullif(..., ''): ${expression}`,
       );
     }
   }
@@ -340,7 +340,7 @@ interface TableRow {
  * Row-level security is not a property a view HAS: `ALTER VIEW ... ENABLE ROW LEVEL
  * SECURITY` does not exist, `relrowsecurity` is false for every view and materialised
  * view in the catalogue, and adding 'v' here would report each of them "missing ENABLE
- * ROW LEVEL SECURITY" with a remedy nobody can apply — a permanently red check whose
+ * ROW LEVEL SECURITY" with a remedy nobody can apply: a permanently red check whose
  * cheapest fix is to delete it. A view's danger is WHOSE privileges it runs with, which
  * is what DERIVED_RELATIONS above asserts instead.
  */
@@ -360,15 +360,15 @@ interface TenantIdColumnRow {
 
 /**
  * Every table in `public` that actually carries a `tenant_id` column. This is what an
- * exemption is checked against (F-147) — the entry in `EXEMPT` is a claim that the table
+ * exemption is checked against (F-147): the entry in `EXEMPT` is a claim that the table
  * has no such column, and this query is how that claim gets verified rather than trusted.
  *
  * READS `pg_attribute`, NOT `information_schema.columns` (F-213). The two answer
  * different questions and only one of them is the question being asked here.
  * `information_schema` is privilege-filtered by the SQL standard: it shows a column only
  * where the connected role holds some privilege on it. This check connects as the
- * runtime role deliberately (F-122) — checking as the migrator would prove nothing about
- * the DSN the API actually uses — so a table `shortkit_app` has no grant on returns
+ * runtime role deliberately (F-122): checking as the migrator would prove nothing about
+ * the DSN the API actually uses, so a table `shortkit_app` has no grant on returns
  * ZERO ROWS from `information_schema.columns` whether or not it carries a `tenant_id`.
  * Under the old query, `REVOKE ALL ON session FROM shortkit_app` was enough to make a
  * tenant-bearing table with row security off print "confirmed: no tenant_id column" and
@@ -377,14 +377,14 @@ interface TenantIdColumnRow {
  *
  * `pg_attribute` is not privilege-filtered. Every role can read the catalogue, so the
  * absence of a row here means the column does not exist rather than that this connection
- * cannot see it — which is the only reading that makes an exemption safe to honour.
+ * cannot see it, which is the only reading that makes an exemption safe to honour.
  *
  * `attnum > 0` drops the system columns; `not attisdropped` drops columns removed by
  * `ALTER TABLE ... DROP COLUMN`, whose catalogue rows survive under a mangled name. The
  * `relkind` filter matches TABLES so the two queries describe the same set of relations.
  *
  * SO IT STAYS AT ('r','p') FOR EXACTLY THAT REASON (F-109). This query exists to verify
- * one claim — that a name in `EXEMPT` really has no `tenant_id` column — against the set
+ * one claim (that a name in `EXEMPT` really has no `tenant_id` column) against the set
  * `TABLES` iterates. Widening it alone would make the two queries describe different
  * sets, which is the coupling the sentence above already warns about; widening both would
  * mean an exemption could be claimed for a view, and no view is exempt from anything
@@ -456,7 +456,7 @@ async function main(): Promise<void> {
   if (rows.length === 0) {
     console.error(
       'FAIL: schema public holds no tables. Run `pnpm --filter @shortkit/api db:migrate` ' +
-        'first — this check is meaningless against an unmigrated database.',
+        'first; this check is meaningless against an unmigrated database.',
     );
     process.exitCode = 1;
     return;
@@ -469,11 +469,11 @@ async function main(): Promise<void> {
 
     if (exemption !== undefined) {
       if (!tenantIdTables.has(row.table_name)) {
-        // "no tenant_id in pg_attribute" and not merely "no tenant_id I can see" — the
+        // "no tenant_id in pg_attribute" and not merely "no tenant_id I can see": the
         // distinction is the whole of F-213, so the line that claims it says which
         // catalogue was read and that the reading does not depend on this role's grants.
         console.log(
-          `skip  ${row.table_name} — exempt: ${exemption} (confirmed against pg_attribute, ` +
+          `skip  ${row.table_name}, exempt: ${exemption} (confirmed against pg_attribute, ` +
             'which is not privilege-filtered: no tenant_id column exists)',
         );
         continue;
@@ -483,7 +483,7 @@ async function main(): Promise<void> {
       // tenant_id column, so it falls through to the same check as every other table
       // instead of being waved through on its name (F-147).
       console.log(
-        `      ${row.table_name} — exemption ("${exemption}") does not apply: pg_attribute ` +
+        `      ${row.table_name}, exemption ("${exemption}") does not apply: pg_attribute ` +
           'shows this table has a tenant_id column, so it is checked like any other table.',
       );
     }
@@ -494,7 +494,7 @@ async function main(): Promise<void> {
     ].filter((statement): statement is string => statement !== undefined);
 
     if (missing.length > 0) {
-      unprotected.push(`${row.table_name} — missing ${missing.join(' and ')}`);
+      unprotected.push(`${row.table_name}: missing ${missing.join(' and ')}`);
       continue;
     }
 
@@ -502,7 +502,7 @@ async function main(): Promise<void> {
   }
 
   // An EXEMPT entry that never matched a row was never evaluated, and that is a
-  // different fact from "evaluated and confirmed no tenant_id" above — the table isn't
+  // different fact from "evaluated and confirmed no tenant_id" above: the table isn't
   // wrong, it just doesn't exist in this database yet. Saying so explicitly keeps that
   // silence from reading as a check that passed.
   //
@@ -530,8 +530,8 @@ async function main(): Promise<void> {
         'writable by any tenant:\n' +
         unprotected.map((line) => `  - ${line}`).join('\n') +
         '\n\nAppend the statements from docs/contracts/rls-policy-template.md to the ' +
-        'migration that creates the table — tenantScopedPolicies() in src/db/rls.ts emits ' +
-        'them — and add a new migration rather than editing an applied one. A table that ' +
+        'migration that creates the table (tenantScopedPolicies() in src/db/rls.ts emits ' +
+        'them), and add a new migration rather than editing an applied one. A table that ' +
         'genuinely carries no tenant_id goes in this script\'s exception list with its reason.',
     );
     process.exitCode = 1;
@@ -547,13 +547,13 @@ async function main(): Promise<void> {
         "outside `nullif(<flag>, '')`:\n" +
         unwrapped.map((line) => `  - ${line}`).join('\n') +
         '\n\nA transaction-local set_config leaves a session placeholder whose RESET VALUE ' +
-        'IS THE EMPTY STRING, not NULL, and pg.Pool issues no reset — so on any backend ' +
+        'IS THE EMPTY STRING, not NULL, and pg.Pool issues no reset, so on any backend ' +
         'that has served one tenant transaction the flag reads \'\' rather than NULL. A ' +
         "cast then evaluates ''::uuid and raises 22P02, and a text comparison against '' " +
         'matches whatever row happens to hold that value. Both are fail-open or fail-loud ' +
         'on the connection state the application actually runs in (ADR-0049).\n' +
         'Wrap every reference: nullif(current_setting(\'app.<flag>\', true), \'\'). An AND ' +
-        'guard is NOT a substitute and was measured raising anyway — PostgreSQL does not ' +
+        'guard is NOT a substitute and was measured raising anyway: PostgreSQL does not ' +
         'guarantee left-to-right evaluation of AND operands inside a policy predicate. ' +
         'tenantScopedPolicies(), redirectReadPolicy() and membershipLookupPolicy() in ' +
         'src/db/rls.ts emit the wrapped form; a corrected policy is a NEW migration ' +
@@ -568,7 +568,7 @@ async function main(): Promise<void> {
   const missingExempt = [...EXEMPT.keys()].filter((name) => !present.has(name));
 
   // A table that does not exist contributes no row, so without this a missing migration
-  // reads as a satisfied matrix — "I found nothing" reported as "nothing is wrong",
+  // reads as a satisfied matrix: "I found nothing" reported as "nothing is wrong",
   // which is the shape this whole script exists to catch.
   if (missingExempt.length > 0) {
     console.error(
@@ -595,7 +595,7 @@ async function main(): Promise<void> {
         : 'shortkit_app only (tenant-scoped)';
 
       return (
-        `${row.table_name} — ${expected}, but shortkit_app=${String(row.app_dml)} ` +
+        `${row.table_name}: ${expected}, but shortkit_app=${String(row.app_dml)} ` +
         `shortkit_auth=${String(row.auth_dml)}`
       );
     });
@@ -606,7 +606,7 @@ async function main(): Promise<void> {
         misgranted.map((line) => `  - ${line}`).join('\n') +
         '\n\nsession.token is a session credential in plaintext, so shortkit_app holding ' +
         'INSERT on the Better Auth tables is account takeover rather than credential ' +
-        'disclosure — measured, ADR-0050. `ALTER DEFAULT PRIVILEGES` grants shortkit_app ' +
+        'disclosure: measured, ADR-0050. `ALTER DEFAULT PRIVILEGES` grants shortkit_app ' +
         'DML on every table the migrator creates, so the split cannot be a default ' +
         'privilege: it is a REVOKE and a GRANT hand-written in the migration that creates ' +
         'the table, and forgetting it FAILS OPEN. A sixth auth table that nobody revoked ' +
@@ -637,8 +637,8 @@ async function main(): Promise<void> {
         'Either declare the view `WITH (security_invoker = true)`, which makes the ' +
         "caller's own grants and policies apply and gives it nothing it did not already " +
         'have, or revoke the runtime roles on it. A materialised view has no such option ' +
-        '— its rows are stored, computed by its owner, and no policy is evaluated on ' +
-        'read — so a runtime role must not reach one at all.',
+        ': its rows are stored, computed by its owner, and no policy is evaluated on ' +
+        'read, so a runtime role must not reach one at all.',
     );
     process.exitCode = 1;
     return;

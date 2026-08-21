@@ -5,12 +5,12 @@
  *
  * The providers the authorization surface needs, exported so that `AppModule` can bind
  * `WorkspaceAuthorizationInterceptor` as a global interceptor (its constructor injects the two
- * repositories, resolved in the root context) and so that a feature module — `WorkspacesModule`
- * (TASK-1b-06), `InvitationsModule` (TASK-1b-08) — imports this one and injects
+ * repositories, resolved in the root context) and so that a feature module (`WorkspacesModule`
+ * (TASK-1b-06), `InvitationsModule` (TASK-1b-08)) imports this one and injects
  * `WorkspaceAuthorizer` for Form B, or `MembershipRepository` for the creator's row.
  *
- * The interceptor is NOT provided here as `APP_INTERCEPTOR`. Its position is a ruling —
- * third, after `TenantTransactionInterceptor` — and `app.module.ts` is where the three are
+ * The interceptor is NOT provided here as `APP_INTERCEPTOR`. Its position is a ruling
+ * (third, after `TenantTransactionInterceptor`), and `app.module.ts` is where the three are
  * registered in order and where `app.module.spec.ts` asserts it. A second registration here
  * would run the check twice.
  */

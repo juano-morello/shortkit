@@ -247,7 +247,7 @@ not TASK-059's to resolve.
   the compose one, and a developer copying it to `.env.local` gets values for a stack they
   may not be running.
 
-### Dated note, 2026-08-18 — the `api` service declares `MAIL_TRANSPORT=console` (D-02, TASK-1b-11)
+### Dated note, 2026-08-18: the `api` service declares `MAIL_TRANSPORT=console` (D-02, TASK-1b-11)
 
 Item 1b put an invitation surface on this stack, and the invitation is a link that arrives
 by mail. `docker-compose.yml`'s `api.environment` now carries

@@ -10,7 +10,7 @@
  * ============================================================================
  *
  * ADR-0013 said these tables are generated once with the Better Auth CLI. That CLI is not
- * installed, `better-auth` declares no `bin`, and the config it would read is TASK-003's —
+ * installed, `better-auth` declares no `bin`, and the config it would read is TASK-003's:
  * one wave later than this file is needed. `better-auth/db`'s `getSchema(options)` answers
  * the same question from a plain options object with no connection and no instance, and
  * `plugins` is the only option that changes its answer (measured). So the shape is
@@ -32,7 +32,7 @@
  * (`schema[fieldName]`, `@better-auth/drizzle-adapter/dist/index.mjs:298`), which is a TS
  * property name, so the property MUST be `emailVerified`. The column name is free, and
  * the adapter's own `camelCase` option documents its default as "snake case is used for
- * table and field names" — which is also what `tenants.ts` does.
+ * table and field names", which is also what `tenants.ts` does.
  *
  * `id` is `text` and application-supplied on all five: Better Auth generates its own ids
  * and they are not uuids. That is why ADR-0015's `tenant_memberships.user_id` is `text`.
@@ -84,7 +84,7 @@ export const authAccount = pgTable('account', {
 });
 
 /**
- * Unused in this initiative — email verification is off. It exists because Better Auth
+ * Unused in this initiative: email verification is off. It exists because Better Auth
  * writes rows here for flows we do not enable, and omitting it fails `checkMissingFields`
  * the first time one is turned on.
  */
@@ -101,7 +101,7 @@ export const authVerification = pgTable('verification', {
  * The `jwt` plugin's key store, served at GET /api/auth/jwks (ADR-0013).
  *
  * `privateKey` is symmetrically encrypted with `BETTER_AUTH_SECRET`
- * (`plugins/jwt/utils.mjs:46-54`), so a row alone is not a signing key — a row plus the
+ * (`plugins/jwt/utils.mjs:46-54`), so a row alone is not a signing key: a row plus the
  * environment variable is. `expiresAt` is nullable and is set only when
  * `jwks.rotationInterval` is configured, which this initiative does not configure.
  */

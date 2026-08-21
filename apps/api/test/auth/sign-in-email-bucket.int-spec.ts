@@ -1,5 +1,5 @@
 /**
- * STORY-1b-08 — AC-1b-39: the email-keyed sign-in bucket, measured against the CHILD. The four
+ * STORY-1b-08, AC-1b-39: the email-keyed sign-in bucket, measured against the CHILD. The four
  * integration tests `docs/contracts/rate-limit.md` names under "The email key is normalised,
  * and both failure modes are tested" (F-025, F-228), plus the F-027 body shape and the SC-5
  * scan. TASK-1b-09 (item 1b, wave 3; D-15).
@@ -15,8 +15,8 @@
  * The hook is the ONLY limiter on this surface that is keyed on the body, and the two ways it
  * fails are silent (F-025): a wrong `ctx.path` literal makes it return on every request, and
  * a key over the raw string mints a fresh allowance per casing. So the six attempts come from
- * six DIFFERENT client addresses under a declared trusted header — `CLIENT_TRUST_BOUNDARY=proxy`
- * and `TRUSTED_CLIENT_IP_HEADER=x-test-client-ip`, the shape `auth-mount.int-spec.ts` uses —
+ * six DIFFERENT client addresses under a declared trusted header (`CLIENT_TRUST_BOUNDARY=proxy`
+ * and `TRUSTED_CLIENT_IP_HEADER=x-test-client-ip`, the shape `auth-mount.int-spec.ts` uses),
  * so the Express IP bucket (10 per 5 min per IP) sees one attempt per address and CANNOT be
  * the limiter that answers the sixth 429. Whatever refuses the sixth is the email bucket, and
  * the body's `code` and `retryAfterSeconds` are the hook's, not the middleware's.
@@ -56,7 +56,7 @@ const OTHER_EMAIL = 'wave3-email-bucket-other@example.test';
 const UNCHARGED_EMAIL = 'wave3-email-bucket-uncharged@example.test';
 const NUMBER_PROBE_EMAIL = 'wave3-email-bucket-number@example.test';
 
-/** Registered; signed in successfully many times — the failed-attempts rule's subject. */
+/** Registered; signed in successfully many times: the failed-attempts rule's subject. */
 const SUCCESSES_EMAIL = 'wave3-email-bucket-successes@example.test';
 /** Registered; five wrong passwords, then the right one. */
 const LOCKED_EMAIL = 'wave3-email-bucket-locked@example.test';
@@ -66,7 +66,7 @@ const ADDRESSES = [SIX_IPS_EMAIL, CASE_VARIED_EMAIL, OTHER_EMAIL, UNCHARGED_EMAI
 /**
  * Six spellings of one address, all of which `normaliseEmailForKey` folds to one key. The
  * first five differ in case only and are each a 401 from the endpoint; the SIXTH is padded
- * with whitespace, which Better Auth's own validation would answer 400 — but the hook charges
+ * with whitespace, which Better Auth's own validation would answer 400, but the hook charges
  * BEFORE validation, so it is the sixth attempt on the one key and is refused 429 first. That
  * ordering is what makes the trim half of the normalisation observable at all.
  */
@@ -165,7 +165,7 @@ afterAll(async () => {
 });
 
 describe('the email-keyed sign-in bucket (rate-limit.md, AC-1b-39)', () => {
-  it('six attempts for one address from six client IPs: the first five are 401, the sixth is 429 rate_limited with retryAfterSeconds in the body — so ctx.path really is /sign-in/email (F-025 b)', async () => {
+  it('six attempts for one address from six client IPs: the first five are 401, the sixth is 429 rate_limited with retryAfterSeconds in the body, so ctx.path really is /sign-in/email (F-025 b)', async () => {
     const statuses: number[] = [];
     let sixth: RawResponse | undefined;
 
@@ -232,7 +232,7 @@ describe('the email-keyed sign-in bucket (rate-limit.md, AC-1b-39)', () => {
     expect(other.status, other.raw).toBe(200);
   });
 
-  it('F-228: an object-typed email is the endpoint’s 400, never a 500, and is NOT charged — five legitimate attempts for that address still follow before the sixth is 429', async () => {
+  it('F-228: an object-typed email is the endpoint’s 400, never a 500, and is NOT charged: five legitimate attempts for that address still follow before the sixth is 429', async () => {
     const malformed = await signInFrom(SIX_IPS[0], { ne: null });
     expect({ status: malformed.status, code: (malformed.body as { code?: unknown }).code }).toEqual({
       status: 400,
@@ -240,7 +240,7 @@ describe('the email-keyed sign-in bucket (rate-limit.md, AC-1b-39)', () => {
     });
 
     // If the malformed attempt had been charged under a sentinel or under `String(object)`,
-    // it could not have counted against THIS address anyway — so the assertion that proves
+    // it could not have counted against THIS address anyway, so the assertion that proves
     // "uncharged" is that a real address's allowance is still the full five afterwards, and
     // that nothing 500'd along the way.
     const statuses: number[] = [];
@@ -269,7 +269,7 @@ describe('the email-keyed sign-in bucket (rate-limit.md, AC-1b-39)', () => {
     expect(after.status).toBe(401);
   });
 
-  it('the bucket counts FAILED attempts: six successful sign-ins for one registered address are all 200 (a success releases its charge — architect ruling 2026-08-18)', async () => {
+  it('the bucket counts FAILED attempts: six successful sign-ins for one registered address are all 200 (a success releases its charge; architect ruling 2026-08-18)', async () => {
     const signedUp = await signUpFrom(SIX_IPS[0], SUCCESSES_EMAIL);
     expect(signedUp.status, signedUp.raw).toBe(200);
 

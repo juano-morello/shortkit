@@ -15,7 +15,7 @@
  *
  * F-386. The rule this replaced was "`ResendMailSender` when `NODE_ENV` is `production` or
  * `staging`", and `Dockerfile:83` is `ENV NODE_ENV=production` in the image `docker compose`
- * runs — so the live provider was bound in every developer's laptop stack, and a test runner
+ * runs, so the live provider was bound in every developer's laptop stack, and a test runner
  * that did not happen to set `NODE_ENV=test` (a `tsx` script, a child process with an
  * explicit `env`, a CI shell) had neither guard. A build flag decided who received mail.
  *
@@ -80,7 +80,7 @@ export const RESEND_SENDER_NOT_DECLARED_MESSAGE =
 
 /**
  * The refusal `assertMailTransportConfigured` throws, and what `main.ts`'s
- * `bootstrap().catch` maps onto `boot_precondition: 'mail_transport'` — the same arrangement
+ * `bootstrap().catch` maps onto `boot_precondition: 'mail_transport'`: the same arrangement
  * `AuthBindingError.binding` has for the five auth bindings, so the line an operator reads
  * names WHICH declaration refused (F-245) and is machine-separable from
  * `database_reachable`, `runtime_role_cannot_bypass_rls` and `auth_role_separation`.
@@ -117,7 +117,7 @@ export class MailBindingError extends Error {
  *      process refused to start.
  *   3. When the resolved transport is `none`, including unset: log ONE warn line carrying
  *      `boot_precondition: 'mail_transport'` and no other field, and return. It fires for an
- *      explicit `none` too — one line per process start is cheap, and for the operator who
+ *      explicit `none` too: one line per process start is cheap, and for the operator who
  *      forgot the variable it is the only local evidence that exists.
  *
  * `console`, `fake`, `none` and unset assert nothing else and reach no network.
@@ -149,7 +149,7 @@ export function assertMailTransportConfigured(env: NodeJS.ProcessEnv): void {
  * The bound transport. THE ONE READ OF `MAIL_TRANSPORT`; the assertion above goes through
  * it. Exact match, no trimming, no case folding: `Resend` and ` resend` are the typos the
  * unconditional check exists to catch, and a value that is normalised into acceptance is a
- * value in force that nobody wrote. Empty is unset — `MAIL_TRANSPORT=` is what an env file
+ * value in force that nobody wrote. Empty is unset: `MAIL_TRANSPORT=` is what an env file
  * produces when the variable it expands is absent, and it is the same statement as absence.
  *
  * Throws `MailBindingError(MAIL_TRANSPORT_INVALID_MESSAGE)` on anything else rather than

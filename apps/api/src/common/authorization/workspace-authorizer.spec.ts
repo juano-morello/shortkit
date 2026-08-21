@@ -1,10 +1,10 @@
 /**
- * TASK-1b-05 — WorkspaceAuthorizer (Form B), the status table, and the two decorators.
+ * TASK-1b-05: WorkspaceAuthorizer (Form B), the status table, and the two decorators.
  *
  * Contract: docs/contracts/workspace-authorization.md ("The two enforcement forms", Form B;
  * "Status rules"; invariant 2), docs/contracts/error-envelope.md (invariants 5, 6).
  *
- * The repositories are fakes answering from a map — the SQL they compile is
+ * The repositories are fakes answering from a map: the SQL they compile is
  * `membership.repository.spec.ts`'s business, and whether RLS scopes it is the integration
  * suite's. What is decided here: no membership is 404 with EXACTLY `WorkspaceNotFoundError`'s
  * body; below rank is 403 with the right code; the rank comparison is the contracts' rank
@@ -168,7 +168,7 @@ describe('WorkspaceAuthorizer (Form B)', () => {
     ).rejects.toBeInstanceOf(InsufficientWorkspaceRoleError);
   });
 
-  it('assert: no membership is WorkspaceAccessNotFoundError (404) — another user’s membership in the same workspace does not count', async () => {
+  it('assert: no membership is WorkspaceAccessNotFoundError (404): another user’s membership in the same workspace does not count', async () => {
     const { authorizer } = build({ [`${WORKSPACE}:${OTHER_USER}`]: WORKSPACE_ROLE.workspace_admin });
 
     await expect(
@@ -200,7 +200,7 @@ describe('WorkspaceAuthorizer (Form B)', () => {
     expect(owner.lookups).toEqual([`tenant:${USER}`, `tenant:${USER}`]);
   });
 
-  it('with no ambient actor both methods throw ActorContextMissingError before any lookup — never a pass', async () => {
+  it('with no ambient actor both methods throw ActorContextMissingError before any lookup: never a pass', async () => {
     const { authorizer, lookups } = build({ [`${WORKSPACE}:${USER}`]: WORKSPACE_ROLE.workspace_admin }, { [USER]: TENANT_ROLE.owner });
 
     await expect(authorizer.assert(WORKSPACE, WORKSPACE_ROLE.viewer)).rejects.toBeInstanceOf(ActorContextMissingError);
@@ -209,7 +209,7 @@ describe('WorkspaceAuthorizer (Form B)', () => {
   });
 
   it('assertTenant’s minimum is AuthorisingTenantRole: TENANT_ROLE.member is not assignable', () => {
-    // @ts-expect-error — `member` is rank 0 and excluded from the minimum by type (ADR-0023).
+    // @ts-expect-error: `member` is rank 0 and excluded from the minimum by type (ADR-0023).
     const minimum: AuthorisingTenantRole = TENANT_ROLE.member;
     expect(minimum).toBe('member');
   });

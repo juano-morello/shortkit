@@ -18,7 +18,7 @@
  * `apps/api` and never reaches `apps/web`, and a check built on the `ERROR_CODES` rename
  * alone would leave that whole class of change enforced by nothing.
  *
- * Both mutations keep `packages/contracts` INTERNALLY CONSISTENT on purpose — that is
+ * Both mutations keep `packages/contracts` INTERNALLY CONSISTENT on purpose: that is
  * what stops the recursive typecheck from aborting on contracts itself and never
  * compiling a dependent.
  *
@@ -47,7 +47,7 @@
  * WHY THEY NEVER FIRE. A `process.on('SIGINT')` listener is dispatched from the event
  * loop. This script has no `await` left after the F-189 conversion to synchronous fs,
  * `spawnSync` blocks the loop for the whole of each typecheck, and the script then falls
- * off its end or calls `process.exit()` — so the loop never turns and the queued listener
+ * off its end or calls `process.exit()`, so the loop never turns and the queued listener
  * is never called. Reproduced both directions: the same script with one `await` after the
  * `spawnSync` exits 130 with the listener invoked; without it, the listener is never
  * invoked and the script runs to completion.
@@ -57,12 +57,12 @@
  * Verified: with no listener, SIGINT kills the process outright, the `finally` does NOT
  * run, and the file is left holding a probe identifier. With one registered, the process
  * survives the signal, the in-flight `spawnSync` returns, and the `finally` restores. They
- * suppress termination so that the `finally` gets to run — they do not restore anything
+ * suppress termination so that the `finally` gets to run; they do not restore anything
  * themselves, and they do not stop the run promptly.
  *
  * SIGHUP is in the list for the same reason and was missing (F-195). Closing the terminal
  * is the natural next move when Ctrl-C appears to do nothing, and an unhandled SIGHUP
- * terminates by default, skips the `finally`, and leaves the tree mutated — verified.
+ * terminates by default, skips the `finally`, and leaves the tree mutated. Verified.
  *
  * WHAT ACTUALLY STOPS THE RUN is `exitWithoutVerdict`, on EITHER of two independent
  * conditions. Neither alone is enough, which took three rounds to get right:
@@ -70,12 +70,12 @@
  *   - **Signal evidence.** `spawnSync`'s own `signal`, or a signal named in pnpm's
  *     summary, or a child reported at 128+n. Whether `spawnSync` sees a signal depends on
  *     WHO was signalled: signal only node and `pnpm` traps it, waits for its children and
- *     exits with an ordinary status, leaving `signal === null`; signal the process GROUP —
- *     which is what Ctrl-C in a terminal does — and `spawnSync` reports
+ *     exits with an ordinary status, leaving `signal === null`; signal the process GROUP
+ *     (which is what Ctrl-C in a terminal does), and `spawnSync` reports
  *     `{ status: null, signal: 'SIGINT' }`. Both verified. Round 2's docblock asserted the
  *     first case as an absolute and was wrong about the second.
  *   - **No diagnostics on a non-zero exit.** A genuine regression always emits
- *     `error TSnnnn` — that is the check's premise — so a non-zero typecheck with none of
+ *     `error TSnnnn` (that is the check's premise) so a non-zero typecheck with none of
  *     them did not finish typechecking. See the invariant above `MUTATIONS`: this half is
  *     safe because of what is IN that table, not because of anything here.
  *
@@ -83,7 +83,7 @@
  * check, which left the window F-195's round-3 finding reproduced: mutation 1 breaks two
  * workspaces that finish at different times, so an interrupt landing between them leaves
  * diagnostics in the output, skips the guard, and reports the interrupt as
- * `FAIL: … mutation(s) did not break the build` — indistinguishable from an AC-14
+ * `FAIL: … mutation(s) did not break the build`, indistinguishable from an AC-14
  * regression, after running a second full typecheck the user had already tried to stop.
  *
  * AND THE RESTORE IS VERIFIED BEFORE EXIT 0: the file is read back and compared to the
@@ -91,7 +91,7 @@
  * different claims, and only the second one matters.
  *
  * The synchronous fs API is kept because the restore now happens on paths that cannot
- * await — inside the `finally` reached from a signal-suppressed `spawnSync` return, inside
+ * await: inside the `finally` reached from a signal-suppressed `spawnSync` return, inside
  * `exitWithoutVerdict` before its `process.exit`, and inside the listeners.
  *
  * NOT TYPECHECKED: the root tsconfig's `include` is `["vitest.config.ts"]`, so nothing
@@ -123,16 +123,16 @@ const CONTRACT_FILE = 'packages/contracts/src/errors.ts';
  *     `apps/api` half still emits diagnostics, so `hasAnyDiagnostic` is true and the
  *     ordinary verdict path runs.
  *   - Mutation 2 has ONE consumer, and a genuine regression there means nothing broke at
- *     all — the typecheck exits 0. What protects that run is the `status !== 0` conjunct
+ *     all: the typecheck exits 0. What protects that run is the `status !== 0` conjunct
  *     INSIDE the guard, which short-circuits before `hasAnyDiagnostic` is reached, plus a
  *     clean run carrying no signal evidence for the other half of the union to find. It is
  *     NOT the `if (status === 0)` branch below: that sits after the guard, not before it,
  *     and never gets the chance to matter here. Short-circuiting within one condition, not
- *     statement ordering — the distinction is the whole of why this is safe.
+ *     statement ordering; the distinction is the whole of why this is safe.
  *
  * THE SAFETY PROPERTY IS THEREFORE THE TABLE'S, NOT THE GUARD'S. A third mutation with a
- * single consumer whose regression surfaces as a NON-ZERO exit carrying no diagnostics —
- * a workspace whose `typecheck` script dies before `tsc` runs, say — would be swallowed by
+ * single consumer whose regression surfaces as a NON-ZERO exit carrying no diagnostics
+ * (a workspace whose `typecheck` script dies before `tsc` runs, say) would be swallowed by
  * the no-verdict path and reported as an interrupted run. If you add one, either check
  * that it cannot produce that shape, or give the guard a per-mutation expectation instead
  * of the global one.
@@ -171,7 +171,7 @@ function applyReplacements(source, replacements) {
     if (actual !== count) {
       throw new Error(
         `expected ${String(count)} occurrence(s) of ${JSON.stringify(from)} in ${CONTRACT_FILE}, found ${String(actual)}. ` +
-          'The mutation this check depends on no longer applies — update .github/scripts/assert-contract-drift.mjs ' +
+          'The mutation this check depends on no longer applies: update .github/scripts/assert-contract-drift.mjs ' +
           'and design/test-strategy.md together.',
       );
     }
@@ -198,7 +198,7 @@ function runTypecheck() {
 }
 
 /**
- * Does the output contain a compiler diagnostic — anywhere, for any workspace?
+ * Does the output contain a compiler diagnostic, anywhere, for any workspace?
  *
  * This is the discriminator that matters (F-195). A genuine contract-drift regression
  * ALWAYS produces diagnostics: that is the entire premise of the check, and each mutation
@@ -221,7 +221,7 @@ const SIGNAL_BY_STATUS = /Exit status (1(?:2[89]|3\d|4[0-3]))\b/;
  * 128+n back to a name, so `Exit status 137` can be told apart from `Exit status 130`.
  *
  * FIRST NAME WINS, and that is not incidental (F-209). `os.constants.signals` maps two
- * names onto some numbers — 6 is both SIGABRT and SIGIOT, 29 is both SIGIO and SIGPOLL —
+ * names onto some numbers (6 is both SIGABRT and SIGIOT, 29 is both SIGIO and SIGPOLL),
  * and `Object.fromEntries` keeps the LAST, so the obvious one-liner resolves 134 to
  * "SIGIOT". A `tsc` that exhausts the V8 heap aborts with SIGABRT and pnpm reports
  * `Exit status 134`, so that one-liner told the operator their memory problem was
@@ -237,14 +237,14 @@ for (const [name, number] of Object.entries(os.constants.signals)) {
 
 /**
  * Signals a human sends to stop a run. SIGKILL and SIGABRT are deliberately NOT among
- * them — see `MEMORY_SIGNALS`. Either way the run has no verdict, but the message has to
+ * them; see `MEMORY_SIGNALS`. Either way the run has no verdict, but the message has to
  * point at the right thing.
  */
 const INTERRUPT_SIGNALS = new Set(['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']);
 
 /**
  * The two that mean "this machine ran out of memory", which is a capacity problem needing
- * a different first move from "someone pressed Ctrl-C" — and the case least likely to
+ * a different first move from "someone pressed Ctrl-C", and the case least likely to
  * reproduce anywhere but the runner it happened on.
  */
 const MEMORY_SIGNALS = new Set(['SIGKILL', 'SIGABRT']);
@@ -255,7 +255,7 @@ const MEMORY_SIGNALS = new Set(['SIGKILL', 'SIGABRT']);
  * child at 128+n. Returns null when there is no such evidence at all.
  *
  * `spawnSync` REPORTS AN EMPTY STRING, NOT NULL, when the child died from a signal Node
- * cannot name — every number 32-64 on Linux (F-204). Empty string is not nullish, so
+ * cannot name: every number 32-64 on Linux (F-204). Empty string is not nullish, so
  * `signal ?? …` treats it as a name, `os.constants.signals['']` is undefined, and the
  * arithmetic below fell through to `Number(null)`, which is **0**. That made the no-verdict
  * path call `process.exit(0)` and the CI step go green on a run that had just printed
@@ -293,21 +293,21 @@ function signalEvidence(signal, output) {
 /**
  * Reports that this run cannot rule on AC-14, and exits NON-ZERO.
  *
- * Reached from the union at the call site — either condition alone, never nested. Read
+ * Reached from the union at the call site: either condition alone, never nested. Read
  * that condition rather than this docblock for the logic; what follows is why the two
  * halves exist and what each is worth.
  *
  * **Signal evidence.** Whether `spawnSync` sees a signal depends on WHO was signalled.
  * Signal only node and `pnpm` traps it, waits for its children and exits with an ordinary
- * status, so `result.signal` is null and `result.status` is non-zero — the same shape a
+ * status, so `result.signal` is null and `result.status` is non-zero: the same shape a
  * drift failure has. Signal the process GROUP, which is what Ctrl-C does, and `spawnSync`
  * reports the signal directly. Both verified. Neither `signal === null` nor
  * `signal !== null` is an absolute here, which is why this half cannot be the only test.
  *
  * **No diagnostics on a non-zero exit.** A genuine regression always emits `error TSnnnn`,
  * so a non-zero typecheck with none of them did not finish. This half also catches a
- * typecheck broken for a non-tsc reason — `next typegen` failing, a missing binary after a
- * dependency bump — which is not an AC-14 regression either, and reporting it as one sends
+ * typecheck broken for a non-tsc reason (`next typegen` failing, a missing binary after a
+ * dependency bump) which is not an AC-14 regression either, and reporting it as one sends
  * the reader after the wrong file.
  *
  * **Why neither is enough alone.** Round 2 nested the signal check inside the diagnostics
@@ -327,14 +327,14 @@ function exitWithoutVerdict(evidence, output) {
 
   const memoryAdvice =
     ' On a CI runner this is nearly always a memory problem rather than anything to do with ' +
-    'this check — look at what the runner had available, not at the contract. It will not ' +
+    'this check: look at what the runner had available, not at the contract. It will not ' +
     'reproduce locally.';
 
   const cause =
     evidence === null
       ? 'No signal was reported anywhere in the output, and the typecheck emitted no compiler ' +
         'diagnostics, so it did not finish. The likely cause is a typecheck broken for a ' +
-        'non-tsc reason — `next typegen` failing, or a missing binary after a dependency bump.'
+        'non-tsc reason: `next typegen` failing, or a missing binary after a dependency bump.'
       : evidence.name === 'SIGKILL'
         ? `A child was KILLED (SIGKILL), which is the kernel out-of-memory killer.${memoryAdvice}`
         : evidence.name === 'SIGABRT'
@@ -342,7 +342,7 @@ function exitWithoutVerdict(evidence, output) {
           : evidence.interrupt
             ? `Interrupted (${evidence.name}).`
             : evidence.name === null
-              ? 'A child was terminated by a signal Node could not name — every signal number ' +
+              ? 'A child was terminated by a signal Node could not name: every signal number ' +
                 '32-64 on Linux reports this way. Not an ordinary typecheck failure.'
               : `A child was terminated by ${evidence.name}, which is not an ordinary typecheck ` +
                 'failure.';
@@ -387,8 +387,8 @@ function restore() {
 // signal handle, so when the module body ends the loop is not alive and `uv_run` returns
 // without draining the pending callback. Verified on Node v24.19.0 three ways, including
 // with stdout on a pipe (the CI shape) in case async writes kept the loop alive: the
-// listener never ran. A positive control with a single `setTimeout` after the body — a
-// ref'd handle this script does not have — did run it.
+// listener never ran. A positive control with a single `setTimeout` after the body (a
+// ref'd handle this script does not have) did run it.
 //
 // So the signal is SWALLOWED SILENTLY: a run interrupted after its last `spawnSync`
 // returns still exits 0. Three earlier versions of this comment described a mechanism this
@@ -412,7 +412,7 @@ for (const [signal, code] of [
 ]) {
   process.on(signal, () => {
     restore();
-    console.error(`\n${signal} — ${CONTRACT_FILE} restored.`);
+    console.error(`\n${signal}: ${CONTRACT_FILE} restored.`);
     process.exit(code);
   });
 }
@@ -420,20 +420,20 @@ for (const [signal, code] of [
 try {
   for (const mutation of MUTATIONS) {
     console.log(`\n--- ${mutation.name}`);
-    console.log(`    expects a diagnostic under ${mutation.consumer}/ — ${mutation.why}`);
+    console.log(`    expects a diagnostic under ${mutation.consumer}/: ${mutation.why}`);
 
     writeFileSync(CONTRACT_FILE, applyReplacements(original, mutation.replacements));
 
     const { status, signal, output } = runTypecheck();
 
-    // TWO INDEPENDENT NO-VERDICT CONDITIONS, UNIONED — not one nested inside the other.
+    // TWO INDEPENDENT NO-VERDICT CONDITIONS, UNIONED, not one nested inside the other.
     //
     // Round 2 gated everything on the absence of diagnostics, and that left a window
     // (F-195, round 3): mutation 1 breaks TWO workspaces, and `apps/web`'s typecheck is
     // `next typegen && tsc` against `apps/api`'s plain `tsc`, so they finish at different
     // times by construction. An interrupt arriving after the first has emitted leaves
     // diagnostics in the output, so the absent-diagnostics test was false, and the run was
-    // reported as an AC-14 regression — after running a second full typecheck. The signal
+    // reported as an AC-14 regression, after running a second full typecheck. The signal
     // was right there in `result.signal` and in pnpm's summary, but both were only read
     // INSIDE exitWithoutVerdict, which that test had already excluded.
     //
@@ -457,7 +457,7 @@ try {
       failures.push(
         `${mutation.name}: the typecheck failed, but no diagnostic was attributed to ` +
           `${mutation.consumer}. ${mutation.why} A failure somewhere else is not the ` +
-          'property this asserts — it can be produced by a workspace that happens to break ' +
+          'property this asserts: it can be produced by a workspace that happens to break ' +
           'first. Full output:\n' +
           output,
       );
@@ -472,7 +472,7 @@ try {
 
 // "The finally ran" is not "the file came back". Nothing downstream reads this file after
 // the script exits, so an incomplete restore would otherwise be invisible until it showed
-// up in someone's `git status` — or, worse, in a commit.
+// up in someone's `git status`, or, worse, in a commit.
 const restored = readFileSync(CONTRACT_FILE, 'utf8');
 
 if (restored !== original) {

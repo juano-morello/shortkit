@@ -30,7 +30,7 @@
  *    are unchanged.
  *
  * 2. The `Secure` flag is derived from the request/app origin SCHEME, never from
- *    `NODE_ENV` — a repo-wide rule (it mirrors `auth.config.ts`'s `useSecureCookies:
+ *    `NODE_ENV`: a repo-wide rule (it mirrors `auth.config.ts`'s `useSecureCookies:
  *    baseUrl.startsWith('https://')`, ADR-0059). On `http://localhost` the cookie is still
  *    set, just without `Secure`; a `NODE_ENV` gate would refuse the cookie on a local
  *    stack running the production image (the F-380 trap, ADR-0040).
@@ -50,7 +50,7 @@ import { originIsSecureFrom } from './request-origin';
  * stub's export name still resolves from `./session`. It cannot be defined in THIS module:
  * this one is imported by the BFF route (a server component) for the cookie builders, and a
  * React-hook import in a server-component graph fails the build. THE REVERSE HOLDS TOO: a
- * client component must import `useSession` from `./use-session`, not from here — this
+ * client component must import `useSession` from `./use-session`, not from here: this
  * module imports `next/headers` and `node:crypto`, which a client bundle cannot carry.
  */
 export { useSession, BFF_SESSION_PATH } from './use-session';
@@ -141,7 +141,7 @@ export async function originIsSecure(): Promise<boolean> {
  * origin is DROPPED by the BFF route (it never forwards upstream `set-cookie`), so nothing
  * competes with these.
  *
- * Returns `Promise<void>` — see the file header, deviation 1. `Secure` follows the origin
+ * Returns `Promise<void>`; see the file header, deviation 1. `Secure` follows the origin
  * scheme, deviation 2.
  */
 export async function setSessionCookies(jwt: string, sessionToken: string): Promise<void> {
@@ -170,7 +170,7 @@ export async function clearSessionCookies(): Promise<void> {
 
 /**
  * The server-only API base, e.g. `http://api:3001/api` in compose. Read at REQUEST time
- * (never inlined) and NEVER `NEXT_PUBLIC_*` — the browser reaches the API through the BFF
+ * (never inlined) and NEVER `NEXT_PUBLIC_*`: the browser reaches the API through the BFF
  * only (ADR-0014). Thrown-on rather than defaulted, so a missing value fails loudly.
  */
 function apiBaseUrl(): string {
@@ -190,7 +190,7 @@ function apiBaseUrl(): string {
  *
  * `GET {API}/api/auth/token` with `Authorization: Bearer <sk_rt>` (the Better Auth session
  * token is accepted by the `bearer` plugin, auth-tokens.md). `GET` needs no `Origin`
- * (Better Auth skips the check on `GET`). Returns the JWT, or `null` on ANY failure —
+ * (Better Auth skips the check on `GET`). Returns the JWT, or `null` on ANY failure:
  * unreachable mint, non-2xx, or a body without a `token` string. It writes NO cookies:
  * `refreshAccessToken` writes through `cookies()` for route handlers that let Next merge
  * the response, and the BFF proxy writes `Set-Cookie` on the `NextResponse` it hand-builds.
@@ -198,7 +198,7 @@ function apiBaseUrl(): string {
  *
  * CONCURRENT CALLERS ARE COLLAPSED by `inFlightMints` (ADR-0014, "a per-request in-flight
  * map collapses them"): a burst of parallel fetches that all see `token_expired` triggers
- * ONE upstream mint. The map is keyed by a SHA-256 of `sk_rt`, never the raw token — a Map
+ * ONE upstream mint. The map is keyed by a SHA-256 of `sk_rt`, never the raw token: a Map
  * key is reachable from a heap dump and from `util.inspect` of the module, and the raw
  * session token is a 30-day credential. Entries are deleted in `finally`, so a settled mint
  * never pins a stale promise.
@@ -261,9 +261,9 @@ const mintedTokenContract = z.object({ token: z.string().min(1) });
 
 /**
  * Mints a new JWT from the `sk_rt` cookie through `mintAccessToken`, writes a fresh `sk_at`
- * through `cookies()` (route handlers only — the action phase), and returns the JWT.
+ * through `cookies()` (route handlers only, the action phase), and returns the JWT.
  *
- * A failure — no `sk_rt`, or the mint returned `null` — clears BOTH cookies and throws,
+ * A failure (no `sk_rt`, or the mint returned `null`) clears BOTH cookies and throws,
  * which is the "two consecutive failures clear both cookies and return 401" outcome the
  * caller (the refresh-and-bounce route, the session projection) turns into a 401 or a
  * redirect to `/sign-in`.
@@ -292,7 +292,7 @@ export async function refreshAccessToken(): Promise<string> {
 
 /**
  * Used by every authenticated server component before it renders. Reads `sk_at`; when
- * there is no session it `redirect`s to the sign-in screen and NEVER returns — so a
+ * there is no session it `redirect`s to the sign-in screen and NEVER returns, so a
  * protected page cannot render-then-hide (AC-19). It does not itself verify the JWT; the
  * API is the enforcement point, and a present-but-invalid `sk_at` fails at the first
  * `serverApiClient`/BFF call, which refreshes or clears.
@@ -356,7 +356,7 @@ export function sessionUserFromJwt(jwt: string): SessionUser | null {
 }
 
 /**
- * `true` when the JWT's `exp` claim is at or before `nowSeconds` — or when the payload does
+ * `true` when the JWT's `exp` claim is at or before `nowSeconds`, or when the payload does
  * not validate at all: a token with no readable expiry is treated as expired, the closed
  * direction. Decode only; the API verifies the signature on use.
  */

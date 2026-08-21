@@ -1,5 +1,5 @@
 /**
- * STORY-1b-02 — AC-1b-7, AC-1b-8, AC-1b-9, AC-1b-10, AC-1b-11 against the CHILD process, plus
+ * STORY-1b-02: AC-1b-7, AC-1b-8, AC-1b-9, AC-1b-10, AC-1b-11 against the CHILD process, plus
  * the ADR-0021 prefix-swap test route enumeration cannot replace and the SC-5 scan of the
  * child's bytes on every refusal. TASK-1b-09 (item 1b, wave 3).
  *
@@ -17,7 +17,7 @@
  * `dist/main.js`, which `startApiServer` builds and spawns. Nothing in-process can reach
  * them, so every "no user was created" below is a database read through the migrator DSN,
  * every "the token is not in the logs" is a scan of `server.output()`, and every request goes
- * to the child. The fixture rows — tenant A, the inviter, the workspaces, the invitation — are
+ * to the child. The fixture rows (tenant A, the inviter, the workspaces, the invitation) are
  * written from THIS process through the repositories under `withTenantTransaction`, the way
  * `test/invitations/capability-token.int-spec.ts` does, so this file does not depend on the
  * invitation routes (TASK-1b-08, the same wave).
@@ -25,7 +25,7 @@
  * The invited signup's "no new tenant" is asserted the way `signup-creates-tenant.int-spec.ts`
  * records for AC-1: `tenants` cannot be counted from any DSN this suite holds (FORCE RLS,
  * `tenants_self_select`), so the measurable statement is "exactly one `tenant_memberships`
- * row across all tenants, and it names tenant A" — read through `app.membership_lookup_user`,
+ * row across all tenants, and it names tenant A", read through `app.membership_lookup_user`,
  * which returns the user's rows in EVERY tenant. A second membership under a fresh tenant
  * would appear in that count.
  */
@@ -286,7 +286,7 @@ describe('a new address signs up with the token (AC-1b-7)', () => {
     expect(jwtClaims(token as string).tid).toBe(TENANT_A);
   });
 
-  it('D-01: the link is the capability — an address other than invitations.email accepts the same way', async () => {
+  it('D-01: the link is the capability: an address other than invitations.email accepts the same way', async () => {
     // `invite` writes INVITEE_EMAIL on the row; SECOND_INVITEE_EMAIL signs up with it.
     const { raw, id } = await invite(TENANT_A, [{ workspaceId: W3, workspaceRole: 'viewer' }]);
 

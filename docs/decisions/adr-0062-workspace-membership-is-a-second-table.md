@@ -18,14 +18,14 @@ why the existing policies survive it." This is that clause.
 
 What 1a shipped (TASK-011, ADR-0003, `apps/api/drizzle/0002_*.sql`): `workspaces` with the
 template column `tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`, and the
-output of `tenantScopedPolicies('workspaces')` hand-appended — `FORCE ROW LEVEL SECURITY`,
+output of `tenantScopedPolicies('workspaces')` hand-appended: `FORCE ROW LEVEL SECURITY`,
 `workspaces_tenant_isolation` (`FOR ALL`, matching `USING`/`WITH CHECK` on the `nullif`'d
 `app.tenant_id`), `workspaces_privileged_erase` (`FOR DELETE` on `app.privileged_erase`), and
 the `tenant_id` index. Every tenant member sees every workspace of the tenant; the only
 boundary is the tenant.
 
 What 1b needs: a person sees exactly the workspaces they were invited to, at exactly the
-roles named (SC-7). ADR-0015 already decided where that lives — `tenant_memberships` holds
+roles named (SC-7). ADR-0015 already decided where that lives: `tenant_memberships` holds
 the `TenantRole`, one row per user ever; `memberships` holds the `WorkspaceRole`, one row per
 user per workspace, and its alternatives table rejects one table with a nullable
 `workspace_id`. So the question this ADR answers is not *whether* there is a second table but
@@ -52,9 +52,9 @@ workspaces`.
 Why the policies survive: they were never asked to say *who in the tenant* may see a
 workspace, only *which tenant* owns it, and that question has the same answer after 1b. The
 narrower question is answered one table over. A per-user predicate on `workspaces` would need
-a flag carrying the caller's user id — a fifth context flag, a fourth exclusion, a policy the
+a flag carrying the caller's user id: a fifth context flag, a fourth exclusion, a policy the
 approved set does not list, and a `SELECT` on `workspaces` that depends on the request's
-identity in a way `withTenantTransaction`'s contract does not express — for a property that a
+identity in a way `withTenantTransaction`'s contract does not express, for a property that a
 join expresses already. ADR-0003's template stays the whole of what a tenant-scoped table
 owes.
 
@@ -75,7 +75,7 @@ CREATE TABLE memberships (
 ```
 
 `invitations` and `invitation_workspaces` land in the same migration (`0003`), each with its
-own `tenant_id`, its own `tenantScopedPolicies()` block and its own registration — three
+own `tenant_id`, its own `tenantScopedPolicies()` block and its own registration: three
 tables, three obligations each, one commit. None of the three is a cascade root and none gets
 a bespoke policy: the one `@Public()` route that reads `invitations` does so **inside**
 `withTenantTransaction(<the token's tenant prefix>)` under the ordinary isolation policy, which
@@ -84,7 +84,7 @@ three; `db:check-policies` counts fifteen policy sets over eleven tables.
 
 ### The foreign key to `workspaces` is composite, and that is the isolation argument
 
-**Referential checks run with row security bypassed** (rls-policy-template.md, invariant 5 —
+**Referential checks run with row security bypassed** (rls-policy-template.md, invariant 5:
 the same fact that lets `DELETE FROM tenants` cascade through tables the eraser could not
 read). So a plain `workspace_id uuid REFERENCES workspaces(id)` is satisfied by *any* tenant's
 workspace id: a `memberships` row carrying tenant A's `tenant_id` and tenant B's
@@ -98,13 +98,13 @@ policy set can refuse it, because the policy set is about `tenant_id` and the ro
 the database: the check looks for the pair (B's workspace, A's tenant) in `workspaces` and no
 such pair exists. `23503`, constraint `memberships_workspace_tenant_fk`, whatever an
 application check did or failed to do. `invitation_workspaces` declares the same key, for the
-same reason, so an invitation in tenant A cannot name a workspace of tenant B either — the
+same reason, so an invitation in tenant A cannot name a workspace of tenant B either: the
 `POST /api/invitations` handler answers 404 for a workspace the caller does not admin (D-09)
 long before this is reached, and the constraint is the floor under that check.
 
 The target of both keys is **`UNIQUE (id, tenant_id)` on `workspaces`**, added in `0003`. It is
-a constraint and not a column — `id` alone is already the primary key, so the pair is
-trivially unique — and it is the one thing 1b changes about `workspaces`. Drizzle Kit emits it
+a constraint and not a column (`id` alone is already the primary key, so the pair is
+trivially unique), and it is the one thing 1b changes about `workspaces`. Drizzle Kit emits it
 after the foreign keys that reference it, and PostgreSQL refuses a `FOREIGN KEY` whose
 referenced columns are not yet unique, so the migration file moves the generator's statement
 ahead of them by hand and says so in a comment. Measured in
@@ -130,7 +130,7 @@ membership in one transaction, so the person who makes a workspace can see it.
 
 An `INSERT INTO memberships ... SELECT ... FROM workspaces` inside migration `0003` runs as
 `shortkit_migrator`, which is `NOBYPASSRLS` under `FORCE ROW LEVEL SECURITY`, with no
-`app.tenant_id` set. It reads zero rows, inserts nothing, and reports success — F-236's shape,
+`app.tenant_id` set. It reads zero rows, inserts nothing, and reports success: F-236's shape,
 exactly. Doing it correctly would mean iterating tenants inside a migration under a flag the
 migration sets itself, which is the string-concatenated context flag rls-policy-template.md
 forbids and a precedent nobody wants.
@@ -145,7 +145,7 @@ README.
 
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
-| A per-user policy on `workspaces` — `USING (EXISTS (SELECT 1 FROM memberships m WHERE m.workspace_id = id AND m.user_id = current_setting('app.user_id')))` | The boundary lives where the rows are; a route that forgets the join is still bounded | A fifth context flag and a fourth exclusion; a policy the approved set does not list; `db:check-policies` and the drift arms would need amending; a subselect through `memberships` under RLS in every `workspaces` predicate; and it changes `0002`'s policy set, which is exactly the "known cost" the roadmap said to avoid | The join expresses the same property with no change to the template, and the boundary a route could forget is the authorizer's job (D-05), which runs on every workspace route |
+| A per-user policy on `workspaces`: `USING (EXISTS (SELECT 1 FROM memberships m WHERE m.workspace_id = id AND m.user_id = current_setting('app.user_id')))` | The boundary lives where the rows are; a route that forgets the join is still bounded | A fifth context flag and a fourth exclusion; a policy the approved set does not list; `db:check-policies` and the drift arms would need amending; a subselect through `memberships` under RLS in every `workspaces` predicate; and it changes `0002`'s policy set, which is exactly the "known cost" the roadmap said to avoid | The join expresses the same property with no change to the template, and the boundary a route could forget is the authorizer's job (D-05), which runs on every workspace route |
 | A plain `workspace_id REFERENCES workspaces(id)` and an application check | One column, the idiomatic FK | Referential checks bypass RLS, so a grant naming another tenant's workspace is a valid row; the application check is the only thing between a bug and a cross-tenant grant | The composite key makes the row unexpressible; it costs one `UNIQUE (id, tenant_id)` on `workspaces` |
 | Denormalise `tenant_id` away from `memberships` and rely on the join to `workspaces` for scoping | One fewer column | A table scoped "through its parent" is a table scoped by nothing: RLS does not follow a join, ADR-0019's enumeration cannot see it, and the erasure cascade needs the column | Every tenant-scoped table carries its own `tenant_id` and its own policy set (ADR-0003, ADR-0019) |
 | A backfill in `0003` giving every existing workspace's tenant owner a `workspace_admin` row | Pre-1b workspaces stay reachable | Silently inserts nothing under `FORCE` (F-236); the honest version needs per-tenant flags set inside a migration | No deploy target (ADR-0030); reset the volume (ADR-0032) |
@@ -158,7 +158,7 @@ README.
 - `workspaces`' policy set is byte-for-byte what `0002` applied; the "known cost" is a
   constraint, and the verbatim hold on `0002` stays green.
 - A membership or an invitation grant naming another tenant's workspace is a `23503` at the
-  database, independent of every application check — measured, not asserted.
+  database, independent of every application check: measured, not asserted.
 - Three template-shaped tables, no bespoke policy, no new flag, no new exclusion; the
   isolation harness attacks all three with the same eight shapes it attacks the others with,
   and `tenantScopedTableDrift()` names any of them that stops being registered.
@@ -168,7 +168,7 @@ README.
 ### Negative / accepted cost
 
 - **A tenant `owner` holds no implicit workspace access** (D-10). The person who created the
-  tenant sees the workspaces they created — `POST` writes their `workspace_admin` row — and no
+  tenant sees the workspaces they created (`POST` writes their `workspace_admin` row), and no
   other. There is no route in 1b to add a member to an existing workspace, so a tenant `admin`
   (a role nothing in 1b grants) creating a workspace would leave the `owner` without a
   membership in it and no way to repair that short of an invitation. Reachable later, recorded
@@ -178,7 +178,7 @@ README.
 - **`reparentAll` on `memberships` and `invitation_workspaces` has a second floor under it.**
   Under a widened `USING`, `UPDATE <t> SET tenant_id = <actor>` would rewrite the target's row
   to a (workspace, tenant) pair `workspaces` does not hold and the composite key refuses it
-  `23503`, which the harness scores `unverified` rather than `fail` — a red run naming the
+  `23503`, which the harness scores `unverified` rather than `fail`: a red run naming the
   surface, narrower than a named leak (F-342's accounting). The constraint refusing the theft
   is the property this ADR exists to record; the cost is that the report says "could not
   judge" where it might have said "leaked".

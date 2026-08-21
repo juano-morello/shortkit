@@ -1,6 +1,6 @@
 /**
- * STORY-004 — AC-21 to AC-24, the contract half. TASK-012.
- * STORY-1b-04 — AC-1b-17/18, the `workspaceRole` field. TASK-1b-06.
+ * STORY-004: AC-21 to AC-24, the contract half. TASK-012.
+ * STORY-1b-04: AC-1b-17/18, the `workspaceRole` field. TASK-1b-06.
  *
  * Contract: docs/contracts/workspaces.md ("Endpoints"), error-envelope.md
  * ADR: adr-0005-contract-distribution.md, adr-0025-zod-error-recognition-in-contracts.md
@@ -243,7 +243,7 @@ describe('workspaceContract', () => {
 
   it('carries no tenantId: the caller is inside their tenant, and the id is not returned', () => {
     // A `tenantId` on the input is stripped rather than kept, and the parsed shape has no
-    // such key — the endpoints map the repository row through an explicit field list and
+    // such key: the endpoints map the repository row through an explicit field list and
     // this is the client-side statement of the same rule.
     const parsed = workspaceContract.parse({ ...WIRE_WORKSPACE, tenantId: '11111111-1111-4111-8111-111111111111' });
 

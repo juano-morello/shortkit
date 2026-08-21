@@ -3,11 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * ADR-0028 — a log field reaches the line only if its key is named.
+ * ADR-0028: a log field reaches the line only if its key is named.
  *
  * Decision: `docs/decisions/adr-0028-log-field-allowlist.md`. Contract:
  * `docs/contracts/logging-and-headers.md`, "What may never appear in a log line" and
- * invariant 1. Enforces GC-9 — no PII in log bodies.
+ * invariant 1. Enforces GC-9: no PII in log bodies.
  *
  * Findings: F-261, F-262, F-266.
  *
@@ -19,8 +19,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * library hung off one, under every key and on every path a line is built by. Its subject is
  * a VALUE and its policy.
  *
- * This file is about KEYS. ADR-0028 replaces `REDACT_PATHS` — a list of 25 key paths to
- * censor — with `LOGGABLE_FIELDS`, a list of keys that may carry a value, and censors
+ * This file is about KEYS. ADR-0028 replaces `REDACT_PATHS` (a list of 25 key paths to
+ * censor) with `LOGGABLE_FIELDS`, a list of keys that may carry a value, and censors
  * everything else. The two suites therefore fail for different reasons and a reader chasing
  * one should not have to read the other. They share the emitter shape and nothing else.
  *
@@ -35,8 +35,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * list with the same property, so a suite that covered only those names would certify the
  * fourth round of the same fix.
  *
- * So the FIRST test below logs keys that appear NOWHERE in this repository — invented for
- * this file — and asserts they are censored. It is the one that says the mechanism is right
+ * So the FIRST test below logs keys that appear NOWHERE in this repository (invented for
+ * this file), and asserts they are censored. It is the one that says the mechanism is right
  * rather than that four known spellings are covered. The three finding-named tests after it
  * are the measured shapes each finding was raised against, kept because a finding closes
  * against the reproduction that raised it.
@@ -46,7 +46,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * ============================================================================
  *
  * Every assertion above is satisfied by a logger that emits `[redacted]` for every key it is
- * given, which would be useless and would pass silently — ADR-0028's own stated cost is that
+ * given, which would be useless and would pass silently: ADR-0028's own stated cost is that
  * "typecheck, lint and the suite are all green on a log line whose fields are all censored".
  * Three tests exist against that: the fields the shipped call sites actually emit reach the
  * line with their values, an array element is not treated as a field name, and a key whose
@@ -74,8 +74,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * ROUND 6 ADDITIONS: F-277 (DOOR SEVEN) AND F-279, AND WHY THEY ARE FILED HERE
  * ============================================================================
  *
- * Both are the same question this file was opened to ask — CAN A VALUE REACH A LINE UNDER A
- * KEY NOBODY NAMED — reached through two doors the file did not probe.
+ * Both are the same question this file was opened to ask: CAN A VALUE REACH A LINE UNDER A
+ * KEY NOBODY NAMED, reached through two doors the file did not probe.
  *
  *   - F-277 is the ARGUMENT LIST. Every shape above puts its payload in the RECORD; not one
  *     puts a value in pino's MESSAGE position, and that is the one position nothing scans.
@@ -87,13 +87,13 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *
  * They are NOT in `logger.spec.ts`, whose subject is an `Error` and the properties a library
  * hangs off one. The payloads below are credentials and IPs under ordinary keys, which is this
- * file's subject, and `logger.spec.ts`'s emitter cannot take an appended shape safely anyway —
+ * file's subject, and `logger.spec.ts`'s emitter cannot take an appended shape safely anyway:
  * its last two lines call `setBindings`, which pollutes the singleton permanently.
  */
 
 /**
  * A value under a key NOBODY HAS NAMED. Six spellings, none of which occurs anywhere in
- * `apps/api/src` — five are ADR-0028's own examples of "every field a TASK invents next
+ * `apps/api/src`: five are ADR-0028's own examples of "every field a TASK invents next
  * quarter", and `attemptCount` is the ADR's rule-6 example, chosen because it is one word
  * away from `attempt`, which IS on the list. A near miss has to be censored like a miss.
  */
@@ -122,8 +122,8 @@ const REQUEST_REMOTE_ADDRESS = '203.0.113.7';
 const REQUEST_REMOTE_PORT = 44321;
 
 /**
- * The concrete path on a request-shaped record. "Required fields" forbids it — `route` is the
- * PATTERN, never the path — and the redirect path's concrete paths are the entire click
+ * The concrete path on a request-shaped record. "Required fields" forbids it (`route` is the
+ * PATTERN, never the path), and the redirect path's concrete paths are the entire click
  * stream in plain text. The query string carries a capability token on top of that.
  */
 const REQUEST_URL = '/l/abc?token=SEKRIT-IN-THE-URL';
@@ -161,25 +161,25 @@ const SECRET_INSIDE_AN_ARRAY = 'array-element-secret-marker';
 /**
  * `logging-and-headers.md`, "What the implementer must guarantee", and ADR-0028
  * § "`REDACT_CENSOR` keeps its name and its value". Hand-copied from the contract rather than
- * imported from `logger.ts` — an expected value read out of the code under test agrees with
+ * imported from `logger.ts`: an expected value read out of the code under test agrees with
  * it whatever it does.
  */
 const CENSOR = '[redacted]';
 
 /**
  * Every field a log call site in `apps/api/src` actually emits today, with a value that is
- * recognisably itself. This is ADR-0028 Migration step 3 — "sweep every log call site and
- * check its fields against the list" — written as an assertion, so a name missing from
+ * recognisably itself. This is ADR-0028 Migration step 3 ("sweep every log call site and
+ * check its fields against the list") written as an assertion, so a name missing from
  * `LOGGABLE_FIELDS` reds here instead of degrading a line silently at 3am.
  *
  * Sources, one per field:
- *   `request_id`, `route`, `status`, `duration_ms`, `tenant_id` — the contract's
+ *   `request_id`, `route`, `status`, `duration_ms`, `tenant_id`: the contract's
  *      "Required fields" table, and `RequestLogFields` in `logger.ts`.
- *   `boot_precondition`, `attempt`, `retry_in_ms` — `main.ts:198-206` and `:269-277`.
- *   `code` — `exception-filter.ts`, a `DomainError` code (`error-envelope.md`).
- *   `err_name`, `err_message`, `err_stack` — `ErrorLogFields`, spread into records by
+ *   `boot_precondition`, `attempt`, `retry_in_ms`: `main.ts:198-206` and `:269-277`.
+ *   `code`: `exception-filter.ts`, a `DomainError` code (`error-envelope.md`).
+ *   `err_name`, `err_message`, `err_stack`: `ErrorLogFields`, spread into records by
  *      `logError` and by `main.ts`.
- *   `msg` — pino's `messageKey`, when a call site supplies its own on the record.
+ *   `msg`: pino's `messageKey`, when a call site supplies its own on the record.
  */
 const REQUEST_ID = 'r-1-request-id';
 const ROUTE_PATTERN = '/api/links/:id';
@@ -197,7 +197,7 @@ const REQUEST_RECORD_CONTEXT = 'a request-shaped first argument';
  *
  * `interpolationCovered` reduces `args[1]` only when it `instanceof Error`, and its
  * interpolation loop starts at `message + 1`, so a NON-`Error` value in the message position
- * is inspected by nothing at all — not `LOGGABLE_FIELDS`, not `formatters.log`, not
+ * is inspected by nothing at all: not `LOGGABLE_FIELDS`, not `formatters.log`, not
  * `serializers.err`, not either bindings wrapper. It reaches `msg` verbatim.
  *
  * The call shape is `logger.error({ request_id }, e)` where `e` is what `catch (e)` binds and
@@ -221,12 +221,12 @@ const TRAILING_ARGUMENT_SECRET = 'M6-message-position-trailing-argument-marker';
  * ============================================================================
  *
  * F-277 is a REGRESSION, and a guard that only asserted the general property would not have
- * caught it — every shape above leaks in the message position on BOTH singletons.
+ * caught it: every shape above leaks in the message position on BOTH singletons.
  *
  * `REDACT_PATHS` carried eight wildcards: `*.password`, `*.token`, `*.secret`, `*.rawToken`,
  * `*.tokenDigest`, `*.verificationToken`, `*.ip`, `*.ipHash`. pino builds a WILDCARD
- * STRINGIFIER out of those and applies it to the `msg` value too — `tools.js:205`,
- * `stringifiers[messageKey] || wildcardStringifier` — so the eight names were censored INSIDE
+ * STRINGIFIER out of those and applies it to the `msg` value too (`tools.js:205`,
+ * `stringifiers[messageKey] || wildcardStringifier`) so the eight names were censored INSIDE
  * `msg` by accident, and ADR-0028's removal of the list took that with it.
  *
  * MEASURED, both singletons, same process shape, `logger.ts` restored byte-identical
@@ -279,7 +279,7 @@ const LYING_OPTIONS_IP = '203.0.113.33';
 /**
  * What the emitter appends to the CONTEXT STRING when a child-options call REFUSED rather than
  * emitted, copied from `logger.spec.ts` and for the same two reasons. F-279's required change
- * is "match pino's own predicate per option", and a refusal is what that produces — but a call
+ * is "match pino's own predicate per option", and a refusal is what that produces, but a call
  * site that reads the options through pino's accessor and neutralises them instead is an equally
  * good answer, so the tests below accept either rather than picking the implementation.
  *
@@ -294,16 +294,16 @@ const CHILD_OPTIONS_REFUSED = ' [child options refused]';
  * ============================================================================
  *
  * The three tests in the door-seven describe assert that no payload marker reaches the line and
- * that the caller's record and SOME `msg` survive. `sdlc-reviewer` built the DROP MUTANT —
- * `errorMovedOntoTheRecord` returning `[{ ...record }, POSITIONAL_ERROR_MESSAGE,
- * ...args.slice(2)]`, the caller's argument DISCARDED rather than filed under `err` — and
+ * that the caller's record and SOME `msg` survive. `sdlc-reviewer` built the DROP MUTANT
+ * (`errorMovedOntoTheRecord` returning `[{ ...record }, POSITIONAL_ERROR_MESSAGE,
+ * ...args.slice(2)]`, the caller's argument DISCARDED rather than filed under `err`), and
  * measured all three of them, and `logger.spec.ts`'s Error-in-the-message-position test, GREEN
  * under it. Closing the leak by throwing the container away satisfies every one of them, so the
  * shipped fix and the cheap wrong answer were behaviourally indistinguishable to this suite.
  *
  * What the mutant loses is the DIAGNOSTIC the fix exists to preserve: the line stops saying that
  * anything was thrown. The two values below are what says it, and they are hand-copied from
- * `logging-and-headers.md` invariant 1's measured table rather than imported from `logger.ts` —
+ * `logging-and-headers.md` invariant 1's measured table rather than imported from `logger.ts`:
  * an expected value read out of the code under test agrees with it whatever it does.
  *
  * `err_name` IS A CONSTANT FOR EVERY NON-`Error` CONTAINER, which the invariant states in place
@@ -321,8 +321,8 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
  * `genLog`'s `LOG` (`tools.js:47-56`) sniffs the record's SHAPE before `write`, and therefore
  * before `formatters.log`, `serializers.err` and both bindings wrappers: `o.method &&
  * o.headers && o.socket` replaces the WHOLE record with `mapHttpRequest(o)`, which is
- * `{ req: … }`, and `typeof o.setHeader === 'function'` — the second door, found by
- * `sdlc-reviewer` — replaces it with `mapHttpResponse(o)`, which is `{ res: … }`. Every other
+ * `{ req: … }`, and `typeof o.setHeader === 'function'` (the second door, found by
+ * `sdlc-reviewer`) replaces it with `mapHttpResponse(o)`, which is `{ res: … }`. Every other
  * own key of the caller's object is discarded at that point.
  *
  * THERE IS NO LEAK HERE AND THESE TESTS DO NOT ASSERT ONE. `req` and `res` are not named
@@ -332,12 +332,12 @@ const POSITIONAL_ERROR_MESSAGE = 'an error was logged with no context string';
  * line on six routes.
  *
  * WHAT IS LOST IS `request_id` AND `route`, GONE RATHER THAN CENSORED, which makes contract
- * invariant 2 false for this record shape. The contract says so in three places — "Door six",
- * invariant 1's measured table, invariant 2's exception — and NOTHING TESTED IT: the
+ * invariant 2 false for this record shape. The contract says so in three places ("Door six",
+ * invariant 1's measured table, invariant 2's exception), and NOTHING TESTED IT: the
  * request-shaped record at ordinal 2 above has no `socket` key, so it never trips the sniff.
  *
  * PINNED AS IT IS, NOT AS IT SHOULD BE. Today's measured behaviour is fixed in place in both
- * directions — the sniff firing and the near miss not firing — so a pino upgrade that widens,
+ * directions (the sniff firing and the near miss not firing) so a pino upgrade that widens,
  * narrows or moves it cannot pass silently.
  */
 const REQUEST_SNIFF_AUTHORIZATION = 'Bearer R1-request-sniff-authorization-marker';
@@ -353,7 +353,7 @@ const RESPONSE_SNIFF_CONTEXT = 'a record pino reads as an HTTP response';
 
 /**
  * TASK-016 (STORY-006 AC-34). The request-log line `RequestLogInterceptor` writes, in the exact
- * shape it builds — the five "Required fields" and the fixed `msg` — with two fields added
+ * shape it builds (the five "Required fields" and the fixed `msg`) with two fields added
  * beside them under names the allowlist does NOT carry:
  *
  *   - `email`, the field TASK-016's card names as the one to watch and the one that may never
@@ -363,7 +363,7 @@ const RESPONSE_SNIFF_CONTEXT = 'a record pino reads as an HTTP response';
  *     does not name. Same fate, so adding it is a contract amendment first.
  *
  * The five named fields on the same record must keep their values, or the interceptor's line
- * would be five `[redacted]`s with every gate green — ADR-0028's own stated cost.
+ * would be five `[redacted]`s with every gate green: ADR-0028's own stated cost.
  */
 const REQUEST_LOG_EMAIL = 'operator-on-a-request-log-line@example.com';
 const REQUEST_LOG_METHOD = 'PATCH';
@@ -412,8 +412,8 @@ const EXPECTED_LINE_COUNT = Object.keys(LINE).length;
 /**
  * Emitted in a subprocess so the module under test is the real singleton writing to the real
  * file descriptor. Held as source text rather than as a sibling `.ts` file because it has to
- * build the shapes a library builds — an error with an assigned `body`, a `toJSON` that
- * returns one, a class instance holding one — and expressing those in checked TypeScript
+ * build the shapes a library builds (an error with an assigned `body`, a `toJSON` that
+ * returns one, a class instance holding one), and expressing those in checked TypeScript
  * would take casts that hide the shape being reproduced.
  */
 function emitterSource(loggerModule: string): string {
@@ -500,7 +500,7 @@ logger.info(
 //
 //    NO CONTEXT STRING ON THIS ONE, DELIBERATELY. \`msg\` is on the list because a record
 //    may supply its own, and pino uses a positional context string in preference to the
-//    record's — so passing one here would assert nothing about the record's \`msg\` key.
+//    record's, so passing one here would assert nothing about the record's \`msg\` key.
 logger.info({
   request_id: '${REQUEST_ID}',
   route: '${ROUTE_PATTERN}',
@@ -514,7 +514,7 @@ logger.info({
   msg: '${CALLER_SUPPLIED_MESSAGE}',
 });
 
-// 6. The three fields \`errorLogFields\` builds, SPREAD onto a record — which is how
+// 6. The three fields \`errorLogFields\` builds, SPREAD onto a record, which is how
 //    main.ts:269-277 and exception-filter.ts's logError both write them, so they arrive as
 //    ordinary top-level keys and not under \`err\`.
 logger.info(
@@ -555,7 +555,7 @@ logger.info(
 logger.info({ notNamed: undefined, request_id: '${REQUEST_ID}' }, 'an undefined value');
 
 // 12. F-277, DOOR SEVEN, the reproduction as both auditors filed it. \`logger.error(record, e)\`
-//     where \`e\` is a NON-Error throwable — what \`catch (e)\` binds and what a rejected promise
+//     where \`e\` is a NON-Error throwable: what \`catch (e)\` binds and what a rejected promise
 //     carries. Not one of these four names is on \`LOGGABLE_FIELDS\` and four of them are on the
 //     contract's OWN never-allowlist. \`.error\` rather than \`.info\` because that is the shape
 //     that was measured; the hook and the argument list are the same at every level.
@@ -592,7 +592,7 @@ logger.error(
 logger.error({ request_id: '${REQUEST_ID}' }, ['first', { password: '${ARRAY_ELEMENT_SECRET}' }]);
 
 // 15. F-277, a CLASS INSTANCE in the message position. \`valueCensored\` declines to walk a
-//     non-plain prototype and censors it whole, which is the answer the record path gives —
+//     non-plain prototype and censors it whole, which is the answer the record path gives,
 //     and the old wildcard stringifier gave this one \`[redacted]\` as well, so it regressed.
 class Held {
   constructor(secret) {
@@ -608,12 +608,12 @@ logger.error(undefined, { password: '${NO_RECORD_SECRET}' });
 
 // 17. F-277 with a TRAILING ARGUMENT after the container, which is what puts the message
 //     through \`format()\` as a string rather than leaving it an object. Same leak by a
-//     different route — measured \`"msg":"{\\"password\\":\\"…\\"} "\` — and regressed.
+//     different route (measured \`"msg":"{\\"password\\":\\"…\\"} "\`), and regressed.
 logger.error({ request_id: '${REQUEST_ID}' }, { password: '${TRAILING_ARGUMENT_SECRET}' }, 'tail');
 
 // 18. F-279. \`redact\` supplied on the OPTIONS PROTOTYPE. \`Object.hasOwn\` does not see it and
 //     pino reads it with a plain property read (\`proto.js:161\`), so the child is accepted and
-//     the redact is installed — measured, and the line then carries no \`request_id\` at all,
+//     the redact is installed: measured, and the line then carries no \`request_id\` at all,
 //     from the binding or from the record, under a censoring policy this module documents as
 //     refused. \`remove: true\` is what makes the effect visible rather than cosmetic.
 try {
@@ -634,7 +634,7 @@ try {
 //     \`options.hasOwnProperty('formatters')\` AS A METHOD ON THE OPTIONS OBJECT, so an options
 //     object that answers \`true\` for a \`formatters\` it holds on its PROTOTYPE takes pino's
 //     replacing branch while \`Object.hasOwn\` correctly says no. The scan is then gone at every
-//     key and every depth — measured: an unnamed \`password\` and a raw \`ip\`, both verbatim.
+//     key and every depth; measured: an unnamed \`password\` and a raw \`ip\`, both verbatim.
 try {
   const lyingOptions = Object.create({ formatters: { log: (record) => record } });
   lyingOptions.hasOwnProperty = (option) => option === 'formatters';
@@ -655,7 +655,7 @@ try {
 // 20. F-281, DOOR ONE. \`o.method && o.headers && o.socket\` (\`tools.js:51\`) replaces the WHOLE
 //     record with \`{ req: … }\` before \`formatters.log\` sees anything, so the two NAMED fields
 //     on this record are discarded rather than censored. Every payload here is one the record
-//     path already covers — the point of the line is which keys SURVIVE, not which leak.
+//     path already covers: the point of the line is which keys SURVIVE, not which leak.
 const requestShaped = {
   request_id: '${REQUEST_ID}',
   route: '${ROUTE_PATTERN}',
@@ -682,7 +682,7 @@ logger.info(requestShapedWithNoSocket, '${REQUEST_NEAR_MISS_CONTEXT}');
 // 22. F-281, DOOR TWO. \`typeof o.setHeader === 'function'\` (\`tools.js:53\`) replaces the record
 //     with \`{ res: … }\` by the same mechanism and one line further down. \`resSerializer\` calls
 //     \`getHeaders()\`, so a \`Set-Cookie\` this record never held as a key is pulled INTO the
-//     replacement — and censored with it.
+//     replacement, and censored with it.
 logger.info(
   {
     request_id: '${REQUEST_ID}',
@@ -698,8 +698,8 @@ logger.info(
   '${RESPONSE_SNIFF_CONTEXT}',
 );
 
-// 23. TASK-016. THE REQUEST-LOG LINE AS \`RequestLogInterceptor\` BUILDS IT — the five
-//     "Required fields", the fixed context string, \`info\` — with \`email\` and \`method\`
+// 23. TASK-016. THE REQUEST-LOG LINE AS \`RequestLogInterceptor\` BUILDS IT (the five
+//     "Required fields", the fixed context string, \`info\`) with \`email\` and \`method\`
 //     added beside them. Neither is named. The five must survive with their values; the two
 //     must be \`[redacted]\`, and the address must not be on the line's bytes anywhere.
 logger.info(
@@ -758,7 +758,7 @@ beforeAll(() => {
 
 /**
  * The line's record with only `keys` kept, in the order given. Written so a failure prints
- * one object naming every key that leaked rather than stopping at the first — a suite whose
+ * one object naming every key that leaked rather than stopping at the first: a suite whose
  * whole subject is "which spelling did nobody think of" should not report them one per run.
  *
  * It carries no expectation of its own: the expected object is a hand-written literal at
@@ -773,7 +773,7 @@ function fields(ordinal: number, keys: readonly string[]): Record<string, unknow
 describe('a key that is not named does not carry a value onto a log line', () => {
   it('ADR-0028: a key nobody has named is censored, and the key stays on the line', () => {
     // THE CLASS TEST, AND THE REASON THIS DECISION EXISTS. Not one of these six spellings
-    // occurs in `apps/api/src`, in `REDACT_PATHS`, or in any finding — they were invented
+    // occurs in `apps/api/src`, in `REDACT_PATHS`, or in any finding: they were invented
     // here. `REDACT_PATHS` covers the spellings someone thought of, so it emits all six
     // verbatim, and it would still emit them after F-261, F-262 and F-266 were each closed
     // by appending the names they found. That is the fourth audit round, and it is what this
@@ -810,12 +810,12 @@ describe('a key that is not named does not carry a value onto a log line', () =>
     //    "ipAddress":"…","ip":"[redacted]","ipHash":"[redacted]","ip_hash":"SNAKE"}
     // Four raw IPv4 literals in the clear beside two censored keys. GC-9's first prohibition
     // is "a raw IP address, in any field, from any header", and the field the system will
-    // actually hold is `trustedClientIp` — the accessor already named in
+    // actually hold is `trustedClientIp`: the accessor already named in
     // `design/stubs/apps/api/src/auth/resolve-rate-limit-principal.ts:28`.
     //
     // `ip` and `ipHash` are asserted alongside so the fix cannot be bought by losing the
-    // coverage that already exists, and `ip_hash` — the Postgres column name a raw driver row
-    // carries — closes the residual the contract names at "Which casing `REDACT_PATHS` is
+    // coverage that already exists, and `ip_hash` (the Postgres column name a raw driver row
+    // carries) closes the residual the contract names at "Which casing `REDACT_PATHS` is
     // keyed to".
     for (const literal of [CLIENT_IP, TRUSTED_CLIENT_IP, REMOTE_ADDRESS, IP_ADDRESS, IP]) {
       expect(lines[LINE.ipSpellings].raw).not.toContain(literal);
@@ -845,7 +845,7 @@ describe('a key that is not named does not carry a value onto a log line', () =>
   it('F-261: logging a whole request emits no IP, no credential, no cookie and no concrete path', () => {
     // CONTRACT INVARIANT 1, WHICH IS MEASURED FALSE TODAY AND SAYS SO IN PLACE. The finding
     // named `remoteAddress`, `remotePort` and the concrete `url`; the round-5 audit measured
-    // it WIDER — when the request object is the RECORD ITSELF rather than the value of a
+    // it WIDER: when the request object is the RECORD ITSELF rather than the value of a
     // `req` key, the six `req.headers.*` paths do not apply either, so a bare `authorization`
     // header and a `Cookie` go on the line as well:
     //
@@ -895,7 +895,7 @@ describe('a key that is not named does not carry a value onto a log line', () =>
     // headers and emits the IP, the port and the concrete `url` anyway. A fix that only
     // widened the header list would pass the header half of this and still leak the IP.
     //
-    // ADR-0028's Consequences table measures this row as `"req":"[redacted]"` — the whole
+    // ADR-0028's Consequences table measures this row as `"req":"[redacted]"`: the whole
     // object, because `req` is not a named field.
     for (const value of [
       REQUEST_REMOTE_ADDRESS,
@@ -996,7 +996,7 @@ describe('a key that is not named does not carry a value onto a log line', () =>
 
   it('ADR-0028: an object inside an array under a named key still has its own keys decided', () => {
     // An array index is not a field name, so `elementsCensored` applies no key decision to
-    // the elements — but an OBJECT inside the array is walked by the ordinary key rule, and
+    // the elements, but an OBJECT inside the array is walked by the ordinary key rule, and
     // its keys are decided normally. ADR-0028 measures exactly this:
     //   { request_id: 'r-1', route: ['a', { password: 'P' }] }
     //     -> "route":["a",{"password":"[redacted]"}]
@@ -1057,7 +1057,7 @@ describe('what the allowlist may not censor, so that a line still says something
   it("ADR-0028: the three fields `errorLogFields` builds survive being spread onto a record", () => {
     // `main.ts:269-277` and `exception-filter.ts`'s `logError` both SPREAD `errorLogFields`
     // into their record, so `err_name`, `err_message` and `err_stack` arrive as ordinary
-    // top-level keys — they do not travel under `err` and `serializers.err` never sees them.
+    // top-level keys: they do not travel under `err` and `serializers.err` never sees them.
     // Censoring them would leave the API's boot-failure line and every 500's line naming
     // nothing at all, which is `error-envelope.md` invariant 9 broken by the fix for GC-9.
     //
@@ -1083,7 +1083,7 @@ describe('what the allowlist may not censor, so that a line still says something
 
   it('ADR-0028: a key whose value is `undefined` does not become a field on the line', () => {
     // `JSON.stringify` drops a key whose value is `undefined`, so censoring one would ADD a
-    // field where none appeared — an operator would read `"notNamed":"[redacted]"` and go
+    // field where none appeared: an operator would read `"notNamed":"[redacted]"` and go
     // looking for a value that was never there. The record's own named field is asserted
     // beside it so this cannot pass against a line that carries nothing at all.
     expect(lines[LINE.undefinedUnderAnUnnamedKey].record).not.toHaveProperty('notNamed');
@@ -1094,7 +1094,7 @@ describe('what the allowlist may not censor, so that a line still says something
     // The shape `RequestLogInterceptor` writes, plus the two fields it must not grow. `email`
     // is the field TASK-016's card names as the one to watch: a user identifier is a Design
     // decision reserved for the architect, and an email address may not join the allowlist
-    // under any spelling. The five named fields have to survive on the SAME record — a scan
+    // under any spelling. The five named fields have to survive on the SAME record: a scan
     // that censored the whole line would satisfy the second half and fail the first.
     const line = lines[LINE.requestLogLineWithAnEmailBesideIt];
 
@@ -1134,7 +1134,7 @@ describe("door seven: the argument list is a place a line is built, and nothing 
     // (`interpolationCovered`, `:239`) reduces the message argument only when it
     // `instanceof Error`, and the interpolation loop starts at `message + 1`, so nothing ever
     // looks at `args[1]`. Neither `LOGGABLE_FIELDS`, nor `formatters.log`, nor
-    // `serializers.err`, nor either bindings wrapper is anywhere near this path — they act on
+    // `serializers.err`, nor either bindings wrapper is anywhere near this path: they act on
     // the RECORD or on BINDINGS, and this is neither.
     //
     // MEASURED against the shipped singleton, and this is the finding's own reproduction:
@@ -1152,8 +1152,8 @@ describe("door seven: the argument list is a place a line is built, and nothing 
     // message through `format()` as a string instead of leaving it an object).
     //
     // WHAT IS DELIBERATELY NOT ASSERTED: the SHAPE the covered message takes. Moving the
-    // container onto the record under `err` — where `serializers.err` reduces it to
-    // `err_name: 'non-error throwable (object)'` — and reducing it in place through
+    // container onto the record under `err` (where `serializers.err` reduces it to
+    // `err_name: 'non-error throwable (object)'`) and reducing it in place through
     // `valueCensored` are both answers to this finding, and `sdlc-reviewer` ruled the choice
     // Design's rather than the implementer's. Asserting either one here would pick it.
     const shapes = [
@@ -1179,8 +1179,8 @@ describe("door seven: the argument list is a place a line is built, and nothing 
     // the test above completely and leaves an operator with a line that says nothing.
     //
     // `msg` is asserted as PRESENT rather than as a string or as a particular value: both
-    // answers Design may take produce one — the fixed positional string if the container is
-    // moved onto the record, the censored container if it is reduced in place — and neither is
+    // answers Design may take produce one (the fixed positional string if the container is
+    // moved onto the record, the censored container if it is reduced in place), and neither is
     // this test's to choose.
     const withARecord = [
       LINE.messagePositionContainer,
@@ -1204,7 +1204,7 @@ describe("door seven: the argument list is a place a line is built, and nothing 
     // shape in this describe leaks on BOTH singletons, so a guard built only from them would
     // have passed before ADR-0028 as well and would not have caught what today's work broke.
     //
-    // These eight names are exactly the wildcards `REDACT_PATHS` carried — `*.password`,
+    // These eight names are exactly the wildcards `REDACT_PATHS` carried: `*.password`,
     // `*.token`, `*.secret`, `*.rawToken`, `*.tokenDigest`, `*.verificationToken`, `*.ip`,
     // `*.ipHash`. pino builds a WILDCARD STRINGIFIER from them and applies it to the `msg`
     // value too (`tools.js:205`, `stringifiers[messageKey] || wildcardStringifier`), so the
@@ -1213,7 +1213,7 @@ describe("door seven: the argument list is a place a line is built, and nothing 
     //
     // MEASURED on both singletons, same process shape, `logger.ts` restored byte-identical:
     // all eight `[redacted]` at `45cf578^`, all eight verbatim at HEAD. This test is therefore
-    // RED at HEAD and GREEN before ADR-0028 — which is what "the fix may not ship a module that
+    // RED at HEAD and GREEN before ADR-0028, which is what "the fix may not ship a module that
     // is worse than the one it replaced" means as an assertion.
     const regressed = [
       ['password', REGRESSED_PASSWORD],
@@ -1241,13 +1241,13 @@ describe("door seven: the argument list is a place a line is built, and nothing 
     // MEASURED by `sdlc-reviewer` against a mutant of `errorMovedOntoTheRecord` that returns
     // `[{ ...record }, POSITIONAL_ERROR_MESSAGE, ...args.slice(2)]`: all three F-277 tests and
     // `logger.spec.ts`'s Error-in-the-message-position test stay GREEN. The leak is closed
-    // either way — which is why this is a diagnostic gap and not a security one — and the suite
+    // either way (which is why this is a diagnostic gap and not a security one), and the suite
     // reported success on a module that had stopped saying anything was thrown.
     //
     // WHAT IS ASSERTED IS THE ARRIVAL, NOT THE PAYLOAD. `err_name` is the same constant for
     // every non-`Error` container, by `serializers.err`'s own policy and by invariant 1's "what
     // this invariant does not promise is that the object is described". Its PRESENCE is what
-    // the mutant removes, so its presence is what this pins — on the emitted bytes, beside the
+    // the mutant removes, so its presence is what this pins: on the emitted bytes, beside the
     // fixed `msg` that the same move produces. Both values are hand-copied from the contract.
     //
     // Reported as one array so a partial regression names every shape that lost its error
@@ -1282,12 +1282,12 @@ describe("a child's options are read the way pino reads them, or they are not ch
   it('F-279: a child whose options carry `redact` on their prototype keeps a named field on the line', () => {
     // `childOptionsChecked` tests all three refused options with `Object.hasOwn`, and pino does
     // not read all three the same way. `redact` is read at `proto.js:161` as
-    // `typeof options.redact === 'object'` — an ORDINARY PROPERTY READ, which walks the
-    // prototype chain — so a `redact` the check cannot see is installed anyway.
+    // `typeof options.redact === 'object'` (an ORDINARY PROPERTY READ, which walks the
+    // prototype chain) so a `redact` the check cannot see is installed anyway.
     //
     // MEASURED: the child is accepted and pino installs `{ paths: ['request_id'],
     // remove: true }`, and the resulting line carries no `request_id` at all, from the binding
-    // or from the record. That is contract invariant 8 — "the key stays on the line" — false
+    // or from the record. That is contract invariant 8 ("the key stays on the line") false
     // for that subtree, under a censoring policy with the opposite polarity to this module's
     // that the module documents as refused. Round 5 predicted this would self-resolve when
     // ADR-0028 deleted the root's `redact`; it did not, because pino's read never consulted the
@@ -1296,7 +1296,7 @@ describe("a child's options are read the way pino reads them, or they are not ch
     // ASSERTED UNCONDITIONALLY, AND IT COSTS NOTHING TO DO SO: refusing the options is the
     // likely answer and the emitter's catch arm logs the same `request_id`, so this line
     // carries the named field whichever way the module answers. It is red today only because
-    // the third answer — accept and install — is the one that ships.
+    // the third answer (accept and install) is the one that ships.
     expect(lines[LINE.childWithRedactOnItsOptionsPrototype].record.request_id).toBe(REQUEST_ID);
   });
 
@@ -1307,7 +1307,7 @@ describe("a child's options are read the way pino reads them, or they are not ch
     // child-supplied `formatters.log` then replaces the scan at every key and every depth.
     //
     // MEASURED: `"password":"X1…","ip":"203.0.113.33"`, both verbatim on the child's line.
-    // ADR-0028 is what makes this a leak rather than a degradation — with `redact` gone there is
+    // ADR-0028 is what makes this a leak rather than a degradation: with `redact` gone there is
     // exactly ONE mechanism between an unnamed field and a line, and this is the call shape that
     // removes it. The same object shape with `serializers` brings F-244 back under `err`.
     //
@@ -1330,7 +1330,7 @@ describe('pino replaces a record it reads as an HTTP request or response, before
   it('F-281: a request-shaped record becomes `req` alone, and its named fields go with the rest', () => {
     // CHARACTERISATION, NOT A DEFECT ASSERTION. `LOG` (`tools.js:47-56`) runs BEFORE `write`,
     // so `o.method && o.headers && o.socket` replaces the caller's whole record with
-    // `mapHttpRequest(o)` — `{ req: … }` — before `formatters.log`, `serializers.err` or either
+    // `mapHttpRequest(o)` (`{ req: … }`) before `formatters.log`, `serializers.err` or either
     // bindings wrapper exists on the path. Nothing in `logger.ts` can see the record that was
     // passed.
     //
@@ -1340,7 +1340,7 @@ describe('pino replaces a record it reads as an HTTP request or response, before
     // `reqSerializer` returns an object whose prototype is `pinoReqProto` rather than
     // `Object.prototype`, and `valueCensored` censors a container it declines to walk. Two
     // independent mechanisms hold this half, so the assertion below is not the guard against
-    // that particular edit — `formatters.log` being removed or replaced is what reds it.
+    // that particular edit: `formatters.log` being removed or replaced is what reds it.
     const line = lines[LINE.requestShapedRecordWithNamedFields];
 
     for (const marker of [
@@ -1355,7 +1355,7 @@ describe('pino replaces a record it reads as an HTTP request or response, before
     expect(line.record.req).toBe(CENSOR);
 
     // THE COST, WHICH IS THE REASON THIS TEST EXISTS. `request_id` and `route` are named fields
-    // carrying values on the caller's record, and they are ABSENT — not `[redacted]`, absent —
+    // carrying values on the caller's record, and they are ABSENT (not `[redacted]`, absent),
     // because the replacement discarded them before the allowlist ran. Contract invariant 2 is
     // false for this record shape, the contract says so in place, and until now nothing pinned
     // it: the request-shaped record at ordinal 2 carries no `socket` and never trips the sniff.
@@ -1373,7 +1373,7 @@ describe('pino replaces a record it reads as an HTTP request or response, before
     // `method`, `headers` and `url` are censored one by one.
     //
     // So coverage does not depend on the replacement, which is the other half of "there is no
-    // leak here" — the allowlist reaches the same payload without it. And a pino change that
+    // leak here": the allowlist reaches the same payload without it. And a pino change that
     // WIDENED the sniff to fire without a `socket` reds here rather than passing silently.
     expect(
       fields(LINE.theSameRecordWithNoSocket, ['request_id', 'route', 'method', 'headers', 'url']),
@@ -1396,7 +1396,7 @@ describe('pino replaces a record it reads as an HTTP request or response, before
 
   it('F-281: a record carrying a `setHeader` becomes `res` alone, which is the second door onto the same mechanism', () => {
     // DOOR TWO, found by `sdlc-reviewer`: `typeof o.setHeader === 'function'` (`tools.js:53`)
-    // is a second, much cheaper trip-wire than the three-key request test — one function-valued
+    // is a second, much cheaper trip-wire than the three-key request test: one function-valued
     // key on the record is enough. `resSerializer` then calls `getHeaders()`, so a `Set-Cookie`
     // the caller's record never held as a key is pulled INTO the replacement and censored with
     // it.

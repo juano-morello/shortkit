@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * STORY-001 — AC-1's failure branch. TASK-003, wave 2.
+ * STORY-001: AC-1's failure branch. TASK-003, wave 2.
  *
  * Contract: `docs/contracts/auth-config-surface.md` (the `createTenantForNewUser` row and
  * its error case). ADR-0015, ADR-0054, ADR-0055, ADR-0052 (GC-G).
@@ -15,8 +15,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * AC-1's SUCCESS PATH IS NOT HERE AND IS NOT MOCKED. IT IS TWO POLICIES AND A CASCADE.
  * ============================================================================
  *
- * `createTenantForNewUser` writes a `tenants` row that `tenants_self_insert` must admit —
- * which requires the transaction's own `app.tenant_id` to equal the id being written — and a
+ * `createTenantForNewUser` writes a `tenants` row that `tenants_self_insert` must admit
+ * (which requires the transaction's own `app.tenant_id` to equal the id being written), and a
  * `tenant_memberships` row that `tenant_memberships_tenant_isolation`'s `WITH CHECK` must
  * admit in the same context. Neither is a property of this function's code; both are
  * properties of the migrated policies meeting it. `test/auth/signup-creates-tenant.int-spec.ts`
@@ -31,7 +31,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * WHAT IS HERE IS THE FAILURE BRANCH, WHICH IS THE HALF THAT DECIDES A CONTRACT.
  * ============================================================================
  *
- * ADR-0054, decision part 2: "the hook does not swallow". The reason is exact — signup is
+ * ADR-0054, decision part 2: "the hook does not swallow". The reason is exact: signup is
  * not atomic across the two writes, the `user` row is already committed by `shortkit_auth`
  * on the auth pool before this runs as `shortkit_app` on the application pool, and a
  * swallowed failure hands the caller a 200 over an account that can never obtain a `tid`
@@ -48,13 +48,13 @@ const USER_ID = 'nZ8kQpR2xLmT4vB6';
 
 /**
  * The display name the operator typed at signup, which F-198 ruled is the `tenants.name`
- * this function writes VERBATIM — nothing derived, nothing parsed, no placeholder.
+ * this function writes VERBATIM: nothing derived, nothing parsed, no placeholder.
  *
  * `email` was dropped from the signature by the same ruling: it was in the parameter shape
  * implying a use nothing specified, and the only plausible use was this column. So the one
- * caller-supplied value this function now holds is arbitrary operator-typed text — Better
- * Auth accepts `name: ""` and its body schema ends in `.and(z.record(z.string(), z.any()))`
- * — which is why the GC-G test below still has something to say.
+ * caller-supplied value this function now holds is arbitrary operator-typed text: Better
+ * Auth accepts `name: ""` and its body schema ends in `.and(z.record(z.string(), z.any()))`,
+ * which is why the GC-G test below still has something to say.
  */
 const OPERATOR_TYPED_NAME = 'Lovelace & Babbage Consulting';
 
@@ -63,7 +63,7 @@ const UNREACHABLE_DSN = 'postgres://shortkit_app:app@127.0.0.1:1/shortkit_unreac
 
 /**
  * The rejection `createTenantForNewUser` produced, or `{ resolved: … }` when it did not
- * reject at all — which is the defect ADR-0054 part 2 forbids, and which reads here as a
+ * reject at all, which is the defect ADR-0054 part 2 forbids, and which reads here as a
  * resolved value rather than as a passing test.
  */
 async function provisioningOutcome(): Promise<
@@ -107,20 +107,20 @@ describe('createTenantForNewUser', () => {
 
   it('GC-G: the rejection carries neither the operator-typed name nor the whole user id', async () => {
     // The failure is raised where a user id and arbitrary caller-supplied text are both in
-    // scope, and the message reaches a log line — ADR-0054 puts the original error on
+    // scope, and the message reaches a log line: ADR-0054 puts the original error on
     // `logger.error({ code: 'tenant_provisioning_failed', ...errorLogFields(error) })`.
     // `LOGGABLE_FIELDS` has a name for neither.
     //
     // REPHRASED AFTER F-198, and the concern survives the signature change rather than
     // dissolving with it. The previous form checked for an EMAIL, which this function can no
     // longer see: Juano dropped `email` from the parameter shape because nothing specified a
-    // use for it. What replaced it is `name`, and that is not a safer value — it is
+    // use for it. What replaced it is `name`, and that is not a safer value: it is
     // unvalidated text the caller chose, Better Auth accepts `name: ""` and lets any extra
     // field ride along on the same body, and a signup form is the one place a user can put
     // an address into a field that is not an address field.
     //
     // The mutation this catches is the natural one: an implementer adding context to a bare
-    // driver error — `could not provision a tenant for ${user.name}` — because an
+    // driver error (`could not provision a tenant for ${user.name}`) because an
     // ECONNREFUSED on its own says nothing about which signup it belongs to. F-132 ruled the
     // same question for `NoTenantMembershipError` and allowed an eight-character prefix and
     // a length there, because a user id is a system-generated opaque value; operator-typed

@@ -46,7 +46,7 @@ RUN pnpm install --frozen-lockfile --filter @shortkit/web...
 # bytes in an image layer readable by `docker save`, `docker history` and
 # `docker run --entrypoint sh`, and Next loads `.env.local` in every environment but test,
 # so any `NEXT_PUBLIC_*` a developer added to it is inlined into `.next/static/**` as well.
-# `assert:no-secrets` — the repository's one guard against that — does not run on this
+# `assert:no-secrets` (the repository's one guard against that) does not run on this
 # build. `.dockerignore`'s recursive `**/.env.*` is the backstop; this list is the
 # guarantee.
 #

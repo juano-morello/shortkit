@@ -18,7 +18,7 @@
  *              reads `REQUEST_CONTEXT_KEY`.
  *
  * ============================================================================
- * EIGHT STEPS, SHORT-CIRCUITING, IN THE CARD'S ORDER — WITH ONE STATED DEVIATION.
+ * EIGHT STEPS, SHORT-CIRCUITING, IN THE CARD'S ORDER, WITH ONE STATED DEVIATION.
  * ============================================================================
  *
  *   1. Public-route check. `PUBLIC_ROUTE_METADATA` on the handler or its class: return
@@ -26,11 +26,11 @@
  *      treated as authenticated and gets a 401, which is the safe direction.
  *   2. Bearer presence: `Authorization: Bearer <token>`, else 401 `unauthenticated`.
  *   3. Signature against the cached JWKS, else 401 `unauthenticated`.
- *   4. `exp`, else 401 `token_expired` — the one 401 with a distinct code; the BFF branches
+ *   4. `exp`, else 401 `token_expired`: the one 401 with a distinct code; the BFF branches
  *      on it to refresh (`auth-tokens.md` invariant 4).
  *   5. `iss` and `aud` equal the declared origin, else 401 `unauthenticated`.
  *   7. Claim shape: `tid` uuid-shaped, `sub` non-empty, `ev` boolean, else 401
- *      `unauthenticated` — the F-029 backstop, so a tid-less token is a 401 here and not a
+ *      `unauthenticated`: the F-029 backstop, so a tid-less token is a 401 here and not a
  *      500 from `withTenantTransaction` one layer down.
  *   6. Revocation: `isRevoked(claims.jti)`. Revoked, 401 `unauthenticated`. Store cannot
  *      answer, SKIP OPEN and log (ADR-0012), so a captured token stays usable for at most
@@ -42,7 +42,7 @@
  * Steps 3, 4, 5 and 7 are one call, `verifyAndReadClaims`, and 7 runs before 6. The card
  * writes 6 before 7; the deviation is deliberate and observable only in what the store is
  * asked. `verifyAndReadClaims` returns `ShortkitJwtClaims`, and that type is a lie unless the
- * shape has been checked before it returns — and step 6 needs `claims.jti` to be a non-empty
+ * shape has been checked before it returns, and step 6 needs `claims.jti` to be a non-empty
  * string, which only step 7 establishes (`revocation-store.md` gives `''` its own row and
  * says why the guard must never ask about it). Both orders answer 401 `unauthenticated` to a
  * malformed token; this one answers it without a store read.
@@ -55,8 +55,8 @@
  * ============================================================================
  *
  * `LOGGABLE_FIELDS` is an allowlist and an unnamed field renders `[redacted]`, but `msg` is
- * a key no censoring path can reach, so the one line this file writes — the degraded
- * revocation check — is a fixed string plus `code` and the error's name and frames. A
+ * a key no censoring path can reach, so the one line this file writes (the degraded
+ * revocation check) is a fixed string plus `code` and the error's name and frames. A
  * refusal is not logged here at all; the filter records the `DomainError` under its
  * `request_id`, and its message is one of two fixed strings (`auth-claims.ts`).
  *
@@ -125,7 +125,7 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // 1. Handler first, then class: `getAllAndOverride` returns the first defined value in
     // that order, so a handler-level marker on a controller that carries none is seen and
-    // a class-level marker covers every handler. Presence is the test — the value is the
+    // a class-level marker covers every handler. Presence is the test: the value is the
     // justification string TASK-056 prints, and the guard does not judge it.
     const publicJustification = this.reflector.getAllAndOverride<unknown>(PUBLIC_ROUTE_METADATA, [
       context.getHandler(),
@@ -169,7 +169,7 @@ export class AuthGuard implements CanActivate {
   /**
    * ADR-0012's posture, applied to the one store read on the request path. A rejection is
    * "could not tell", not "not revoked" (`revocation-store.md` invariant 3), and the guard
-   * chooses to proceed rather than to refuse every request while the store is down — the
+   * chooses to proceed rather than to refuse every request while the store is down: the
    * captured-token cost is bounded by `exp` at 300 s (ADR-0013). Logged so it can be counted;
    * `auth_revocation_degraded_total` is carried in `code`, there being no metrics pipeline yet.
    *

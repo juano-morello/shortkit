@@ -1,14 +1,14 @@
 /**
- * TASK-1b-08 — the invitation mail: link shape, link base, and after-commit dispatch.
+ * TASK-1b-08: the invitation mail: link shape, link base, and after-commit dispatch.
  *
- * Contract: docs/contracts/invitation-tokens.md ("Where the raw token actually travels" —
+ * Contract: docs/contracts/invitation-tokens.md ("Where the raw token actually travels",
  * mechanism A, D-03), mail-sender.md, tenant-context.md (invariants 5, 6), GC-G, GC-K.
  *
- *   1. `inviteUrlFor` / `renderInvitationMail`: `<origin>/invitations/accept#token=<raw>` —
+ *   1. `inviteUrlFor` / `renderInvitationMail`: `<origin>/invitations/accept#token=<raw>`:
  *      the token is in the FRAGMENT, not the path, not the query; the message is the
  *      `workspace_invitation` arm with the data the template needs.
  *   2. `inviteLinkOrigin`: the first concrete `WEB_APP_ORIGINS` entry, wildcards skipped,
- *      `InviteUrlOriginMissing` when none — read per call, not at import.
+ *      `InviteUrlOriginMissing` when none; read per call, not at import.
  *   3. `dispatchInvitationMailAfterCommit`: registers the send as an `afterCommit` hook on
  *      the ambient tenant transaction (a nested `withTenantTransaction`); the message is
  *      built INSIDE the hook; a throwing sender or a missing origin is ONE `mail_dispatch_failed`
@@ -201,7 +201,7 @@ describe('dispatchInvitationMailAfterCommit (GC-H, invariants 5 and 6)', () => {
     expect(msg).toBe('mail_dispatch_failed');
     expect(fields.template).toBe('workspace_invitation');
     expect(fields.err_name).toBe('Error');
-    // The message — the field that could carry the address or the URL — is not on the record.
+    // The message (the field that could carry the address or the URL) is not on the record.
     expect(Object.keys(fields).sort()).toEqual(['err_name', 'err_stack', 'template']);
     const bytes = JSON.stringify(error.mock.calls);
     expect(bytes).not.toContain(RAW);

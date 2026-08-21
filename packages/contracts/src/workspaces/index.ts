@@ -15,26 +15,26 @@
  * THIS PACKAGE MAY IMPORT `zod` AND NOTHING ELSE (ADR-0005).
  *
  * `workspaceContract` MIRRORS THE REPOSITORY ROW MINUS `tenantId`, PLUS THE CALLER'S ROLE.
- * The caller is inside their own tenant — the guard put them there and the transaction
- * interceptor bound every statement to it — so returning the id tells them nothing they
+ * The caller is inside their own tenant (the guard put them there and the transaction
+ * interceptor bound every statement to it) so returning the id tells them nothing they
  * can act on and puts a tenant id on the wire for no reason. The three timestamps are ISO
  * strings because they crossed JSON; in the row they are `Date`, in the database
  * `timestamptz`.
  *
- * `workspaceRole` (TASK-1b-06, D-07/D-10) IS THE CALLER'S OWN ROLE IN THAT WORKSPACE —
+ * `workspaceRole` (TASK-1b-06, D-07/D-10) IS THE CALLER'S OWN ROLE IN THAT WORKSPACE:
  * `workspace_admin` for the creator on `POST`, the joined `memberships.role` on the list,
  * the role the authorization interceptor found on the single-row routes. Named
  * `workspaceRole` and never `role`, per `workspace-authorization.md` (a wire field naming a
  * role says which enum). Unbranded on the wire (`z.enum(WORKSPACE_ROLES)`, ADR-0048); a
  * consumer that needs the brand goes through `asWorkspaceRole`. The API sends it on every
  * response; the schema admits its absence for the one reason `Versioning` in
- * `workspaces.md` gives — an additive field must not break a client parsing the pre-1b
- * shape (the web's workspaces screen and its fixtures, rewritten by TASK-1b-14) — and the
+ * `workspaces.md` gives: an additive field must not break a client parsing the pre-1b
+ * shape (the web's workspaces screen and its fixtures, rewritten by TASK-1b-14), and the
  * `.optional()` is what that card removes.
  *
  * `archivedAt` null means active (docs/contracts/workspaces.md, "Rulings"). AC-23's
- * observable — leaves the default list, present with the archived state set when archived
- * workspaces are requested — is what `listWorkspacesQueryContract.includeArchived` selects.
+ * observable (leaves the default list, present with the archived state set when archived
+ * workspaces are requested) is what `listWorkspacesQueryContract.includeArchived` selects.
  *
  * NO PAGINATION IN THIS INITIATIVE. `workspaceListResponseContract` is `{ items }` and
  * deliberately not `paginated(workspaceContract)`: a tenant holds a handful of workspaces,
@@ -63,8 +63,8 @@ export const WORKSPACE_NAME_MAX_LENGTH = 100;
  * message below. The finding: a newline in a workspace or tenant name forges the console
  * mail transport's block boundary (`console-mail-sender.ts` frames its output with fixed
  * header/footer lines), and control characters have no place in a display name anyway.
- * The refine runs AFTER the trim, so leading/trailing whitespace — including `\n` and
- * `\t`, which the trim removes — never triggers it; only an interior control character
+ * The refine runs AFTER the trim, so leading/trailing whitespace (including `\n` and
+ * `\t`, which the trim removes) never triggers it; only an interior control character
  * refuses. `signUpRequestContract.name` (`../auth`) applies the same rule with the same
  * message, and through it `tenants.name`, which `on-user-created.ts` copies verbatim from
  * the signup name (F-198). The predicate and the message live here because the first name
@@ -128,7 +128,7 @@ export type RenameWorkspaceRequest = z.infer<typeof renameWorkspaceRequestContra
 /**
  * `GET /api/workspaces?includeArchived=true|false`. A query string arrives as text, so the
  * two spellings `'true'` and `'false'` are parsed EXPLICITLY into the boolean they name and
- * nothing else is admitted — not `'1'`, not `'yes'`, not `'TRUE'` — so a typo answers 400
+ * nothing else is admitted (not `'1'`, not `'yes'`, not `'TRUE'`) so a typo answers 400
  * `validation_failed` rather than silently listing the wrong set. A real boolean is
  * accepted too, for a caller that builds the query as an object before serialising it.
  *

@@ -10,7 +10,7 @@
  * ---------------------------------------------------------------------------
  *
  * `test/support/psql.ts` reaches the suite's live database as `shortkit_app` or
- * `shortkit_migrator`. Neither holds `CREATEROLE` — that is the point of ADR-0003 —
+ * `shortkit_migrator`. Neither holds `CREATEROLE` (that is the point of ADR-0003)
  * so neither can create a role, and **roles are cluster-wide**: creating
  * `shortkit_auth` there would collide with the role the container's own init script
  * creates and would leak into every other `.int-spec.ts` in the run
@@ -21,8 +21,8 @@
  *
  *   - run a provisioning artifact from scratch, against an empty cluster, and read
  *     back what it created;
- *   - construct a database the provisioning guards are supposed to REJECT — a
- *     `shortkit_auth` holding `BYPASSRLS`, or a cluster with two of the three roles —
+ *   - construct a database the provisioning guards are supposed to REJECT (a
+ *     `shortkit_auth` holding `BYPASSRLS`, or a cluster with two of the three roles),
  *     and prove the guard refuses it. A guard tested only against a good database
  *     passes green while inspecting nothing, which is exactly the state
  *     `.github/scripts/provision-test-database.sql:57` is in today.
@@ -36,16 +36,16 @@
  * ---------------------------------------------------------------------------
  *
  * Every statement goes through `docker exec ... psql` inside the container, so the
- * fixture needs neither a client on the host's PATH (there often is none — see
+ * fixture needs neither a client on the host's PATH (there often is none; see
  * `psql.ts`'s two-step resolution) nor a free host port. `POSTGRES_TEST_IMAGE` is
  * read the same way `psql.ts` reads it, so both fixtures pin the same server version.
  *
  * Readiness is probed over **TCP** (`-h 127.0.0.1`), not over the unix socket and not
  * with `pg_isready`. The postgres entrypoint runs initdb, starts a temporary
  * socket-only server, runs `/docker-entrypoint-initdb.d`, stops it and only then
- * starts the real server. A socket probe returns success inside that window —
- * `docker-compose.test.yml`'s healthcheck comment records the same trap costing F-127
- * — and the fixture would then race the restart.
+ * starts the real server. A socket probe returns success inside that window
+ * (`docker-compose.test.yml`'s healthcheck comment records the same trap costing F-127),
+ * and the fixture would then race the restart.
  */
 import type { SpawnSyncReturns } from 'node:child_process';
 import { spawnSync } from 'node:child_process';
@@ -64,7 +64,7 @@ const READY_INTERVAL_MS = 500;
  * `shortkit_auth` would appear on both sides of every comparison. The specs spell
  * their expectations out as literals.
  *
- * Databases first — a role owning a database cannot be dropped.
+ * Databases first: a role owning a database cannot be dropped.
  */
 const SCRATCH_DATABASES = ['shortkit_test', 'shortkit'] as const;
 const SCRATCH_ROLES = ['shortkit_app', 'shortkit_auth', 'shortkit_migrator'] as const;
@@ -74,7 +74,7 @@ export interface ScratchPostgres {
   readonly container: string;
   /**
    * Runs a psql script as the bootstrap superuser against `postgres`, with
-   * `ON_ERROR_STOP=1`. Throws on the first error, carrying psql's stderr — which is
+   * `ON_ERROR_STOP=1`. Throws on the first error, carrying psql's stderr, which is
    * how a `RAISE EXCEPTION` from a provisioning guard reaches an assertion.
    *
    * `\connect` works: the session is a real psql over TCP, so a script that switches
@@ -85,8 +85,8 @@ export interface ScratchPostgres {
   queryJson<T = Record<string, unknown>>(select: string): T[];
   /**
    * Copies a shell script into the container and runs it with `sh`, with the given
-   * environment. This is how the Compose `configs:` init scripts — which are shell,
-   * not SQL — are exercised as themselves rather than transcribed into a test.
+   * environment. This is how the Compose `configs:` init scripts (which are shell,
+   * not SQL) are exercised as themselves rather than transcribed into a test.
    */
   runShellScript(script: string, env: Readonly<Record<string, string>>): string;
   /** Drops every role and database a provisioning artifact under test may have created. */
@@ -129,7 +129,7 @@ export function startScratchPostgres(label: string): ScratchPostgres {
     throw new Error(
       `could not start a scratch Postgres (${POSTGRES_TEST_IMAGE}): ` +
         `${started.error?.message ?? started.stderr.trim()}. ` +
-        'These provisioning assertions construct a cluster of their own — they cannot ' +
+        'These provisioning assertions construct a cluster of their own: they cannot ' +
         'run against DATABASE_URL, whose roles hold no CREATEROLE. Make Docker available ' +
         'to the test run.',
     );

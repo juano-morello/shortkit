@@ -94,7 +94,7 @@ before it calls `fly deploy`.
 Migrations still do not run from application boot, so concurrent machines cannot race;
 and a failed migration still blocks the deploy, because `set -e` in `infra/deploy.sh`
 stops the script before `fly deploy` is reached. What the mechanism no longer gives is
-failing closed when someone bypasses the script — see the accepted costs below and the
+failing closed when someone bypasses the script; see the accepted costs below and the
 three costs enumerated at `fly.toml:20-61`, which are normative for the deploy path.
 
 ### Pinned versions. Recorded 2026-08-05 (F-069)

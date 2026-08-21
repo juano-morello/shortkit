@@ -8,7 +8,7 @@
  *
  * The five invitation operations: create (with the mail), list, revoke, the public lookup
  * and the authenticated accept. Every method runs inside the tenant transaction the
- * interceptor opened — except `lookup`, whose route is `@Public()` and which therefore runs
+ * interceptor opened, except `lookup`, whose route is `@Public()` and which therefore runs
  * under NO ambient context: `findInvitationByCapabilityToken` opens the token's own.
  *
  * ============================================================================
@@ -23,7 +23,7 @@
  *   2. Load each workspace for its name (the mail needs it) and its archive state: an
  *      archived workspace is 400 `validation_failed` under `workspaces`. Every named
  *      workspace is checked and every archived one is reported at once.
- *   3. Read the tenant's name — the mail needs it, the app role cannot read `user`
+ *   3. Read the tenant's name: the mail needs it, the app role cannot read `user`
  *      (ADR-0050) and nothing else carries it. One owner-qualified read of `tenants`, which
  *      `tenants_self_select` bounds to the current context's row.
  *   4. `issueCapabilityToken(tenantId)`; `repository.create` with the DIGEST, `expires_at =
@@ -93,7 +93,7 @@ export const ARCHIVED_WORKSPACE_MESSAGE = 'An archived workspace cannot be invit
 /**
  * Row to client shape: `Date` to ISO string, `expired` derived for a pending row whose
  * `expiresAt` is behind `now`, no `tenantId`, no `inviterEmail` (the contract has no such
- * field), and — by construction of `InvitationRow` — no digest.
+ * field), and (by construction of `InvitationRow`) no digest.
  */
 export function toClientInvitation(row: InvitationRow, now: Date = new Date()): Invitation {
   const expired = row.state === 'pending' && row.expiresAt.getTime() < now.getTime();
@@ -244,7 +244,7 @@ export class InvitationsService {
   /**
    * The `@Public()` route's body. No ambient context: the function opens the token's own
    * transaction, verifies the digest as its first statement and answers `null` for
-   * malformed, unknown and wrong-tenant alike — one 404. The state errors propagate.
+   * malformed, unknown and wrong-tenant alike: one 404. The state errors propagate.
    */
   async lookup(rawToken: string): Promise<InvitationPreview> {
     const verified = await findInvitationByCapabilityToken(rawToken);
@@ -268,7 +268,7 @@ export class InvitationsService {
   /**
    * The signed-in accept (D-04). Inside the interceptor's transaction on the caller's `tid`:
    * a token naming another tenant is 409 before any statement; a matching one joins the
-   * transaction, consumes the token and writes the workspace memberships — `'require'`
+   * transaction, consumes the token and writes the workspace memberships: `'require'`
    * because the caller's tenant membership is what minted the token they arrived with, and
    * only workspace rows are written.
    */

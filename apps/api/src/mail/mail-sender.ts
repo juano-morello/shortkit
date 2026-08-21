@@ -23,10 +23,10 @@ export type MailTemplate = 'email_verification' | 'workspace_invitation';
  */
 /**
  * `idempotencyKey` (2026-08-19, debt sweep, ledger 1b-W1-08): OPTIONAL, on both arms. When
- * present, `ResendMailSender` sends it as the `Idempotency-Key` header on BOTH attempts —
- * the first and the one retry — so a retry after a lost response (the provider accepted,
+ * present, `ResendMailSender` sends it as the `Idempotency-Key` header on BOTH attempts
+ * (the first and the one retry) so a retry after a lost response (the provider accepted,
  * the answer never arrived) is deduplicated by Resend instead of double-sending. The
- * invitation dispatch sets it to the invitation row's id — a uuid, stable for the row's
+ * invitation dispatch sets it to the invitation row's id: a uuid, stable for the row's
  * lifetime and carrying no secret. Every other sender ignores the field: the fake and the
  * console cannot double-send, and the noop sends nothing. Absent means no header, which is
  * the pre-sweep behaviour, retained for any caller that has no natural key.

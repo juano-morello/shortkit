@@ -25,10 +25,19 @@ set -euo pipefail
 # (`MAIL_TRANSPORT=console`, D-02), the invitee signs up with the token, signs in, and sees
 # exactly the granted workspace at the granted role -- and nothing the owner did not grant.
 #
+# AC-2-44 (STORY-2-09, TASK-2-12), item 2's loop on the same stack, after the invitation
+# clauses and before the second `up`. SC-16: the owner creates a link through the web app,
+# the short link is followed on the API's own published port, the click that visit wrote is
+# read back through the web app, the destination is edited and the redirect follows it, the
+# `redis` service is stopped and the redirect still serves, `redis` comes back, and a slug no
+# link holds renders the 404.
+#
 # ADR: adr-0030 .. adr-0037, adr-0050, adr-0051, adr-0059; adr-0017 and adr-0021 for the
-# invitation clauses. Contract: docs/contracts/rls-policy-template.md,
+# invitation clauses; adr-0006, adr-0008, adr-0009, adr-0010, adr-0012 and adr-0063 for the
+# redirect clauses. Contract: docs/contracts/rls-policy-template.md,
 # docs/contracts/web-api-client.md, docs/contracts/mail-sender.md,
-# docs/contracts/invitation-tokens.md.
+# docs/contracts/invitation-tokens.md, docs/contracts/redirect-resolution.md,
+# docs/contracts/redirect-cache.md, docs/contracts/click-events.md.
 #
 #   ./scripts/check-compose-stack.sh
 #
@@ -38,11 +47,11 @@ set -euo pipefail
 #
 # EXIT CODES, AND THE DISTINCTION IS THE POINT:
 #   0  every clause passed.
-#   1  at least one AC-115, AC-28 or AC-1b-e2e clause is red. The clause table says which
-#      and why.
-#   2  the CHECK could not run — no Docker, no node, or a machine that is not the
+#   1  at least one AC-115, AC-28, AC-1b-e2e or AC-2-e2e clause is red. The clause table
+#      says which and why.
+#   2  the CHECK could not run: no Docker, no node, or a machine that is not the
 #      machine AC-115 describes. Nothing was measured, and nothing may be concluded
-#      about AC-115, AC-28 or the invitation clauses from a 2.
+#      about AC-115, AC-28, the invitation clauses or the redirect clauses from a 2.
 #
 # WHAT IT ASSERTS, AND WHAT IT DELIBERATELY DOES NOT:
 #
@@ -79,7 +88,7 @@ set -euo pipefail
 #   whatever the container says the password is cannot tell that apart from a correctly
 #   provisioned stack. So GUARD-1 authenticates as `shortkit_app` over TCP with the
 #   fixture password this repository commits, and GUARD-2 asserts a WRONG password is
-#   refused — which is what catches the cheapest repair for "postgres is never healthy",
+#   refused, which is what catches the cheapest repair for "postgres is never healthy",
 #   `POSTGRES_HOST_AUTH_METHOD=trust`, named in ADR-0036 as the one repair that is a
 #   security defect.
 #
@@ -135,6 +144,27 @@ set -euo pipefail
 #   stack whose API is not printing mail is BLOCKED at AC-1b-e2e-2 with that reason, not
 #   FAIL (AC-1b-42): nothing about the invitation path was measured, and the table says so.
 #
+# SEVEN REDIRECT CLAUSES, THE VISITOR'S LOOP END TO END (TASK-2-12, AC-2-44, SC-16):
+#   the owner from AC-28 creates a link in the first workspace through the web app, on the
+#   seeded system default domain (AC-2-e2e-1); the short link is followed on the API's own
+#   published port and answers 302 with the stored destination byte for byte, plus
+#   `Cache-Control: private, no-store` and `Referrer-Policy: unsafe-url` (AC-2-e2e-2); the
+#   click that visit wrote is read back through the web app inside a bounded poll and the
+#   response carries no address hash at any depth (AC-2-e2e-3); a PATCH of the destination is
+#   serving on the redirect inside GC-2's five seconds (AC-2-e2e-4); `docker compose stop
+#   redis` leaves the redirect answering 302 with the current destination, which is the only
+#   place "degrades instead of failing" is measured against real containers (AC-2-e2e-5);
+#   `start redis` brings the service back healthy with the redirect still answering
+#   (AC-2-e2e-6); and a slug no link holds renders the 404 page with its own
+#   `Content-Security-Policy` and no stack anywhere in the body (AC-2-e2e-7).
+#
+#   THE REDIRECT IS REACHED DIRECTLY AND NOT THROUGH THE WEB APP, which is the opposite of
+#   AC-28's rule rather than an inconsistency with it. The visitor is anonymous, holds no
+#   session and reaches no BFF: `GET /:slug` is registered OUTSIDE the `/api` prefix, on the
+#   API's own listener (ADR-0006), and a browser that opened a short link never touched the
+#   web app at all. Every management request in these clauses still goes through the web app,
+#   exactly as AC-28's and the invitation clauses do.
+#
 # ENVIRONMENT KNOBS:
 #   SHORTKIT_CHECK_KEEP_STACK=1    leave the stack up after the run (default: tear down).
 #                                  The generated BETTER_AUTH_SECRET dies with this process
@@ -142,12 +172,15 @@ set -euo pipefail
 #                                  Any further `docker compose` command against the kept
 #                                  stack needs one exported: any value unblocks `ps`/`logs`,
 #                                  but a DIFFERENT value plus `up` cannot decrypt the
-#                                  existing jwks rows — run `docker compose down -v` first
+#                                  existing jwks rows. Run `docker compose down -v` first
 #                                  if you need the stack running again.
 #   SHORTKIT_CHECK_UP_TIMEOUT=900  seconds allowed for each `up` (a cold first build)
 #   SHORTKIT_CHECK_HEALTH_URL      default http://127.0.0.1:3001/health (ADR-0031)
 #   SHORTKIT_CHECK_WEB_URL         default http://localhost:3000 (ADR-0031's web port; the
 #                                  hostname is load-bearing, see the flow clauses above)
+#   SHORTKIT_CHECK_REDIRECT_URL    default http://localhost:3001 (the API's published port,
+#                                  where the redirect answers; the hostname is load-bearing
+#                                  for a second reason, see the redirect clauses)
 
 # ---------------------------------------------------------------------------
 # Clause register. Every clause is declared up front with the result BLOCKED, so a run
@@ -204,13 +237,20 @@ declare_clause 'AC-1b-e2e-1' 'the owner creates a second workspace and invites a
 declare_clause 'AC-1b-e2e-2' 'the invite URL is read from docker compose logs api: one console block for the address, the token on its URL line and on no JSON line'
 declare_clause 'AC-1b-e2e-3' 'the invitee signs up through the web app with the token: one user row for the address, a member row in the owner tenant, and no new tenant'
 declare_clause 'AC-1b-e2e-4' 'the invitee signs in and lists exactly the granted workspace as member; archive and rename are 403, the second workspace is 404, a second signup with the token is 409, the owner sees the invitation accepted'
+declare_clause 'AC-2-e2e-1' 'the owner creates a link through the web app, on the seeded system default domain'
+declare_clause 'AC-2-e2e-2' 'the short link answers 302 with the stored destination byte for byte, Cache-Control private, no-store and Referrer-Policy unsafe-url'
+declare_clause 'AC-2-e2e-3' 'the click that visit wrote is readable through the web app inside the bound, and the response carries no address hash'
+declare_clause 'AC-2-e2e-4' 'an edited destination is serving on the redirect within five seconds of the PATCH'
+declare_clause 'AC-2-e2e-5' 'with the redis service stopped the redirect still answers 302 with the current destination'
+declare_clause 'AC-2-e2e-6' 'redis started again reaches healthy and the redirect still answers 302'
+declare_clause 'AC-2-e2e-7' 'a slug no link holds answers 404 with the redirect CSP and no stack in the body'
 declare_clause 'DOD-1'    'docker compose up a second time succeeds'
 declare_clause 'DOD-2'    'the second up did not double the seeded data'
 declare_clause 'DOD-3'    'data survives docker compose restart'
 
 summarise_and_exit() {
   local i worst=0
-  printf '\n== clause table (AC-115, AC-28, AC-1b-e2e) ==\n'
+  printf '\n== clause table (AC-115, AC-28, AC-1b-e2e, AC-2-e2e) ==\n'
   for i in "${!CLAUSE_IDS[@]}"; do
     printf '%-10s %-6s %s\n           %s\n' \
       "${CLAUSE_IDS[$i]}" "${CLAUSE_RESULT[$i]}" "${CLAUSE_TEXT[$i]}" "-> ${CLAUSE_REASON[$i]}"
@@ -218,9 +258,9 @@ summarise_and_exit() {
   done
   printf '\n'
   if [ "$worst" -eq 0 ]; then
-    printf 'AC-115, AC-28 and AC-1b-e2e: GREEN. Every clause passed.\n'
+    printf 'AC-115, AC-28, AC-1b-e2e and AC-2-e2e: GREEN. Every clause passed.\n'
   else
-    printf 'AC-115, AC-28 or AC-1b-e2e: RED. See the clause table above; each line fails on its own.\n'
+    printf 'AC-115, AC-28, AC-1b-e2e or AC-2-e2e: RED. See the clause table above; each line fails on its own.\n'
   fi
   exit "$worst"
 }
@@ -303,13 +343,13 @@ done
 # variable and nothing else; these notices are the same class of message and print the same
 # thing. POSTGRES_SUPERUSER_PASSWORD is in this list, `.env.example` invites overriding it
 # BY NAME, and this repository's convention is to paste check output verbatim into a
-# committed report — so a value printed here reaches a terminal scrollback, a captured log
+# committed report, so a value printed here reaches a terminal scrollback, a captured log
 # and plausibly a public repository, from which a credential is rotated rather than deleted.
 #
 # The NAME is still printed, for the secret-shaped one too, rather than a count or a
 # category. A name is not a secret: POSTGRES_SUPERUSER_PASSWORD is committed in
 # `.env.example`. And the name is the entire actionable content of a message whose only
-# claim is "this check does not assert it" — "one credential variable is exported" leaves
+# claim is "this check does not assert it": "one credential variable is exported" leaves
 # the reader nothing to unset.
 #
 # The two loops after the first are an assertion, not decoration. They re-read the text the
@@ -427,6 +467,13 @@ UP_TIMEOUT="${SHORTKIT_CHECK_UP_TIMEOUT:-900}"
 HEALTH_URL="${SHORTKIT_CHECK_HEALTH_URL:-http://127.0.0.1:3001/health}"
 WEB_URL="${SHORTKIT_CHECK_WEB_URL:-http://localhost:3000}"
 WEB_URL="${WEB_URL%/}"
+# Where the redirect answers: the API's own published port, outside the `/api` prefix
+# (ADR-0006). The HOSTNAME is what the seeded system default domain row is matched on; see
+# the redirect clauses. `REDIRECT_HOSTNAME` is derived from this one value rather than
+# written twice, so an override moves both.
+REDIRECT_URL="${SHORTKIT_CHECK_REDIRECT_URL:-http://localhost:3001}"
+REDIRECT_URL="${REDIRECT_URL%/}"
+REDIRECT_HOSTNAME="$(node -e 'console.log(new URL(process.argv[1]).hostname)' "$REDIRECT_URL")"
 
 # ADR-0031's fixture defaults, and they are literals here on purpose: the harness refuses
 # to run with the override exported, so this is the password the stack must have set. A
@@ -446,7 +493,7 @@ with_timeout() { # seconds cmd...
 }
 
 # ---------------------------------------------------------------------------
-# AC-115.0 — is there anything to measure at all
+# AC-115.0: is there anything to measure at all
 # ---------------------------------------------------------------------------
 
 printf '\n== AC-115: %s ==\n' "$REPO_ROOT" >&2
@@ -476,6 +523,13 @@ if [ -z "$COMPOSE_FILE_FOUND" ]; then
   blocked 'AC-1b-e2e-2' 'no compose file: no API log to read an invite URL from'
   blocked 'AC-1b-e2e-3' 'no compose file: no web app to sign the invitee up through'
   blocked 'AC-1b-e2e-4' 'no compose file: no web app to sign the invitee in through'
+  blocked 'AC-2-e2e-1' 'no compose file: no web app to create a link through'
+  blocked 'AC-2-e2e-2' 'no compose file: nothing is serving the redirect'
+  blocked 'AC-2-e2e-3' 'no compose file: no redirect was served, so no click exists to read'
+  blocked 'AC-2-e2e-4' 'no compose file: no link to edit and no redirect to follow it'
+  blocked 'AC-2-e2e-5' 'no compose file: there is no redis service to stop'
+  blocked 'AC-2-e2e-6' 'no compose file: there is no redis service to start'
+  blocked 'AC-2-e2e-7' 'no compose file: nothing is serving the 404'
   blocked 'DOD-1'    'no compose file: a second up cannot be attempted'
   blocked 'DOD-2'    'no compose file: there is no seeded data to count'
   blocked 'DOD-3'    'no compose file: there is nothing to restart'
@@ -538,7 +592,7 @@ fi
 STACK_OWNED=1
 
 # ---------------------------------------------------------------------------
-# AC-115.1 — one command, from a clean state
+# AC-115.1: one command, from a clean state
 #
 # "A machine with only Docker and a clone" has no volume, no image and no container.
 # `down -v` alone removes the volume and leaves the images, which skips the build the
@@ -572,7 +626,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# AC-115.2 / .3 / .4 — "Postgres, the API and the web app all reach a healthy state"
+# AC-115.2 / .3 / .4: "Postgres, the API and the web app all reach a healthy state"
 #
 # Service names come from ADR-0036's ordering table and ADR-0033's chain. They are
 # normative, not incidental: AC-115 names three things and something has to identify
@@ -614,7 +668,7 @@ assert_healthy 'AC-115.3' 'api'      'the API'
 assert_healthy 'AC-115.4' 'web'      'the web app'
 
 # ---------------------------------------------------------------------------
-# GUARD-1 / GUARD-2 — the roles are real
+# GUARD-1 / GUARD-2: the roles are real
 #
 # Both run psql inside the Postgres container, with a password this script supplies and
 # never one the container supplies, AND over an address the server does not trust.
@@ -702,10 +756,10 @@ if [ -n "$PG_CONTAINER_IP" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# AC-115.5 / .6 — "the migrations have been applied"
+# AC-115.5 / .6: "the migrations have been applied"
 #
 # .5 is the effect: the schema the migration in this repository defines is present, read
-# through pg_class as shortkit_app. Never information_schema — it is privilege-filtered by
+# through pg_class as shortkit_app. Never information_schema: it is privilege-filtered by
 # the SQL standard, and as this role it answers "nothing is there" when it means "I cannot
 # see it" (F-213).
 #
@@ -745,7 +799,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# AC-115.7 — "the seed has run"
+# AC-115.7: "the seed has run"
 #
 # Asserted as its effect and read as shortkit_app, which is the connection ADR-0033 makes
 # load-bearing: `ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator` grants this role DML
@@ -762,7 +816,7 @@ fi
 # holding multiple commands is processed in ONE implicit transaction, so the `select count`
 # that follows the semicolon runs inside the transaction the setting is scoped to. A
 # session-scoped `false` would also work in a one-shot psql, and that is exactly why it does
-# not belong here — this file is the kind of worked example someone lifts into a pooled
+# not belong here: this file is the kind of worked example someone lifts into a pooled
 # connection, where `false` leaks one tenant's id onto the next request that borrows it.
 #
 # The tenant id is interpolated rather than bound, which the normative form does with $1.
@@ -792,7 +846,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# AC-115.8 / .9 — GET /health on the composed API
+# AC-115.8 / .9: GET /health on the composed API
 #
 # One request, two clauses: a 502 and a 200 with the wrong body are different defects.
 # From the host against the published port, because "on the composed API" is what an
@@ -843,7 +897,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# AC-28.1 / .2 / .3 — signup, sign-in, workspace creation, through the web app (TASK-017)
+# AC-28.1 / .2 / .3: signup, sign-in, workspace creation, through the web app (TASK-017)
 #
 # Every request goes to WEB_URL, the web app's published port, and reaches the API only
 # through apps/web/app/api/bff/[...path]/route.ts -- the leg a browser takes (ADR-0014).
@@ -1049,7 +1103,7 @@ console.log(hit === undefined ? `NOT-LISTED (${b.items.length} item(s))` : (hit.
 fi
 
 # ---------------------------------------------------------------------------
-# AC-1b-e2e-1 .. -4 — invite, read the link out of the log, accept, see only yours
+# AC-1b-e2e-1 .. -4: invite, read the link out of the log, accept, see only yours
 # (TASK-1b-11; AC-1b-41, AC-1b-42; SC-2 extended by SC-6..SC-8)
 #
 # The same browser stand-in as AC-28, and one more person. The owner (signed in above)
@@ -1345,7 +1399,354 @@ fi
 BFF_JAR="$OWNER_JAR"
 
 # ---------------------------------------------------------------------------
-# DOD-1 / DOD-2 — `docker compose up` twice in a row, with an idempotent seed
+# AC-2-e2e-1 .. -7: create, redirect, click, edit, Redis down, Redis back, unknown slug
+# (TASK-2-12; AC-2-44, SC-16; redirect-resolution.md, redirect-cache.md, click-events.md)
+#
+# The same browser stand-in as AC-28 for everything the OPERATOR does, and a second kind of
+# request for everything the VISITOR does: no cookie jar, no `Origin`, no session, straight
+# at the API's own published port, with `redirect: manual` so the 302 is observed rather
+# than followed.
+#
+# `http://localhost:3001` AND NOT `http://127.0.0.1:3001`, and the hostname is as
+# load-bearing here as it is on WEB_URL, through a different mechanism. The seeded system
+# default domain's hostname is `localhost` (`SYSTEM_DEFAULT_DOMAIN` in docker-compose.yml,
+# D-2-02); step 1 of the decision order lowercases the `Host` header and strips the port,
+# and step 2 resolves a `domains` row from what is left. A request to 127.0.0.1 resolves NO
+# domain and gets the default 404, which reads like a broken redirect and is a wrong
+# address. The /health probe above may use either, and uses 127.0.0.1, because that route
+# reads no `Host` header at all.
+#
+# THE SLUG CARRIES A PER-RUN NONCE, AND THAT IS NOT DECORATION. Uniqueness is
+# `(domain_id, slug)` and never global (slug.md), every link in item 2 lands on the ONE
+# seeded system default domain whatever tenant created it (D-2-12), and this stack's volume
+# survives `docker compose down` and every previous run of this check. A slug written as a
+# literal here would answer 409 `slug_taken` the second time this check ran against a kept
+# volume, and would read as a broken create route. Six random bytes as hex per run, and a
+# second nonce for the slug that must NOT exist.
+#
+# NO CLAUSE HERE ASSERTS A CACHE STATE, AND THE REASON IS MEASURED RATHER THAN ASSUMED. A
+# mutation deletes the link's key and then deletes the SAME key again a second later
+# (`INVALIDATION_SECOND_PASS_DELAY_MS`, redirect-cache.md's "stale set race"), and a create
+# is a mutation, so a key that a visit warms inside that second is gone right after it.
+# Measured on this stack on 2026-08-19, with `EXISTS sk:dev:rdr:v1:localhost:<slug>` against
+# the running redis: 0 after the create and before any visit; 1 immediately after a visit at
+# +346 ms; 0 at +2237 ms, with nothing else touching the link; 1 again immediately after the
+# next visit, which answered the identical 302 having refilled the key from Postgres; and
+# still 1 two seconds after THAT, since no mutation followed it. So every clause below
+# asserts what the VISITOR RECEIVED (the status, the `Location`, the headers, the click
+# row), and none asserts the key, the read cost, or which store answered. The edit clause
+# POLLS to its bound rather than reading once, for the same reason.
+#
+# THE DEGRADATION CLAUSE STOPS A SERVICE AND THE ONE AFTER IT STARTS THE SERVICE AGAIN.
+# That pair is ordered and neither half is optional: DOD-1's `up -d --wait` further down
+# would start `redis` anyway and would then be reporting a service it started itself as one
+# that recovered. Recovery is measured where it happens, before anything else touches the
+# stack, and the stack is left with `redis` running either way.
+#
+# A 500 FROM THE CREATE ROUTE ON A STACK THAT CAME UP GREEN IS THE SEED AND NOT THE ROUTE,
+# and the reason string says so. Every link references the system default domain by foreign
+# key (D-2-12, ADR-0063), and a volume from before item 2 carries no `domains` row for it.
+# This run always starts from `down -v`, so it is not reachable here; whoever sees it will
+# be running against a kept volume, and the README's reset ladder carries the repair.
+#
+# Placed after the invitation clauses and BEFORE the second `up` and the `restart`, for
+# AC-28's reason: these need `api` and `web` healthy, and DOD-3's `restart` puts both
+# through a boot this script only waits out for postgres. DOD-2's census counts tenants and
+# these clauses create none.
+# ---------------------------------------------------------------------------
+
+# visit PATH -> $TMPDIR_CHECK/visit.status, visit.headers, visit.body. The anonymous
+# visitor: no jar, no `Origin`, and `redirect: manual`, because the whole assertion is the
+# 302 itself. Never fails the script: a transport error is a status of TRANSPORT-ERROR with
+# the message as the body, the same shape `bff` and the /health probe use.
+visit() {
+  node -e '
+const fs = require("node:fs");
+const [url, statusFile, headerFile, bodyFile] = process.argv.slice(1);
+fetch(url, { redirect: "manual", signal: AbortSignal.timeout(20000) })
+  .then(async (r) => {
+    const headers = {};
+    for (const [name, value] of r.headers) headers[name.toLowerCase()] = value;
+    fs.writeFileSync(statusFile, String(r.status));
+    fs.writeFileSync(headerFile, JSON.stringify(headers));
+    fs.writeFileSync(bodyFile, await r.text());
+  })
+  .catch((e) => {
+    fs.writeFileSync(statusFile, "TRANSPORT-ERROR");
+    fs.writeFileSync(headerFile, "{}");
+    fs.writeFileSync(bodyFile, String((e && e.message) || e));
+  });
+' "$REDIRECT_URL$1" "$TMPDIR_CHECK/visit.status" "$TMPDIR_CHECK/visit.headers" "$TMPDIR_CHECK/visit.body" || true
+}
+visit_status() { cat "$TMPDIR_CHECK/visit.status" 2>/dev/null || echo 'NO-REQUEST'; }
+visit_body()   { one_line <"$TMPDIR_CHECK/visit.body" 2>/dev/null || printf 'no body recorded'; }
+
+# visit_header NAME -> the value of that response header on the last visit, or ABSENT. The
+# name is lower-case: `visit` lower-cases every name as it records them.
+visit_header() {
+  node -e '
+const fs = require("node:fs");
+let h = {};
+try { h = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { h = {}; }
+const v = h[process.argv[2]];
+console.log(v === undefined ? "ABSENT" : v);
+' "$TMPDIR_CHECK/visit.headers" "$1"
+}
+
+# The flush interval is 1000 ms and a batch is at most 100 rows (ADR-0010), so a click is
+# readable about a second after the visit. Ten is that with room for a loaded machine, and
+# it is a BOUND: the clause fails when it runs out, it does not wait longer.
+CLICK_POLL_SECONDS=10
+
+# GC-2 and AC-51: a destination edit is visible on the redirect path within five seconds of
+# commit. The clause polls to exactly that and no further.
+EDIT_BOUND_SECONDS=5
+
+printf '\n-- the visitor, on %s\n' "$REDIRECT_URL" >&2
+LINK_NONCE="$(node -e 'console.log(require("node:crypto").randomBytes(6).toString("hex"))')"
+LINK_SLUG="e2e-$LINK_NONCE"
+UNKNOWN_SLUG="e2e-unknown-$(node -e 'console.log(require("node:crypto").randomBytes(6).toString("hex"))')"
+# Both are already what `new URL().href` produces, which is what the contract stores
+# (D-2-08), so "the stored destination is the one that was sent" is an equality rather than
+# a normalisation to reason about. The `|` is deliberate: `new URL()` leaves it alone and
+# Express's `res.location()` would percent-encode it, so a `Location` written the wrong way
+# is a byte different and this clause sees it (AC-2-14).
+LINK_DESTINATION="https://example.test/e2e/$LINK_NONCE?q=a%20b&r=c|d"
+LINK_DESTINATION_EDITED="https://example.test/e2e/$LINK_NONCE/edited?q=a%20b"
+
+LINK_OK=0
+LINK_ID=''
+LINK_DESTINATION_STORED=''
+if [ "$WORKSPACE_OK" -ne 1 ]; then
+  blocked 'AC-2-e2e-1' 'AC-28.3 did not create and list a workspace, so there is nowhere to create a link'
+else
+  BFF_JAR="$OWNER_JAR"
+  bff POST /api/bff/links "$(node -e 'console.log(JSON.stringify({ workspaceId: process.argv[1], slug: process.argv[2], destinationUrl: process.argv[3] }))' "$W1_ID" "$LINK_SLUG" "$LINK_DESTINATION")"
+  status="$(bff_status)"
+  LINK_ID="$(bff_field id)"
+  created_slug="$(bff_field slug)"
+  created_hostname="$(bff_field hostname)"
+  LINK_DESTINATION_STORED="$(bff_field destinationUrl)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-2-e2e-1' "POST $WEB_URL/api/bff/links could not be reached: $(bff_body)"
+  elif [ "$status" = '500' ]; then
+    fail 'AC-2-e2e-1' "POST /api/bff/links returned 500 on a stack that came up green, which is the seed and not the route: every link references the system default domain by foreign key (D-2-12, ADR-0063) and a volume from before item 2 has no domains row for it. This run starts from down -v so it should not be reachable here; against a kept volume, re-run the seed (a plain up runs it, and its inserts are ON CONFLICT DO NOTHING) or docker compose down -v. Body: $(bff_body)"
+  elif [ "$status" != '201' ]; then
+    fail 'AC-2-e2e-1' "POST /api/bff/links returned $status, not 201: $(bff_body)"
+  elif [ "$LINK_ID" = 'ABSENT' ] || [ "$LINK_ID" = 'NOT-JSON' ] || [ "$created_slug" != "$LINK_SLUG" ]; then
+    fail 'AC-2-e2e-1' "POST /api/bff/links returned 201 but not the link that was asked for (id: $LINK_ID, slug: $created_slug for a request that named $LINK_SLUG): $(bff_body)"
+  elif [ "$LINK_DESTINATION_STORED" != "$LINK_DESTINATION" ]; then
+    fail 'AC-2-e2e-1' "POST /api/bff/links stored destinationUrl \"$LINK_DESTINATION_STORED\" for a request that sent \"$LINK_DESTINATION\"; the contract stores new URL().href and this input already is it (D-2-08)"
+  elif [ "$created_hostname" != "$REDIRECT_HOSTNAME" ]; then
+    fail 'AC-2-e2e-1' "the link was created on hostname \"$created_hostname\", not \"$REDIRECT_HOSTNAME\": the seeded system default domain is not the one this check redirects on (SYSTEM_DEFAULT_DOMAIN in docker-compose.yml, D-2-02)"
+  else
+    LINK_OK=1
+    pass 'AC-2-e2e-1' "POST /api/bff/links returned 201 with id $LINK_ID on $created_hostname/$LINK_SLUG, carrying the destination that was sent"
+  fi
+fi
+
+REDIRECT_OK=0
+if [ "$LINK_OK" -ne 1 ]; then
+  blocked 'AC-2-e2e-2' 'no link was created, so there is no short link to follow'
+else
+  visit "/$LINK_SLUG"
+  status="$(visit_status)"
+  location="$(visit_header location)"
+  cache_control="$(visit_header cache-control)"
+  referrer_policy="$(visit_header referrer-policy)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-2-e2e-2' "GET $REDIRECT_URL/<slug> could not be reached: $(visit_body)"
+  elif [ "$status" = '404' ]; then
+    fail 'AC-2-e2e-2' "GET $REDIRECT_URL/<slug> returned 404 for a link the create route had just answered 201 for: the request's Host resolved no active domain, or the link did not resolve on the domain it was created on (decision order steps 2 and 3)"
+  elif [ "$status" != '302' ]; then
+    fail 'AC-2-e2e-2' "GET $REDIRECT_URL/<slug> returned $status, not 302: $(visit_body)"
+  elif [ "$location" != "$LINK_DESTINATION_STORED" ]; then
+    fail 'AC-2-e2e-2' "the 302 carries Location \"$location\", not the stored destination byte for byte (AC-2-14: setHeader and never res.redirect, whose encodeUrl rewrites the value)"
+  elif [ "$cache_control" != 'private, no-store' ]; then
+    fail 'AC-2-e2e-2' "the 302 carries Cache-Control \"$cache_control\", not \"private, no-store\" (redirect-resolution.md's header table: every response)"
+  elif [ "$referrer_policy" != 'unsafe-url' ]; then
+    fail 'AC-2-e2e-2' "the 302 carries Referrer-Policy \"$referrer_policy\", not \"unsafe-url\" (the header table: the 302 and nothing else)"
+  else
+    REDIRECT_OK=1
+    pass 'AC-2-e2e-2' "GET $REDIRECT_URL/$LINK_SLUG answered 302 with the stored destination byte for byte, Cache-Control \"private, no-store\" and Referrer-Policy \"unsafe-url\""
+  fi
+fi
+
+if [ "$REDIRECT_OK" -ne 1 ]; then
+  blocked 'AC-2-e2e-3' 'the redirect did not serve, so no click can have been emitted to read back'
+else
+  BFF_JAR="$OWNER_JAR"
+  click_waited=0
+  click_status=''
+  click_items=''
+  while :; do
+    bff GET "/api/bff/links/$LINK_ID/clicks"
+    click_status="$(bff_status)"
+    click_items="$(node -e '
+const fs = require("node:fs");
+let b;
+try { b = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("NOT-JSON"); process.exit(0); }
+if (b === null || typeof b !== "object" || !Array.isArray(b.items)) { console.log("NO-ITEMS-ARRAY"); process.exit(0); }
+console.log(String(b.items.length));
+' "$TMPDIR_CHECK/bff.body")"
+    case "$click_items" in
+      ''|*[!0-9]*) ;;
+      *) [ "$click_items" -ge 1 ] && break ;;
+    esac
+    [ "$click_waited" -ge "$CLICK_POLL_SECONDS" ] && break
+    sleep 1; click_waited=$((click_waited + 1))
+  done
+  # The whole body, at any depth, and by the CLASS of name rather than one spelling: the
+  # column exists and is pseudonymous per tenant, and what D-2-19 forbids is any of it
+  # reaching the wire.
+  click_address_key="$(node -e '
+const fs = require("node:fs");
+let b;
+try { b = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { console.log("NOT-JSON"); process.exit(0); }
+const NAMES = ["ipHash", "ip_hash", "ip", "ipAddress", "address", "clientIp"];
+const hit = (v) => {
+  if (v === null || typeof v !== "object") return null;
+  for (const key of Object.keys(v)) { if (NAMES.includes(key)) return key; }
+  for (const child of Object.values(v)) { const found = hit(child); if (found !== null) return found; }
+  return null;
+};
+const found = hit(b);
+console.log(found === null ? "ABSENT" : found);
+' "$TMPDIR_CHECK/bff.body")"
+  if [ "$click_status" != '200' ]; then
+    fail 'AC-2-e2e-3' "GET /api/bff/links/<id>/clicks returned $click_status, not 200: $(bff_body)"
+  elif [ "$click_items" = 'NOT-JSON' ] || [ "$click_items" = 'NO-ITEMS-ARRAY' ]; then
+    fail 'AC-2-e2e-3' "GET /api/bff/links/<id>/clicks returned 200 with a body that is not a page of items ($click_items): $(bff_body)"
+  elif [ "$click_items" = '0' ]; then
+    fail 'AC-2-e2e-3' "the redirect served but no click row appeared within ${click_waited}s (the flush interval is 1000 ms and a batch is 100 rows, ADR-0010); the buffer never flushed, or the sink is unbound (D-2-10: an unbound sink is a silent no-op)"
+  elif [ "$click_address_key" != 'ABSENT' ]; then
+    fail 'AC-2-e2e-3' "the click page carries a \"$click_address_key\" key: ip_hash is pseudonymous per tenant and never leaves the database, not in a response, a log line or an error (D-2-19, GC-R)"
+  else
+    pass 'AC-2-e2e-3' "GET /api/bff/links/<id>/clicks answered 200 with $click_items click row(s) ${click_waited}s after the visit, and no address key at any depth of the body"
+  fi
+fi
+
+EDIT_OK=0
+if [ "$REDIRECT_OK" -ne 1 ]; then
+  blocked 'AC-2-e2e-4' 'the redirect never served the first destination, so a change to it cannot be observed'
+else
+  BFF_JAR="$OWNER_JAR"
+  bff PATCH "/api/bff/links/$LINK_ID" "$(node -e 'console.log(JSON.stringify({ destinationUrl: process.argv[1] }))' "$LINK_DESTINATION_EDITED")"
+  patch_status="$(bff_status)"
+  patched_destination="$(bff_field destinationUrl)"
+  if [ "$patch_status" != '200' ]; then
+    fail 'AC-2-e2e-4' "PATCH /api/bff/links/<id> returned $patch_status, not 200: $(bff_body)"
+  elif [ "$patched_destination" != "$LINK_DESTINATION_EDITED" ]; then
+    fail 'AC-2-e2e-4' "PATCH /api/bff/links/<id> returned 200 carrying destinationUrl \"$patched_destination\", not the edited one: the write did not take"
+  else
+    edit_waited=0
+    served=''
+    while :; do
+      visit "/$LINK_SLUG"
+      served="$(visit_header location)"
+      [ "$served" = "$LINK_DESTINATION_EDITED" ] && break
+      [ "$edit_waited" -ge "$EDIT_BOUND_SECONDS" ] && break
+      sleep 1; edit_waited=$((edit_waited + 1))
+    done
+    if [ "$(visit_status)" != '302' ]; then
+      fail 'AC-2-e2e-4' "after the edit the redirect answered $(visit_status), not 302: $(visit_body)"
+    elif [ "$served" != "$LINK_DESTINATION_EDITED" ]; then
+      fail 'AC-2-e2e-4' "${EDIT_BOUND_SECONDS}s after the PATCH returned, the redirect still serves \"$served\" and not the edited destination: the invalidation subscriber did not delete the key, and the TTL is 3600 s (GC-2, AC-51, redirect-cache.md invariant 1)"
+    else
+      EDIT_OK=1
+      pass 'AC-2-e2e-4' "the redirect served the edited destination ${edit_waited}s after the PATCH returned, inside the ${EDIT_BOUND_SECONDS}s bound (GC-2, AC-51)"
+    fi
+  fi
+fi
+
+REDIS_STOPPED=0
+if [ "$EDIT_OK" -ne 1 ]; then
+  blocked 'AC-2-e2e-5' 'the redirect was not established as serving the current destination, so a degraded run of it would measure nothing'
+elif ! docker compose stop redis >/dev/null 2>"$TMPDIR_CHECK/redis-stop.err"; then
+  blocked 'AC-2-e2e-5' "docker compose stop redis exited non-zero, so the cache was never taken away and nothing about degradation was measured: $(one_line <"$TMPDIR_CHECK/redis-stop.err")"
+else
+  REDIS_STOPPED=1
+  visit "/$LINK_SLUG"
+  status="$(visit_status)"
+  location="$(visit_header location)"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-2-e2e-5' "with redis stopped, GET $REDIRECT_URL/<slug> could not be reached at all: $(visit_body)"
+  elif [ "$status" != '302' ]; then
+    fail 'AC-2-e2e-5' "with redis stopped the redirect answered $status, not 302: the cache is a dependency rather than a cache. Every read must answer 'unavailable' and fall through to Postgres (D-2-09, redirect-cache.md invariant 2, ADR-0012)"
+  elif [ "$location" != "$LINK_DESTINATION_EDITED" ]; then
+    fail 'AC-2-e2e-5' "with redis stopped the redirect answered 302 to \"$location\", not the current destination: it is serving something other than what Postgres holds"
+  else
+    pass 'AC-2-e2e-5' 'with the redis service stopped the redirect still answered 302 with the current destination, resolved from Postgres'
+  fi
+fi
+
+if [ "$REDIS_STOPPED" -ne 1 ]; then
+  blocked 'AC-2-e2e-6' 'redis was never stopped, so there is nothing to recover from'
+elif ! docker compose start redis >/dev/null 2>"$TMPDIR_CHECK/redis-start.err"; then
+  fail 'AC-2-e2e-6' "docker compose start redis exited non-zero, so the service did not come back: $(one_line <"$TMPDIR_CHECK/redis-start.err")"
+else
+  redis_waited=0
+  while [ "$redis_waited" -lt 60 ]; do
+    [ "$(service_health redis)" = 'healthy' ] && break
+    sleep 2; redis_waited=$((redis_waited + 2))
+  done
+  visit "/$LINK_SLUG"
+  status="$(visit_status)"
+  location="$(visit_header location)"
+  if [ "$(service_health redis)" != 'healthy' ]; then
+    fail 'AC-2-e2e-6' "redis is '$(service_health redis)' and not healthy ${redis_waited}s after start; the redirect answered $status"
+  elif [ "$status" != '302' ] || [ "$location" != "$LINK_DESTINATION_EDITED" ]; then
+    fail 'AC-2-e2e-6' "redis is healthy again but the redirect answered $status to \"$location\", not 302 to the current destination: the client did not reconnect (ADR-0012's retry strategy) or it is serving a record from before the stop"
+  else
+    pass 'AC-2-e2e-6' "redis reached healthy ${redis_waited}s after start and the redirect still answered 302 with the current destination"
+  fi
+fi
+
+if [ "$UP_OK" -ne 1 ]; then
+  blocked 'AC-2-e2e-7' 'the stack did not come up, so nothing is serving the 404'
+else
+  visit "/$UNKNOWN_SLUG"
+  status="$(visit_status)"
+  csp="$(visit_header content-security-policy)"
+  nosniff="$(visit_header x-content-type-options)"
+  # A scan over an empty body finds no stack, so the page is identified first and the scan
+  # below is only meaningful because it ran over the real one.
+  page="$(node -e '
+const fs = require("node:fs");
+const body = fs.readFileSync(process.argv[1], "utf8");
+if (body.indexOf("<title>Link not found</title>") === -1) { console.log("NOT-THE-404-PAGE"); process.exit(0); }
+const SHAPES = [
+  ["a stack frame", /\bat\s+\S+\s+\(/],
+  ["a source location", /\.(?:ts|js|mjs|cjs):\d+:\d+/],
+  ["a node internal", /node:internal/],
+  ["a dependency path", /node_modules/],
+  ["a repository path", /\/apps\/api\//],
+  ["an error class name", /[A-Za-z]*Error:/],
+];
+for (const [label, pattern] of SHAPES) { if (pattern.test(body)) { console.log(label); process.exit(0); } }
+console.log("CLEAN");
+' "$TMPDIR_CHECK/visit.body")"
+  if [ "$status" = 'TRANSPORT-ERROR' ]; then
+    fail 'AC-2-e2e-7' "GET $REDIRECT_URL/<unknown slug> could not be reached: $(visit_body)"
+  elif [ "$status" != '404' ]; then
+    fail 'AC-2-e2e-7' "a slug no link holds answered $status, not 404 (decision order step 6; this surface answers 302 or 404 and never a 5xx, invariant 1)"
+  elif [ "$page" = 'NOT-THE-404-PAGE' ]; then
+    fail 'AC-2-e2e-7' "the 404's body is not the rendered not-found page, so what it does carry was never scanned: $(visit_body)"
+  elif [ "$page" != 'CLEAN' ]; then
+    fail 'AC-2-e2e-7' "the 404's body carries $page: a visitor is told the link does not work and never how the server is built (invariant 1's other half; the error goes to the log, not to the response)"
+  elif [ "$csp" = 'ABSENT' ]; then
+    fail 'AC-2-e2e-7' 'the 404 carries no Content-Security-Policy; the per-response CSP belongs on this response and on no other (redirect-resolution.md, header table)'
+  elif [ "${csp#*frame-ancestors}" = "$csp" ]; then
+    fail 'AC-2-e2e-7' "the 404's Content-Security-Policy is \"$csp\" and names no frame-ancestors directive: it REPLACES helmet's, and frame-ancestors does not fall back to default-src, so this response would carry no framing policy at all (D-2-14, the open half of F-280)"
+  elif [ "$nosniff" != 'nosniff' ]; then
+    fail 'AC-2-e2e-7' "the 404 carries X-Content-Type-Options \"$nosniff\", not \"nosniff\""
+  else
+    pass 'AC-2-e2e-7' 'a slug no link holds answered 404 with the rendered not-found page, a Content-Security-Policy naming frame-ancestors, X-Content-Type-Options nosniff, and no stack, source location or error class anywhere in the body'
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# DOD-1 / DOD-2: `docker compose up` twice in a row, with an idempotent seed
 #
 # The census is taken by the superuser, which is the only connection that can see a row
 # the seed might have inserted under a second id: shortkit_app sees only the tenant
@@ -1377,7 +1778,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# DOD-3 — data survives `docker compose restart`
+# DOD-3: data survives `docker compose restart`
 #
 # ADR-0036: `restart` restarts the exited one-shots too and ignores depends_on
 # conditions, so `migrate` and `seed` come back against a Postgres that is not yet

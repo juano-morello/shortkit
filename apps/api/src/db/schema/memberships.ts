@@ -13,7 +13,7 @@
  *    character: `uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE`.
  * 2. The output of `tenantScopedPolicies('memberships')` hand-appended to migration `0003`,
  *    because Drizzle Kit generates no policy DDL. Template-shaped, template UNCHANGED: two
- *    policies. No bespoke policy — nothing reads this table outside a tenant context.
+ *    policies. No bespoke policy: nothing reads this table outside a tenant context.
  * 3. A `registerTenantScopedSurfaces()` call in `test/isolation/registrations.ts`
  *    (`MembershipsTableAccess`; the repository subject arrives with the repository, TASK-1b-05).
  *
@@ -33,7 +33,7 @@
  * THE COMPOSITE FOREIGN KEY IS THE ISOLATION ARGUMENT, NOT DECORATION (ADR-0062).
  * `FOREIGN KEY (workspace_id, tenant_id) REFERENCES workspaces (id, tenant_id)` rather than
  * `workspace_id REFERENCES workspaces(id)`. Referential checks run with row security
- * BYPASSED, so a plain FK is satisfied by ANY tenant's workspace id — a membership row
+ * BYPASSED, so a plain FK is satisfied by ANY tenant's workspace id: a membership row
  * carrying tenant A's `tenant_id` and tenant B's `workspace_id` would be admitted by the
  * policy (its tenant_id matches the flag) and by the FK (the workspace exists). The
  * composite form makes that row a constraint violation at the database, whatever an
@@ -53,7 +53,7 @@
  * NO BACKFILL FOR PRE-EXISTING WORKSPACES, AND WHY THAT IS A RULING RATHER THAN AN OMISSION
  * (ADR-0062, D-10). An `INSERT ... SELECT` from `workspaces` inside migration `0003` would
  * run as `shortkit_migrator`, which is `NOBYPASSRLS` under `FORCE ROW LEVEL SECURITY` with
- * no `app.tenant_id` set: it reads zero rows, inserts nothing, and reports success —
+ * no `app.tenant_id` set: it reads zero rows, inserts nothing, and reports success:
  * F-236's shape. There is no deploy target (ADR-0030); a compose volume carrying 1a rows is
  * reset (`docker compose down -v`, ADR-0032).
  */
@@ -89,7 +89,7 @@ export const memberships = pgTable(
       foreignColumns: [workspaces.id, workspaces.tenantId],
     }).onDelete('cascade'),
     // Added 2026-08-19 (debt sweep, ledger 1b-W1-11, migration 0004): `user_id` leads no
-    // index — it is only the SECOND column of the UNIQUE above — so `listForUser`'s join
+    // index (it is only the SECOND column of the UNIQUE above) so `listForUser`'s join
     // (`m.user_id = $user`, TASK-1b-06) and the `ON DELETE CASCADE` walk from `"user"`
     // both scan. `tenant_id` already has its hand-appended index in migration 0003.
     index('memberships_user_id_idx').on(table.userId),

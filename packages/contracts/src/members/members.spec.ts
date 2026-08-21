@@ -1,5 +1,5 @@
 /**
- * STORY-001 — AC-8. TASK-001.
+ * STORY-001: AC-8. TASK-001.
  *
  * Contract: docs/contracts/auth-contracts.md
  * ADR: adr-0048-role-brands-are-applied-after-parsing.md, adr-0015-user-tenant-cardinality.md,
@@ -13,11 +13,11 @@
  * test that asserted the INFERRED type is branded would pass the one implementation
  * ADR-0048 refuses: `role: z.enum(TENANT_ROLES).transform(asTenantRole)` inside the
  * contract. What is observable is the shape: a wire contract that parses, and a separately
- * exported step that brands — with `asTenantRole` re-checking membership so the brand keeps
+ * exported step that brands, with `asTenantRole` re-checking membership so the brand keeps
  * meaning "checked" rather than "cast".
  *
  * The compile-time half is carried by the `@ts-expect-error` directives below. THEY DO
- * NOT RUN UNDER `pnpm test` — vitest transpiles with swc and never typechecks. They are
+ * NOT RUN UNDER `pnpm test`: vitest transpiles with swc and never typechecks. They are
  * assertions against `pnpm typecheck`, which is AC-8's own second clause, and each fails
  * that command with "Unused '@ts-expect-error' directive" the day the wire type starts
  * carrying a brand.
@@ -41,7 +41,7 @@ import {
 } from './index';
 
 /**
- * ADR-0015's five fields. `userId` is Better Auth's own id and is deliberately not a uuid —
+ * ADR-0015's five fields. `userId` is Better Auth's own id and is deliberately not a uuid:
  * the one non-uuid foreign key in the schema.
  */
 const WIRE_MEMBERSHIP = {
@@ -64,7 +64,7 @@ describe('tenantMembershipContract', () => {
   });
 
   it("AC-8 (ADR-0015): userId accepts Better Auth's non-uuid id", () => {
-    // Declaring `userId` as `idContract` — the obvious symmetry with `id` and `tenantId` —
+    // Declaring `userId` as `idContract` (the obvious symmetry with `id` and `tenantId`)
     // fails here, and would otherwise fail at the first real sign-up rather than at review.
     expect(tenantMembershipContract.parse({ ...WIRE_MEMBERSHIP, userId: 'x9' }).userId).toBe(
       'x9',

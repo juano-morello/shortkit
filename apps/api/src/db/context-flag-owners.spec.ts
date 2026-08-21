@@ -7,14 +7,14 @@ import { describe, expect, it } from 'vitest';
 import { CONTEXT_FLAG_OWNERS } from '../../test/isolation/coverage';
 
 /**
- * STORY-001 — TASK-002. The wave-1-runnable half of clauses A1 and A4.
+ * STORY-001: TASK-002. The wave-1-runnable half of clauses A1 and A4.
  *
  * Contract: `docs/contracts/isolation-coverage.md:466-542` ("The grep
  * assertion"), a frozen contract. ADR-0045, ADR-0003.
  *
  * This control cites those clauses rather than restating them. It is the ONE executing
  * control wave 1 ships, it is `CONTEXT_FLAG_OWNERS`'s first consumer anywhere in the
- * repository, and F-025 — "an ADR cites four controls and none of them executes" — was
+ * repository, and F-025 ("an ADR cites four controls and none of them executes") was
  * closed on the strength of it.
  *
  * ============================================================================
@@ -37,18 +37,18 @@ import { CONTEXT_FLAG_OWNERS } from '../../test/isolation/coverage';
  *
  * A4 in full: every `set_config(` first argument in the scan set is a quoted string literal
  * drawn from A4's permitted list. THE LIST IS INHERITED FROM THE CONTRACT, verbatim, and
- * this file writes no `app.`-prefix filter of its own — an independent filter is a second
+ * this file writes no `app.`-prefix filter of its own: an independent filter is a second
  * permitted list that drifts from the contract's silently (F-044).
  *
  * A1 in the SUBSET direction only: every `{ flag, file }` pair discovered appears in
- * `CONTEXT_FLAG_OWNERS`. That is the direction carrying the security claim — it is what
+ * `CONTEXT_FLAG_OWNERS`. That is the direction carrying the security claim: it is what
  * catches a new, unregistered flag setter, and a second file setting an ALREADY-registered
  * flag, which a flag-only match sails past.
  *
  * A1's exactly-one direction is TASK-056's. `CONTEXT_FLAG_OWNERS` already names
  * `redirect-read.ts` (TASK-029) and `privileged-eraser.ts` (TASK-054), files deferred out
  * of this initiative, so an equality assertion would be RED ON THE DAY IT LANDS and the
- * cheap way to make a red build green is to delete the control — which re-opens F-025.
+ * cheap way to make a red build green is to delete the control, which re-opens F-025.
  * The contract says in as many words that "A1 is not runnable earlier" (F-039, F-044).
  */
 
@@ -89,7 +89,7 @@ function scanSet(): readonly string[] {
 }
 
 /**
- * No flag name contains a comma, so no balanced-paren parse is needed — the contract says
+ * No flag name contains a comma, so no balanced-paren parse is needed: the contract says
  * so where it defines "first argument", and it is the reason this stays a text scan.
  */
 function setConfigCalls(file: string, source: string): SetConfigCall[] {
@@ -99,7 +99,7 @@ function setConfigCalls(file: string, source: string): SetConfigCall[] {
     const rest = source.slice(match.index + match[0].length);
     const comma = rest.indexOf(',');
     // No comma at all is not a call this scan can read, so it is reported as it stands and
-    // fails A4 — which is the right answer for a computed or malformed first argument.
+    // fails A4, which is the right answer for a computed or malformed first argument.
     const firstArgument = (comma === -1 ? rest.split('\n')[0] : rest.slice(0, comma)).trim();
 
     calls.push({ file, firstArgument });
@@ -115,7 +115,7 @@ const calls: readonly SetConfigCall[] = scanSet().flatMap((path) =>
 describe('context flag owners', () => {
   /**
    * THE PREMISE, NOT THE SUBJECT. Both assertions below are `toEqual([])`, which is
-   * satisfied by a scan that read nothing at all — a walk over a moved directory, a filter
+   * satisfied by a scan that read nothing at all: a walk over a moved directory, a filter
    * that dropped every file. That is the shape in which a control reports `pass` over a
    * source tree it never opened, and this repository has measured it once already
    * (`test/isolation/coverage.ts`, "AND WHAT PROVES THE HARNESS WOULD NOTICE").

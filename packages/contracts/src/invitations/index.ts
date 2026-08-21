@@ -22,7 +22,7 @@
  * THE TOKEN TRAVELS IN A BODY, NEVER IN A PATH OR A QUERY (D-03, F-300/F-362).
  * ============================================================================
  *
- * The email link is `<WEB_APP_ORIGIN>/invitations/accept#token=<raw>` — a URL FRAGMENT,
+ * The email link is `<WEB_APP_ORIGIN>/invitations/accept#token=<raw>`: a URL FRAGMENT,
  * which reaches no server, no `Referer` and no platform log. The page reads it and posts it
  * as `{ token }` to `lookup` and `accept`. `GET /api/invitations/:token` and
  * `POST /api/invitations/:token/accept` are NOT built, so no shape here names a token
@@ -61,7 +61,7 @@ import { idContract } from '../pagination';
 import { WORKSPACE_ROLES } from '../roles';
 
 /**
- * D-11: `pending | accepted | expired | revoked`. `expired` IS NEVER WRITTEN BY 1b — expiry
+ * D-11: `pending | accepted | expired | revoked`. `expired` IS NEVER WRITTEN BY 1b: expiry
  * is derived from `expiresAt` at read time and answered 410 `invitation_expired`; a row
  * whose `expiresAt` has passed still reads `state: 'pending'`. The value is reserved for a
  * later sweeper, and is in the enum now so the wire type does not change when one lands.
@@ -221,7 +221,7 @@ export type InvitationLookupRequest = z.infer<typeof invitationLookupRequestCont
 
 /**
  * What the anonymous lookup answers for a pending, unexpired token: enough to render the
- * accept page and nothing an anonymous caller could act on. NAMES, NOT IDS — a workspace id
+ * accept page and nothing an anonymous caller could act on. NAMES, NOT IDS: a workspace id
  * is a tenant-scoped identifier and the caller has proven nothing but possession of the
  * link. `email` is the invited address (a prefill; D-01 rules the link is the capability
  * and the address is not checked on accept). `inviterEmail` comes from the row's

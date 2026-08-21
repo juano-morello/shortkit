@@ -3,7 +3,7 @@
 #
 # Every dependency in this repository is pinned to an exact version, which means a
 # security patch arrives only when someone merges a bump. The audits detect; nothing in
-# them raises a version. This file is the remediation half — remove it and the two audit
+# them raises a version. This file is the remediation half. Remove it and the two audit
 # steps become detection with no path to a fix, which is how a known advisory stays
 # deployed for a quarter.
 #
@@ -17,7 +17,7 @@
 #
 # ⚠ DEPENDABOT PULL REQUESTS DO NOT RUN LIKE ANY OTHER, WHICH THIS LINE USED TO CLAIM.
 # GitHub runs Dependabot-triggered `push` and `pull_request` events with a read-only
-# GITHUB_TOKEN and with DEPENDABOT secrets only — Actions secrets are not exposed to them.
+# GITHUB_TOKEN and with DEPENDABOT secrets only: Actions secrets are not exposed to them.
 # `BFF_PROXY_SECRET` is registered as an Actions secret, so `quality` fails at the AC-113
 # guard on every bump unless the same value is ALSO registered under
 # Settings > Secrets and variables > Dependabot. Since ADR-0018 makes this file the only

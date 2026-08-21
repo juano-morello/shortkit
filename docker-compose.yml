@@ -2,9 +2,10 @@
 #
 # Contract: docs/contracts/rls-policy-template.md (roles, grants, env vars)
 # ADR: adr-0030 .. adr-0037; adr-0040, adr-0050, adr-0051, adr-0059 (the api and web environment);
-#      adr-0017 (MAIL_TRANSPORT)
-# Produced by: TASK-059. Environment blocks extended by TASK-018, TASK-003, TASK-009 and
-#              TASK-1b-11 (MAIL_TRANSPORT, D-02).
+#      adr-0017 (MAIL_TRANSPORT); adr-0012 (the redis client), adr-0008 (the cache it holds)
+# Produced by: TASK-059. Environment blocks extended by TASK-018, TASK-003, TASK-009,
+#              TASK-1b-11 (MAIL_TRANSPORT, D-02) and TASK-2-04 (the `redis` service, the
+#              cache and short-link variables, D-2-02, D-2-09, D-2-16, D-2-17).
 # Measured by: scripts/check-compose-stack.sh
 #
 #   docker compose up                                                  # AC-115's command
@@ -23,17 +24,17 @@
 # the repository's only worked example of standing the system up, so it is what someone
 # reaches for under time pressure. Half of it is meant to be copied and half must not be.
 #
-# Reusable — this is rls-policy-template.md's "Roles" section, applied:
+# Reusable. This is rls-policy-template.md's "Roles" section, applied:
 #   - all three roles NOBYPASSRLS, all three with attribute defaults otherwise;
 #   - shortkit_app owns nothing and receives DML only through
 #     ALTER DEFAULT PRIVILEGES granted by shortkit_migrator; shortkit_auth owns
-#     nothing and receives no default privilege at all — its DML is hand-written
+#     nothing and receives no default privilege at all: its DML is hand-written
 #     per table (ADR-0050);
 #   - USAGE on schema public and nothing more;
 #   - migrations run as shortkit_migrator and the seed runs as shortkit_app, from a
 #     stage that is not the deployed image (ADR-0033).
 #
-# NOT reusable — docker-compose.test.yml's list minus tmpfs, plus one:
+# NOT reusable (docker-compose.test.yml's list minus tmpfs, plus one):
 #   - default passwords in a committed file, including the bootstrap superuser's;
 #   - no TLS, so every connection on the compose network is plaintext. A production DSN
 #     with `sslmode=require` gets encryption with NO certificate verification;
@@ -104,7 +105,7 @@ services:
       # password `app` is not on the LAN. 55432 sits beside the test stack's 55433 and is
       # not 5432, so a Postgres already running on this machine is neither shadowed nor
       # connected to by accident. Ports are NOT what keeps this stack and the integration
-      # suite's apart — `name:` above is (ADR-0032, F-356).
+      # suite's apart. `name:` above is (ADR-0032, F-356).
       - '127.0.0.1:55432:5432'
     volumes:
       # A named volume, not tmpfs and not a bind mount (ADR-0032). The test stack's tmpfs
@@ -125,7 +126,7 @@ services:
     healthcheck:
       # Executes a statement AS shortkit_app, over TCP, against the real `shortkit`
       # database. Four halves, all load-bearing, and `pg_isready` has none of them: it
-      # does not authenticate — its -U and -d only affect what the server logs — and with
+      # does not authenticate (its -U and -d only affect what the server logs), and with
       # no -h it uses the unix socket. The postgres entrypoint runs initdb, starts a
       # TEMPORARY socket-only server, runs the init script, stops it, then starts the
       # real one. A `pg_isready` probe landing in that window returns 0 and marks the
@@ -158,8 +159,70 @@ services:
       retries: 30
       start_period: 10s
 
+  # The cache, and the only datastore here that is not Postgres (ADR-0012,
+  # docs/contracts/redirect-cache.md). Pinned to a major line, the way `postgres:17-alpine`
+  # above is; `redis:7-alpine` is the tag ADR-0018 and redirect-cache.md both name.
+  #
+  # NO VOLUME AND NO TMPFS, unlike `postgres`. Every key here has a TTL and a Postgres row
+  # behind it, so losing all of it on `down` is correct rather than a cost, and a cache
+  # that survived a reset would let a stale record outlive the data it was derived from,
+  # which is the one failure `docker compose down -v` is supposed to end. The image's
+  # default RDB snapshots land in the container's own writable layer and go with it.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # ---------------------------------------------------------------------------
+    # `redis-fixture` IS A FIXTURE, IN THE SAME SENSE AS THE FOUR ROLE PASSWORDS ABOVE
+    # AND FOR THE SAME REASON (ADR-0031, F-131). DO NOT ADAPT THIS INTO A PRODUCTION
+    # REDIS.
+    # ---------------------------------------------------------------------------
+    # It is committed, `docker compose config` and `docker inspect` print it, and the port
+    # below is bound to 127.0.0.1, so what it protects is this machine's own loopback and
+    # nothing else. No password at all is the tempting shape and is worse in one specific
+    # way: `api`'s REDIS_URL would then carry no credential, and the first deployment to
+    # copy that line would point a real API at a real Redis with authentication never
+    # configured on either side.
+    #
+    # A LITERAL, NOT `${REDIS_PASSWORD:-redis-fixture}`, and that is the one place this
+    # service departs from the role passwords above. The value appears exactly twice (here
+    # and inside `api`'s REDIS_URL two blocks down), and a DSN has no escaping mechanism the
+    # way psql's `:'variable'` does, so an overridden `@`, `:` or `/` would break the URL
+    # and not the server. Two literals cannot disagree; two interpolations can.
+    command: ['redis-server', '--requirepass', 'redis-fixture']
+    ports:
+      # 127.0.0.1 explicitly, the file-wide rule (ADR-0031). 56379 rather than 6379 so a
+      # Redis already running on this machine is neither shadowed nor connected to by
+      # accident, and it sits beside docker-compose.test.yml's 56380 exactly as 55432 sits
+      # beside 55433. Published for inspectability: `redis-cli -p 56379 -a redis-fixture`
+      # from the host is how you read a cached record while debugging a redirect.
+      - '127.0.0.1:56379:6379'
+    healthcheck:
+      # AUTHENTICATES, and the `grep` is what makes that true. With `--requirepass` set, an
+      # unauthenticated `PING` is answered `NOAUTH Authentication required.`, and redis-cli
+      # exits 0 on a server ERROR reply, so an exit code alone would report a server whose
+      # password nothing in this stack knows as healthy. Reading PONG off stdout is the same
+      # property ADR-0036 gave the Postgres probe: this container is healthy only when the
+      # credential in this file is the credential the server has.
+      #
+      # `--no-auth-warning` drops redis-cli's own stderr line about `-a` on a command line.
+      # The password is already in this container's process list (the `command:` above) and
+      # this stack is loopback-only, so the warning has nothing to protect here.
+      #
+      # There is no `$` in this string, so there is no `$$` (ADR-0036: adding the escape
+      # where there is no dollar is cargo cult).
+      test:
+        - 'CMD-SHELL'
+        - 'redis-cli --no-auth-warning -a redis-fixture ping | grep -q PONG'
+      # The Postgres probe's cadence (ADR-0036), with a shorter start period: Redis has no
+      # equivalent of the initdb window that one is riding out, and a Redis that is not
+      # answering within five seconds is not slow, it is broken.
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
   # One-shot. Applies every migration the database has not seen, as shortkit_migrator,
-  # from the `migrator` image stage — which is NOT the deployed image and carries
+  # from the `migrator` image stage, which is NOT the deployed image and carries
   # drizzle-kit, a devDependency the runtime stage deliberately does not install
   # (ADR-0033, F-119). Migrations never run from application boot (ADR-0004) and never
   # from /docker-entrypoint-initdb.d, which runs as the superuser and would leave every
@@ -187,7 +250,7 @@ services:
   # as shortkit_app it is the check that the migration ran as shortkit_migrator: the
   # grants shortkit_app holds come from `ALTER DEFAULT PRIVILEGES FOR ROLE
   # shortkit_migrator`, so a stack that migrated as any other identity fails here with
-  # `permission denied for table tenants` — before the API starts, rather than inside
+  # `permission denied for table tenants`, before the API starts, rather than inside
   # whatever feature first read the table.
   seed:
     build:
@@ -201,6 +264,13 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
+      # The hostname the seeded platform tenant's system default domain row carries
+      # (D-2-02, D-2-06). The seed normalises it and stores it; `api` reads the same
+      # variable to denormalise it back onto every link it returns, so the two must be the
+      # same value and are written out in both places rather than shared. `migrate` does
+      # NOT carry it: a migration is SQL run by drizzle-kit and can read no environment
+      # variable, so a copy there would be a line nothing reads.
+      SYSTEM_DEFAULT_DOMAIN: localhost
     command: ['node', 'apps/api/scripts/seed.mts']
 
   api:
@@ -229,14 +299,23 @@ services:
     depends_on:
       seed:
         condition: service_completed_successfully
+      # ORDERING ONLY, NOT A RUNTIME COUPLING (D-2-16). The API is required to boot and to
+      # serve every redirect with Redis absent or gone: an unset REDIS_URL binds the
+      # unavailable cache and warns once, and a Redis that dies mid-run degrades every
+      # lookup to Postgres (ADR-0012, docs/contracts/redirect-cache.md). Waiting for it
+      # here buys determinism for a stack that is about to be measured, nothing more, and
+      # `docker compose stop redis` with redirects still answering 302 is the clause that
+      # proves the difference (check-compose-stack.sh, TASK-2-12).
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://shortkit_app:${SHORTKIT_APP_PASSWORD:-app}@postgres:5432/shortkit
       # shortkit_auth, never shortkit_app: ADR-0050's second pool, reached only through
-      # betterAuthDatabase(). This DSN, as CONSTRUCTED HERE, always renders — the password
+      # betterAuthDatabase(). This DSN, as CONSTRUCTED HERE, always renders: the password
       # falls back to the fixture ${SHORTKIT_AUTH_PASSWORD:-auth} default two block levels
       # up, same as every other role's DSN in this file. "No fallback" is a property of
       # the APPLICATION-level variable this DSN is bound to: DATABASE_AUTH_URL is a
-      # declared binding with no fallback to DATABASE_URL (ADR-0050) — an unset
+      # declared binding with no fallback to DATABASE_URL (ADR-0050): an unset
       # DATABASE_AUTH_URL fails boot rather than silently restoring shortkit_app as the
       # auth role. BETTER_AUTH_SECRET below is the same shape of binding: no fallback
       # here either, because it is not a fixture placeholder but an actual signing key.
@@ -246,29 +325,29 @@ services:
       # volume from before this role existed keeps a two-role database forever.
       #
       # `migrate` does NOT fail on it today (measured against a scratch two-role
-      # cluster: `db:migrate` and `seed.mts` both exit 0) — nothing under
+      # cluster: `db:migrate` and `seed.mts` both exit 0): nothing under
       # apps/api/drizzle/** names shortkit_auth until TASK-002's migration `0001`
       # (wave 1) adds the GRANT ... TO shortkit_auth that fails with `role
       # "shortkit_auth" does not exist` against a database that never created it.
       #
       # From wave 2, `api` fails against THIS DSN, but not with "role does not exist".
-      # `api` connects from OUTSIDE the postgres container, over the compose network —
-      # the same path as a probe from your own host against the published port — and
+      # `api` connects from OUTSIDE the postgres container, over the compose network
+      # (the same path as a probe from your own host against the published port), and
       # the image's `host all all 127.0.0.1/32 trust` line only matches a connection
       # that arrives FROM 127.0.0.1. Neither does (measured: `inet_client_addr()` on a
       # connection from the host reads the bridge gateway, e.g. 172.18.0.1, never
       # 127.0.0.1), so scram runs and a missing role answers `password authentication
-      # failed for user "shortkit_auth"` — no `FATAL:` prefix; that is psql's own
+      # failed for user "shortkit_auth"`: no `FATAL:` prefix; that is psql's own
       # formatting, not what `node-postgres` puts on `error.message` or what
       # `docker compose logs api` prints through main.ts's `err_message`. Only a probe
       # run FROM INSIDE the postgres container (its unix socket, or 127.0.0.1 from
       # within it) hits the trust line and gets `FATAL: role "shortkit_auth" does not
-      # exist` instead — not how `api` connects, and not how you would naturally check
+      # exist` instead: not how `api` connects, and not how you would naturally check
       # this from your host.
       #
       # THAT MESSAGE READS AS A WRONG PASSWORD. The two cheapest repairs from there are
       # overriding SHORTKIT_AUTH_PASSWORD, which does nothing, or repointing
-      # DATABASE_AUTH_URL at a DSN that does authenticate — which is the change
+      # DATABASE_AUTH_URL at a DSN that does authenticate, which is the change
       # ADR-0050 names as silently restoring shortkit_app as the auth role with every
       # gate still green. Run `docker compose down -v` before the next `up` instead;
       # that re-runs the init script and creates the role.
@@ -278,14 +357,14 @@ services:
       # ---------------------------------------------------------------------------
       # ADR-0051 (amended, F-144): a committed default is a value everyone already has
       # the moment this repository is cloned, and from TASK-003 (wave 2) that value signs
-      # every JWT betterAuth({ secret }) mints — the same failure mode as better-auth's
+      # every JWT betterAuth({ secret }) mints, the same failure mode as better-auth's
       # own published constant (F-020), just under a different string. ${VAR:?...} fails
       # at Compose PARSE time instead, before any container, network, volume or image
       # layer is created, and Compose's own error names the variable.
       #
       # scripts/check-compose-stack.sh generates and exports one value per run, before
       # its trap cleanup EXIT (ADR-0051). Everyone else: export BETTER_AUTH_SECRET
-      # yourself, or set it in a project-root .env (see .env.example) — at least 32
+      # yourself, or set it in a project-root .env (see .env.example). At least 32
       # characters, and not better-auth's published default. 32 random bytes from
       # node:crypto, base64url-encoded, is the shape this repository's own tooling uses.
       #
@@ -300,15 +379,15 @@ services:
       # ---------------------------------------------------------------------------
       # Neither is a credential (ADR-0059). Publishing `http://localhost:3001` discloses
       # nothing and grants nothing, this file already commits four role passwords, and the
-      # published ports below are exactly these two origins — so the defaults are the
+      # published ports below are exactly these two origins, so the defaults are the
       # correct values for this stack and `docker compose up` on a fresh clone needs
       # nothing exported for them. BETTER_AUTH_SECRET stays the only variable in this file
       # with no default, which is a sentence ADR-0051 relies on.
       #
       # BETTER_AUTH_URL is the origin the API issues and verifies tokens for. Unset,
-      # better-auth derives the issuer from each request's Host header — measured, one
-      # session and two Host values minted two validly signed tokens with different `iss`
-      # — and derives the session cookie's `Secure` flag from NODE_ENV.
+      # better-auth derives the issuer from each request's Host header (measured, one
+      # session and two Host values minted two validly signed tokens with different `iss`)
+      # and derives the session cookie's `Secure` flag from NODE_ENV.
       #
       # WHAT MAKES A COMMITTED DEFAULT SAFE IS THE LOOPBACK RULE, NOT THIS FILE: `http:`
       # is accepted only for localhost, 127.0.0.0/8 or [::1] (apps/api/src/auth/
@@ -324,8 +403,8 @@ services:
       # The mail transport (ADR-0017, docs/contracts/mail-sender.md). D-02, ruled by Juano on
       # 2026-08-18: THIS STACK DECLARES `console`. Every message the API would send is written
       # to the container's stdout as plain text and nothing leaves the process, so an
-      # invitation created on this stack prints its accept link — the URL with the single-use
-      # token in its fragment — into `docker compose logs api`, one block per message, the
+      # invitation created on this stack prints its accept link (the URL with the single-use
+      # token in its fragment) into `docker compose logs api`, one block per message, the
       # URL on a line of its own. That is how a developer, and check-compose-stack.sh's
       # invitation clauses, complete an invitation here without a mailbox. The link's origin
       # is the first entry of WEB_APP_ORIGINS above, http://localhost:3000, which is where
@@ -333,7 +412,7 @@ services:
       #
       # `console` is opt-in and this line is the opt-in. UNSET IS NOT `console`: an unset
       # MAIL_TRANSPORT binds NoopMailSender and sends nothing, and that is what a
-      # production-shaped deployment gets when it forgets the variable — a laptop's log is
+      # production-shaped deployment gets when it forgets the variable. A laptop's log is
       # the only place raw tokens on stdout are acceptable, so no deployment declares
       # `console`, and none copies this line. `MAIL_TRANSPORT=none docker compose up` is the
       # silent stack; check-compose-stack.sh unsets an exported override so it measures the
@@ -341,11 +420,60 @@ services:
       # RESEND_API_KEY and MAIL_FROM and refuses boot without them.
       MAIL_TRANSPORT: ${MAIL_TRANSPORT:-console}
       # ---------------------------------------------------------------------------
+      # THE CACHE. PRESENCE IS THE DECLARATION; ABSENCE BINDS THE DEGRADED CACHE, LOUDLY.
+      # ---------------------------------------------------------------------------
+      # Both variables or neither (D-2-09, docs/contracts/redirect-cache.md). REDIS_URL set
+      # creates the one ioredis client ADR-0012 specifies, and REDIS_KEY_NAMESPACE is then
+      # REQUIRED: boot refuses naming it rather than defaulting to a namespace that might
+      # collide. REDIS_URL unset binds the unavailable cache: every read answers
+      # `unavailable`, every write is a no-op, redirects resolve from Postgres, and boot
+      # writes one warn line (`boot_precondition: 'redirect_cache'`). That is the
+      # MAIL_TRANSPORT shape above, applied to the other absence, and neither reads NODE_ENV.
+      #
+      # The password here is the `redis` service's literal, and the two are written out
+      # rather than interpolated for the reason stated there. The empty user before the `:`
+      # is Redis's default AUTH form (no username; `requirepass` sets the password of the
+      # implicit `default` user).
+      REDIS_URL: redis://:redis-fixture@redis:6379
+      # `dev` is one of the four values redirect-cache.md fixes (`prod`, `staging`, `dev`,
+      # `ci-{run_id}`). Every key this process writes begins `sk:dev:`, which is what keeps
+      # a laptop's records from being read by anything else that ever shares an instance,
+      # and CI uses `ci-<run_id>` so two concurrent jobs cannot collide either.
+      REDIS_KEY_NAMESPACE: dev
+      # ---------------------------------------------------------------------------
+      # THE SHORT-LINK IDENTITY AND THE PSEUDONYMISATION KEY.
+      # ---------------------------------------------------------------------------
+      # The hostname the seeded system default domain carries, and the hostname the API
+      # denormalises onto every link it returns (D-2-02, ruled 2026-08-19). `localhost`,
+      # because the redirect is served by this same process on this same port (ADR-0006):
+      # `curl http://localhost:3001/<slug>` just works, with no /etc/hosts entry and no
+      # second listener. Hostname normalisation strips the port, so the stored value is
+      # portless and the port lives only in the origin the web app displays
+      # (SHORT_LINK_ORIGIN, on the `web` service below). `seed` sets the same value, and a
+      # deployment sets both to its real short domain. No code keys on the value.
+      SYSTEM_DEFAULT_DOMAIN: localhost
+      # ---------------------------------------------------------------------------
+      # A FIXTURE, LIKE THE ROLE PASSWORDS AND THE REDIS ONE (ADR-0031, F-131). NOT A KEY
+      # ANY DEPLOYMENT MAY COPY.
+      # ---------------------------------------------------------------------------
+      # 32 bytes, base64url, and it is the HMAC key that pseudonymises visitor IP addresses
+      # into `click_events.ip_hash` (docs/contracts/click-events.md, D-2-17). A committed
+      # value means every clone hashes identically, which is exactly why it may only ever
+      # hash data that never leaves the machine that produced it. Rotating it breaks
+      # continuity of `ip_hash`, so a real deployment generates its own once and rotates
+      # only on suspected compromise:
+      #
+      #   node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))'
+      #
+      # Required at boot from TASK-2-09 (`boot_precondition: 'click_ip_hash_key'`); until
+      # that lands nothing reads it, which is what makes declaring it this early free.
+      CLICK_IP_HASH_KEY: local-fixture-click-ip-hash-key-fake-values
+      # ---------------------------------------------------------------------------
       # THE FOUR TRUST DECLARATIONS ARE ABSENT, AND ABSENT ON PURPOSE (ADR-0040, TASK-009).
       # ---------------------------------------------------------------------------
       # Two boundaries, declared independently, each with the same shape: a named hop or
       # `direct`, unset is read as `direct`, and any other value refuses boot in EVERY
-      # environment — `Proxy`, `true`, `1` and `prod` all fail here as they would anywhere.
+      # environment: `Proxy`, `true`, `1` and `prod` all fail here as they would anywhere.
       # apps/api/.env.example carries the full table.
       #
       #   CLIENT_TRUST_BOUNDARY=proxy      a hop in front terminates client connections and
@@ -358,8 +486,8 @@ services:
       #   BFF_PROXY_SECRET=...             required only under `bff`. Shared with the `web`
       #                                    service's copy, which is ALSO unset here
       #
-      # This stack has no hop in front of `api` — a laptop browser reaches 127.0.0.1:3001
-      # directly — so `CLIENT_TRUST_BOUNDARY` is unset. And the `web` service below carries no
+      # This stack has no hop in front of `api` (a laptop browser reaches 127.0.0.1:3001
+      # directly), so `CLIENT_TRUST_BOUNDARY` is unset. And the `web` service below carries no
       # BFF_PROXY_SECRET, so its proxy route forwards NEITHER x-shortkit-client-ip NOR
       # x-shortkit-proxy-auth, so `BFF_TRUST_BOUNDARY` is unset too. What that costs, stated
       # (ADR-0040): no assertion fires, no IP principal is established, the IP-keyed rate
@@ -374,7 +502,7 @@ services:
       # own environment, and takes ownership of that value.
       #
       # PORT is not set: main.ts defaults to 3001, which is the port published below and the
-      # one the healthcheck probes. GIT_COMMIT_SHA is not set here either — it is baked into
+      # one the healthcheck probes. GIT_COMMIT_SHA is not set here either: it is baked into
       # the image by the build arg above (ADR-0037), not read from this block.
     ports:
       - '127.0.0.1:3001:3001'
@@ -422,7 +550,7 @@ services:
         condition: service_healthy
     environment:
       # Read at REQUEST time by apps/web/app/api/bff/[...path]/route.ts and
-      # apps/web/src/lib/session/session.ts — server-only, never inlined, so it needs no
+      # apps/web/src/lib/session/session.ts. Server-only, never inlined, so it needs no
       # rebuild and it is the compose network's name for the API, not the published port:
       # `localhost:3001` inside this container is this container. Includes `/api`
       # (ADR-0006); the route replaces the path, so the suffix is not doubled.
@@ -433,6 +561,17 @@ services:
       # healthcheck and a 502 from every proxied call. No value from the host is right
       # inside this network, so none is read. apps/web/.env.example documents the same value.
       API_BASE_URL: http://api:3001/api
+      # The origin a short link is DISPLAYED and copied under (D-2-02). It is the API's
+      # published port, because the redirect is served by the API process outside the `/api`
+      # prefix (ADR-0006). One deployable, one listener, so a copied link is
+      # `http://localhost:3001/<slug>` and pasting it into a browser on this machine works.
+      #
+      # A LITERAL, for the reason API_BASE_URL above is one, with the direction reversed:
+      # this value is for a HUMAN's browser, so it must be the published port and never the
+      # compose network's `http://api:3001`, which no browser can resolve. It is the one
+      # short-link variable that carries a port; `SYSTEM_DEFAULT_DOMAIN` on `api` and `seed`
+      # is portless because hostname normalisation strips the port.
+      SHORT_LINK_ORIGIN: http://localhost:3001
       # BFF_PROXY_SECRET IS NOT SET, and its absence is paired with the `api` service's:
       # with no secret the route forwards NEITHER x-shortkit-client-ip NOR
       # x-shortkit-proxy-auth, and `api` declares no BFF_TRUST_BOUNDARY, so no assertion
@@ -452,7 +591,7 @@ services:
     # TASK-007), and it forwards to API_BASE_URL over this network. So a signup posted at
     # http://localhost:3000 reaches `api` with the browser's `Origin: http://localhost:3000`,
     # which WEB_APP_ORIGINS above trusts. Green here still means "/ answered 200", not
-    # "the proxied path works" — scripts/check-compose-stack.sh is where the flow gets
+    # "the proxied path works": scripts/check-compose-stack.sh is where the flow gets
     # asserted (its signup clause is TASK-017's), not this probe. `http://api:3001/...` is
     # reachable from inside this container and from no browser; `http://localhost:3001/...`
     # is reachable from a browser and not from inside.
@@ -475,7 +614,7 @@ configs:
   # the test stack's literal passwords. psql does the quoting here, so an overridden
   # password of any shape is quoted correctly instead of concatenated into DDL.
   #
-  # `<<'SQL'` is quoted, so the shell performs no expansion inside the heredoc — which
+  # `<<'SQL'` is quoted, so the shell performs no expansion inside the heredoc, which
   # protects nothing unless the `$$` above the file is right, because Compose runs first.
   shortkit_roles_sh:
     content: |
@@ -509,7 +648,7 @@ configs:
       -- only through ALTER DEFAULT PRIVILEGES FOR ROLE shortkit_migrator, which is what
       -- makes the seed's connection a real grant check (ADR-0033). A default privilege
       -- for shortkit_auth would grant it DML on every table the migrator creates,
-      -- including every tenant-scoped one — the split cannot be expressed as a default
+      -- including every tenant-scoped one. The split cannot be expressed as a default
       -- privilege in either direction (rls-policy-template.md "Roles", ADR-0050).
       -- shortkit_auth's DML on the five Better Auth tables is hand-written per table in
       -- migration 0001 (TASK-002).

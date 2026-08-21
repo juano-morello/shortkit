@@ -8,8 +8,8 @@
  * THE ONE PLACE A THROWN ERROR BECOMES A RESPONSE BODY.
  * ============================================================================
  *
- * Registered as APP_FILTER in AppModule, so it catches every throwable — including the
- * ones that are not HttpExceptions — and every non-2xx body under /api validates
+ * Registered as APP_FILTER in AppModule, so it catches every throwable (including the
+ * ones that are not HttpExceptions), and every non-2xx body under /api validates
  * against errorEnvelopeContract (error-envelope.md invariant 1).
  *
  * FOUR BRANCHES, IN THIS ORDER, and no fifth:
@@ -23,8 +23,8 @@
  * row all land there. What reaches the LOG is decided by TASK-003's stack-versus-message
  * policy, written out in `observability/logger.ts`: the error's name and its stack FRAMES
  * go on the line, its message does not, and every line carries `request_id`. That closes
- * `error-envelope.md` invariant 9 — debugging a 500 means finding its `request_id` in the
- * logs — which was false for every 500 this filter answered before now.
+ * `error-envelope.md` invariant 9 (debugging a 500 means finding its `request_id` in the
+ * logs), which was false for every 500 this filter answered before now.
  *
  * THE FILTER DOES NOT WALK `cause`. A DomainError re-thrown inside a plain Error is a
  * 500 (ADR-0024).
@@ -71,7 +71,7 @@ interface HttpResponseLike {
 
 /**
  * Same reasoning as `HttpResponseLike`: only what this filter reads, which is what
- * `requestIdFor` reads — the header bag and the id `RequestLogInterceptor` stored.
+ * `requestIdFor` reads: the header bag and the id `RequestLogInterceptor` stored.
  */
 type HttpRequestLike = RequestIdCarrier;
 
@@ -93,7 +93,7 @@ const NOT_FOUND_MESSAGE = 'The requested resource was not found.';
  * (F-094, ADR-0026). Nest maps a body-parser `SyntaxError` to
  * `new BadRequestException(err.message)` and Node's `JSON.parse` message quotes the
  * bytes it choked on, so forwarding it reflects 15 to 30 raw bytes of an unauthenticated
- * request body — a fragment of a bearer token among them — into a JSON body, against
+ * request body (a fragment of a bearer token among them) into a JSON body, against
  * invariant 8. The same arm receives express's `URIError`, whose message quotes the raw
  * path segment, which is why this text says "request" rather than "body". The original
  * goes to the log.
@@ -134,7 +134,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       // resolving or writing can itself throw: `details` carrying a BigInt or a circular
       // reference makes `res.json` throw, and a header value Node rejects makes
       // `setHeader` throw ERR_INVALID_CHAR. Without this, the throw escapes into Nest's
-      // error layer or finalhandler and the client gets a 500 with the wrong code — or,
+      // error layer or finalhandler and the client gets a 500 with the wrong code, or,
       // outside production, HTML carrying a stack.
       logError(log, 'while writing the error response', failure);
 
@@ -224,7 +224,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     if (status === ERROR_CODE_STATUS.validation_failed) {
       // F-108, and the reason this arm now logs through the shared helper like every
       // other. The exception's own message never reaches the BODY (F-094, ADR-0026)
-      // because the framework builds it out of the raw request bytes — and it does not
+      // because the framework builds it out of the raw request bytes, and it does not
       // reach the LOG either, for the same reason and a stronger one: an unauthenticated
       // POST carrying a credential puts a fragment of it in Nest's
       // `BadRequestException(err.message)`, and `REDACT_PATHS` is a path list that cannot
@@ -237,14 +237,14 @@ export class ApiExceptionFilter implements ExceptionFilter {
       // it corrects what six findings assumed. body-parser DOES attach the verbatim body to
       // the error it raises (`read.js:163`), but `RoutesResolver.mapExternalException`
       // (`routes-resolver.js:94-101`) replaces every `SyntaxError` with
-      // `new BadRequestException(err.message)` before any filter runs — so `err.body` is
+      // `new BadRequestException(err.message)` before any filter runs, so `err.body` is
       // gone before this line, and what actually arrives is the MESSAGE, into which V8
       // quotes the first ten characters of the body: `Unexpected token 'S', "SEKRIT-KEY"...`.
       //
       // THERE IS A SECOND COPY OF THAT FRAGMENT AND NOTHING HERE MAY REACH FOR IT (F-273).
       // `exception.getResponse()` returns `{ message, error, statusCode }` carrying the same
       // quoted bytes one level down, under a key nothing special-cases. This filter never
-      // calls it — not for the body (branch 3 builds its own envelope, ADR-0026) and not for
+      // calls it: not for the body (branch 3 builds its own envelope, ADR-0026) and not for
       // the log (`logError` passes the exception to `errorLogFields`, which reads `name`,
       // `message` and `stack` and returns). A later edit that logs or forwards
       // `getResponse()` reinstates F-108 through a route the `includeMessage` policy does
@@ -269,7 +269,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
  * `includeMessage` is `isDomainError(...)` and nothing else. Constructing a `DomainError`
  * asserts its message is safe to show a stranger (`error-envelope.md`), so it is a
  * fortiori safe to log; every other throwable's message is the field that carries a DSN,
- * an internal host or a fragment of a request body. The frames go on the line either way —
+ * an internal host or a fragment of a request body. The frames go on the line either way:
  * that is TASK-003's answer to `error-envelope.md` § "What the 500 log line carries", and
  * it reverses F-093's interim rather than restoring what F-093 removed: the frames come
  * back only because the header line carrying `name: message` is stripped out of them.

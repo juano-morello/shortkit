@@ -45,7 +45,7 @@ runs:
 
     # The symmetric check for the pnpm half, and F-064's defect reintroduced through
     # absence if it is left out (F-188). Corepack only verifies a hash that is THERE. Drop
-    # `packageManager` — a bad merge, a tool rewriting the manifest — and `corepack enable`
+    # `packageManager` (a bad merge, a tool rewriting the manifest) and `corepack enable`
     # still succeeds, pnpm resolves to Corepack's own bundled release, nothing compares it
     # to anything, no sha512 is checked, and the log reads exactly as it does on a correct
     # run. That is the decorative hash F-064 was filed about, arriving through the field

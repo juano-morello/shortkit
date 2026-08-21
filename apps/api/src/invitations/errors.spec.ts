@@ -1,5 +1,5 @@
 /**
- * TASK-1b-04 — the five invitation errors, level 1 per error-envelope.md ("How a TASK tests
+ * TASK-1b-04: the five invitation errors, level 1 per error-envelope.md ("How a TASK tests
  * its own error mapping"): code, derived status, envelope validity, and a fixed message that
  * names no id, token, address or tenant. GC-M: every code already exists.
  */

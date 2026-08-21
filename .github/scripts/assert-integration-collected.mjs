@@ -5,7 +5,7 @@
  *
  * WHY THIS EXISTS. `pnpm test:integration` exiting 0 is not evidence that anything was
  * asserted. TASK-005 removed `passWithNoTests`, so vitest now fails a run that matches
- * no FILES — but a matched file containing no `test()` or `it()` still exits 0. The job
+ * no FILES, but a matched file containing no `test()` or `it()` still exits 0. The job
  * stands up a real `postgres:17-alpine`, runs zero assertions, and reports green, which
  * is the failure F-039 exists to prevent arriving one layer deeper: SC-1 would read as
  * proven by a suite that ran nothing.
@@ -23,19 +23,19 @@
  *   numPendingTests = ... t.mode === 'skip' ...       // where the skips are counted
  *   status: file.result?.state === 'fail' || hasFailedTests ? 'failed' : 'passed'
  *
- * — one `testResults` entry per FILE, `passed` whenever nothing in it failed. So changing
+ * One `testResults` entry per FILE, `passed` whenever nothing in it failed. So changing
  * `describe(` to `describe.skip(` while debugging, and forgetting to change it back,
  * yields `testResults.length === 1`, `numTotalTests === 21`, `numPassedTests === 0`,
  * `numPendingTests === 21`, and vitest exits 0. Round 1's two conditions were both false
  * and it printed OK. `describe.skip` bodies ARE collected; round 1's docblock claimed
  * this script caught them and named the one case it missed.
  *
- * So: at least one file, and at least one test that actually RAN — passed or failed,
+ * So: at least one file, and at least one test that actually RAN: passed or failed,
  * not pending, not todo. The skipped and todo counts are printed rather than gated on,
  * because AC-114 asks for at least one test, not for the absence of skips, and a
  * conditional skip is a legitimate thing for a suite to contain.
  *
- * It deliberately does NOT assert anything about the pass/fail RATIO — the suite's own
+ * It deliberately does NOT assert anything about the pass/fail RATIO: the suite's own
  * exit code is the gate for that, and duplicating it here would mean two things to keep
  * in agreement. `numFailedTests` is counted as executed for exactly that reason: a test
  * that ran and failed still proves the harness reached the database.
@@ -106,5 +106,5 @@ if (files < 1 || executed < 1) {
 console.log(
   `OK: the integration suite executed ${String(executed)} test(s) ` +
     `(${String(passed)} passed, ${String(failed)} failed) across ${String(files)} file(s), ` +
-    `out of ${String(collected)} collected — ${String(pending)} skipped, ${String(todo)} todo.`,
+    `out of ${String(collected)} collected: ${String(pending)} skipped, ${String(todo)} todo.`,
 );

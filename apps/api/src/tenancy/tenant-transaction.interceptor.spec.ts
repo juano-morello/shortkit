@@ -22,7 +22,7 @@ import {
 import type { RequestContext } from './tenant-context';
 
 /**
- * STORY-002 — AC-14 (in process, transaction faked at the driver) and AC-15, over a real
+ * STORY-002: AC-14 (in process, transaction faked at the driver) and AC-15, over a real
  * HTTP round trip. TASK-006, wave 5.
  *
  * Contract: `docs/contracts/tenant-context.md` ("What the implementer must guarantee":
@@ -31,7 +31,7 @@ import type { RequestContext } from './tenant-context';
  * body). ADR-0002, ADR-0024.
  *
  * ============================================================================
- * THE REAL GUARD, THE REAL INTERCEPTOR, THE REAL FILTER, THE REAL MODULE GRAPH — AND A FAKE
+ * THE REAL GUARD, THE REAL INTERCEPTOR, THE REAL FILTER, THE REAL MODULE GRAPH, AND A FAKE
  * TRANSACTION UNDER `withTenantTransaction`.
  * ============================================================================
  *
@@ -42,14 +42,14 @@ import type { RequestContext } from './tenant-context';
  * does; the revocation store is the shipped in-memory one.
  *
  * ONE THING IS FAKED, AT THE DRIVER, AND IT IS THE ONLY THING. `pnpm test` runs from a clean
- * clone with no database (ADR-0001), so `databaseTransaction` in `db/client.ts` — the function
- * `withTenantTransaction` opens its transaction through — is replaced with one that runs the
+ * clone with no database (ADR-0001), so `databaseTransaction` in `db/client.ts` (the function
+ * `withTenantTransaction` opens its transaction through) is replaced with one that runs the
  * callback against a handle whose `execute` answers nothing, and RECORDS whether the callback
  * resolved (commit) or threw (rollback). Everything above that line is the shipped code: the
  * three `set_config` statements are issued to the fake, the `AsyncLocalStorage` store, the
  * nesting rules, the settled-context guard and the `afterCommit` loop all run for real.
- * What the fake cannot show — that Postgres actually sees `app.tenant_id` equal to the claim,
- * that a committed row is visible afterwards and a rolled-back one is not — is
+ * What the fake cannot show (that Postgres actually sees `app.tenant_id` equal to the claim,
+ * that a committed row is visible afterwards and a rolled-back one is not) is
  * `test/tenancy/request-tenant-binding.int-spec.ts`, against a live database and a token
  * minted by the real issuer.
  *
@@ -114,7 +114,7 @@ function readAmbientContext(): ContextReading {
 
 /**
  * Deletes the context the real guard wrote, so the interceptor meets a guarded route with
- * no `RequestContext` — the shape of a misconfigured guard chain. A controller-level guard
+ * no `RequestContext`: the shape of a misconfigured guard chain. A controller-level guard
  * runs AFTER the global `APP_GUARD` and BEFORE any interceptor, which is the only place in
  * the request pipeline this state can be produced without replacing the guard: `APP_GUARD`
  * providers are registered under a generated token, so `overrideGuard(AuthGuard)` does not
@@ -152,7 +152,7 @@ class TenancyProbeController {
   /**
    * What a repository does under the interceptor: opens its own `withTenantTransaction` for
    * the same tenant, and hands it an `afterCommit` hook. Joins, and the hook fires on the
-   * request transaction's COMMIT — before the response is written.
+   * request transaction's COMMIT, before the response is written.
    */
   @Get('nested-same-tenant')
   async nestedSameTenant(): Promise<{ inner: string; outer: string; afterCommitRanBeforeResponse: boolean }> {
@@ -165,7 +165,7 @@ class TenancyProbeController {
       },
     });
 
-    // Read at response-construction time — the hook has NOT run yet, and cannot have: the
+    // Read at response-construction time: the hook has NOT run yet, and cannot have: the
     // request transaction is still open while this handler is. The client-visible half of
     // the assertion is made on the recorded transaction; see the test.
     return { inner, outer, afterCommitRanBeforeResponse: afterCommitRan };
@@ -346,7 +346,7 @@ describe('TenantTransactionInterceptor over HTTP', () => {
 
     expect(result.status, result.raw).toBe(200);
     // Inner and outer see the same tenant, ONE transaction was opened (no savepoint, no
-    // second connection), and the hook had not run while the handler was still inside it —
+    // second connection), and the hook had not run while the handler was still inside it:
     // it belongs to the request transaction's COMMIT, which happened before this response.
     expect(result.body).toEqual({ inner: TENANT_ID, outer: TENANT_ID, afterCommitRanBeforeResponse: false });
     expect(transactions).toEqual([{ outcome: 'committed' }]);

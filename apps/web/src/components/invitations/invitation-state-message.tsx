@@ -7,7 +7,7 @@
  * Contract: docs/contracts/error-envelope.md (copy is keyed by `code`, through
  *   `classifyInvitationError`), docs/contracts/rate-limit.md ("the copy for that 429 says
  *   to retry shortly"), docs/contracts/invitation-tokens.md (one body for malformed,
- *   unknown and wrong-tenant — so one sentence too).
+ *   unknown and wrong-tenant; so one sentence too).
  * ADR: adr-0015 (the tenant-conflict sentence: accept from a different email address, or
  *   from an account in that agency), adr-0029 (no server string is echoed).
  * Produced by: TASK-1b-12
@@ -38,8 +38,8 @@ export const INVITATION_MESSAGES = {
 
 /**
  * The sentence for a failure, or `null` for a caller-initiated abort (nothing to show).
- * Exported so a screen that renders the copy inside its own layout — under a field, in a
- * toast — reads the same string the component renders.
+ * Exported so a screen that renders the copy inside its own layout (under a field, in a
+ * toast) reads the same string the component renders.
  */
 export function messageForInvitationFailure(failure: InvitationFailure): string | null {
   switch (failure.kind) {

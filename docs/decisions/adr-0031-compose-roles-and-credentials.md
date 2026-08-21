@@ -187,8 +187,8 @@ Compose v5.4.0:
 |---|---|---|
 | `$$NAME`, `NAME` unset | **none** | `$$NAME` |
 | `$$$NAME`, `NAME` unset | **exactly one** | `$$` |
-| `x$${VAR}x`, `VAR=zzz` | none | `x$${VAR}x` — the literal `{VAR}` survives |
-| `x$$${VAR}x`, `VAR=zzz` | none | `x$$zzzx` — substituted |
+| `x$${VAR}x`, `VAR=zzz` | none | `x$${VAR}x`: the literal `{VAR}` survives |
+| `x$$${VAR}x`, `VAR=zzz` | none | `x$$zzzx`: substituted |
 
 Row 1 is decisive against interpolation: an unset variable always warns, and there is no
 warning, so no reference was ever recognised. Row 2 shows `$$` consumed in pairs, leaving one

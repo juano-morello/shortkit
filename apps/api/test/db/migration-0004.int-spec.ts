@@ -1,24 +1,24 @@
 /**
- * Debt sweep 2026-08-19 — ledger 1b-W1-11, the four unindexed foreign keys.
+ * Debt sweep 2026-08-19: ledger 1b-W1-11, the four unindexed foreign keys.
  *
- * Contract: docs/contracts/rls-policy-template.md (what a migration owes — and, here, why
+ * Contract: docs/contracts/rls-policy-template.md (what a migration owes, and, here, why
  *           this one owes none of it), workspaces.md ("Repository": `listForUser`'s join).
  * ADR: adr-0004-schema-layout-and-migrations.md, adr-0062.
  *
  * Migration 0004 is INDEX-ONLY: the four leading-column indexes 1b-W1-11 recorded as
- * missing — `memberships.user_id`, `invitations.invited_by_user_id`,
+ * missing: `memberships.user_id`, `invitations.invited_by_user_id`,
  * `invitations.accepted_by_user_id`, `invitation_workspaces.workspace_id`. It creates no
  * table, so the GC-A / F-239 three-obligations rule does not bind it and there is no
- * hand-appended policy block to hold to `tenantScopedPolicies()`'s output — that is
+ * hand-appended policy block to hold to `tenantScopedPolicies()`'s output: that is
  * `migration-0003.int-spec.ts`'s job, unchanged. What THIS file pins:
  *
  *   1. the migration file carries exactly the four CREATE INDEX statements and no other
- *      DDL kind — a policy, table or column smuggled into "the index migration" fails
+ *      DDL kind: a policy, table or column smuggled into "the index migration" fails
  *      here before it fails review;
  *   2. the four indexes exist in the migrated catalogue with the intended leading column
  *      (asserted on the whole `indexdef`, so a silent column swap or a partial-index
  *      clause shows up);
- *   3. the three tables still have row security ENABLED and FORCED afterwards — the
+ *   3. the three tables still have row security ENABLED and FORCED afterwards: the
  *      cheap in-suite echo of `db:check-policies`, which CI runs against the same
  *      database and which an index cannot disturb.
  *
@@ -62,7 +62,7 @@ describe('migration 0004: the 1b-W1-11 foreign-key indexes, and nothing else', (
     }
   });
 
-  it('the file is index-only: no policy, no row-security toggle, no table, no column — and no UNIQUE', () => {
+  it('the file is index-only: no policy, no row-security toggle, no table, no column, and no UNIQUE', () => {
     // SQL comments out (the header explains the absent policy block and must not trip
     // the scan that enforces it), then every remaining statement must be CREATE INDEX.
     const statements = migration0004()

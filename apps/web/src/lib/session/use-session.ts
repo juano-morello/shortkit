@@ -9,7 +9,7 @@
  * keeps the React code out of the server graph.
  *
  * Contract: docs/contracts/web-api-client.md ("Session"). NO token is ever exposed to the
- * client — this reads only the non-sensitive `{ user, status }` projection.
+ * client: this reads only the non-sensitive `{ user, status }` projection.
  */
 import { useEffect, useState } from 'react';
 

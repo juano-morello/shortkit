@@ -59,15 +59,15 @@ The audited basis is part of the decision and is stated in `auth.config.ts`'s co
 the key, because it is what a later reader needs in order to know whether raising it further
 is safe:
 
-> **THE BASIS WAS SCOPED TO `warn` AND THE LEVEL ADMITS `error` TOO — 2026-08-16, F-209.**
+> **THE BASIS WAS SCOPED TO `warn` AND THE LEVEL ADMITS `error` TOO: 2026-08-16, F-209.**
 > Found by the implement-phase security audit. Every claim below is about `warn` call sites,
 > which is what the design round audited; `'warn'` also admits every `error` site, and **two of
-> those put an unbounded request-controlled string on the pino line** — reaching `msg`, the one
+> those put an unbounded request-controlled string on the pino line**: reaching `msg`, the one
 > field the allowlist does not censor. `origin-check.mjs:110` and `:55,77` are named in
 > `auth.config.ts`'s comment.
 >
 > **The defect is the shape of the evidence, not the level.** An audit of one severity was used
-> to justify a threshold that admits two, and nothing in the reasoning made that visible — the
+> to justify a threshold that admits two, and nothing in the reasoning made that visible: the
 > paragraph reads as exhaustive because it enumerates exhaustively within a scope it never
 > states. The decision stands; the basis now says what it covers.
 >
@@ -132,7 +132,7 @@ obligation ADR-0051 already puts on `create-context.mjs`.
   block's `level: 'error'` needs a struck-in-place correction, and its Follow-ups list says
   `auth.config.spec.ts` asserts `level === 'error'`.~~ **Applied by Juano, 2026-08-16.**
   ADR-0052 carries `amended_by`, a banner, `level: 'warn'` in its code block with the struck
-  note, and its follow-up now reads `level === 'warn'` — that last one is the line the test
+  note, and its follow-up now reads `level === 'warn'`; that last one is the line the test
   architect reads and is the one that would have carried the old value into the spec.
 - ~~TASK-003's card reproduces ADR-0052's `logger` block and says `level: 'error'`.~~
   **Applied by Juano, 2026-08-16.** No occurrence of `'error'` remains in the card.

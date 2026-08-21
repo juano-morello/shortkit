@@ -103,6 +103,53 @@ describe('workspace list: structure and accessibility', () => {
     expect(status.textContent).toBe('');
   });
 
+  it('the same announcement twice mutates the region twice, so the repeat is announced too', async () => {
+    // Two stale rows, so both archives answer 404 and announce the IDENTICAL `gone` line.
+    // React writes no DOM node for an unchanged string, so a region holding a bare string
+    // sits silent the second time: the operator acts, hears nothing back, and cannot tell
+    // whether the action was received at all. What is asserted here is the MUTATION, not
+    // the text, because the text reads correctly either way.
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(404, { code: 'not_found', message: 'Not found.' }))
+      .mockResolvedValueOnce(jsonResponse(200, { items: [ACME, BOLT] }))
+      .mockResolvedValueOnce(jsonResponse(404, { code: 'not_found', message: 'Not found.' }))
+      .mockResolvedValueOnce(jsonResponse(200, { items: [ACME, BOLT] }));
+
+    render(<WorkspaceList initialItems={[ACME, BOLT]} includeArchived={false} />);
+
+    archiveWorkspace('Acme');
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toBe(WORKSPACE_MESSAGES.gone);
+    });
+
+    const region = screen.getByRole('status');
+    let mutations = 0;
+    const observer = new MutationObserver((records) => {
+      mutations += records.length;
+    });
+    observer.observe(region, { childList: true, characterData: true, subtree: true });
+
+    archiveWorkspace('Bolt');
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    try {
+      await waitFor(() => {
+        expect(mutations).toBeGreaterThan(0);
+      });
+    } finally {
+      observer.disconnect();
+    }
+
+    // The region itself must NOT be what changed. A live region has to be in the tree
+    // before its contents change or assistive technology may never announce it at all, so
+    // keying the <p> would trade a dropped repeat for a dropped announcement. Only what is
+    // inside the region may be replaced.
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region.textContent).toBe(WORKSPACE_MESSAGES.gone);
+  });
+
   it('every per-row control names its workspace, so a screen reader hears which one it acts on', () => {
     render(<WorkspaceList initialItems={[ACME, BOLT]} includeArchived={false} />);
 
@@ -583,7 +630,12 @@ describe('workspace list: AC-23 archive and archived visibility', () => {
     const status = screen.getByRole('status');
     expect(status.textContent).toBe(WORKSPACE_MESSAGES.archived('Acme'));
     // The row it was on is gone, so focus lands on the announcement rather than on <body>.
-    expect(document.activeElement).toBe(status);
+    // The move is an EFFECT, and React flushes passive effects in a later task than the
+    // commit that removed the row. The wait above settles on that commit, so reading focus
+    // straight after it reads the gap between the two, not the state the screen ends in.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(status);
+    });
   });
 
   it('with archived shown, an archived row carries a text badge and no rename/archive controls', () => {

@@ -27,8 +27,8 @@ import { execSql, querySql } from '../support/psql';
 import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixture';
 
 /**
- * STORY-004 — AC-21, AC-22, AC-23, AC-24, end to end. TASK-012, wave 7.
- * STORY-1b-04 — AC-1b-17, AC-1b-18, AC-1b-19 (and AC-1b-21 repeated cheaply) on the SHIPPED
+ * STORY-004: AC-21, AC-22, AC-23, AC-24, end to end. TASK-012, wave 7.
+ * STORY-1b-04: AC-1b-17, AC-1b-18, AC-1b-19 (and AC-1b-21 repeated cheaply) on the SHIPPED
  * routes. TASK-1b-06, wave 3 of 1b: the creator's membership, the membership-filtered list,
  * `GET /api/workspaces/:workspaceId`, `workspace_admin` on the writes, `workspaceRole` on
  * the wire.
@@ -45,8 +45,8 @@ import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixtu
  *
  * The child booted by `api-server.ts` is the only place a real sign-in can happen and a real
  * token can be minted against a real `/api/auth/jwks`. The application under test is built
- * from `AppModule` IN THIS PROCESS — the real `APP_GUARD`, the real `APP_INTERCEPTOR`, the
- * real filter, the real `WorkspacesModule`, nothing overridden — with `BETTER_AUTH_URL`
+ * from `AppModule` IN THIS PROCESS (the real `APP_GUARD`, the real `APP_INTERCEPTOR`, the
+ * real filter, the real `WorkspacesModule`, nothing overridden), with `BETTER_AUTH_URL`
  * pointed at the child so the guard verifies the child's token against the child's key set,
  * and with the same `/api` global prefix `main.ts` sets, so the paths asserted here are the
  * paths a client uses. One test at the end also drives the CHILD's own `/api/workspaces`,
@@ -63,7 +63,7 @@ import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixtu
  * tenant, and 1b's routes have no add-member endpoint, so the second user is MOVED: signed
  * up as `EMAIL_B`, their own tenant erased (which cascades their `tenant_memberships` row),
  * a `member` row inserted under A's tenant through the migrator, and only then signed in
- * and minted — the token's `tid` is read from the membership at mint time, so it names A.
+ * and minted: the token's `tid` is read from the membership at mint time, so it names A.
  * Their workspace roles are seeded directly, the way `workspace-authorization.int-spec.ts`
  * seeds them, because granting one is the invitation flow's and not this card's.
  *
@@ -71,7 +71,7 @@ import { assertAppRoleCannotBypassRls, migrationDsn } from '../support/rls-fixtu
  * since TASK-1b-09 that surface charges an email-keyed sign-in bucket (5 per 15 minutes,
  * `rate-limit.md`) that a file signing one address in once per test would exhaust by its
  * sixth test. Numbering the pair per test keeps every address under the limit without
- * touching the bucket, and `clearSignupState` runs on the current pair before each test —
+ * touching the bucket, and `clearSignupState` runs on the current pair before each test,
  * which also self-heals a run killed before `afterAll` (the same numbered pair is cleared
  * before it is signed up again).
  */
@@ -175,7 +175,7 @@ async function principalFor(email: string): Promise<Principal> {
  * A second real user IN `tenantId`, holding tenant role `member` (what an invitee holds,
  * Amendment A-8) and no workspace membership: signed up under their own tenant, moved
  * before the mint (see the header). `EMAIL_B`'s own tenant is erased here rather than
- * stranded — `clearSignupState` finds tenants only through membership rows.
+ * stranded: `clearSignupState` finds tenants only through membership rows.
  */
 async function tenantMemberFor(email: string, tenantId: string): Promise<Principal> {
   const signedUp = await signUp(server, email, POLICY_COMPLIANT_PASSWORD);
@@ -549,7 +549,7 @@ describe('authentication and tenancy', () => {
     expect(workspaceCountFor(second.tenantId)).toBe(0);
   });
 
-  it('a malformed id and a never-issued id are the same 404 not_found as another tenant\'s id — byte-equal to the repository\'s WorkspaceNotFoundError (the oracle rule)', async () => {
+  it('a malformed id and a never-issued id are the same 404 not_found as another tenant\'s id: byte-equal to the repository\'s WorkspaceNotFoundError (the oracle rule)', async () => {
     const principal = await principalFor(EMAIL_A);
 
     const malformedGet = await api(`/api/workspaces/${NOT_A_UUID}`, { token: principal.token });
@@ -575,7 +575,7 @@ describe('authentication and tenancy', () => {
 });
 
 describe('AC-1b-17: the creator becomes workspace_admin; a tenant member cannot create', () => {
-  it('POST as the signup owner: 201 with workspaceRole workspace_admin, and exactly one memberships row — the creator, workspace_admin — committed with the workspace', async () => {
+  it('POST as the signup owner: 201 with workspaceRole workspace_admin, and exactly one memberships row (the creator, workspace_admin) committed with the workspace', async () => {
     const owner = await principalFor(EMAIL_A);
 
     const created = await api('/api/workspaces', { method: 'POST', token: owner.token, body: { name: 'Acme' } });
@@ -614,7 +614,7 @@ describe('AC-1b-18: the list and the read by id are membership-filtered', () => 
     const ownersList = workspaceListResponseContract.parse((await api('/api/workspaces', { token: owner.token })).body);
     expect(ownersList.items.map((item) => [item.id, item.workspaceRole])).toEqual([[w1.id, 'workspace_admin'], [w2.id, 'workspace_admin']]);
 
-    // The member sees W1 and only W1, with their own role — not the owner's.
+    // The member sees W1 and only W1, with their own role, not the owner's.
     const membersList = await api('/api/workspaces?includeArchived=true', { token: member.token });
     expect(membersList.status, membersList.raw).toBe(200);
     const list = workspaceListResponseContract.parse(membersList.body);
@@ -633,7 +633,7 @@ describe('AC-1b-18: the list and the read by id are membership-filtered', () => 
     expect(readW2.raw).not.toContain(w2.id);
   });
 
-  it('a same-tenant user with no memberships lists { items: [] } — not a refusal — while the owner still sees their workspaces', async () => {
+  it('a same-tenant user with no memberships lists { items: [] } (not a refusal) while the owner still sees their workspaces', async () => {
     const owner = await principalFor(EMAIL_A);
     const acme = await createWorkspace(owner, 'Acme');
     const stranger = await tenantMemberFor(EMAIL_B, owner.tenantId);
@@ -664,7 +664,7 @@ describe('AC-1b-18: the list and the read by id are membership-filtered', () => 
     expect(listed.items.map((item) => item.id)).toEqual([kept.id]);
     expect((await api(`/api/workspaces/${acme.id}`, { token: owner.token })).body).toEqual(NOT_FOUND_BODY);
     expect((await api(`/api/workspaces/${acme.id}`, { method: 'PATCH', token: owner.token, body: { name: 'x' } })).body).toEqual(NOT_FOUND_BODY);
-    // The row is still there — invisible, not gone (docs/contracts/workspaces.md, the pre-1b volume note).
+    // The row is still there: invisible, not gone (docs/contracts/workspaces.md, the pre-1b volume note).
     expect(workspaceCountFor(owner.tenantId)).toBe(2);
   });
 });
@@ -687,7 +687,7 @@ describe('AC-1b-19: workspace_admin on the writes, any membership on the reads',
     const stillActive = workspaceContract.parse((await api(`/api/workspaces/${w1.id}`, { token: owner.token })).body);
     expect(stillActive.archivedAt).toBeNull();
 
-    // AC-1b-21: the role changed in the table applies to the very next request — no cache.
+    // AC-1b-21: the role changed in the table applies to the very next request: no cache.
     setMembershipRole(owner.tenantId, w1.id, member.userId, 'workspace_admin');
     const renamed = await api(`/api/workspaces/${w1.id}`, { method: 'PATCH', token: member.token, body: { name: 'Shared now' } });
     expect(renamed.status, renamed.raw).toBe(200);
@@ -731,7 +731,7 @@ describe('AC-1b-19: workspace_admin on the writes, any membership on the reads',
 });
 
 describe('the shipped composition root', () => {
-  it('the child API — main.ts, the real prefix — serves the same routes: create then list through it', async () => {
+  it('the child API (main.ts, the real prefix) serves the same routes: create then list through it', async () => {
     const principal = await principalFor(EMAIL_A);
 
     const created = await request(server.baseUrl, '/api/workspaces', { method: 'POST', token: principal.token, body: { name: 'Acme' } });

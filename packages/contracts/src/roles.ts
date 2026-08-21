@@ -2,7 +2,7 @@
  * Contract: docs/contracts/workspace-authorization.md
  * ADR: adr-0015-user-tenant-cardinality.md, adr-0023-branded-role-types.md
  * Produced by: TASK-016 (the sets and the brands; `asTenantRole`, `tenantRoleRank`),
- *              TASK-1b-01 (`asWorkspaceRole`, `roleRank` — implemented 2026-08-18, ADR-0048's
+ *              TASK-1b-01 (`asWorkspaceRole`, `roleRank`, implemented 2026-08-18, ADR-0048's
  *              "stay throwing" is a dated note now)
  *
  * Role sets are FIXED by refinement amendments. Not open for reinterpretation.
@@ -185,12 +185,12 @@ export const TENANT_ROLE_GRANT_MINIMUM: AuthorisingTenantRole = TENANT_ROLE.owne
  * The API accepts `viewer`; the UI does not offer it.
  *
  * UNBRANDED, deliberately. This feeds z.enum() in the invitation contract, and a
- * branded member type would carry the brand into the inferred contract type — a brand
+ * branded member type would carry the brand into the inferred contract type: a brand
  * at a JSON boundary, which ADR-0023 forbids. A brand is a compile-time claim about
  * where a value has been validated; a value arriving in a request body has been
  * nowhere.
  *
- * RULE: every zod enum sources from an unbranded array — TENANT_ROLES, WORKSPACE_ROLES,
+ * RULE: every zod enum sources from an unbranded array: TENANT_ROLES, WORKSPACE_ROLES,
  * or this one. Branding happens after parsing, via asTenantRole / asWorkspaceRole.
  *
  * `as const satisfies`, not a `readonly WorkspaceRoleValue[]` annotation: z.enum needs

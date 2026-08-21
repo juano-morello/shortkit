@@ -59,20 +59,20 @@
 > **Second reconciliation, 2026-08-11, against TASK-006 at `6e24416` (`done`, fix-round cap
 > spent at 5 of 5). F-353, folding in F-350 and F-354.** The amendment below was written
 > against round 3. Rounds 4 and 5 landed hours later and **made four of its new sentences
-> wrong** — the declined-shapes mechanism it had just documented was withdrawn as resting on
+> wrong**: the declined-shapes mechanism it had just documented was withdrawn as resting on
 > a premise that measures false (F-342), and the repair it named for F-330 was measured
 > refused (F-344). This pass is the one written against a harness that has stopped moving.
 > What it changes:
 >
-> - **`declinedShapes` is gone from the code and from all four places this file carried it**
->   — two declared interfaces, the narrative section, and the invariant list. The premise
+> - **`declinedShapes` is gone from the code and from all four places this file carried it**:
+>   two declared interfaces, the narrative section, and the invariant list. The premise
 >   that section published as fact is struck with the measurement that disproves it (F-342).
 > - **`RequiredAssignment` and `unqualifiedWritesAlsoSet`** are declared, with the rule that
 >   makes the type narrow: an assignment is a column and a **bound value**, because a column
 >   reference anywhere in an unqualified write routes it back through the SELECT policies and
 >   silently reduces it to the actor's own rows (F-344, F-352).
 > - **`qualification` is derived from the compiled SQL and checked at registration time**,
->   and **the INSERT rule inside that derivation is normative** — an INSERT is
+>   and **the INSERT rule inside that derivation is normative**: an INSERT is
 >   `owner-qualified` because an INSERT policy has no `USING` clause at all. Classifying it
 >   by the absence of a `WHERE` clause gives the opposite answer and restores F-330's blind
 >   spot for every insert attempt (F-345).
@@ -123,17 +123,17 @@
 >
 > **Declared for the first time:** `verdict` widens from `'pass' | 'fail'` to
 > `'pass' | 'fail' | 'incomplete'`, and `IsolationReport` gains nine fields the code writes
-> and this file did not declare — `attempts`, `failed`, `unverified`, `registryDrift`,
+> and this file did not declare: `attempts`, `failed`, `unverified`, `registryDrift`,
 > `coverageBoundary`, `incompleteBecause`, `attemptVerdict`, `suiteOutcome`, and
-> ~~`declinedShapes`~~ (withdrawn by r4 — see the second reconciliation above; `observedTests`
+> ~~`declinedShapes`~~ (withdrawn by r4, see the second reconciliation above; `observedTests`
 > replaces it in the count). New sections describe the registry and its five-arm cross-check
 > **with the residual that escapes all five**, the three-write report discipline, how a later
-> TASK registers a table, and the statement shapes that are known-uncovered (F-341 — five
+> TASK registers a table, and the statement shapes that are known-uncovered (F-341: five
 > then, six now).
 > `TenantFixtures` carries two fields today rather than six, which was ruled on 2026-08-06
 > and had never reached this file.
 >
-> A refusal on an unqualified write is now `unverified`, never `pass` — F-330, and the third
+> A refusal on an unqualified write is now `unverified`, never `pass`: F-330, and the third
 > blocker. Everything else in this file stands as written.
 
 ## Which copy of this is normative
@@ -143,9 +143,9 @@ drifted from each other three times, so the ordering is stated rather than assum
 
 | Artifact | Standing |
 |---|---|
-| `apps/api/test/isolation/coverage.ts` and the three files beside it | **The behaviour.** What the harness does is what these do. Where this contract and the code disagree, the code is the fact and the contract is the defect — that is what F-327 was |
+| `apps/api/test/isolation/coverage.ts` and the three files beside it | **The behaviour.** What the harness does is what these do. Where this contract and the code disagree, the code is the fact and the contract is the defect: that is what F-327 was |
 | **this file** | **Normative for what the harness must do**, and the artifact a reimplementer rebuilds from. A change in the code that this file does not describe is a divergence to file, not a silent update |
-| `design/stubs/apps/api/test/isolation/coverage.ts` | **Retired. Due for deletion now** — TASK-006 reached `done` at `6e24416`, which is ADR-0039's trigger. Never normative; derived, and stale since 2026-08-04. Until the file is gone, read nothing from it |
+| `design/stubs/apps/api/test/isolation/coverage.ts` | **Retired. Due for deletion now**: TASK-006 reached `done` at `6e24416`, which is ADR-0039's trigger. Never normative; derived, and stale since 2026-08-04. Until the file is gone, read nothing from it |
 | the spec file's header roster | **The maintained list of controls and probes**, one per measured way the harness reported green over a broken database. This contract states the obligation and the design rules; it does not copy the roster, which changed in four of five rounds |
 | ADR-0020, ADR-0019, ADR-0003 | **The decisions**, not the mechanism. They may state a rule once and point here; a rule stated twice is two things that can drift |
 
@@ -163,10 +163,10 @@ It is not regenerated and it is not synced; nothing above should be read as aski
 **That trigger has now fired and the deletion is outstanding.** TASK-006 reached `done` at
 `6e24416`. ADR-0039's pre-deletion check (clause 4) was run against the stub during this
 reconciliation and **passes**: all eighteen of its exported declarations exist in
-`coverage.ts`, and each of its capitalised rules — the two-exclusion length assertion, "the
+`coverage.ts`, and each of its capitalised rules (the two-exclusion length assertion, "the
 absence of a fixture builder fails as uncovered and is never skipped", "expected `qual`
 strings are captured from a live database, never hand-written", and "without `FORCE` the
-owner bypasses every policy and the suite is theatre" — exists in the source, in this
+owner bypasses every policy and the suite is theatre") exists in the source, in this
 contract, or in both. **Nothing is lost by deleting it.** The two shape divergences it
 carries, the six-field `TenantFixture` and the pre-r3 `IsolationReport`, are both recorded
 in this file with the rulings behind them, so deleting the stub removes a stale copy rather
@@ -183,7 +183,7 @@ was wrong and not what is owed, so the ledger is here and each strike below poin
 |---|---|---|---|
 | "The suite reads the real module graph, so it cannot drift from what the server serves" (invariant 4) | **False in this wave.** No `AppModule` route carries tenant data, no class carries `@TenantScopedRepository()`, and the decorator itself throws `not implemented`. *Amended 2026-08-18:* the decorator shipped in TASK-006 and no longer throws; `WorkspaceRepository` carries it and `WorkspacesController` carries four routes over tenant data. Nothing reads the marker or walks the routes yet, so the claim stays false | ~~TASK-011 lands the decorator~~ TASK-006 landed the decorator (amended 2026-08-18); TASK-056 lands the three discovery mechanisms in "Discovery". Until then, the substitute is the registry plus the five-arm drift check plus `db:check-policies`, and it is a substitute, not the thing | TASK-056 |
 | "`pnpm db:check-policies` is the same assertion" as the `pg_policies` shape check | **False.** `assertOnlyApprovedPolicies()` throws `not implemented`; the shape assertion is unbuilt. `db:check-policies` asserts `relrowsecurity` and `relforcerowsecurity` against an exception list and by its own header does **not** assert the policy set | TASK-056 implements `assertOnlyApprovedPolicies()` with expected `qual` strings captured from a live database after migration, which needs `tenantScopedTables()` (ADR-0019, TASK-053). Until then no test matches a policy against an approved shape by name and `qual` text | TASK-053, TASK-056 |
-| "`apps/api/test/isolation/report.json`, uploaded as a CI artifact" | **False.** `.gitignore` ignores the path and `ci.yml` has no `upload-artifact` step. The artifact exists only in the workspace of whichever job ran the suite | **F-297, open.** The upload must exist **and** fail the job when the artifact's `runAt` predates the job — that second half is the only side the collection-error residual can be closed from | F-297 |
+| "`apps/api/test/isolation/report.json`, uploaded as a CI artifact" | **False.** `.gitignore` ignores the path and `ci.yml` has no `upload-artifact` step. The artifact exists only in the workspace of whichever job ran the suite | **F-297, open.** The upload must exist **and** fail the job when the artifact's `runAt` predates the job: that second half is the only side the collection-error residual can be closed from | F-297 |
 
 **On the last one, the sequencing is worth stating.** F-304's argument was that the artifact
 must become trustworthy *before* the upload lands, or CI starts publishing a stale pass as
@@ -277,7 +277,7 @@ both gates green and its name in no artifact.
 `tenantScopedTableDrift()` asks which relations in schema `public` carry a tenant boundary
 and requires that set to equal the registry's. A table in one and not the other fails the
 run and names it, in both directions. This is ADR-0019's cross-check, SQL half, pulled
-forward — it needs no `tenantScopedTables()` artifact, and TASK-053 and TASK-056 are both
+forward: it needs no `tenantScopedTables()` artifact, and TASK-053 and TASK-056 are both
 deferred.
 
 ### Five arms, and defeating the check means defeating all five
@@ -309,7 +309,7 @@ with three probes, each with owner column `owning_tenant`, each leaking
 | `ENABLE` + `FORCE`, `USING (true)` | named, by arm 3 | named |
 
 The **unprotected** shape is the worst one. Before arm 5 the only arm that could see an
-unprotected table at all was arm 2, the literal column name F-303 was filed against — so a
+unprotected table at all was arm 2, the literal column name F-303 was filed against, so a
 table that departs from the naming convention **and** is unprotected was invisible to all
 four.
 
@@ -332,7 +332,7 @@ measured that twice.
 **`SUITE_OWNED_CONTROL_TABLES` is a closed list**, for the same reason
 `ISOLATION_EXCLUSIONS` is one: naming a real table there is the way to hide it from SC-1,
 and it has to be a one-line diff a reviewer sees. The fixture table `rls_fixture_rows` is
-**not** on it — it is registered, and it is attempted.
+**not** on it: it is registered, and it is attempted.
 
 ### `db:check-policies` is the other half of a composite gate, not a spare
 
@@ -361,7 +361,7 @@ repository is a consumer of it.**
 /**
  * What an attempt hands back for judging. A read reports `rows`; a write reports
  * `rowsAffected`. An attempt the database refused simply THROWS, and the runner classifies
- * the refusal — see "What a refusal is evidence of".
+ * the refusal; see "What a refusal is evidence of".
  */
 export interface CrossTenantAttemptResult {
   readonly rows?: ReadonlyArray<Record<string, unknown>>;
@@ -378,7 +378,7 @@ export interface TenantScopedMethod {
   // Amended 2026-08-18 (TASK-1b-10). Three OPTIONAL fields for HTTP attempts, so the report
   // can carry a public route's justification and the capability-token flag AC-1b-32 names
   // before TASK-056's discovery exists: `authenticated?: boolean` (a registration that
-  // leaves it undefined is reported as authenticated — the safe direction),
+  // leaves it undefined is reported as authenticated, the safe direction),
   // `publicJustification?: string` (present iff !authenticated; the decorator's own string,
   // copied), `usesCapabilityToken?: boolean` (the lookup route sets it). `publicRoutes` in
   // the report is populated from these today, by hand, and TASK-056 replaces the hand-set
@@ -401,7 +401,7 @@ export declare function registerTenantScopedSurfaces(r: TenantScopedSurfaceRegis
 /**
  * F-352. The columns a table's WITH CHECK requires beyond tenancy, assigned by the two
  * unqualified updates so they are ADMITTED rather than refused (F-344). Held by the shared
- * shape builder — `tableAccess()` in registrations.ts — not by the registration itself,
+ * shape builder (`tableAccess()` in registrations.ts) not by the registration itself,
  * because it changes the statements the eight shapes issue.
  *
  * `value` is deliberately NOT `SQL` and not a template. Everything drizzle's `sql` tag
@@ -422,7 +422,7 @@ interface TableAccessSpec {
 
 /**
  * F-345. `qualification` is derived from the COMPILED statement and checked against the
- * declaration at registration time — which is import time. A disagreement throws.
+ * declaration at registration time, which is import time. A disagreement throws.
  */
 export declare function qualificationOfStatement(statement: SQL): 'owner-qualified' | 'unqualified';
 export declare function assertDeclaredQualification(
@@ -443,7 +443,7 @@ What a registration owes, each clause the residue of a measured failure:
    arguments; do not close over a fixture constant (F-293).
 4. **Every method declares `qualification`, and at least one write is `'unqualified'`**
    (F-302). **Since r4 the declaration is checked against the compiled SQL at registration
-   time and a disagreement throws** (F-345) — the label was the one thing three rounds of
+   time and a disagreement throws** (F-345): the label was the one thing three rounds of
    judgement rested on that no mechanism verified, and a statement labelled
    `owner-qualified` while carrying no `WHERE` clause restores F-330's blind spot for that
    surface.
@@ -457,21 +457,21 @@ What a registration owes, each clause the residue of a measured failure:
 7. **Every read attempt projects the owner column.** The harness judges a read on the owner
    of each row returned, so a projection without it is unjudgeable and throws.
 8. **A required assignment is a column and a bound value.** Added 2026-08-11 (F-344,
-   F-352). A table whose `WITH CHECK` asks for more than tenancy — a soft-delete guard, an
-   immutability-on-archive predicate, a plan limit, all ordinary and correct policy shapes —
+   F-352). A table whose `WITH CHECK` asks for more than tenancy (a soft-delete guard, an
+   immutability-on-archive predicate, a plan limit, all ordinary and correct policy shapes)
    names those columns in `unqualifiedWritesAlsoSet`, so the two unqualified updates are
    **admitted rather than refused**. Without it such a table scores `unverified`
    permanently: a red run on a table with nothing wrong with it, and a check that fires on
    correct code is the check that gets deleted.
 
    **The value may not be a fragment, and that is the whole mechanism.** A column reference
-   anywhere in the statement pulls the SELECT policies back in — the `WHERE` clause is not
-   what keeps them out — so `version = version + 1`, the idiomatic optimistic-lock guard,
+   anywhere in the statement pulls the SELECT policies back in (the `WHERE` clause is not
+   what keeps them out) so `version = version + 1`, the idiomatic optimistic-lock guard,
    silently reduces **both** unqualified writes to the actor's own rows. Measured: `set
    label = <const>` reports `UPDATE 2` on a wide-open USING where `set label = <const>,
    status = status` reports `UPDATE 1`, and the digest sees nothing either way. The type
    makes the mistake unexpressible rather than rejected. **See "What is load-bearing and
-   unpinned" — nothing in the repository re-verifies that the type stays narrow.**
+   unpinned": nothing in the repository re-verifies that the type stays narrow.**
 9. **No shape may be declined.** Added 2026-08-11 (F-342). See the section of that name.
 
 ## Coverage assertion
@@ -540,7 +540,7 @@ unsatisfiable, because the policies that read a flag are built in
 | `apps/api/drizzle/**` | migration DDL. Its flag literals are all inside `CREATE POLICY ... current_setting(...)`, which is the read side of the same distinction A1 draws. DDL applied by `shortkit_migrator` at deploy cannot set a flag on a request path |
 
 ~~**The three flags and their permitted files.**~~ **The four flags and their permitted
-files.** Amended 2026-08-13 (F-047), after the freeze — see the amendment banner at the top
+files.** Amended 2026-08-13 (F-047), after the freeze; see the amendment banner at the top
 of this file.
 
 | Flag | The one file that may SET it | May also contain the string |
@@ -787,8 +787,8 @@ export declare function isolationReport(): IsolationReport;
 
 **`TenantFixtures` carries two fields today, not six.** Ruled 2026-08-06 and recorded here
 2026-08-11 (F-327). Five of the six fields above name rows in tables no migration creates
-yet — `user` and `tenant_memberships` (TASK-013), `workspaces` (TASK-018), `links` and
-`domains` (TASK-024, TASK-028) — so the shipped `TenantFixture` is `{ id: string; name:
+yet: `user` and `tenant_memberships` (TASK-013), `workspaces` (TASK-018), `links` and
+`domains` (TASK-024, TASK-028), so the shipped `TenantFixture` is `{ id: string; name:
 string }`. The shape above is the target. **The wave that adds each table adds its field in
 the same commit that registers the table**, and until then the missing field is a
 divergence with a ruling behind it rather than an oversight.
@@ -833,7 +833,7 @@ policy that leaks only to one tenant is attempted rather than assumed symmetric.
 | `reparentAll` | `update <t> set <owner> = $1::uuid[, <required> = $n]*` | write | unqualified | existing-row |
 
 The bracketed tail on the two updates is `unqualifiedWritesAlsoSet`, empty for every table
-whose `WITH CHECK` asks nothing beyond tenancy — which is every table in the repository
+whose `WITH CHECK` asks nothing beyond tenancy, which is every table in the repository
 today. Every value in it is bound (registration clause 8).
 
 **Every table carries all eight, including one whose owner column is its primary key.**
@@ -844,7 +844,7 @@ Added 2026-08-11 (F-342).
 
 **Neither unqualified update may reference an existing column, anywhere in the statement.**
 Amended 2026-08-11 (F-352, F-353): this was stated for `updateAll` only, and as prose. It
-applies to `reparentAll` identically, and it is now **structural** — `unqualifiedWritesAlsoSet`
+applies to `reparentAll` identically, and it is now **structural**: `unqualifiedWritesAlsoSet`
 takes a column and a bound value, so no registration can spell a column reference into
 either statement. A `SET` expression reading a column pulls the SELECT policies back in and
 the shape degrades into `updateOwnedBy` with extra steps, silently: measured `UPDATE 1`
@@ -852,7 +852,7 @@ where the armed form reports `UPDATE 2`, with the digest seeing nothing either w
 
 `updateAll` and `deleteAll` are F-302's. **`reparentAll` is F-330's and it is the worse
 half.** Tighten that mutation's `WITH CHECK` back to the predicate the production builder
-emits, leaving only the `USING` widened, and `updateAll` is *refused* with 42501 — which
+emits, leaving only the `USING` widened, and `updateAll` is *refused* with 42501, which
 the harness scored as a denial. Measured: every attempt green, `verdict: pass`, over a
 policy admitting every row of every tenant. `UPDATE <t> SET <owner> = <actor>` reports
 `UPDATE 2` and leaves the other tenant's row belonging to the actor. Theft rather than
@@ -867,7 +867,7 @@ defaulted field is how a later TASK inherits whichever value was convenient.
 
 A **read** is judged on the owner column of every row it returned: a row whose owner is not
 the acting tenant is the leak. **A read attempt must project the owner column, or the
-harness refuses to judge it and throws** — an attempt whose projection omits it cannot be
+harness refuses to judge it and throws**: an attempt whose projection omits it cannot be
 judged, and passing it silently is how a harness stops detecting anything.
 
 A **write** is judged on both of the following, and either one alone is insufficient. The
@@ -879,8 +879,8 @@ second also runs for reads, as the before-and-after comparison around every atte
    place a wide-open UPDATE or DELETE policy cannot hide it.
 2. **A per-row digest of every row the actor does not own**, `md5(<row>::text)` computed by
    the database over the whole row, compared either side of the attempt. An overwrite
-   **preserves ownership** — `UPDATE tenants SET name = 'pwned'` leaves every id and every
-   owner where they were — so a census of ids and owners is identical before and after one
+   **preserves ownership** (`UPDATE tenants SET name = 'pwned'` leaves every id and every
+   owner where they were) so a census of ids and owners is identical before and after one
    tenant has destroyed another's data.
 
 The actor's own rows are excluded from the digest set deliberately, and that exclusion is
@@ -899,7 +899,7 @@ cannot tell a policy refusal from a missing grant. Anything unrecognised is `unv
 **And a recognised refusal proves the `WITH CHECK` clause held, not that the `USING` clause
 did** (F-330). `USING` decides which existing rows the statement may reach; `WITH CHECK`
 decides what the resulting row may look like. For an `owner-qualified` write the
-distinction does not matter — the statement names the target, so a refusal on any ground
+distinction does not matter: the statement names the target, so a refusal on any ground
 means the target's row was not written. **For an `unqualified` write it is the whole
 question**: the statement sweeps every row `USING` admits, and a `WITH CHECK` refusal on
 the first foreign row it reaches is exactly what a wide-open `USING` with a correct `WITH
@@ -907,12 +907,12 @@ CHECK` produces.
 
 So: **an unqualified write refused by row-level security scores `unverified` with the
 reason named. It is never a pass.** ~~The repair is to re-issue the statement in a form the
-`WITH CHECK` admits — `reparentAll` is that form — or to narrow the shape.~~
+`WITH CHECK` admits (`reparentAll` is that form) or to narrow the shape.~~
 
 **Amended 2026-08-11 (F-344, F-353): `reparentAll` is not that form**, measured. On a table
 whose `WITH CHECK` asks for more than tenancy, setting the owner column leaves the guarded
 column untouched, so `reparentAll` is refused identically to `updateAll`. **The repair is
-`unqualifiedWritesAlsoSet`** — registration clause 8 — which names the columns the check
+`unqualifiedWritesAlsoSet`** (registration clause 8) which names the columns the check
 asks about and gets both statements admitted rather than refused, with the values bound so
 neither statement references a column.
 
@@ -926,14 +926,14 @@ correct code.
 Added 2026-08-11 (F-345, F-353). Normative, and the most reimplementable-wrongly rule in
 this contract.
 
-The field drives three separate judgements — the count rule, the refusal rule above, and
-the post-attempt `reset()` — and until r4 it was a string literal sitting next to the SQL it
+The field drives three separate judgements (the count rule, the refusal rule above, and
+the post-attempt `reset()`), and until r4 it was a string literal sitting next to the SQL it
 claimed to describe, with nothing but review between them. It is now **derived from the
 compiled statement and checked against the declaration at registration time**, which is
 import time; a disagreement throws and names the statement. Derivation is over the SQL the
 production dialect compiles, not over the template's chunks, so `sql.identifier()` and every
 nested fragment are resolved exactly as they are when the statement runs and bound values
-are already `$N` — no fixture value can spell a keyword into the text.
+are already `$N`: no fixture value can spell a keyword into the text.
 
 ```
 owner-qualified  <=>  the statement begins INSERT, or contains a WHERE clause
@@ -942,13 +942,13 @@ unqualified      <=>  everything else
 
 **An INSERT is `owner-qualified`, and not by convenience.** The field exists to answer
 *which half of a policy a refusal is evidence about*. **An INSERT policy has no `USING`
-clause at all** — only a `WITH CHECK` — so a `WITH CHECK` refusal is complete evidence for
+clause at all** (only a `WITH CHECK`) so a `WITH CHECK` refusal is complete evidence for
 that statement, which is exactly what `owner-qualified` means to the runner. An UPDATE or
 DELETE with no `WHERE` is the only shape whose refusal leaves the `USING` clause unproven.
 
 **A reimplementation classifying INSERT by the absence of a `WHERE` clause gets the opposite
 answer**, and every insert attempt in the suite then scores `unverified` on a correct
-refusal — F-330's rule applied where it does not belong, turning the run permanently red on
+refusal: F-330's rule applied where it does not belong, turning the run permanently red on
 correct policies. That is why this paragraph exists rather than only the code.
 
 ### The premise an attempt needs before its answer means anything
@@ -971,8 +971,8 @@ scoring it as one is what produced a green report over surfaces that were never 
 ### ~~Declined shapes~~ No shape may be declined
 
 **Withdrawn 2026-08-11 (F-342, F-353), one round after it was written down here.** This
-section described a mechanism — a table declining a statement shape by name, against a
-stated reason carried into `report.json` as `declinedShapes` — and stated its only use as
+section described a mechanism (a table declining a statement shape by name, against a
+stated reason carried into `report.json` as `declinedShapes`), and stated its only use as
 fact: *"`tenants` is the case that forced it: its owner column is its primary key, so
 `UPDATE tenants SET id = <actor>` collides with 23505 raised by the index before any policy
 is consulted."*
@@ -988,7 +988,7 @@ tenants_self_update USING (true) WITH CHECK (true)        -> ERROR 23505
 
 The policy is evaluated **first** and is what prevents the collision: the `USING` clause
 admits only the actor's own row, so the assignment is an identity update and the key is
-never contended. The 23505 appears only once the `USING` is widened — which is to say the
+never contended. The 23505 appears only once the `USING` is widened, which is to say the
 shape **separates a correct policy from a wide-open one on exactly this table**, and the
 decline removed one of its two live unqualified writes while the artifact SC-1 points at
 published the false reason as a fact.
@@ -997,7 +997,7 @@ published the false reason as a fact.
 harness keeps repeating. So the mechanism is gone rather than corrected**, and there is no
 field a registration can set to drop a shape. Two routes replace it:
 
-- a table whose `WITH CHECK` asks for more than tenancy **changes the statement** —
+- a table whose `WITH CHECK` asks for more than tenancy **changes the statement**:
   `unqualifiedWritesAlsoSet`, registration clause 8;
 - a table that genuinely cannot answer comes back **`unverified`** and fails the run naming
   the surface. That is narrower than a `fail`, and it is a measurement rather than a
@@ -1039,13 +1039,13 @@ only ownership check the harness had, and it is now neither the only one nor the
 restores has already been judged, recorded in `leaks`, and reported as a `fail` naming the
 surface; the judgement runs strictly before the reset. What the reset erases is any effect
 on rows the per-attempt comparison deliberately excludes: the actor's own rows, and rows
-owned by a tenant the two-tenant fixture never seeds. The second of those is live — see
+owned by a tenant the two-tenant fixture never seeds. The second of those is live; see
 "Statement shapes known to be uncovered" below, item 3.
 
 **ADR-0020 carried the same two sentences and was amended the same day.** Its Decision read
 *"AC-95's write check runs once after the suite. A single query asserts no row's `tenant_id`
 changed against a snapshot taken before the run"*, and its "Attempts are generated"
-paragraph said repository attempts assert zero rows — the same defect as this paragraph's,
+paragraph said repository attempts assert zero rows: the same defect as this paragraph's,
 one document upstream, which is why one fix had to be applied in five places and reached
 two. Both are struck there now, and **the ADR points here rather than restating the rule**:
 the attempt semantics are stated once, in this file. A future change amends this file, and
@@ -1104,10 +1104,10 @@ export const UNENUMERABLE_SURFACES = [
 ```
 
 Amended 2026-08-18 (TASK-1b-10): the shipped array holds **three** entries. The signup hook
-has two branches with two different writers — the invited branch accepts an invitation and
+has two branches with two different writers: the invited branch accepts an invitation and
 writes `tenant_memberships` under the inviter's tenant (covered by
 `test/auth/signup-invited.int-spec.ts`), the uninvited branch creates the tenant and its
-owner membership (covered by `test/auth/signup-creates-tenant.int-spec.ts`) — and each is
+owner membership (covered by `test/auth/signup-creates-tenant.int-spec.ts`), and each is
 listed on its own line so the report names which test covers which. The gdpr entry is
 unchanged. Three entries here still change no exclusion count.
 
@@ -1121,7 +1121,7 @@ exclusion count: these surfaces are covered, just not by enumeration.
 `upload-artifact` for it, so today the artifact exists only in the workspace of whichever
 job ran the suite. **What is owed is in the ledger under "What this contract claims that is
 not yet true": F-297 builds the upload, and it must fail the job when the artifact's `runAt`
-predates the job** — see the three-write discipline below for why that half is the one that
+predates the job**; see the three-write discipline below for why that half is the one that
 closes the collection-error residual.
 
 **Amended 2026-08-11 (F-327).** Nine fields the code writes were undeclared here, and
@@ -1217,8 +1217,8 @@ This is the artifact SC-1 points at.
 
 Added 2026-08-11 (F-304, F-327). The artifact was written once, after the attempts, so a
 run that died earlier left the **previous** run's `"verdict": "pass"` on disk. Measured: a
-mutation that made `createTenantFixtures()` throw in `beforeAll` — the absolute census
-assertion doing exactly its job — exited 1 with every test skipped, and `report.json` still
+mutation that made `createTenantFixtures()` throw in `beforeAll` (the absolute census
+assertion doing exactly its job) exited 1 with every test skipped, and `report.json` still
 read `verdict=pass` with the previous run's timestamp. The most alarming failure this
 harness has is precisely the one that stranded a stale pass.
 
@@ -1232,7 +1232,7 @@ Added 2026-08-11 (F-331, F-332, F-327). Normative.
 |---|---|---|---|
 | 1 | **module scope**, before anything that can throw | `incomplete`, no attempts | `beforeAll` does not run when every test in the file is filtered out. Measured: `-t 'a name that matches no test'` gave 18 skipped, exit 0, and the previous run's `pass` still on disk with no marker. Module scope runs at collection, and collection happens for a filtered run (F-332) |
 | 2 | **end of `beforeAll`**, after the attempts are judged | **still `incomplete`**, with the attempts | a process killed mid-suite strands the evidence without stranding a verdict |
-| 3 | **`afterAll`**, which runs after every test in the file *and* when `beforeAll` threw | the conjunction of `attemptVerdict` and `suiteOutcome`, over `observedTests` tests | ~~eleven of the file's tests run after write 2~~ **all of them do** — write 2 is the last statement in `beforeAll` — including `assertNoTenantIdAltered()`, whose failure is by construction something no attempt judged. Corrected 2026-08-11 (F-353): eleven was an undercount when written and the file now holds 29 tests. The same stale number sits in `writeIsolationReport()`'s own docblock |
+| 3 | **`afterAll`**, which runs after every test in the file *and* when `beforeAll` threw | the conjunction of `attemptVerdict` and `suiteOutcome`, over `observedTests` tests | ~~eleven of the file's tests run after write 2~~ **all of them do** (write 2 is the last statement in `beforeAll`) including `assertNoTenantIdAltered()`, whose failure is by construction something no attempt judged. Corrected 2026-08-11 (F-353): eleven was an undercount when written and the file now holds 29 tests. The same stale number sits in `writeIsolationReport()`'s own docblock |
 
 Measured before the fix: `Tests 1 failed | 17 passed (18)`, exit 1, and `report.json` read
 `verdict=pass attempts=28 failed=[]` **for that run**. The suite was strictly stronger than
@@ -1240,7 +1240,7 @@ its own report, because `verdict` was computed from the attempt judgements alone
 
 **The bound, stated rather than overclaimed.** `verdict: 'pass'` on disk implies every
 attempt passed **and** every test in the isolation spec file passed. **It cannot imply the
-process exited 0** — a failure in another spec file is invisible from that file.
+process exited 0**: a failure in another spec file is invisible from that file.
 `suiteOutcome` carries the half the file can observe; an uploader wanting the stronger
 property keys on the job's exit code as well.
 
@@ -1282,7 +1282,7 @@ production run's judgement reads the value `runCrossTenantAttempts()` returned, 
      refusal recognised as row-level security;
    - an **unqualified** write affects no more rows than the acting tenant can see of its
      own, and changes the digest of no row the actor does not own. Its legitimate answer is
-     `affected <= actorOwnRowsVisible`, **not** zero — `DELETE FROM <t>` as tenant A is
+     `affected <= actorOwnRowsVisible`, **not** zero: `DELETE FROM <t>` as tenant A is
      supposed to remove A's own row;
    - a refusal of an **unqualified** write proves the `WITH CHECK` clause held and nothing
      about the `USING` clause, so it scores `unverified` and never `pass`;
@@ -1291,9 +1291,9 @@ production run's judgement reads the value `runCrossTenantAttempts()` returned, 
 4. The suite reads the real module graph, so it cannot drift from what the server
    serves. **Not yet true in this wave** (added 2026-08-11, F-327): no route and no
    repository exists to walk, the subjects are a registry, and what holds the registry
-   honest is the five-arm database cross-check plus `db:check-policies`. **What is owed —
+   honest is the five-arm database cross-check plus `db:check-policies`. **What is owed,
    ~~TASK-011's decorator, then~~ TASK-056's three discovery mechanisms (the decorator shipped
-   in TASK-006; amended 2026-08-18) — is in the ledger under
+   in TASK-006; amended 2026-08-18), is in the ledger under
    "What this contract claims that is not yet true". A caller may not rely on this invariant
    until they land.**
 5. ~~Exactly two~~ **Exactly three** exclusions exist (amended 2026-08-14, TASK-002), each justified in-file, and each narrowed by database
@@ -1304,7 +1304,7 @@ production run's judgement reads the value `runCrossTenantAttempts()` returned, 
 7. Every `@Public()` route that touches a tenant-scoped table reaches it through a
    capability-token entry point (ADR-0021), not through an escape.
 8. **An attempt that proved nothing is `unverified`, and a run with any `unverified`
-   surface is a failing run that names it** — the same treatment as `uncovered`. Added
+   surface is a failing run that names it**: the same treatment as `uncovered`. Added
    2026-08-11 (F-294, F-295, F-327).
 9. **`report.json` never carries a `pass` a later assertion in the same run disproved, and
    never carries a previous run's answer.** The three writes above are what makes that
@@ -1342,7 +1342,7 @@ Added 2026-08-11 (F-327), each the residue of a measured failure rather than a p
 - ~~**A shape is removed from a table only through `declinedShapes`, with a reason that
   reaches `report.json`.**~~ **Withdrawn 2026-08-11 (F-342, F-353). No shape may be removed
   from a table at all**, and this was the fourth place in this file carrying the retired
-  mechanism — the one in the section a reimplementation treats as binding. See "No shape may
+  mechanism: the one in the section a reimplementation treats as binding. See "No shape may
   be declined".
 - **`qualification` is checked against the compiled SQL at registration time** (F-345), and
   an INSERT is `owner-qualified` for the reason stated under that heading, not by
@@ -1358,8 +1358,8 @@ Added 2026-08-11 (F-327), each the residue of a measured failure rather than a p
   Each is a real table built by real DDL, defective in a way an audit measured this harness
   reporting as clean. **A finding of the form "the harness reported green while isolation
   was broken" is closed by adding a control, not by adding a comment.** Eleven controls and
-  four probes at `6e24416`. **The roster — each table, its defect and the finding it answers
-  — is the spec file's header, and this contract deliberately does not copy it**: it changed
+  four probes at `6e24416`. **The roster (each table, its defect and the finding it answers)
+  is the spec file's header, and this contract deliberately does not copy it**: it changed
   in four of five rounds, and the copy in here was wrong within hours twice. See "Which copy
   is normative".
 
@@ -1372,7 +1372,7 @@ Added 2026-08-11 (F-327), each the residue of a measured failure rather than a p
      gets deleted, so the suite has to prove it does not.
   2. **A control's `fail` must be the policy's answer, not an artefact.** A control table
      absent from `SUITE_OWNED_CONTROL_TABLES` shows up as registry drift, and drift alone
-     makes `attemptVerdict` `fail` whatever the attempts said — so its `expect(fail)` passes
+     makes `attemptVerdict` `fail` whatever the attempts said, so its `expect(fail)` passes
      for the wrong reason (F-346, measured). A control asserting `fail` also asserts clean
      drift, the specific attempts by name, and their row counts.
   3. **A control that can silently stop being a control needs the thing that makes it
@@ -1380,15 +1380,15 @@ Added 2026-08-11 (F-327), each the residue of a measured failure rather than a p
      nothing pins that difference, a reviewer deduplicating them removes a backstop and sees
      nothing go red (F-347, and F-354 below).
 - **The suite's own tables are subtracted from the drift check through
-  `SUITE_OWNED_CONTROL_TABLES`, and probes deliberately stay off it** — being caught is
+  `SUITE_OWNED_CONTROL_TABLES`, and probes deliberately stay off it**: being caught is
   what a probe is for.
 
 ## Statement shapes known to be uncovered
 
 Added 2026-08-11 (F-341, F-327); item 6 added in the second reconciliation (F-353). Filed
 and deliberately not fixed, by Juano's ruling of 2026-08-11: the round shipped the concrete
-gaps and the generative alternative — deriving statements from the policy set rather than
-listing them — became a roadmap item.
+gaps and the generative alternative (deriving statements from the policy set rather than
+listing them) became a roadmap item.
 **These live here rather than only in a findings file, because a reader of this contract is
 exactly who needs them.** All three blockers in this TASK were "a statement shape nobody
 thought of", and items 1 and 2 are the next two nobody thought of.
@@ -1396,7 +1396,7 @@ thought of", and items 1 and 2 are the next two nobody thought of.
 1. **`INSERT ... ON CONFLICT DO UPDATE`.** PostgreSQL applies the INSERT `WITH CHECK` and,
    on conflict, **the UPDATE policy's `USING`** to the conflicting row plus the UPDATE
    `WITH CHECK`. A table with a correct INSERT policy and a wide-open UPDATE `USING` is
-   therefore reachable through one statement no shape here issues — **and the ORM idiom
+   therefore reachable through one statement no shape here issues, **and the ORM idiom
    `save()` / `upsert()` compiles to exactly it.** Same defect class as F-330 arriving
    through a third policy path. This is the one to take next.
 2. **`MERGE`** (PostgreSQL 15+). Each `WHEN` branch applies a different policy, and no
@@ -1421,7 +1421,7 @@ thought of", and items 1 and 2 are the next two nobody thought of.
    ORs permissive policies together, so the second one widens the first without editing it.
    The nearest thing to a check is the suite's hand-derived policy-count assertion, and it
    covers `tenants` and `rls_fixture_rows` only (and `tenant_memberships` since TASK-002;
-   `workspaces` has no count assertion, noted 2026-08-18) — **nothing catches an added
+   `workspaces` has no count assertion, noted 2026-08-18): **nothing catches an added
    permissive policy on any future table** until TASK-056's `pg_policies` shape assertion
    exists.
 
@@ -1429,7 +1429,7 @@ thought of", and items 1 and 2 are the next two nobody thought of.
 
 Added 2026-08-11 (F-354). Two properties the F-352 guarantee rests on are held by nothing
 but the source that states them, and the obligation transfers to whoever next opens
-`apps/api/test/isolation/registrations.ts`. **Neither is broken as shipped** — the guarantee
+`apps/api/test/isolation/registrations.ts`. **Neither is broken as shipped**: the guarantee
 was measured holding against the database, not inferred from the type.
 
 1. **`RequiredAssignment['value']` staying scalar is the mechanism**, and no test fails if
@@ -1438,15 +1438,15 @@ was measured holding against the database, not inferred from the type.
    lint clean, every test passing, `verdict: pass`. At that moment the optimistic-lock idiom
    is expressible again and the next registration that writes it reproduces F-352 exactly.
    The six type-level rejections behind the guarantee were verified once, by hand; nothing
-   in the repository re-verifies them. **The pin is a negative type test** — a
-   `@ts-expect-error` over a fragment-valued assignment — which fails the build when the
+   in the repository re-verifies them. **The pin is a negative type test** (a
+   `@ts-expect-error` over a fragment-valued assignment) which fails the build when the
    error stops occurring.
 2. **The adversarial control is adversarial only because its value is the name of a real
    column on the table it attacks**, and nothing asserts that. It shares its table,
    mechanism and assertions with the primary control byte for byte. Change the value and it
    silently becomes a duplicate; a reviewer deduplicating two identical controls removes the
    backstop and sees nothing go red. **The pin is to assert the value against
-   `pg_attribute`** — the same shape as the drift check, a claim verified against the
+   `pg_attribute`**: the same shape as the drift check, a claim verified against the
    catalogue rather than trusted.
 
 Both are recorded here because the contract outlives the finding tracker, and because the
@@ -1471,8 +1471,8 @@ side the collection-error case can be closed from.
 F-353). `declinedShapes` was declared here, shipped in the artifact, and removed one round
 later because the mechanism behind it rested on a premise that measured false. A consumer
 reading it would have been reading a published reason that was wrong, so its removal is a
-correction and not a breaking change to regret. The general rule stands — a field is added
-additively — with the exception named: **a field carrying a claim the harness cannot
+correction and not a breaking change to regret. The general rule stands (a field is added
+additively) with the exception named: **a field carrying a claim the harness cannot
 substantiate is withdrawn rather than deprecated.**
 
 **The shape is stable as of `6e24416`.** TASK-006 is `done` with its fix-round cap spent, so

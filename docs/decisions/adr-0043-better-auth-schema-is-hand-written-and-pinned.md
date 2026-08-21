@@ -36,8 +36,8 @@ plugin list is four tokens.
 There is a second, larger problem with generation that the ordering hid. A CLI run is a
 one-time event. Nothing re-runs it, so a `better-auth` upgrade that adds a column produces a
 checked-in schema that is silently one column short, and the failure surfaces as a runtime
-`BetterAuthError` on a code path — `checkMissingFields` at
-`@better-auth/drizzle-adapter/dist/index.mjs:298` — that only some requests reach.
+`BetterAuthError` on a code path (`checkMissingFields` at
+`@better-auth/drizzle-adapter/dist/index.mjs:298`) that only some requests reach.
 
 ## Decision
 
@@ -68,7 +68,7 @@ and asserts, for every table and every field:
 Juano ruled the move.** The original path put the spec under `apps/api/src/db/schema/`.
 `apps/api/drizzle.config.ts:16` globs `./src/db/schema/*.ts` and drizzle-kit `require()`s
 every match through its CJS transformer, so a vitest import inside that directory breaks
-`pnpm db:generate` — the command TASK-002's implementer runs first, to produce migration
+`pnpm db:generate`, the command TASK-002's implementer runs first, to produce migration
 `0001`. Measured, not read. `pnpm db:migrate` is unaffected, which is why the failure only
 shows up on generation.
 
@@ -100,7 +100,7 @@ so `email_verified` is what the CLI would have written and it is what `tenants.t
 does. The fixture's `pg_attribute` discovery will find `email_verified`.
 
 **TASK-003 owes the second half of the pin.** `auth.config.ts` ships a unit test asserting
-`getSchema(auth.options)` — the composed instance's own options — equals
+`getSchema(auth.options)` (the composed instance's own options) equals
 `getSchema({ plugins: [jwt(), bearer()] })`. TASK-002's test pins the schema against a
 literal; TASK-003's pins the literal against the real config. Without the second test, a
 later `user.additionalFields` or a sixth plugin changes the required schema and nothing
@@ -136,7 +136,7 @@ notices.
 - **This ADR amends ADR-0013's "generated once with the Better Auth CLI" clause.** That
   sentence is now wrong and a reader of ADR-0013 who does not reach this file will run a CLI
   that is not installed.
-- **The plugin list is declared twice** — once in TASK-002's spec and once in TASK-003's
+- **The plugin list is declared twice**: once in TASK-002's spec and once in TASK-003's
   `auth.config.ts`. TASK-003's test is what keeps them equal, so the guarantee depends on a
   test in a different TASK in a different wave landing. Between wave 1 and wave 2 the pin is
   one-sided.

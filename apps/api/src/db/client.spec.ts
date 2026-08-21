@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { postgresErrorCode, postgresErrorConstraint } from './client';
 
 /**
- * F-120 — the sanctioned way a caught database error is classified.
+ * F-120: the sanctioned way a caught database error is classified.
  *
  * `databaseTransaction` unwraps drizzle's `DrizzleQueryError` at the TRANSACTION
  * boundary, but drizzle wraps at the STATEMENT boundary, so a `catch` inside `fn`

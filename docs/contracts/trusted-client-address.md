@@ -88,7 +88,7 @@ the same `NODE_ENV` trigger, independently, and now keys on
 `BFF_TRUST_BOUNDARY = bff | direct`, normative in `rate-limit.md`. **It is a separate variable
 on purpose.** This one declares whether a hop in front strips and sets a header; that one
 declares whether the first-party BFF forwards an address it authenticates with a shared secret.
-The hops differ, the trust rests on different things, and the two vary independently — an API
+The hops differ, the trust rests on different things, and the two vary independently: an API
 reachable at its own origin behind a Vercel BFF is `direct` here and `bff` there. What they
 share is the discipline, and sharing it is the point: **a boot assertion keys on a declared
 property of the deployment, never on a build flag**, unset means the permissive value, and an

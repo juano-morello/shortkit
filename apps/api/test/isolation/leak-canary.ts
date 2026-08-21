@@ -13,7 +13,7 @@
  * This table closes that without asserting anything about the harness's internals. It
  * is a real table in a real database that really does leak: any tenant can read, edit,
  * delete and plant rows belonging to any other. The suite runs the SAME harness over
- * it — same registry, same attempt semantics, same judge — and requires all five
+ * it (same registry, same attempt semantics, same judge), and requires all five
  * methods to come back `fail`. The break that test catches is a harness that has
  * stopped detecting anything, and the assertion is about Postgres's answer, not about
  * the harness's shape.
@@ -45,7 +45,7 @@ export const LEAK_CANARY_A_ROW_ID = '0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a';
 export const LEAK_CANARY_B_ROW_ID = '0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b';
 
 /**
- * Same DDL a tenant-scoped table gets, from the same production constant — and then
+ * Same DDL a tenant-scoped table gets, from the same production constant, and then
  * NOT `tenantScopedPolicies()`. That omission is the whole artifact. It is spelled out
  * rather than achieved by deleting a line, so nobody repairs it by re-adding one.
  */

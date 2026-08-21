@@ -15,7 +15,7 @@ import {
 import { assertTenantsIsMigrated } from '../support/rls-fixture';
 
 /**
- * STORY-001 — AC-6, AC-7, AC-9. TASK-004, wave 3.
+ * STORY-001: AC-6, AC-7, AC-9. TASK-004, wave 3.
  *
  * Contract: `docs/contracts/rate-limit.md` (the auth surface's limiter, the 32 KiB cap, the
  * 429 shape, the two boot assertions), `docs/contracts/trusted-client-address.md` (the
@@ -39,13 +39,13 @@ import { assertTenantsIsMigrated } from '../support/rls-fixture';
  *
  * `authServerEnv()` sets no `CLIENT_TRUST_BOUNDARY` and no `TRUSTED_CLIENT_IP_HEADER`, which
  * is the compose stack's state and the one under which no IP-keyed bucket binds (ADR-0040).
- * This suite adds both — `proxy` and `x-test-client-ip`, the names the contract writes for
- * the integration tier — so the buckets are exercisable at all. Requests that send no
+ * This suite adds both (`proxy` and `x-test-client-ip`, the names the contract writes for
+ * the integration tier), so the buckets are exercisable at all. Requests that send no
  * `x-test-client-ip` resolve `null` and are unaffected, which is what lets AC-6 and AC-7 share
  * the process with the rate-limit tests; requests that do send it are keyed on the address
  * they name, and every test below names its own so the fixed windows do not interfere.
  *
- * AC-9's positive clause — both boundaries unset boots and serves — is asserted on a SECOND
+ * AC-9's positive clause (both boundaries unset boots and serves) is asserted on a SECOND
  * boot with none of the four variables set, rather than inferred from the wave-2 suites that
  * happen to boot that way. The refusals are their own boots too, each expected to fail.
  */
@@ -77,8 +77,8 @@ const OTHER_KEY_EMAIL = 'wave3-bucket-other@example.com';
  * Never registered. Sign-ins for it are 401s that cost the IP-keyed sign-in bucket one each.
  *
  * ONE ADDRESS PER ATTEMPT SINCE 2026-08-18 (TASK-1b-09, D-15). The email-keyed sign-in bucket
- * — 5 per 15 min per address, charged INSIDE Better Auth by `emailRateLimitHook` whether or
- * not a client header is declared — would refuse the sixth attempt for one address before the
+ * (5 per 15 min per address, charged INSIDE Better Auth by `emailRateLimitHook` whether or
+ * not a client header is declared) would refuse the sixth attempt for one address before the
  * IP bucket's eleventh was ever reached, and the two tests below would then be measuring the
  * wrong limiter. Varying the address keeps every attempt on a fresh email allowance so the
  * only bucket that can fire is the one under test. `test/auth/sign-in-email-bucket.int-spec.ts`
@@ -195,7 +195,7 @@ async function rawAuthRequest(options: {
         method: 'POST',
         // A fresh connection per request. Node's default agent keeps sockets alive, and the
         // fixture's `beforeEach` (a psql per address, through docker) outlasts the server's
-        // 5 s keep-alive timeout — so a socket kept from the previous test is one the server
+        // 5 s keep-alive timeout, so a socket kept from the previous test is one the server
         // has already closed, and the next write on it races the FIN into an ECONNRESET.
         // Measured: AC-7 answered `undefined` after the boundary test and 413 in isolation.
         agent: false,
@@ -295,7 +295,7 @@ describe('the mount (ADR-0013)', () => {
   });
 
   it('AC-6 at the boundary: a body of exactly 32768 bytes is admitted and the signup succeeds', async () => {
-    // AC-7 says "greater than 32768", so the boundary belongs to the accepted path — and the
+    // AC-7 says "greater than 32768", so the boundary belongs to the accepted path, and the
     // accepted path is where "does not consume the stream" is measured, at the largest body
     // Better Auth will ever be handed by this mount.
     const outcome = await rawAuthRequest({
@@ -324,8 +324,8 @@ describe('the mount (ADR-0013)', () => {
 
   it('ADR-0013: a chunked body that crosses the cap is cut with no response, and creates no user row', async () => {
     // No `Content-Length` to refuse on, so the bytes are counted as they pass and the socket
-    // is destroyed. The client sees a reset rather than a 413 — the accepted cost ADR-0013
-    // records — and Better Auth never receives a complete body to act on.
+    // is destroyed. The client sees a reset rather than a 413 (the accepted cost ADR-0013
+    // records), and Better Auth never receives a complete body to act on.
     const outcome = await rawAuthRequest({
       path: '/sign-up/email',
       payload: paddedSignup(CHUNKED_EMAIL, AUTH_BODY_CAP * 4),
@@ -341,7 +341,7 @@ describe('the mount (ADR-0013)', () => {
 
   it('logging-and-headers.md invariant 4: helmet covers the mount', async () => {
     // helmet is registered on the app before the mount, so a response written by Better Auth
-    // — outside the Nest graph — still carries the contract's headers. `DENY` is the one
+    // (outside the Nest graph) still carries the contract's headers. `DENY` is the one
     // value the contract sets against helmet's default, so it is the one asserted by value.
     const response = await authFetch('GET', '/ok');
 
@@ -420,7 +420,7 @@ describe('the IP-keyed buckets (rate-limit.md)', () => {
     }).toEqual({ admitted: [200, 200, 200], fourth: 429, fourthRows: 0, otherKey: 200 });
   });
 
-  it('ADR-0040: with no principal the bucket does not run — no header, and X-Forwarded-For alone, are never limited', async () => {
+  it('ADR-0040: with no principal the bucket does not run: no header, and X-Forwarded-For alone, are never limited', async () => {
     // Eleven attempts each way, one more than the sign-in limit. A limiter that keyed on a
     // sentinel, the empty string or the peer address would refuse the eleventh; one that read
     // `X-Forwarded-For` would refuse it too. Neither may.
@@ -448,12 +448,12 @@ describe('the IP-keyed buckets (rate-limit.md)', () => {
 
 describe('the trust-boundary boot assertions (AC-9)', () => {
   // Each of these builds and boots its own child, so each gets a budget of its own. A refusal
-  // is quick — the assertions run before any connection is opened — but the build in front of
+  // is quick (the assertions run before any connection is opened), but the build in front of
   // it is not free.
   const BOOT_TIMEOUT_MS = 90_000;
 
   it(
-    'both boundaries unset — and no secret, no header — boots and serves',
+    'both boundaries unset (and no secret, no header) boots and serves',
     async () => {
       // `docker compose up` must boot `api` with none of the four variables set: that is the
       // case F-380 and F-385 were filed on, and the image it runs carries
@@ -480,8 +480,8 @@ describe('the trust-boundary boot assertions (AC-9)', () => {
   ])(
     'AC-9: boot refuses when %s',
     async (_case, override, expected) => {
-      // The refusal crosses the process boundary as ONE labelled pino line — `boot_precondition`
-      // naming the boundary and `err_message` naming the rule — which is what the F-210 dynamic
+      // The refusal crosses the process boundary as ONE labelled pino line (`boot_precondition`
+      // naming the boundary and `err_message` naming the rule), which is what the F-210 dynamic
       // import protects. `startApiServer` puts the child's whole output in its rejection.
       await expect(
         startApiServer({ env: (baseUrl) => ({ ...authServerEnv(baseUrl), ...override }) }),
@@ -505,8 +505,8 @@ describe('the trust-boundary boot assertions (AC-9)', () => {
   it(
     'ADR-0050: boot refuses when DATABASE_AUTH_URL connects as the application role',
     async () => {
-      // The one misconfiguration the role split most needs to catch: a fallback — or a
-      // copy-paste — that puts `shortkit_app` behind `DATABASE_AUTH_URL`. As that role the
+      // The one misconfiguration the role split most needs to catch: a fallback (or a
+      // copy-paste) that puts `shortkit_app` behind `DATABASE_AUTH_URL`. As that role the
       // auth-direction query finds `tenants` and `tenant_memberships` reachable, which is a
       // verdict rather than a reachability failure, so it refuses at once and names the third
       // precondition rather than spending the retry budget.

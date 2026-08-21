@@ -23,7 +23,7 @@
  * path segment lands in the address bar, in browser history, in `Referer` and in platform
  * access logs; a JSON body lands in none of them (F-300, F-362). Both token legs are `POST`
  * with `{ token }`, and the two route PATTERNS above carry no value at all, so the request
- * log line — which records the pattern — cannot carry one either.
+ * log line (which records the pattern) cannot carry one either.
  *
  * ============================================================================
  * THE TOKEN BODIES ARE PARSED LENIENTLY, ON PURPOSE (AC-1b-28, invitation-tokens.md).
@@ -46,7 +46,7 @@
  * `RateLimitGuard`'s public branch charges the client address before the handler runs and
  * before the body is read (F-018, 30/60 s where a trusted header is declared). The handler
  * therefore runs with NO ambient tenant context, and `findInvitationByCapabilityToken` opens
- * the token's own — the only sanctioned way a public route reaches tenant data (GC-L). The
+ * the token's own: the only sanctioned way a public route reaches tenant data (GC-L). The
  * accept route is NOT public: it runs under the caller's transaction, and a token for another
  * tenant is 409 before any statement (D-04).
  *
@@ -83,7 +83,7 @@ import { InvitationsService } from './invitations.service';
 const TOKEN_REQUIRED_MESSAGE = 'A token is required.';
 
 /**
- * `{ token: string }` and nothing stricter — see the header. Anything else is 400 under
+ * `{ token: string }` and nothing stricter; see the header. Anything else is 400 under
  * `token`; the string itself is judged by the entry functions only.
  */
 function tokenFrom(body: unknown): string {

@@ -9,7 +9,7 @@ import {
 } from './trusted-client-address';
 
 /**
- * STORY-001 — no AC states this; `docs/contracts/trusted-client-address.md` does. TASK-004,
+ * STORY-001: no AC states this; `docs/contracts/trusted-client-address.md` does. TASK-004,
  * wave 3.
  *
  * Contract: `docs/contracts/trusted-client-address.md` ("The read, rule by rule",
@@ -44,7 +44,7 @@ describe('readTrustedClientAddress', () => {
   });
 
   it('rule 1: an unset or empty declaration disables the read, whatever the request carries', () => {
-    // No header is looked up at all — not the platform's, not a guessed one. A request that
+    // No header is looked up at all: not the platform's, not a guessed one. A request that
     // carries a plausible header under an undeclared name is a client choosing its own
     // principal, which is F-009 by the front door.
     const headers = {
@@ -64,7 +64,7 @@ describe('readTrustedClientAddress', () => {
     // Under `CLIENT_TRUST_BOUNDARY=proxy` the boot assertion has already refused these; under
     // `direct` and unset it has not, and the read still must not honour them. `x-forwarded-for`
     // and `forwarded` are appended to by every hop, so no hop can strip-and-set them, and a
-    // read from either — at ANY position — is what invariant 2 forbids.
+    // read from either (at ANY position) is what invariant 2 forbids.
     const headers = {
       'X-Real-IP': '203.0.113.7',
       'x-real-ip': '203.0.113.7',

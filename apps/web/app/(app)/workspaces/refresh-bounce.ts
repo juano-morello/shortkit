@@ -4,11 +4,11 @@
  * it WITH a `returnTo` and land back here after the refresh instead of on `/`.
  *
  * `serverApiClient` cannot set cookies during render (web-api-client.md invariant 5), so it
- * `redirect()`s to `SERVER_COMPONENT_REFRESH_PATH` with no `returnTo` — "a server component
+ * `redirect()`s to `SERVER_COMPONENT_REFRESH_PATH` with no `returnTo`: "a server component
  * has no reliable view of the URL being rendered … A protected page that wants to return to
  * itself can catch the redirect and re-issue it with `?returnTo=`" (its docblock). This page
  * knows its own URL, so it does. Without this, an operator whose `sk_at` aged past 300 s
- * reloads `/workspaces` and lands on the home page — signed in, list not shown.
+ * reloads `/workspaces` and lands on the home page: signed in, list not shown.
  *
  * Next signals a redirect by throwing an error whose `digest` is
  * `NEXT_REDIRECT;<replace|push>;<destination>;<status>;` (`next/dist/client/components/

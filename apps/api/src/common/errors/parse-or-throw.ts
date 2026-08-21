@@ -7,7 +7,7 @@
  * Request bodies and queries are parsed THROUGH THE CONTRACTS INSIDE THE HANDLER. No
  * `ZodValidationPipe` exists (ADR-0025, "Follow-ups") and `apps/api` declares no `zod`
  * dependency, so a route calls the schema by hand and turns the `ZodError` into a
- * `DomainError` carrying `validation_failed` and `toValidationDetails(error)` — the same shape
+ * `DomainError` carrying `validation_failed` and `toValidationDetails(error)`: the same shape
  * the filter's own branch 2 builds, produced where the route decides everything else.
  * `isZodError` and `toValidationDetails` come from `@shortkit/contracts`; zod is imported
  * nowhere in this file, value or type.
@@ -20,7 +20,7 @@ import { DomainError } from './domain-error';
  * The same text the filter's own validation branches carry (`error-envelope.md`, "Message
  * constants"): a client renders per code and never branches on a message, and the failing
  * fields are in `details`. Restated rather than imported because the filter keeps its
- * constants module-private, and F-098's point — no third string — holds as long as the value
+ * constants module-private, and F-098's point (no third string) holds as long as the value
  * is the same.
  */
 export const VALIDATION_FAILED_MESSAGE = 'The request could not be validated.';

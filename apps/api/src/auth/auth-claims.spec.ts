@@ -8,13 +8,13 @@ import { isDomainError } from '../common/errors/domain-error';
 import { ACCEPTED_JWT_ALGORITHMS, assertClaimShape, verifyAndReadClaims } from './auth-claims';
 
 /**
- * STORY-002 — AC-11, AC-12, AC-13, at the claim layer. TASK-005, wave 4.
+ * STORY-002: AC-11, AC-12, AC-13, at the claim layer. TASK-005, wave 4.
  *
  * Contract: `docs/contracts/auth-tokens.md` ("Verification, performed by `AuthGuard`",
  * steps 2 to 6; "Invariants a caller may rely on", 3 and 4). ADR-0013, ADR-0015 (F-029).
  *
  * Tokens are signed IN THE TEST with a key pair generated here, and the key set handed to
- * `verifyAndReadClaims` is that pair's public half — the same `{ keys: [...] }` shape
+ * `verifyAndReadClaims` is that pair's public half: the same `{ keys: [...] }` shape
  * `GET /api/auth/jwks` serves, algorithm included. `better-auth@1.6.26` signs `EdDSA` over
  * `Ed25519` by default (`dist/plugins/jwt/utils.mjs:21-23`) and `auth.config.ts` sets no
  * `keyPairConfig`, so that is the pair generated here. The wire-level 401s these map to are

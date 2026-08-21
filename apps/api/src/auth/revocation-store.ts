@@ -110,7 +110,7 @@ export interface RevocationStore {
  * integration tier spawns real processes.
  *
  * THE PORT IS UNCHANGED. This belongs to the in-memory implementation, not to
- * `RevocationStore` — a Redis-backed store (TASK-030) keys expiry off the server's clock
+ * `RevocationStore`: a Redis-backed store (TASK-030) keys expiry off the server's clock
  * and ignores it.
  */
 export type Clock = () => number;
@@ -202,7 +202,7 @@ export class InMemoryRevocationStore implements RevocationStore {
 
   /**
    * Expired entries sit at the FRONT, because every entry gets the same TTL and `revoke`
-   * deletes before it sets — so insertion order is expiry order and the walk stops at the
+   * deletes before it sets, so insertion order is expiry order and the walk stops at the
    * first live entry rather than scanning the whole map on every write.
    */
   private pruneExpired(): void {

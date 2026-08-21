@@ -19,7 +19,7 @@
  *    (`InvitationWorkspacesTableAccess`).
  *
  * WHAT THIS TABLE IS. One invitation names a SET of workspaces, each at a role
- * (`workspaces: [{ workspaceId, workspaceRole }]`, min 1, max 20 — D-13). This is that
+ * (`workspaces: [{ workspaceId, workspaceRole }]`, min 1, max 20; D-13). This is that
  * set, one row per named workspace; on accept, each row becomes a `memberships` row for
  * the accepting user at this role (D-12: `ON CONFLICT DO NOTHING`, an existing membership's
  * role wins).
@@ -29,7 +29,7 @@
  * ADR-0019): RLS does not follow a join, so a table scoped "through its parent" is a table
  * scoped by nothing. And the column is what the composite foreign key below needs.
  *
- * `FOREIGN KEY (workspace_id, tenant_id) REFERENCES workspaces (id, tenant_id)` — THE
+ * `FOREIGN KEY (workspace_id, tenant_id) REFERENCES workspaces (id, tenant_id)`: THE
  * SAME ARGUMENT `memberships.ts` MAKES (ADR-0062). Referential checks bypass row security,
  * so a plain FK to `workspaces(id)` would let an invitation in tenant A name a workspace of
  * tenant B; the composite form refuses that row at the database. `POST /api/invitations`
@@ -38,7 +38,7 @@
  *
  * `invitation_id ... ON DELETE CASCADE`: the parent invitation owns these rows outright.
  * There is no delete route in 1b (revoke is a state change), so the cascade is reached
- * only by tenant erasure through the parent — and by `tenants(id)` directly, through the
+ * only by tenant erasure through the parent, and by `tenants(id)` directly, through the
  * template column, which is what ADR-0019's residue check depends on.
  *
  * `UNIQUE (invitation_id, workspace_id)`: one role per workspace per invitation. The

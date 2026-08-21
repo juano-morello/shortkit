@@ -1,5 +1,5 @@
 /**
- * STORY-001 — TASK-002. ADR-0049's behavioural control.
+ * STORY-001: TASK-002. ADR-0049's behavioural control.
  *
  * Contract: `docs/contracts/rls-policy-template.md`, `docs/contracts/tenant-context.md`.
  * ADR: adr-0049-context-flags-are-never-cast-directly.md, adr-0050.
@@ -12,7 +12,7 @@
  * THE EMPTY STRING, not NULL, and `pg.Pool` returns the backend to the pool with no reset
  * query. From the first committed tenant transaction onward, every later checkout of that
  * physical connection reads `current_setting('app.tenant_id', true)` as `''` rather than
- * NULL — so `''::uuid` is evaluated and raises `22P02 invalid input syntax for type uuid:
+ * NULL, so `''::uuid` is evaluated and raises `22P02 invalid input syntax for type uuid:
  * ""`. That is the state the application actually runs in, and AC-10's plain out-of-context
  * read fails in it while passing on a cold backend, which is the only state the fixture
  * creates by default (F-003, F-004, F-005).
@@ -29,7 +29,7 @@
  * <t>` (`42501`) to `shortkit_app` (ADR-0050), so a control written over the whole schema
  * asserts the opposite of the property on the day the role split lands. The set is every
  * ordinary or partitioned table this role can read, by the table-level privilege call
- * OR'd with the column-level one — `has_table_privilege` alone does not see a column-level
+ * OR'd with the column-level one: `has_table_privilege` alone does not see a column-level
  * grant (measured, F-031/F-042), and a column-granted table dropping out of the set would
  * take the sixth-auth-table property with it: a table nobody revoked stays in the set,
  * carries no policy, returns rows to this SELECT, and the control fires.
@@ -49,13 +49,13 @@
  * and `'m'` a materialised one.
  *
  * This control is the half that CANNOT BE EVADED BY RENDERING, and a view is exactly a
- * rendering trick, so it is the more appropriate of the two places — `check-policies.mts`
+ * rendering trick, so it is the more appropriate of the two places: `check-policies.mts`
  * reads the catalogue and answers "who may reach it"; this one issues the statement and
  * answers "what comes back". The bypass returns rows here and the run goes red naming it.
  *
  * No view exists today, so the computed set is unchanged and this is armed rather than
  * exercised. ONE EDGE, STATED RATHER THAN DISCOVERED: a `security_invoker` view over one
- * of the five exempt tables would sit in this set — the grant is real — and answer `42501`
+ * of the five exempt tables would sit in this set (the grant is real) and answer `42501`
  * rather than zero rows, so it lands as a `raised` outcome and fails. That is the right
  * answer for a grant that cannot work, but it is a refusal rather than a leak, and the
  * diff will name the SQLSTATE rather than a boundary crossing.
@@ -80,7 +80,7 @@ import { querySql } from '../support/psql';
 /**
  * Every flag ADR-0049 declares, set transaction-locally and committed, which is what leaves
  * each placeholder at `''`. Test files are outside isolation-coverage.md's scan set by its
- * own exclusion table — the harness sets flags by design.
+ * own exclusion table: the harness sets flags by design.
  */
 const DECLARED_FLAGS: readonly [string, string][] = [
   ['app.tenant_id', TENANT_A],

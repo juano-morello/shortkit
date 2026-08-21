@@ -5,7 +5,7 @@
  * the workspace, pointing at `INVITATIONS_ROUTE(id)`; absent for a member, a viewer, an
  * archived row, and a row whose `workspaceRole` the API did not send.
  *
- * Hiding is not enforcement — the API 403s a member on `POST /api/invitations` — the row
+ * Hiding is not enforcement (the API 403s a member on `POST /api/invitations`): the row
  * just does not offer what would be refused.
  */
 import { render, screen } from '@testing-library/react';
@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { WorkspaceRow } from './workspace-row';
 import { INVITATIONS_ROUTE } from '../invitations/invitations-api';
+import { LINKS_ROUTE } from '../../lib/links/links-api';
 
 const T0 = '2026-08-17T10:00:00.000Z';
 
@@ -56,5 +57,40 @@ describe('workspace row: the Invite link', () => {
 
     expect(screen.getByRole('button', { name: 'Rename Acme' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Archive Acme' })).toBeTruthy();
+  });
+});
+
+/**
+ * TASK-2-14 (STORY-2-10, D-2-18: "Row on `/workspaces` links to it for any membership;
+ * viewer sees the list"). The Links link is gated differently from the Invite one: reading
+ * a workspace's links is `viewer`, and every row in this list is a workspace the caller
+ * belongs to, so the link is offered on every active row whatever the role says.
+ */
+describe('workspace row: the Links link (TASK-2-14)', () => {
+  it.each([
+    ['an admin', workspace({ ...ACME, workspaceRole: 'workspace_admin' })],
+    ['a member', workspace({ ...ACME, workspaceRole: 'member' })],
+    ['a viewer', workspace({ ...ACME, workspaceRole: 'viewer' })],
+    ['a row without the role field', workspace({ id: ACME.id, name: ACME.name })],
+  ])('%s gets the link to the links screen, named after the workspace', (_label, row) => {
+    renderRow(row);
+
+    const link = screen.getByRole('link', { name: 'Links in Acme' });
+    expect(link.getAttribute('href')).toBe(LINKS_ROUTE(ACME.id));
+    expect(link.getAttribute('href')).toBe(`/workspaces/${ACME.id}/links`);
+  });
+
+  it('an archived row stays read-only and gets neither link', () => {
+    renderRow(workspace({ ...ACME, archivedAt: '2026-08-18T09:00:00.000Z' }));
+
+    expect(screen.queryByRole('link', { name: /^links/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /^invite/i })).toBeNull();
+  });
+
+  it('an admin row shows both links, links first', () => {
+    renderRow(ACME);
+
+    const links = screen.getAllByRole('link').map((element) => element.textContent);
+    expect(links).toEqual(['Links in Acme', 'Invite to Acme']);
   });
 });

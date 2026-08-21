@@ -27,7 +27,7 @@
  * makes "the origin the tokens name" and "the origin the keys are read from" one value read
  * once, and there is no second port variable for a deploy target to leave out of step. On a
  * topology where `BETTER_AUTH_URL` is a public origin the fetch goes out through it and
- * comes back over TLS — still this process's own key set, still integrity-protected, but not
+ * comes back over TLS: still this process's own key set, still integrity-protected, but not
  * loopback. That is a property of the deploy target ADR-0030 put out of scope, and it is the
  * reason `createJwksCache` takes `jwksUrl` as an injectable rather than a constant.
  *
@@ -40,7 +40,7 @@
  * refresh fails and a set is already held, the stale set is served and the failure is
  * logged: `auth-tokens.md` rolls keys by publishing the new one and waiting 600 s, so a set
  * that is a few minutes past its TTL is exactly the set the tokens in flight were signed
- * with. The next call tries again — nothing here backs off, because the endpoint is this
+ * with. The next call tries again: nothing here backs off, because the endpoint is this
  * process's own and a failure means the process is unwell (its database read failed), not
  * that a remote host needs sparing. When there is nothing held, the failure is the caller's:
  * the guard cannot verify anything without a key, and "could not verify" is a 500 and not a
@@ -85,7 +85,7 @@ export interface JwksCache {
   cachedKeySet(): Promise<JsonWebKeySet>;
 }
 
-/** `${BETTER_AUTH_URL}${JWKS_PATH}` — the same origin the tokens carry as `iss` (ADR-0059). */
+/** `${BETTER_AUTH_URL}${JWKS_PATH}`: the same origin the tokens carry as `iss` (ADR-0059). */
 export function jwksUrl(): string {
   return `${betterAuthUrl()}${JWKS_PATH}`;
 }

@@ -5,7 +5,7 @@ import type { ErrorCode, ErrorEnvelope } from '@shortkit/contracts';
  * Contract: docs/contracts/error-envelope.md
  *
  * The one error shape the API returns. `ERROR_CODE_STATUS` is normative, so the
- * status is never chosen at the call site — a code always carries the status the
+ * status is never chosen at the call site: a code always carries the status the
  * contract gives it. TASK-007's exception filter serialises through this.
  */
 export interface ErrorResponse {
@@ -35,7 +35,7 @@ export function errorResponse(code: ErrorCode, message: string, details?: unknow
  *   top-level sibling key on it unnarrowed.
  * - `validation_failed`: kept only if it parses, and what is kept is the PARSE OUTPUT.
  *   `z.object` strips unknown keys, so a sibling attached beside `fieldErrors` does not
- *   survive — forwarding the input on a successful parse would let it through.
+ *   survive: forwarding the input on a successful parse would let it through.
  * - Any other code: dropped. This contract names a `details` shape for exactly one code,
  *   and a code that wants a second one amends `error-envelope.md` and this function in
  *   the same commit as its throw site.

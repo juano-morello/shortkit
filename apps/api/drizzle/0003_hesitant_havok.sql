@@ -52,14 +52,14 @@ ALTER TABLE "memberships" ADD CONSTRAINT "memberships_workspace_tenant_fk" FOREI
 CREATE UNIQUE INDEX "invitations_token_digest_unique" ON "invitations" USING btree ("token_digest");--> statement-breakpoint
 -- ===========================================================================
 -- EVERYTHING BELOW IS APPENDED BY HAND (TASK-1b-03). Drizzle Kit generates no
--- policy DDL, so the three things each of these tables owes — its column, its
--- policies and its registry entry — land in this one commit or the table is
+-- policy DDL, so the three things each of these tables owes (its column, its
+-- policies and its registry entry) land in this one commit or the table is
 -- writable by every tenant from the moment it exists (GC-A, F-239): ALTER
 -- DEFAULT PRIVILEGES already granted shortkit_app full DML on all three.
 --
 -- Three blocks, in this order: tenantScopedPolicies('memberships'),
 -- tenantScopedPolicies('invitations'), tenantScopedPolicies('invitation_workspaces')
--- from apps/api/src/db/rls.ts, each verbatim — the template UNCHANGED, because
+-- from apps/api/src/db/rls.ts, each verbatim: the template UNCHANGED, because
 -- all three are template-shaped tables and none is a cascade root. NO BESPOKE
 -- POLICY ON ANY OF THEM: the @Public() invitation lookup reads `invitations`
 -- inside withTenantTransaction(<token's tenant prefix>) under the ordinary
@@ -71,7 +71,7 @@ CREATE UNIQUE INDEX "invitations_token_digest_unique" ON "invitations" USING btr
 -- NO BACKFILL of `memberships` for workspaces that already exist (ADR-0062,
 -- D-10): the migrator is NOBYPASSRLS under FORCE ROW LEVEL SECURITY with no
 -- app.tenant_id set, so an INSERT ... SELECT here would read zero rows, insert
--- nothing and report success — F-236's shape. The remedy for a compose volume
+-- nothing and report success: F-236's shape. The remedy for a compose volume
 -- carrying 1a rows is the reset (docker compose down -v, ADR-0032).
 -- ===========================================================================
 -- FORCE matters as much as ENABLE: shortkit_migrator owns these tables and would

@@ -20,7 +20,7 @@ export const HOSTNAME_MIN_LENGTH = 4;
  *
  * A leading '.' means "this suffix and everything under it".
  * APEX and API hostnames are read from env because the apex domain is still
- * unregistered — whoever registers it MUST set them (ADR-0016 accepted cost).
+ * unregistered: whoever registers it MUST set them (ADR-0016 accepted cost).
  */
 export const RESERVED_HOSTNAME_SUFFIXES = [
   '.fly.dev',

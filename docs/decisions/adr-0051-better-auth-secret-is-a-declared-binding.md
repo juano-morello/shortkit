@@ -12,8 +12,8 @@ date: 2026-08-13
 
 Seven ADRs, three contracts and seventeen TASK cards mention `BETTER_AUTH_SECRET`. All of
 them mention it descriptively. **Nothing binds it, nothing asserts it, and no TASK card owns
-it.** ADR-0044 line 104 even reasons from it — "a process that can read the row can usually
-also read `process.env.BETTER_AUTH_SECRET`" — a sentence that assumes the variable is set.
+it.** ADR-0044 line 104 even reasons from it ("a process that can read the row can usually
+also read `process.env.BETTER_AUTH_SECRET`"), a sentence that assumes the variable is set.
 
 Read from the pinned `better-auth@1.6.26`, `dist/context/create-context.mjs:66-80`:
 
@@ -43,12 +43,12 @@ Three consequences, in order of how much they matter:
 So with the variable unset in development, the process boots silently on a constant published
 in the package. That constant is the symmetric key for `jwks.privateKey`
 (`plugins/jwt/utils.mjs:46-54`). **One `jwks` row plus a value everyone already has is the
-JWT signing key**, and every control this initiative builds — `tid`, the mint-time lookup,
-`app.tenant_id`, every RLS policy — is derived from a claim in a token that can then be
+JWT signing key**, and every control this initiative builds (`tid`, the mint-time lookup,
+`app.tenant_id`, every RLS policy) is derived from a claim in a token that can then be
 forged for any user in any tenant.
 
 The live exposure is local `pnpm dev`. `Dockerfile:83` sets `NODE_ENV=production`
-unconditionally, so the compose stack would refuse to boot — GC-B's hazard acting, for once,
+unconditionally, so the compose stack would refuse to boot: GC-B's hazard acting, for once,
 as a mitigation.
 
 **And the shape is GC-B's own hazard arriving from inside a dependency.** GC-B says no
@@ -70,7 +70,7 @@ own run.
 
 | Variable | Values | Unset binds to | Assertion |
 |---|---|---|---|
-| `BETTER_AUTH_SECRET` | ~~any string of at least 32 characters that is not the library default~~ ~~**any string of at least 32 characters that is neither published constant** (F-074, 2026-08-14)~~ **any string of at least 32 characters that is not `better-auth-secret-12345678901234567890`** (F-144, 2026-08-14, reversing F-074) | **nothing — boot fails** | unconditional, every environment |
+| `BETTER_AUTH_SECRET` | ~~any string of at least 32 characters that is not the library default~~ ~~**any string of at least 32 characters that is neither published constant** (F-074, 2026-08-14)~~ **any string of at least 32 characters that is not `better-auth-secret-12345678901234567890`** (F-144, 2026-08-14, reversing F-074) | **nothing: boot fails** | unconditional, every environment |
 
 **The rule is back to its wave-1 text after two rulings in one day.** F-074 added this
 repository's compose default to it. F-144 deletes that default from `docker-compose.yml`, so the
@@ -87,7 +87,7 @@ most likely to be unset is the one the library's own check skips.
 F-074~~ **third struck 2026-08-14 by Juano's ruling on F-144**):
 
 - **the library default `better-auth-secret-12345678901234567890` is rejected by value.**
-  Not by length, not by entropy — by exact comparison. It is 39 characters and passes both
+  Not by length, not by entropy: by exact comparison. It is 39 characters and passes both
   heuristics.
 - **shorter than 32 characters is rejected**, promoting the library's warning to a failure.
 - ~~**this repository's own compose default
@@ -98,7 +98,7 @@ F-074~~ **third struck 2026-08-14 by Juano's ruling on F-144**):
   implementer applies the condition: if the literal is still in `docker-compose.yml` when
   TASK-003 starts, this bullet stands and the predicate rejects both constants.**
 
-### ~~Why the compose default is a rejected constant~~ — STRUCK 2026-08-14 (F-144)
+### ~~Why the compose default is a rejected constant~~: STRUCK 2026-08-14 (F-144)
 
 **Juano's ruling on F-144 strikes this section. Its text is kept verbatim below, indented,
 because it is what F-074 put here earlier the same day and this ADR has now been reversed
@@ -193,7 +193,7 @@ no file. Seven properties, and TASK-019 owns all of them:
    hides F-315/F-316. Compose carries no default for this one, so an exported value hides
    nothing, and the harness overwrites it. Adding it there makes the harness refuse itself,
    which is F-144's own shape a second time.
-7. **The value is never printed** — not in a clause reason, not in a note, not on failure
+7. **The value is never printed**: not in a clause reason, not in a note, not on failure
    (F-379). `docker compose config --format json` at `:348` now writes a live secret into
    `$TMPDIR_CHECK/config.json`; that file is read for `.name` and nothing else, and `cleanup`
    removes the directory.
@@ -262,7 +262,7 @@ rather than applied:
 > reach a healthy state … (rest unchanged)
 
 Three files quote the old premise and change with it, all TASK-019's:
-`scripts/check-compose-stack.sh:4-9`, `.env.example:6-7` ("works with no `.env` at all — that
+`scripts/check-compose-stack.sh:4-9`, `.env.example:6-7` ("works with no `.env` at all: that
 is AC-115"), and `README.md:90` ("With Docker and this clone, and nothing else installed").
 Each says what the harness now supplies and why it supplies it rather than committing it.
 
@@ -349,25 +349,25 @@ than a failure on the first sign-in. Both live in wave 2, and the duplication is
 an accessor that trusts a boot assertion is an accessor that is unsafe in a unit test, a
 script or a worker that never ran one.
 
-`auth.config.spec.ts` asserts the composed config carries a secret that is not the default —
+`auth.config.spec.ts` asserts the composed config carries a secret that is not the default:
 the same shape ADR-0013 already requires for `rateLimit.enabled === false`, and for the same
 reason. It is a fact that degrades silently.
 
 ### The value must not be logged
 
 The secret is not in `LOGGABLE_FIELDS` and no field name is added for it. The boot assertion
-reports **that** it failed and which rule it broke, never the value or a prefix of it —
+reports **that** it failed and which rule it broke, never the value or a prefix of it,
 unlike the user id in ADR-0045, where a prefix is useful and the value is not a credential.
 
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not |
 |---|---|---|---|
-| Set the variable in `.env.example` and compose and rely on the library's own validation | Nothing to write; the library already throws | It throws under `isProduction` only, and returns early under `isTest()`. The two environments that exist (ADR-0030) are development and test — the two it does not cover. Relying on it is relying on a check that is off wherever it would fire | The check exists and does not run where it is needed |
-| Assert only under compose, where the secret matters | Smaller surface; local development stays frictionless | This is a behavioural choice keyed on the environment, which is what GC-B forbids, and it would be keyed on `NODE_ENV` because that is the only signal compose provides. It also leaves `pnpm dev` — the live exposure — uncovered | GC-B, exactly |
+| Set the variable in `.env.example` and compose and rely on the library's own validation | Nothing to write; the library already throws | It throws under `isProduction` only, and returns early under `isTest()`. The two environments that exist (ADR-0030) are development and test: the two it does not cover. Relying on it is relying on a check that is off wherever it would fire | The check exists and does not run where it is needed |
+| Assert only under compose, where the secret matters | Smaller surface; local development stays frictionless | This is a behavioural choice keyed on the environment, which is what GC-B forbids, and it would be keyed on `NODE_ENV` because that is the only signal compose provides. It also leaves `pnpm dev` (the live exposure) uncovered | GC-B, exactly |
 | Generate a random secret at boot when unset | No configuration; nothing to forget | Every restart invalidates every `jwks` row, because the private keys were encrypted with the previous secret and `symmetricDecrypt` throws `Failed to decrypt private key`. Multi-instance deployment mints tokens no other instance can verify | Silently breaks the thing it is protecting |
 | Use `BETTER_AUTH_SECRETS` (the array form) with rotation | The library supports it and it is where rotation lives | Rotation is a capability nothing in this initiative needs and `validateSecretsArray` is a second validation path to reason about. It is the right shape for a system with a deploy target | Speculative; ADR-0030 says there is no deploy target |
-| **F-074, 2026-08-14:** carry no compose default at all — `BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set this to a locally generated value}` | Nothing is published, so there is no constant to reject and no list to keep current. Compose fails fast, before any container starts, with a message naming the variable | `docker compose up` on a fresh clone stops working with no `.env`, which is what AC-115 measures and what the compose gate is built around (`.github/workflows/ci.yml` runs `pnpm test:compose` with no `env:` block, deliberately). It also makes the compose stack the one surface with a different setup contract from every other credential in the file, all of which carry fixture defaults | ~~**Juano's ruling, 2026-08-14.** The out-of-the-box `up` is the property being protected. Rejecting the literal by value keeps the file's shape and moves the failure to the assertion, where the message can say why~~ **ADOPTED 2026-08-14 by Juano's ruling on F-144.** The con in the cell to the left is real and unavoidable: the wave-2 assertion stops the out-of-the-box `up` working whichever branch is taken, one wave later and after a cold build. Once both branches lose the property, the parse-time failure is the cheaper one, and the harness supplies its own value so the gate keeps measuring |
+| **F-074, 2026-08-14:** carry no compose default at all: `BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set this to a locally generated value}` | Nothing is published, so there is no constant to reject and no list to keep current. Compose fails fast, before any container starts, with a message naming the variable | `docker compose up` on a fresh clone stops working with no `.env`, which is what AC-115 measures and what the compose gate is built around (`.github/workflows/ci.yml` runs `pnpm test:compose` with no `env:` block, deliberately). It also makes the compose stack the one surface with a different setup contract from every other credential in the file, all of which carry fixture defaults | ~~**Juano's ruling, 2026-08-14.** The out-of-the-box `up` is the property being protected. Rejecting the literal by value keeps the file's shape and moves the failure to the assertion, where the message can say why~~ **ADOPTED 2026-08-14 by Juano's ruling on F-144.** The con in the cell to the left is real and unavoidable: the wave-2 assertion stops the out-of-the-box `up` working whichever branch is taken, one wave later and after a cold build. Once both branches lose the property, the parse-time failure is the cheaper one, and the harness supplies its own value so the gate keeps measuring |
 
 Four more, weighed under F-144 once the generation step turned out to be unbuildable:
 
@@ -583,7 +583,7 @@ Four more, weighed under F-144 once the generation step turned out to be unbuild
   API child process. Checked: 53 characters, not equal to the published default, so it passes
   both rejections and the integration tier boots under the new assertion with no change. The
   fixture's own docblock says it decides these names because nothing else did, and that is
-  still true — this ADR is now what names it, and the fixture is where the value lives.
+  still true: this ADR is now what names it, and the fixture is where the value lives.
 
   What the fixture does **not** carry is `DATABASE_AUTH_URL` (ADR-0050). The API child
   process it spawns will refuse to boot from wave 2 without one. That is a fixture change,

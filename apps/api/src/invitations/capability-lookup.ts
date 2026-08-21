@@ -12,8 +12,8 @@
  * THE ONLY TWO FUNCTIONS THAT OPEN A TENANT TRANSACTION FROM A TOKEN (GC-L, D-17).
  * ============================================================================
  *
- * An anonymous caller — or a Better Auth hook, which runs outside the Nest graph and can
- * inject nothing — reaches tenant data through `findInvitationByCapabilityToken` and
+ * An anonymous caller (or a Better Auth hook, which runs outside the Nest graph and can
+ * inject nothing) reaches tenant data through `findInvitationByCapabilityToken` and
  * `acceptInvitationByCapabilityToken` and through nothing else. Both are plain async
  * functions rather than providers for that reason; the Nest `InvitationsService` calls the
  * same two. `capability-lookup.spec.ts` greps `apps/api/src` for `parseCapabilityToken(`
@@ -31,7 +31,7 @@
  *      accept route runs inside the interceptor's transaction on the caller's `tid`; a
  *      token naming another tenant is ADR-0015's "already belongs to another tenant" and
  *      is answered 409 without opening anything. `TenantContextMissingError` from
- *      `currentTenantId()` means none is active — the public route and the hooks — and
+ *      `currentTenantId()` means none is active (the public route and the hooks), and
  *      is the ordinary case, not an error.
  *   3. `withTenantTransaction(<prefix>, ...)`. When a matching context is active this
  *      JOINS it (tenant-context.md invariant 5) and the consume commits with the route's
@@ -43,7 +43,7 @@
  *      may run before it: the caller chose the tenant id, and this row is the only proof
  *      they may act in it.
  *   5. `timingSafeEqual(stored, computed)`. The SQL equality in step 4 already compared
- *      the digests; it is safe there because the digest is SHA-256 of 256 random bits —
+ *      the digests; it is safe there because the digest is SHA-256 of 256 random bits:
  *      a timing oracle on the index comparison could at most leak digest bytes, and a
  *      digest yields no token. This step is the contract's step 4, done in code where the
  *      comparison the caller can observe happens, and it is what a defective index or a
@@ -54,12 +54,12 @@
  *   7. find: the tenant name and the grants joined to `workspaces.name`, then return. It
  *      NEVER WRITES. accept: `UPDATE invitations SET state = 'accepted' ... WHERE id = $1
  *      AND tenant_id = <current> AND state = 'pending' AND expires_at >= now() RETURNING
- *      id` — zero rows is the concurrent-accept race (AC-1b-27): a second transaction
+ *      id`: zero rows is the concurrent-accept race (AC-1b-27): a second transaction
  *      blocks on the row lock, re-evaluates the WHERE after the first commits, finds
  *      `state = 'accepted'` and reports nothing to update. Then one `memberships` row per
  *      grant, `INSERT ... ON CONFLICT (workspace_id, user_id) DO NOTHING` (D-12: the
  *      existing role wins; never `DO UPDATE`, F-341), and for `tenantMembership:
- *      'create'` the `tenant_memberships` row at `INVITEE_TENANT_ROLE` — one transaction
+ *      'create'` the `tenant_memberships` row at `INVITEE_TENANT_ROLE`, one transaction
  *      with the consume, so no membership exists whose token was not consumed.
  *
  * `tenantMembership: 'require'` (the signed-in accept) verifies, before the consume, that
@@ -68,8 +68,8 @@
  * minted the caller's `tid`, so the check is one indexed statement that always finds it;
  * it exists so the function fails closed for any caller that reaches it without step 2
  * having had a context to compare against. `'create'` inserts `ON CONFLICT (user_id) DO
- * NOTHING`; zero rows means a membership already exists — this tenant's (idempotent) or
- * another tenant's (409) — and the same check decides which.
+ * NOTHING`; zero rows means a membership already exists, this tenant's (idempotent) or
+ * another tenant's (409), and the same check decides which.
  *
  * ============================================================================
  * 404 IS ONE BODY. THE TOKEN IS IN NO STRING THIS FILE BUILDS (GC-K, ADR-0029).
@@ -78,7 +78,7 @@
  * Malformed, unknown and wrong-tenant all reach `null` / `InvitationNotFoundError` with
  * one fixed message; wrong-tenant means the lookup under the CLAIMED prefix found nothing,
  * which is exactly what RLS plus the predicate guarantee. No log line is written here at
- * all — the exception filter logs the DomainError's name and code, never a value.
+ * all: the exception filter logs the DomainError's name and code, never a value.
  */
 import { timingSafeEqual } from 'node:crypto';
 
@@ -120,7 +120,7 @@ export interface VerifiedInvitationWorkspace {
 /**
  * What a verified lookup hands back: enough for the public preview
  * (`invitationPreviewContract` is a projection of it) and for the hooks. NO DIGEST, NO
- * TOKEN. `tenantId` is the ROW's — the value ADR-0021 step 5 says an invited signup takes
+ * TOKEN. `tenantId` is the ROW's: the value ADR-0021 step 5 says an invited signup takes
  * its tenant from, never the string the caller supplied.
  */
 export interface VerifiedInvitation {
@@ -138,8 +138,8 @@ export interface VerifiedInvitation {
 export interface AcceptGrant {
   readonly userId: string;
   /**
-   * `'create'`: the invited signup — the user is new and gets a `tenant_memberships` row at
-   * `INVITEE_TENANT_ROLE`. `'require'`: the signed-in accept — the row must already exist in
+   * `'create'`: the invited signup; the user is new and gets a `tenant_memberships` row at
+   * `INVITEE_TENANT_ROLE`. `'require'`: the signed-in accept; the row must already exist in
    * this tenant, and only workspace memberships are written.
    */
   readonly tenantMembership: 'create' | 'require';
@@ -294,7 +294,7 @@ export async function acceptInvitationByCapabilityToken(
       .orderBy(asc(invitationWorkspaces.workspaceId));
 
     for (const named of grants) {
-      // D-12: DO NOTHING, never DO UPDATE — an existing membership's role wins, and
+      // D-12: DO NOTHING, never DO UPDATE; an existing membership's role wins, and
       // `DO UPDATE` would route through the UPDATE policy (F-341).
       await db
         .insert(memberships)

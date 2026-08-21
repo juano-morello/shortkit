@@ -12,8 +12,8 @@
  * never sent by this route). No token, no claim beyond the three above, ever leaves here.
  *
  * WHY THE JWT IS DECODED AND NOT VERIFIED HERE. The claims are read without a signature
- * check because (a) the BFF is the ONLY writer of `sk_at` — it is `HttpOnly` on this origin
- * and only `sign-in`, the refresh path and this app's own route handlers ever set it — and
+ * check because (a) the BFF is the ONLY writer of `sk_at` (it is `HttpOnly` on this origin
+ * and only `sign-in`, the refresh path and this app's own route handlers ever set it), and
  * (b) the API verifies the signature, issuer, audience, expiry and revocation on every use
  * (`AuthGuard`, auth-tokens.md). This projection is DISPLAY CONTEXT, never a security
  * control (web-api-client.md, "Workspace scoping in the UI is display context"); a forged

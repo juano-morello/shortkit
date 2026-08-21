@@ -17,7 +17,7 @@ import { RESEND_EMAILS_URL, ResendMailSender } from './senders/resend-mail-sende
 import { renderMail } from './templates/render-mail';
 
 /**
- * STORY-1b-01 — AC-1b-4 (the suppressed line), AC-1b-3 (the fake records). TASK-1b-02.
+ * STORY-1b-01: AC-1b-4 (the suppressed line), AC-1b-3 (the fake records). TASK-1b-02.
  *
  * Contract: `docs/contracts/mail-sender.md` (the class table, "Signal", "No test sends
  * mail", invariants 2–5). ADR-0017, ADR-0028, ADR-0029, GC-K.
@@ -253,7 +253,7 @@ describe('ResendMailSender', () => {
   });
 
   describe('Idempotency-Key (debt sweep 2026-08-19, ledger 1b-W1-08)', () => {
-    /** The invitation dispatch sets the key to the invitation row's id — a uuid, not a secret. */
+    /** The invitation dispatch sets the key to the invitation row's id: a uuid, not a secret. */
     const KEYED: OutboundMail = { ...INVITATION, idempotencyKey: 'f6b2b1e2-0f6a-4bb0-9d5f-2f4f4b6f8a10' };
 
     function sentKeys(requests: ReadonlyArray<{ init: RequestInit }>): Array<string | undefined> {
@@ -268,7 +268,7 @@ describe('ResendMailSender', () => {
       expect(sentKeys(requests)).toEqual([KEYED.idempotencyKey, KEYED.idempotencyKey]);
     });
 
-    it('rides the network-error retry the same way — the lost-response case the ledger names', async () => {
+    it('rides the network-error retry the same way: the lost-response case the ledger names', async () => {
       const { fetch, requests } = fakeFetch([new TypeError('fetch failed'), 200]);
 
       await new ResendMailSender(API_KEY, FROM, RESEND_ENV, { fetch }).send(KEYED);
@@ -335,7 +335,7 @@ describe('ResendMailSender', () => {
     });
   });
 
-  it('invariant 3: two 5xx in a row is the final failure — two requests, one error line, send resolves', async () => {
+  it('invariant 3: two 5xx in a row is the final failure: two requests, one error line, send resolves', async () => {
     const { fetch, requests } = fakeFetch([500, 502, 200]);
 
     await expect(new ResendMailSender(API_KEY, FROM, RESEND_ENV, { fetch }).send(INVITATION)).resolves.toBeUndefined();
