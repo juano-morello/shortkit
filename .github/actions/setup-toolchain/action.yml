@@ -19,7 +19,7 @@ runs:
     # the FLOOR out of it rather than handing the range to actions/setup-node.
     #
     # setup-node resolves a range to the newest version that satisfies it, and
-    # `>=24.13.0` is satisfied by every future major. That matters here for a specific,
+    # `>=24.15.0` is satisfied by every future major. That matters here for a specific,
     # verified reason: Node 25 stopped distributing Corepack (nodejs/node#57617,
     # "build: stop distributing Corepack", SEMVER-MAJOR in v25), and Corepack is the
     # only thing that checks the sha512 in `packageManager`. Handing setup-node the
